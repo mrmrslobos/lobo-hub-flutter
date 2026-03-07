@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'config/theme.dart';
 import 'config/app_config.dart';
 import 'providers/app_provider.dart';
+import 'widgets/biometric_lock.dart';
 
 // Screens
 import 'screens/auth/auth_screen.dart';
@@ -30,6 +31,7 @@ import 'screens/photos/photos_screen.dart';
 import 'screens/location/location_screen.dart';
 import 'screens/health/health_screen.dart';
 import 'screens/ai_history/ai_history_screen.dart';
+import 'screens/habits/habits_screen.dart';
 
 class FamilyHubApp extends StatefulWidget {
   const FamilyHubApp({super.key});
@@ -42,6 +44,8 @@ class _FamilyHubAppState extends State<FamilyHubApp> {
   late final GoRouter _router;
   late final AppProvider _provider;
 
+  bool _isRouterInitialized = false;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -53,8 +57,6 @@ class _FamilyHubAppState extends State<FamilyHubApp> {
     }
   }
 
-  bool _isRouterInitialized = false;
-
   GoRouter _buildRouter(AppProvider provider) {
     return GoRouter(
       initialLocation: '/',
@@ -65,6 +67,14 @@ class _FamilyHubAppState extends State<FamilyHubApp> {
 
         final isAuthenticated = provider.isAuthenticated;
         final isOnAuth = state.matchedLocation == '/auth';
+
+        // Routes always accessible without module gating
+        final alwaysAccessible = {
+          '/auth',
+          '/',
+          '/ai-history',
+          '/habits',
+        };
 
         if (!isAuthenticated && !isOnAuth) return '/auth';
         if (isAuthenticated && isOnAuth) return '/';
@@ -173,6 +183,11 @@ class _FamilyHubAppState extends State<FamilyHubApp> {
           name: 'ai-history',
           builder: (context, state) => const AiHistoryScreen(),
         ),
+        GoRoute(
+          path: '/habits',
+          name: 'habits',
+          builder: (context, state) => const HabitsScreen(),
+        ),
       ],
       errorBuilder: (context, state) => Scaffold(
         appBar: AppBar(title: const Text('Page Not Found')),
@@ -210,13 +225,15 @@ class _FamilyHubAppState extends State<FamilyHubApp> {
         home: Scaffold(body: Center(child: CircularProgressIndicator())),
       );
     }
-    return MaterialApp.router(
-      title: AppConfig.appName,
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.light,
-      routerConfig: _router,
+    return BiometricLockScreen(
+      child: MaterialApp.router(
+        title: AppConfig.appName,
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        themeMode: ThemeMode.light,
+        routerConfig: _router,
+      ),
     );
   }
 }

@@ -171,6 +171,8 @@ class FamilyMember {
   final String userId;
   final String role; // owner, admin, member
   final DateTime joinedAt;
+  // null = all modules accessible; non-null = parental control whitelist
+  final List<String>? moduleAccess;
 
   const FamilyMember({
     required this.id,
@@ -178,7 +180,26 @@ class FamilyMember {
     required this.userId,
     required this.role,
     required this.joinedAt,
+    this.moduleAccess,
   });
+
+  FamilyMember copyWith({
+    String? id,
+    String? familyId,
+    String? userId,
+    String? role,
+    DateTime? joinedAt,
+    List<String>? moduleAccess,
+    bool clearModuleAccess = false,
+  }) =>
+      FamilyMember(
+        id: id ?? this.id,
+        familyId: familyId ?? this.familyId,
+        userId: userId ?? this.userId,
+        role: role ?? this.role,
+        joinedAt: joinedAt ?? this.joinedAt,
+        moduleAccess: clearModuleAccess ? null : (moduleAccess ?? this.moduleAccess),
+      );
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -186,6 +207,7 @@ class FamilyMember {
         'userId': userId,
         'role': role,
         'joinedAt': joinedAt.toIso8601String(),
+        if (moduleAccess != null) 'moduleAccess': moduleAccess,
       };
 
   factory FamilyMember.fromJson(Map<String, dynamic> json) => FamilyMember(
@@ -194,6 +216,7 @@ class FamilyMember {
         userId: json['userId'] as String,
         role: json['role'] as String,
         joinedAt: DateTime.parse(json['joinedAt'] as String),
+        moduleAccess: (json['moduleAccess'] as List?)?.cast<String>(),
       );
 }
 
@@ -1457,6 +1480,11 @@ class AppDB {
   final List<Photo> photos;
   final List<LocationShare> locationShares;
   final List<AIHistoryEntry> aiHistory;
+  final List<Recipe> recipes;
+  final List<SavingsGoal> savingsGoals;
+  final List<DailyHabit> dailyHabits;
+  final List<DailyHabitCompletion> habitCompletions;
+  final List<ReadingPlan> readingPlans;
 
   const AppDB({
     this.users = const [],
@@ -1480,6 +1508,11 @@ class AppDB {
     this.photos = const [],
     this.locationShares = const [],
     this.aiHistory = const [],
+    this.recipes = const [],
+    this.savingsGoals = const [],
+    this.dailyHabits = const [],
+    this.habitCompletions = const [],
+    this.readingPlans = const [],
   });
 
   AppDB copyWith({
@@ -1504,6 +1537,11 @@ class AppDB {
     List<Photo>? photos,
     List<LocationShare>? locationShares,
     List<AIHistoryEntry>? aiHistory,
+    List<Recipe>? recipes,
+    List<SavingsGoal>? savingsGoals,
+    List<DailyHabit>? dailyHabits,
+    List<DailyHabitCompletion>? habitCompletions,
+    List<ReadingPlan>? readingPlans,
   }) {
     return AppDB(
       users: users ?? this.users,
@@ -1527,6 +1565,11 @@ class AppDB {
       photos: photos ?? this.photos,
       locationShares: locationShares ?? this.locationShares,
       aiHistory: aiHistory ?? this.aiHistory,
+      recipes: recipes ?? this.recipes,
+      savingsGoals: savingsGoals ?? this.savingsGoals,
+      dailyHabits: dailyHabits ?? this.dailyHabits,
+      habitCompletions: habitCompletions ?? this.habitCompletions,
+      readingPlans: readingPlans ?? this.readingPlans,
     );
   }
 
@@ -1553,6 +1596,11 @@ class AppDB {
         'photos': photos.map((e) => e.toJson()).toList(),
         'locationShares': locationShares.map((e) => e.toJson()).toList(),
         'aiHistory': aiHistory.map((e) => e.toJson()).toList(),
+        'recipes': recipes.map((e) => e.toJson()).toList(),
+        'savingsGoals': savingsGoals.map((e) => e.toJson()).toList(),
+        'dailyHabits': dailyHabits.map((e) => e.toJson()).toList(),
+        'habitCompletions': habitCompletions.map((e) => e.toJson()).toList(),
+        'readingPlans': readingPlans.map((e) => e.toJson()).toList(),
       };
 
   factory AppDB.fromJson(Map<String, dynamic> json) => AppDB(
@@ -1619,6 +1667,21 @@ class AppDB {
         aiHistory: (json['aiHistory'] as List? ?? [])
             .map((e) => AIHistoryEntry.fromJson(e as Map<String, dynamic>))
             .toList(),
+        recipes: (json['recipes'] as List? ?? [])
+            .map((e) => Recipe.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        savingsGoals: (json['savingsGoals'] as List? ?? [])
+            .map((e) => SavingsGoal.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        dailyHabits: (json['dailyHabits'] as List? ?? [])
+            .map((e) => DailyHabit.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        habitCompletions: (json['habitCompletions'] as List? ?? [])
+            .map((e) => DailyHabitCompletion.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        readingPlans: (json['readingPlans'] as List? ?? [])
+            .map((e) => ReadingPlan.fromJson(e as Map<String, dynamic>))
+            .toList(),
       );
 
   factory AppDB.empty() => const AppDB();
@@ -1627,4 +1690,453 @@ class AppDB {
 
   factory AppDB.fromJsonString(String source) =>
       AppDB.fromJson(jsonDecode(source) as Map<String, dynamic>);
+}
+
+// ─────────────────────────────────────────────
+// Recipe
+// ─────────────────────────────────────────────
+
+class RecipeIngredient {
+  final String name;
+  final String amount;
+  final String? unit;
+
+  const RecipeIngredient({required this.name, required this.amount, this.unit});
+
+  Map<String, dynamic> toJson() => {'name': name, 'amount': amount, if (unit != null) 'unit': unit};
+
+  factory RecipeIngredient.fromJson(Map<String, dynamic> json) => RecipeIngredient(
+        name: json['name'] as String,
+        amount: json['amount'] as String,
+        unit: json['unit'] as String?,
+      );
+}
+
+class Recipe {
+  final String id;
+  final String familyId;
+  final String title;
+  final String? description;
+  final List<RecipeIngredient> ingredients;
+  final List<String> steps;
+  final int? prepMinutes;
+  final int? cookMinutes;
+  final int? servings;
+  final List<String> tags;
+  final String? imageUrl;
+  final String? sourceUrl;
+  final String createdBy;
+  final DateTime createdAt;
+
+  const Recipe({
+    required this.id,
+    required this.familyId,
+    required this.title,
+    this.description,
+    this.ingredients = const [],
+    this.steps = const [],
+    this.prepMinutes,
+    this.cookMinutes,
+    this.servings,
+    this.tags = const [],
+    this.imageUrl,
+    this.sourceUrl,
+    required this.createdBy,
+    required this.createdAt,
+  });
+
+  Recipe copyWith({
+    String? id,
+    String? familyId,
+    String? title,
+    String? description,
+    List<RecipeIngredient>? ingredients,
+    List<String>? steps,
+    int? prepMinutes,
+    int? cookMinutes,
+    int? servings,
+    List<String>? tags,
+    String? imageUrl,
+    String? sourceUrl,
+    String? createdBy,
+    DateTime? createdAt,
+  }) =>
+      Recipe(
+        id: id ?? this.id,
+        familyId: familyId ?? this.familyId,
+        title: title ?? this.title,
+        description: description ?? this.description,
+        ingredients: ingredients ?? this.ingredients,
+        steps: steps ?? this.steps,
+        prepMinutes: prepMinutes ?? this.prepMinutes,
+        cookMinutes: cookMinutes ?? this.cookMinutes,
+        servings: servings ?? this.servings,
+        tags: tags ?? this.tags,
+        imageUrl: imageUrl ?? this.imageUrl,
+        sourceUrl: sourceUrl ?? this.sourceUrl,
+        createdBy: createdBy ?? this.createdBy,
+        createdAt: createdAt ?? this.createdAt,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'familyId': familyId,
+        'title': title,
+        if (description != null) 'description': description,
+        'ingredients': ingredients.map((e) => e.toJson()).toList(),
+        'steps': steps,
+        if (prepMinutes != null) 'prepMinutes': prepMinutes,
+        if (cookMinutes != null) 'cookMinutes': cookMinutes,
+        if (servings != null) 'servings': servings,
+        'tags': tags,
+        if (imageUrl != null) 'imageUrl': imageUrl,
+        if (sourceUrl != null) 'sourceUrl': sourceUrl,
+        'createdBy': createdBy,
+        'createdAt': createdAt.toIso8601String(),
+      };
+
+  factory Recipe.fromJson(Map<String, dynamic> json) => Recipe(
+        id: json['id'] as String,
+        familyId: json['familyId'] as String,
+        title: json['title'] as String,
+        description: json['description'] as String?,
+        ingredients: (json['ingredients'] as List? ?? [])
+            .map((e) => RecipeIngredient.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        steps: (json['steps'] as List? ?? []).cast<String>(),
+        prepMinutes: json['prepMinutes'] as int?,
+        cookMinutes: json['cookMinutes'] as int?,
+        servings: json['servings'] as int?,
+        tags: (json['tags'] as List? ?? []).cast<String>(),
+        imageUrl: json['imageUrl'] as String?,
+        sourceUrl: json['sourceUrl'] as String?,
+        createdBy: json['createdBy'] as String,
+        createdAt: DateTime.parse(json['createdAt'] as String),
+      );
+}
+
+// ─────────────────────────────────────────────
+// SavingsGoal
+// ─────────────────────────────────────────────
+
+class SavingsGoal {
+  final String id;
+  final String familyId;
+  final String title;
+  final double targetAmount;
+  final double currentAmount;
+  final String? emoji;
+  final DateTime? deadline;
+  final String createdBy;
+  final DateTime createdAt;
+
+  const SavingsGoal({
+    required this.id,
+    required this.familyId,
+    required this.title,
+    required this.targetAmount,
+    this.currentAmount = 0,
+    this.emoji,
+    this.deadline,
+    required this.createdBy,
+    required this.createdAt,
+  });
+
+  double get progress => targetAmount > 0 ? (currentAmount / targetAmount).clamp(0, 1) : 0;
+  bool get isComplete => currentAmount >= targetAmount;
+
+  SavingsGoal copyWith({
+    String? id,
+    String? familyId,
+    String? title,
+    double? targetAmount,
+    double? currentAmount,
+    String? emoji,
+    DateTime? deadline,
+    String? createdBy,
+    DateTime? createdAt,
+  }) =>
+      SavingsGoal(
+        id: id ?? this.id,
+        familyId: familyId ?? this.familyId,
+        title: title ?? this.title,
+        targetAmount: targetAmount ?? this.targetAmount,
+        currentAmount: currentAmount ?? this.currentAmount,
+        emoji: emoji ?? this.emoji,
+        deadline: deadline ?? this.deadline,
+        createdBy: createdBy ?? this.createdBy,
+        createdAt: createdAt ?? this.createdAt,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'familyId': familyId,
+        'title': title,
+        'targetAmount': targetAmount,
+        'currentAmount': currentAmount,
+        if (emoji != null) 'emoji': emoji,
+        if (deadline != null) 'deadline': deadline!.toIso8601String(),
+        'createdBy': createdBy,
+        'createdAt': createdAt.toIso8601String(),
+      };
+
+  factory SavingsGoal.fromJson(Map<String, dynamic> json) => SavingsGoal(
+        id: json['id'] as String,
+        familyId: json['familyId'] as String,
+        title: json['title'] as String,
+        targetAmount: (json['targetAmount'] as num).toDouble(),
+        currentAmount: (json['currentAmount'] as num? ?? 0).toDouble(),
+        emoji: json['emoji'] as String?,
+        deadline: json['deadline'] != null ? DateTime.parse(json['deadline'] as String) : null,
+        createdBy: json['createdBy'] as String,
+        createdAt: DateTime.parse(json['createdAt'] as String),
+      );
+}
+
+// ─────────────────────────────────────────────
+// DailyHabit
+// ─────────────────────────────────────────────
+
+class DailyHabit {
+  final String id;
+  final String familyId;
+  final String userId; // owner
+  final String title;
+  final String? description;
+  final String emoji;
+  final String frequency; // daily, weekdays, weekends, custom
+  final List<int> customDays; // 1=Mon…7=Sun, used when frequency=='custom'
+  final bool isShared; // visible to family
+  final String? targetUnit; // e.g. 'minutes', 'glasses', null
+  final int? targetValue;
+  final DateTime createdAt;
+
+  const DailyHabit({
+    required this.id,
+    required this.familyId,
+    required this.userId,
+    required this.title,
+    this.description,
+    this.emoji = '✅',
+    this.frequency = 'daily',
+    this.customDays = const [],
+    this.isShared = false,
+    this.targetUnit,
+    this.targetValue,
+    required this.createdAt,
+  });
+
+  DailyHabit copyWith({
+    String? id,
+    String? familyId,
+    String? userId,
+    String? title,
+    String? description,
+    String? emoji,
+    String? frequency,
+    List<int>? customDays,
+    bool? isShared,
+    String? targetUnit,
+    int? targetValue,
+    DateTime? createdAt,
+  }) =>
+      DailyHabit(
+        id: id ?? this.id,
+        familyId: familyId ?? this.familyId,
+        userId: userId ?? this.userId,
+        title: title ?? this.title,
+        description: description ?? this.description,
+        emoji: emoji ?? this.emoji,
+        frequency: frequency ?? this.frequency,
+        customDays: customDays ?? this.customDays,
+        isShared: isShared ?? this.isShared,
+        targetUnit: targetUnit ?? this.targetUnit,
+        targetValue: targetValue ?? this.targetValue,
+        createdAt: createdAt ?? this.createdAt,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'familyId': familyId,
+        'userId': userId,
+        'title': title,
+        if (description != null) 'description': description,
+        'emoji': emoji,
+        'frequency': frequency,
+        'customDays': customDays,
+        'isShared': isShared,
+        if (targetUnit != null) 'targetUnit': targetUnit,
+        if (targetValue != null) 'targetValue': targetValue,
+        'createdAt': createdAt.toIso8601String(),
+      };
+
+  factory DailyHabit.fromJson(Map<String, dynamic> json) => DailyHabit(
+        id: json['id'] as String,
+        familyId: json['familyId'] as String,
+        userId: json['userId'] as String,
+        title: json['title'] as String,
+        description: json['description'] as String?,
+        emoji: json['emoji'] as String? ?? '✅',
+        frequency: json['frequency'] as String? ?? 'daily',
+        customDays: (json['customDays'] as List? ?? []).cast<int>(),
+        isShared: json['isShared'] as bool? ?? false,
+        targetUnit: json['targetUnit'] as String?,
+        targetValue: json['targetValue'] as int?,
+        createdAt: DateTime.parse(json['createdAt'] as String),
+      );
+}
+
+class DailyHabitCompletion {
+  final String id;
+  final String habitId;
+  final String userId;
+  final DateTime date;
+  final int? value; // actual value logged (vs targetValue)
+  final String? note;
+  final DateTime createdAt;
+
+  const DailyHabitCompletion({
+    required this.id,
+    required this.habitId,
+    required this.userId,
+    required this.date,
+    this.value,
+    this.note,
+    required this.createdAt,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'habitId': habitId,
+        'userId': userId,
+        'date': date.toIso8601String().substring(0, 10),
+        if (value != null) 'value': value,
+        if (note != null) 'note': note,
+        'createdAt': createdAt.toIso8601String(),
+      };
+
+  factory DailyHabitCompletion.fromJson(Map<String, dynamic> json) => DailyHabitCompletion(
+        id: json['id'] as String,
+        habitId: json['habitId'] as String,
+        userId: json['userId'] as String,
+        date: DateTime.parse(json['date'] as String),
+        value: json['value'] as int?,
+        note: json['note'] as String?,
+        createdAt: DateTime.parse(json['createdAt'] as String),
+      );
+}
+
+// ─────────────────────────────────────────────
+// ReadingPlan
+// ─────────────────────────────────────────────
+
+class ReadingPlanEntry {
+  final int day;
+  final String title;
+  final String? scripture;
+  final String? content;
+  final bool completed;
+
+  const ReadingPlanEntry({
+    required this.day,
+    required this.title,
+    this.scripture,
+    this.content,
+    this.completed = false,
+  });
+
+  ReadingPlanEntry copyWith({int? day, String? title, String? scripture, String? content, bool? completed}) =>
+      ReadingPlanEntry(
+        day: day ?? this.day,
+        title: title ?? this.title,
+        scripture: scripture ?? this.scripture,
+        content: content ?? this.content,
+        completed: completed ?? this.completed,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'day': day,
+        'title': title,
+        if (scripture != null) 'scripture': scripture,
+        if (content != null) 'content': content,
+        'completed': completed,
+      };
+
+  factory ReadingPlanEntry.fromJson(Map<String, dynamic> json) => ReadingPlanEntry(
+        day: json['day'] as int,
+        title: json['title'] as String,
+        scripture: json['scripture'] as String?,
+        content: json['content'] as String?,
+        completed: json['completed'] as bool? ?? false,
+      );
+}
+
+class ReadingPlan {
+  final String id;
+  final String familyId;
+  final String title;
+  final String? description;
+  final List<ReadingPlanEntry> entries;
+  final DateTime? startDate;
+  final String createdBy;
+  final DateTime createdAt;
+
+  const ReadingPlan({
+    required this.id,
+    required this.familyId,
+    required this.title,
+    this.description,
+    this.entries = const [],
+    this.startDate,
+    required this.createdBy,
+    required this.createdAt,
+  });
+
+  int get completedCount => entries.where((e) => e.completed).length;
+  double get progress => entries.isEmpty ? 0 : completedCount / entries.length;
+
+  ReadingPlan copyWith({
+    String? id,
+    String? familyId,
+    String? title,
+    String? description,
+    List<ReadingPlanEntry>? entries,
+    DateTime? startDate,
+    String? createdBy,
+    DateTime? createdAt,
+  }) =>
+      ReadingPlan(
+        id: id ?? this.id,
+        familyId: familyId ?? this.familyId,
+        title: title ?? this.title,
+        description: description ?? this.description,
+        entries: entries ?? this.entries,
+        startDate: startDate ?? this.startDate,
+        createdBy: createdBy ?? this.createdBy,
+        createdAt: createdAt ?? this.createdAt,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'familyId': familyId,
+        'title': title,
+        if (description != null) 'description': description,
+        'entries': entries.map((e) => e.toJson()).toList(),
+        if (startDate != null) 'startDate': startDate!.toIso8601String(),
+        'createdBy': createdBy,
+        'createdAt': createdAt.toIso8601String(),
+      };
+
+  factory ReadingPlan.fromJson(Map<String, dynamic> json) => ReadingPlan(
+        id: json['id'] as String,
+        familyId: json['familyId'] as String,
+        title: json['title'] as String,
+        description: json['description'] as String?,
+        entries: (json['entries'] as List? ?? [])
+            .map((e) => ReadingPlanEntry.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        startDate: json['startDate'] != null ? DateTime.parse(json['startDate'] as String) : null,
+        createdBy: json['createdBy'] as String,
+        createdAt: DateTime.parse(json['createdAt'] as String),
+      );
 }
