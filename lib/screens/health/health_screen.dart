@@ -1,16 +1,14 @@
 // lib/screens/health/health_screen.dart
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
+
+import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../widgets/app_drawer.dart';
-
-const _healthUuid = Uuid();
-
-// ─────────────────────────────────────────────
-// Screen
-// ─────────────────────────────────────────────
+import '../../widgets/common_widgets.dart';
 
 class HealthScreen extends StatefulWidget {
   const HealthScreen({super.key});
@@ -23,527 +21,382 @@ class _HealthScreenState extends State<HealthScreen> {
   String? _selectedUserId;
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final provider = context.read<AppProvider>();
+    if (_selectedUserId == null && provider.activeUser != null) {
+      _selectedUserId = provider.activeUser!.id;
+    }
+  }
+
+  Future<void> _deleteRecord(String id) async {
+    final provider = context.read<AppProvider>();
+    final db = provider.db;
+    await provider.saveAndSync(db.copyWith(
+      healthRecords: db.healthRecords.where((r) => r.id != id).toList(),
+    ));
+  }
+
+  void _showAddRecordSheet(String userId) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _HealthRecordSheet(
+        userId: userId,
+        onSave: (record) async {
+          final provider = context.read<AppProvider>();
+          final db = provider.db;
+          await provider.saveAndSync(db.copyWith(healthRecords: [...db.healthRecords, record]));
+        },
+      ),
+    );
+  }
+
+  String _typeEmoji(String type) {
+    switch (type.toLowerCase()) {
+      case 'weight': return '⚖️';
+      case 'blood_pressure': return '🩸';
+      case 'medication': return '💊';
+      case 'appointment': return '📅';
+      case 'note': return '📝';
+      case 'allergy': return '🌿';
+      case 'condition': return '🏥';
+      default: return '❤️';
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
-    final db = provider.db;
-    final familyId = provider.activeFamily?.id ?? '';
-    final currentUserId = provider.activeUser?.id ?? '';
+    final user = provider.activeUser;
+    final family = provider.activeFamily;
+    if (user == null || family == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
 
-    // Get family member user IDs for this family
-    final memberUserIds = db.familyMembers
-        .where((m) => m.familyId == familyId)
-        .map((m) => m.userId)
+    final members = provider.familyMembers;
+    _selectedUserId ??= user.id;
+
+    final selectedUser = members.cast<User?>().firstWhere((m) => m?.id == _selectedUserId, orElse: () => null) ?? user;
+
+    final records = provider.db.healthRecords
+        .where((r) => r.familyId == family.id && r.userId == _selectedUserId)
         .toList();
+    records.sort((a, b) => b.date.compareTo(a.date));
 
-    // Get user objects for those members
-    final members = db.users
-        .where((u) => memberUserIds.contains(u.id))
-        .toList();
-
-    // Default to current user
-    final selectedId = _selectedUserId ?? currentUserId;
-
-    // Get health records for selected member
-    final records = db.healthRecords
-        .where((r) => r.familyId == familyId && r.userId == selectedId)
-        .toList()
-      ..sort((a, b) => b.date.compareTo(a.date));
+    // Group by type
+    final grouped = <String, List<HealthRecord>>{};
+    for (final r in records) {
+      grouped.putIfAbsent(r.type, () => []).add(r);
+    }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Health Records')),
       drawer: const AppDrawer(),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _showAddRecordSheet(_selectedUserId!),
+        child: const Icon(Icons.add_rounded),
+      ),
+      body: CustomScrollView(
+        slivers: [
+          const SliverAppBar(title: Text('Health Records'), floating: true),
           // Member selector
-          if (members.isNotEmpty) ...[
-            Container(
-              color: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              child: SingleChildScrollView(
+          if (members.length > 1)
+            SliverToBoxAdapter(
+              child: SizedBox(
+                height: 52,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  children: members.map((m) => Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: FilterChip(
+                      label: Text(m.name.split(' ').first),
+                      selected: _selectedUserId == m.id,
+                      onSelected: (_) => setState(() => _selectedUserId = m.id),
+                      showCheckmark: false,
+                      avatar: UserAvatarWidget(name: m.name, radius: 10),
+                    ),
+                  )).toList(),
+                ),
+              ),
+            ),
+          // Member header
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(colors: [Color(0xFFEF4444), Color(0xFFDC2626)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(children: [
+                  UserAvatarWidget(name: selectedUser.name, radius: 22),
+                  const SizedBox(width: 12),
+                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(selectedUser.name, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: Colors.white)),
+                    Text('${records.length} record${records.length == 1 ? '' : 's'}', style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white70)),
+                  ])),
+                  const Text('❤️', style: TextStyle(fontSize: 28)),
+                ]),
+              ),
+            ),
+          ),
+          records.isEmpty
+              ? SliverFillRemaining(
+                  child: EmptyState(
+                    emoji: '❤️',
+                    title: 'No health records',
+                    subtitle: 'Add health info for ${selectedUser.name.split(' ').first}.',
+                    actionLabel: 'Add Record',
+                    onAction: () => _showAddRecordSheet(_selectedUserId!),
+                  ),
+                )
+              : SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+                  sliver: SliverList(
+                    delegate: SliverChildListDelegate([
+                      ...grouped.entries.map((entry) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Row(children: [
+                            Text(_typeEmoji(entry.key), style: const TextStyle(fontSize: 16)),
+                            const SizedBox(width: 8),
+                            Text(entry.key.replaceAll('_', ' ').toUpperCase(), style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1)),
+                          ]),
+                        ),
+                        ...entry.value.map((record) => Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: _RecordCard(record: record, emoji: _typeEmoji(record.type), onDelete: () => _deleteRecord(record.id)),
+                        )),
+                      ])).toList(),
+                    ]),
+                  ),
+                ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RecordCard extends StatelessWidget {
+  final HealthRecord record;
+  final String emoji;
+  final VoidCallback onDelete;
+
+  const _RecordCard({required this.record, required this.emoji, required this.onDelete});
+
+  @override
+  Widget build(BuildContext context) {
+    return Dismissible(
+      key: Key(record.id),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        decoration: BoxDecoration(color: AppTheme.error, borderRadius: BorderRadius.circular(14)),
+        child: const Icon(Icons.delete_outline_rounded, color: Colors.white),
+      ),
+      confirmDismiss: (_) async => await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Delete Record'),
+          content: Text('Delete "${record.title}"?'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+          ],
+        ),
+      ),
+      onDismissed: (_) => onDelete(),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppTheme.stone100),
+        ),
+        child: Row(children: [
+          Text(emoji, style: const TextStyle(fontSize: 20)),
+          const SizedBox(width: 10),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(record.title, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 14, color: AppTheme.stone900)),
+            if (record.notes != null && record.notes!.isNotEmpty) ...[
+              const SizedBox(height: 2),
+              Text(record.notes!, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500), maxLines: 2, overflow: TextOverflow.ellipsis),
+            ],
+            if (record.data.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(record.data.entries.take(2).map((e) => '${e.key}: ${e.value}').join(' · '), style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
+            ],
+          ])),
+          Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Text(DateFormat('MMM d').format(record.date), style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
+            Text(DateFormat('y').format(record.date), style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone300)),
+          ]),
+        ]),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// Add health record
+// ─────────────────────────────────────────────
+
+class _HealthRecordSheet extends StatefulWidget {
+  final String userId;
+  final Future<void> Function(HealthRecord) onSave;
+  const _HealthRecordSheet({required this.userId, required this.onSave});
+
+  @override
+  State<_HealthRecordSheet> createState() => _HealthRecordSheetState();
+}
+
+class _HealthRecordSheetState extends State<_HealthRecordSheet> {
+  final _titleCtrl = TextEditingController();
+  final _notesCtrl = TextEditingController();
+  final _dataKeyCtrl = TextEditingController();
+  final _dataValueCtrl = TextEditingController();
+  String _type = 'note';
+  DateTime _date = DateTime.now();
+  Map<String, dynamic> _data = {};
+  bool _isSaving = false;
+  final _uuid = const Uuid();
+
+  static const _types = ['note', 'weight', 'blood_pressure', 'medication', 'appointment', 'allergy', 'condition'];
+
+  @override
+  void dispose() {
+    _titleCtrl.dispose();
+    _notesCtrl.dispose();
+    _dataKeyCtrl.dispose();
+    _dataValueCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickDate() async {
+    final d = await showDatePicker(context: context, initialDate: _date, firstDate: DateTime(1900), lastDate: DateTime.now().add(const Duration(days: 365)));
+    if (d != null) setState(() => _date = d);
+  }
+
+  void _addDataEntry() {
+    final k = _dataKeyCtrl.text.trim();
+    final v = _dataValueCtrl.text.trim();
+    if (k.isNotEmpty && v.isNotEmpty) {
+      setState(() { _data[k] = v; _dataKeyCtrl.clear(); _dataValueCtrl.clear(); });
+    }
+  }
+
+  Future<void> _save() async {
+    if (_titleCtrl.text.trim().isEmpty) return;
+    setState(() => _isSaving = true);
+    final provider = context.read<AppProvider>();
+    final record = HealthRecord(
+      id: _uuid.v4(),
+      familyId: provider.activeFamily!.id,
+      userId: widget.userId,
+      type: _type,
+      title: _titleCtrl.text.trim(),
+      data: Map.from(_data),
+      date: _date,
+      notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+    );
+    await widget.onSave(record);
+    if (mounted) Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85, maxChildSize: 0.95, minChildSize: 0.5, expand: false,
+      builder: (_, controller) => Container(
+        decoration: const BoxDecoration(color: AppTheme.surface, borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+        child: Column(children: [
+          const SheetHandle(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+            child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+              const Text('New Record', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 20, color: AppTheme.stone900)),
+              TextButton(
+                onPressed: _isSaving ? null : _save,
+                child: _isSaving
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Text('Save', style: TextStyle(fontWeight: FontWeight.w700)),
+              ),
+            ]),
+          ),
+          Expanded(
+            child: ListView(controller: controller, padding: const EdgeInsets.fromLTRB(20, 12, 20, 32), children: [
+              // Type
+              const Text('Type', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13, color: AppTheme.stone600)),
+              const SizedBox(height: 8),
+              SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Row(
-                  children: members.map((u) {
-                    final selected = u.id == selectedId;
+                  children: _types.map((t) {
+                    final isSelected = t == _type;
                     return Padding(
                       padding: const EdgeInsets.only(right: 8),
-                      child: FilterChip(
-                        label: Text(u.name),
-                        selected: selected,
-                        onSelected: (_) =>
-                            setState(() => _selectedUserId = u.id),
-                        selectedColor: const Color(0xFF4F46E5).withOpacity(0.15),
-                        checkmarkColor: const Color(0xFF4F46E5),
-                        labelStyle: TextStyle(
-                          color: selected
-                              ? const Color(0xFF4F46E5)
-                              : const Color(0xFF44403C),
-                          fontWeight: selected
-                              ? FontWeight.w700
-                              : FontWeight.normal,
+                      child: GestureDetector(
+                        onTap: () => setState(() => _type = t),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: isSelected ? AppTheme.primaryLight : AppTheme.stone50,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: isSelected ? AppTheme.primary : AppTheme.stone200, width: isSelected ? 2 : 1),
+                          ),
+                          child: Text(t.replaceAll('_', ' '), style: TextStyle(fontFamily: 'Inter', fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500, fontSize: 12, color: isSelected ? AppTheme.primary : AppTheme.stone600)),
                         ),
                       ),
                     );
                   }).toList(),
                 ),
               ),
-            ),
-            const Divider(height: 1),
-          ],
-          // Records list
-          Expanded(
-            child: records.isEmpty
-                ? _buildEmpty(context, provider, familyId, selectedId)
-                : ListView.separated(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: records.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
-                    itemBuilder: (ctx, i) => _HealthRecordCard(
-                      record: records[i],
-                      provider: provider,
-                      db: db,
-                    ),
-                  ),
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () =>
-            _showAddSheet(context, provider, familyId, selectedId),
-        child: const Icon(Icons.add),
-      ),
-    );
-  }
-
-  Widget _buildEmpty(BuildContext context, AppProvider provider,
-      String familyId, String userId) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Text('🏥', style: TextStyle(fontSize: 56)),
-          const SizedBox(height: 16),
-          const Text('No health records yet',
-              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
-          const SizedBox(height: 8),
-          const Text('Add medical records, medications, and more',
-              style: TextStyle(color: Color(0xFF78716C)),
-              textAlign: TextAlign.center),
-          const SizedBox(height: 24),
-          ElevatedButton.icon(
-            onPressed: () =>
-                _showAddSheet(context, provider, familyId, userId),
-            icon: const Icon(Icons.add),
-            label: const Text('Add Record'),
-          ),
-          const SizedBox(height: 80),
-        ],
-      ),
-    );
-  }
-
-  void _showAddSheet(BuildContext context, AppProvider provider,
-      String familyId, String userId) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (ctx) => _AddHealthRecordSheet(
-        provider: provider,
-        familyId: familyId,
-        userId: userId,
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────
-// Health Record Card
-// ─────────────────────────────────────────────
-
-class _HealthRecordCard extends StatelessWidget {
-  const _HealthRecordCard({
-    required this.record,
-    required this.provider,
-    required this.db,
-  });
-  final HealthRecord record;
-  final AppProvider provider;
-  final AppDB db;
-
-  String _emojiForType(String type) {
-    switch (type) {
-      case 'weight':
-        return '⚖️';
-      case 'blood_pressure':
-        return '💓';
-      case 'medication':
-        return '💊';
-      case 'appointment':
-        return '📅';
-      case 'allergy':
-        return '🤧';
-      case 'condition':
-        return '🩺';
-      default:
-        return '📋';
-    }
-  }
-
-  Color _colorForType(String type) {
-    switch (type) {
-      case 'weight':
-        return const Color(0xFF6366F1);
-      case 'blood_pressure':
-        return const Color(0xFFDC2626);
-      case 'medication':
-        return const Color(0xFF16A34A);
-      case 'appointment':
-        return const Color(0xFF0891B2);
-      case 'allergy':
-        return const Color(0xFFD97706);
-      default:
-        return const Color(0xFF78716C);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final color = _colorForType(record.type);
-    final dateStr =
-        '${record.date.month}/${record.date.day}/${record.date.year}';
-
-    return Dismissible(
-      key: Key(record.id),
-      direction: DismissDirection.endToStart,
-      background: Container(
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 16),
-        decoration: BoxDecoration(
-          color: const Color(0xFFDC2626),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: const Icon(Icons.delete, color: Colors.white),
-      ),
-      onDismissed: (_) {
-        provider.saveAndSync(db.copyWith(
-            healthRecords:
-                db.healthRecords.where((r) => r.id != record.id).toList()));
-      },
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFE7E5E4)),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              alignment: Alignment.center,
-              child: Text(_emojiForType(record.type),
-                  style: const TextStyle(fontSize: 22)),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          record.title,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w700, fontSize: 15),
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: color.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          record.type.replaceAll('_', ' '),
-                          style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                              color: color),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    dateStr,
-                    style: const TextStyle(
-                        fontSize: 12, color: Color(0xFF78716C)),
-                  ),
-                  // Show data fields
-                  if (record.data.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 4,
-                      children: record.data.entries
-                          .where((e) => e.value != null &&
-                              e.value.toString().isNotEmpty)
-                          .map((e) => Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 3),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF5F5F4),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  '${e.key}: ${e.value}',
-                                  style: const TextStyle(
-                                      fontSize: 11,
-                                      color: Color(0xFF44403C)),
-                                ),
-                              ))
-                          .toList(),
-                    ),
-                  ],
-                  if (record.notes != null && record.notes!.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      record.notes!,
-                      style: const TextStyle(
-                          fontSize: 12, color: Color(0xFFA8A29E)),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────
-// Add Health Record Sheet
-// ─────────────────────────────────────────────
-
-class _AddHealthRecordSheet extends StatefulWidget {
-  const _AddHealthRecordSheet({
-    required this.provider,
-    required this.familyId,
-    required this.userId,
-  });
-  final AppProvider provider;
-  final String familyId;
-  final String userId;
-
-  @override
-  State<_AddHealthRecordSheet> createState() => _AddHealthRecordSheetState();
-}
-
-class _AddHealthRecordSheetState extends State<_AddHealthRecordSheet> {
-  final _formKey = GlobalKey<FormState>();
-  final _titleCtrl = TextEditingController();
-  final _notesCtrl = TextEditingController();
-  final _valueCtrl = TextEditingController();
-  final _value2Ctrl = TextEditingController();
-
-  String _type = 'note';
-  DateTime _date = DateTime.now();
-
-  static const _types = [
-    'note',
-    'weight',
-    'blood_pressure',
-    'medication',
-    'appointment',
-    'allergy',
-    'condition',
-  ];
-
-  @override
-  void dispose() {
-    _titleCtrl.dispose();
-    _notesCtrl.dispose();
-    _valueCtrl.dispose();
-    _value2Ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return DraggableScrollableSheet(
-      expand: false,
-      initialChildSize: 0.85,
-      builder: (ctx, scroll) => Form(
-        key: _formKey,
-        child: ListView(
-          controller: scroll,
-          padding: EdgeInsets.only(
-            left: 24,
-            right: 24,
-            top: 24,
-            bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-          ),
-          children: [
-            const Text('Add Health Record',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 20),
-            // Type chips
-            const Text('Type',
-                style: TextStyle(
-                    fontWeight: FontWeight.w600, fontSize: 13)),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: _types.map((t) {
-                final selected = _type == t;
-                return ChoiceChip(
-                  label:
-                      Text(t[0].toUpperCase() + t.substring(1).replaceAll('_', ' ')),
-                  selected: selected,
-                  onSelected: (_) => setState(() => _type = t),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _titleCtrl,
-              decoration: const InputDecoration(labelText: 'Title *'),
-              textCapitalization: TextCapitalization.sentences,
-              validator: (v) =>
-                  v == null || v.trim().isEmpty ? 'Required' : null,
-            ),
-            const SizedBox(height: 14),
-            // Dynamic value fields based on type
-            if (_type == 'weight') ...[
-              TextFormField(
-                controller: _valueCtrl,
-                decoration:
-                    const InputDecoration(labelText: 'Weight', suffixText: 'lbs'),
-                keyboardType: TextInputType.number,
-              ),
-            ] else if (_type == 'blood_pressure') ...[
-              Row(children: [
-                Expanded(
-                  child: TextFormField(
-                    controller: _valueCtrl,
-                    decoration: const InputDecoration(labelText: 'Systolic'),
-                    keyboardType: TextInputType.number,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextFormField(
-                    controller: _value2Ctrl,
-                    decoration: const InputDecoration(labelText: 'Diastolic'),
-                    keyboardType: TextInputType.number,
-                  ),
-                ),
-              ]),
-            ] else if (_type == 'medication') ...[
-              TextFormField(
-                controller: _valueCtrl,
-                decoration: const InputDecoration(
-                    labelText: 'Dosage', hintText: 'e.g. 10mg'),
-              ),
-            ],
-            const SizedBox(height: 14),
-            // Date picker
-            GestureDetector(
-              onTap: () async {
-                final picked = await showDatePicker(
-                  context: context,
-                  initialDate: _date,
-                  firstDate: DateTime(2000),
-                  lastDate: DateTime.now().add(const Duration(days: 365)),
-                );
-                if (picked != null) setState(() => _date = picked);
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 14),
-                decoration: BoxDecoration(
-                  border: Border.all(color: const Color(0xFFD6D3D1)),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.calendar_today,
-                        size: 18, color: Color(0xFF78716C)),
+              const SizedBox(height: 14),
+              TextField(controller: _titleCtrl, autofocus: true, textCapitalization: TextCapitalization.sentences,
+                  decoration: const InputDecoration(labelText: 'Title *', prefixIcon: Icon(Icons.label_outline_rounded))),
+              const SizedBox(height: 12),
+              GestureDetector(
+                onTap: _pickDate,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(color: AppTheme.stone50, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.stone200)),
+                  child: Row(children: [
+                    const Icon(Icons.calendar_today_outlined, size: 18, color: AppTheme.stone500),
                     const SizedBox(width: 10),
-                    Text(
-                      '${_date.month}/${_date.day}/${_date.year}',
-                      style: const TextStyle(fontSize: 15),
-                    ),
-                  ],
+                    Text(DateFormat('EEE, MMM d, y').format(_date), style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone800)),
+                  ]),
                 ),
               ),
-            ),
-            const SizedBox(height: 14),
-            TextFormField(
-              controller: _notesCtrl,
-              decoration:
-                  const InputDecoration(labelText: 'Notes (optional)'),
-              maxLines: 3,
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: _submit,
-              style: ElevatedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(52)),
-              child: const Text('Save Record'),
-            ),
-          ],
-        ),
+              const SizedBox(height: 12),
+              // Data fields
+              const Text('Data (optional)', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13, color: AppTheme.stone600)),
+              const SizedBox(height: 6),
+              Row(children: [
+                Expanded(child: TextField(controller: _dataKeyCtrl, decoration: const InputDecoration(labelText: 'Field', hintText: 'e.g. value'))),
+                const SizedBox(width: 8),
+                Expanded(child: TextField(controller: _dataValueCtrl, decoration: const InputDecoration(labelText: 'Value'))),
+                const SizedBox(width: 8),
+                IconButton(onPressed: _addDataEntry, icon: const Icon(Icons.add_circle_rounded, color: AppTheme.primary)),
+              ]),
+              if (_data.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Wrap(spacing: 8, runSpacing: 4, children: _data.entries.map((e) => Chip(
+                  label: Text('${e.key}: ${e.value}', style: const TextStyle(fontSize: 11)),
+                  deleteIcon: const Icon(Icons.close_rounded, size: 14),
+                  onDeleted: () => setState(() => _data.remove(e.key)),
+                )).toList()),
+              ],
+              const SizedBox(height: 12),
+              TextField(controller: _notesCtrl, maxLines: 3, decoration: const InputDecoration(labelText: 'Notes (optional)', alignLabelWithHint: true)),
+            ]),
+          ),
+        ]),
       ),
     );
-  }
-
-  void _submit() {
-    if (!_formKey.currentState!.validate()) return;
-
-    // Build data map based on type
-    final Map<String, dynamic> data = {};
-    if (_type == 'weight' && _valueCtrl.text.isNotEmpty) {
-      data['weight'] = _valueCtrl.text.trim();
-      data['unit'] = 'lbs';
-    } else if (_type == 'blood_pressure') {
-      if (_valueCtrl.text.isNotEmpty) data['systolic'] = _valueCtrl.text.trim();
-      if (_value2Ctrl.text.isNotEmpty) {
-        data['diastolic'] = _value2Ctrl.text.trim();
-      }
-    } else if (_type == 'medication' && _valueCtrl.text.isNotEmpty) {
-      data['dosage'] = _valueCtrl.text.trim();
-    }
-
-    final db = widget.provider.db;
-    final record = HealthRecord(
-      id: _healthUuid.v4(),
-      familyId: widget.familyId,
-      userId: widget.userId,
-      type: _type,
-      title: _titleCtrl.text.trim(),
-      data: data,
-      date: _date,
-      notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
-    );
-    widget.provider.saveAndSync(
-        db.copyWith(healthRecords: [...db.healthRecords, record]));
-    Navigator.pop(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Health record saved!')));
   }
 }
