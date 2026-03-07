@@ -1,5 +1,7 @@
 // lib/screens/ai_history/ai_history_screen.dart
+// ignore_for_file: use_build_context_synchronously
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
@@ -18,7 +20,6 @@ class AIHistoryScreen extends StatefulWidget {
 
 class _AIHistoryScreenState extends State<AIHistoryScreen> {
   String? _selectedModule; // null = show all
-  AIHistoryEntry? _selectedEntry;
 
   Future<void> _deleteEntry(String id) async {
     final provider = context.read<AppProvider>();
@@ -26,7 +27,19 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
     await provider.saveAndSync(db.copyWith(
       aiHistory: db.aiHistory.where((e) => e.id != id).toList(),
     ));
-    if (_selectedEntry?.id == id) setState(() => _selectedEntry = null);
+  }
+
+  void _openDetail(BuildContext context, AIHistoryEntry entry, Color color) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _EntryDetailSheet(
+        entry: entry,
+        moduleColor: color,
+        onDelete: () => _deleteEntry(entry.id),
+      ),
+    );
   }
 
   Color _moduleColor(String module) {
@@ -48,15 +61,6 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
     final family = provider.activeFamily;
     if (user == null || family == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-
-    if (_selectedEntry != null) {
-      return _EntryDetailView(
-        entry: _selectedEntry!,
-        moduleColor: _moduleColor(_selectedEntry!.module),
-        onBack: () => setState(() => _selectedEntry = null),
-        onDelete: () => _deleteEntry(_selectedEntry!.id),
-      );
     }
 
     final allEntries = provider.db.aiHistory
@@ -157,7 +161,7 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
                           child: _HistoryCard(
                             entry: entry,
                             moduleColor: _moduleColor(entry.module),
-                            onTap: () => setState(() => _selectedEntry = entry),
+                            onTap: () => _openDetail(context, entry, _moduleColor(entry.module)),
                             onDelete: () => _deleteEntry(entry.id),
                           ),
                         );
