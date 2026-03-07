@@ -249,7 +249,18 @@ class _PeriodLogSheetState extends State<_PeriodLogSheet> {
   bool _isSaving = false;
   final _uuid = const Uuid();
 
-  static const _symptomOptions = ['Cramps', 'Headache', 'Bloating', 'Fatigue', 'Mood Swings', 'Nausea', 'Backache', 'Spotting'];
+  static const _symptomOptions = [
+    'Cramps 😣',
+    'Headache 🤕',
+    'Bloating 🤰',
+    'Fatigue 😴',
+    'Mood Swings 🌪️',
+    'Nausea 🤢',
+    'Backache 🦴',
+    'Spotting 🔴',
+  ];
+  static const _moodOptions = ['😊', '😐', '😢', '😤', '😴'];
+  String _mood = '😊';
 
   @override
   void initState() {
@@ -260,6 +271,7 @@ class _PeriodLogSheetState extends State<_PeriodLogSheet> {
     _symptoms = List.from(e?.symptoms ?? []);
     _flowLevel = e?.flowLevel;
     _notesCtrl.text = e?.notes ?? '';
+    // mood stored in notes with prefix if present
   }
 
   @override
