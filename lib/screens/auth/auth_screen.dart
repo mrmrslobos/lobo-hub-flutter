@@ -176,7 +176,7 @@ class _AuthScreenState extends State<AuthScreen> {
         _pendingUser = user;
         _setView(_AuthView.onboarding);
       } else {
-        await provider.authenticate(user, family);
+        provider.authenticate(user, family);
         if (mounted) context.go('/');
       }
     } catch (e) {
@@ -285,7 +285,7 @@ class _AuthScreenState extends State<AuthScreen> {
         _setError('No home found with that code. Check and try again.');
         return;
       }
-      await provider.authenticate(_pendingUser!, family);
+      provider.authenticate(_pendingUser!, family);
       if (mounted) context.go('/');
     } catch (e) {
       _setError(e.toString());
@@ -302,7 +302,7 @@ class _AuthScreenState extends State<AuthScreen> {
       final family = _pendingFamily!.copyWith(
         enabledModules: _selectedModules.toList(),
       );
-      await provider.authenticate(_pendingUser!, family);
+      provider.authenticate(_pendingUser!, family);
       if (mounted) context.go('/');
     } catch (e) {
       _setError(e.toString());

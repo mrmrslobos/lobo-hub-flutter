@@ -255,6 +255,7 @@ class User {
     required this.name,
     required this.email,
     this.avatar,
+    DateTime? createdAt,
   });
 
   factory User.fromJson(Map<String, dynamic> j) => User(
