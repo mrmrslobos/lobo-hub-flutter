@@ -45,10 +45,13 @@ void main() async {
   const androidKey = String.fromEnvironment('RC_ANDROID_KEY', defaultValue: '');
   await PurchaseService.init(iosApiKey: iosKey, androidApiKey: androidKey);
 
+  final appProvider = AppProvider();
+  await appProvider.initialize();
+
   runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => AppProvider()),
+        ChangeNotifierProvider.value(value: appProvider),
         ChangeNotifierProvider(create: (_) => LocaleService()..init()),
       ],
       child: const FamilyHubApp(),
