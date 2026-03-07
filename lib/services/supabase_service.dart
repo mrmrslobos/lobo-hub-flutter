@@ -11,7 +11,8 @@ class SupabaseService {
 
   static bool get isConfigured {
     try {
-      return Supabase.instance.client.supabaseUrl.isNotEmpty;
+      Supabase.instance.client; // throws if not initialized
+      return true;
     } catch (_) {
       return false;
     }

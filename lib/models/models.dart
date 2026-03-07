@@ -3,6 +3,13 @@
 
 // ignore_for_file: constant_identifier_names
 
+typedef PrayerRequest = PrayerWallEntry;
+typedef AIHistoryEntry = AIHistory;
+typedef PeriodEntry = PeriodCycle;
+typedef LocationShare = UserLocation;
+typedef Occasion = SpecialDate;
+typedef Photo = FamilyPhoto;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Enums
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2558,6 +2565,13 @@ class AppDB {
     List<PeriodCycle>? periodCycles,
     List<PeriodSymptomLog>? periodSymptoms,
     List<NotificationPrefs>? notificationPrefs,
+    // Convenience alias params
+    List<PrayerWallEntry>? prayerRequests,
+    List<PeriodCycle>? periodEntries,
+    List<SpecialDate>? occasions,
+    List<FamilyPhoto>? photos,
+    List<UserLocation>? locationShares,
+    List<DailyHabitCompletion>? habitCompletions,
   }) => AppDB(
     users: users ?? this.users,
     families: families ?? this.families,
@@ -2574,7 +2588,7 @@ class AppDB {
     transactions: transactions ?? this.transactions,
     aiHistory: aiHistory ?? this.aiHistory,
     dailyHabits: dailyHabits ?? this.dailyHabits,
-    dailyHabitCompletions: dailyHabitCompletions ?? this.dailyHabitCompletions,
+    dailyHabitCompletions: habitCompletions ?? dailyHabitCompletions ?? this.dailyHabitCompletions,
     chores: chores ?? this.chores,
     choreCompletions: choreCompletions ?? this.choreCompletions,
     polls: polls ?? this.polls,
@@ -2582,20 +2596,15 @@ class AppDB {
     rewardItems: rewardItems ?? this.rewardItems,
     rewardRedemptions: rewardRedemptions ?? this.rewardRedemptions,
     savingsGoals: savingsGoals ?? this.savingsGoals,
-    prayerWall: prayerWall ?? this.prayerWall,
-    specialDates: specialDates ?? this.specialDates,
-    familyPhotos: familyPhotos ?? this.familyPhotos,
-    milestones: milestones ?? this.milestones,
-    savedPlaces: savedPlaces ?? this.savedPlaces,
-    userLocations: userLocations ?? this.userLocations,
-    messages: messages ?? this.messages,
-    healthRecords: healthRecords ?? this.healthRecords,
     prayerWall: prayerRequests ?? prayerWall ?? this.prayerWall,
     specialDates: occasions ?? specialDates ?? this.specialDates,
     familyPhotos: photos ?? familyPhotos ?? this.familyPhotos,
+    milestones: milestones ?? this.milestones,
+    savedPlaces: savedPlaces ?? this.savedPlaces,
     userLocations: locationShares ?? userLocations ?? this.userLocations,
+    messages: messages ?? this.messages,
+    healthRecords: healthRecords ?? this.healthRecords,
     periodCycles: periodEntries ?? periodCycles ?? this.periodCycles,
-    dailyHabitCompletions: habitCompletions ?? dailyHabitCompletions ?? this.dailyHabitCompletions,
     periodSymptoms: periodSymptoms ?? this.periodSymptoms,
     notificationPrefs: notificationPrefs ?? this.notificationPrefs,
   );
