@@ -709,7 +709,7 @@ class RecipeIngredient {
   final String? quantity;
   final String? unit;
 
-  const RecipeIngredient({required this.name, this.quantity, this.unit, String? amount})
+  RecipeIngredient({required this.name, String? quantity, String? amount, this.unit})
       : quantity = quantity ?? amount;
 
   // Convenience alias used by screens
