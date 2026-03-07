@@ -248,84 +248,198 @@ class _HistoryCard extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// Detail view
+// Detail bottom sheet
 // ─────────────────────────────────────────────
 
-class _EntryDetailView extends StatelessWidget {
+class _EntryDetailSheet extends StatelessWidget {
   final AIHistoryEntry entry;
   final Color moduleColor;
-  final VoidCallback onBack;
   final VoidCallback onDelete;
 
-  const _EntryDetailView({
+  const _EntryDetailSheet({
     required this.entry,
     required this.moduleColor,
-    required this.onBack,
     required this.onDelete,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      drawer: const AppDrawer(),
-      appBar: AppBar(
-        leading: IconButton(icon: const Icon(Icons.arrow_back_rounded), onPressed: onBack),
-        title: const Text('AI Response'),
-        actions: [
-          IconButton(icon: const Icon(Icons.delete_outline_rounded), onPressed: onDelete, color: AppTheme.error),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(color: moduleColor.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-              child: Text(entry.module, style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: moduleColor)),
-            ),
-            const SizedBox(width: 10),
-            Text(DateFormat('MMM d, y · h:mm a').format(entry.createdAt), style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
-          ]),
-          const SizedBox(height: 16),
-          // Prompt
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppTheme.primaryLight,
-              borderRadius: BorderRadius.circular(16),
-              border: Border(left: BorderSide(color: AppTheme.primary, width: 4)),
-            ),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Row(children: [
-                Text('👤', style: TextStyle(fontSize: 14)),
-                SizedBox(width: 6),
-                Text('PROMPT', style: TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w800, color: AppTheme.primary, letterSpacing: 1.1)),
-              ]),
-              const SizedBox(height: 8),
-              Text(entry.prompt, style: const TextStyle(fontFamily: 'Inter', fontSize: 15, color: AppTheme.stone900, height: 1.5)),
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.85,
+      maxChildSize: 0.95,
+      minChildSize: 0.4,
+      builder: (ctx, scrollCtrl) => Container(
+        decoration: const BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: Column(children: [
+          const SheetHandle(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 8, 0),
+            child: Row(children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: moduleColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  entry.module,
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                    color: moduleColor,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  DateFormat('MMM d, y · h:mm a').format(entry.createdAt),
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 11,
+                    color: AppTheme.stone400,
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete_outline_rounded,
+                    color: AppTheme.error),
+                onPressed: () {
+                  Navigator.pop(context);
+                  onDelete();
+                },
+              ),
             ]),
           ),
-          const SizedBox(height: 16),
-          // Response
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppTheme.stone50,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppTheme.stone100),
+          Expanded(
+            child: SingleChildScrollView(
+              controller: scrollCtrl,
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Prompt section
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppTheme.primaryLight,
+                        borderRadius: BorderRadius.circular(16),
+                        border: const Border(
+                            left: BorderSide(
+                                color: AppTheme.primary, width: 4)),
+                      ),
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Row(children: [
+                              Text('👤',
+                                  style: TextStyle(fontSize: 13)),
+                              SizedBox(width: 6),
+                              Text('YOUR PROMPT',
+                                  style: TextStyle(
+                                    fontFamily: 'Inter',
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppTheme.primary,
+                                    letterSpacing: 1.1,
+                                  )),
+                            ]),
+                            const SizedBox(height: 8),
+                            SelectableText(
+                              entry.prompt,
+                              style: const TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 14,
+                                color: AppTheme.stone900,
+                                height: 1.55,
+                              ),
+                            ),
+                          ]),
+                    ),
+                    const SizedBox(height: 16),
+                    // Response section
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppTheme.stone50,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: AppTheme.stone100),
+                      ),
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(children: [
+                              const Text('🤖',
+                                  style: TextStyle(fontSize: 13)),
+                              const SizedBox(width: 6),
+                              const Text('AI RESPONSE',
+                                  style: TextStyle(
+                                    fontFamily: 'Inter',
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppTheme.stone400,
+                                    letterSpacing: 1.1,
+                                  )),
+                              const Spacer(),
+                              // Copy button
+                              GestureDetector(
+                                onTap: () {
+                                  Clipboard.setData(ClipboardData(
+                                      text: entry.response));
+                                  ScaffoldMessenger.of(context)
+                                      .showSnackBar(const SnackBar(
+                                    content: Text('Response copied!'),
+                                    duration: Duration(seconds: 2),
+                                  ));
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: moduleColor.withOpacity(0.1),
+                                    borderRadius:
+                                        BorderRadius.circular(8),
+                                  ),
+                                  child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                            Icons.copy_rounded,
+                                            size: 12,
+                                            color: moduleColor),
+                                        const SizedBox(width: 4),
+                                        Text('Copy',
+                                            style: TextStyle(
+                                              fontFamily: 'Inter',
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w700,
+                                              color: moduleColor,
+                                            )),
+                                      ]),
+                                ),
+                              ),
+                            ]),
+                            const SizedBox(height: 10),
+                            SelectableText(
+                              entry.response,
+                              style: const TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 14,
+                                color: AppTheme.stone800,
+                                height: 1.65,
+                              ),
+                            ),
+                          ]),
+                    ),
+                  ]),
             ),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Row(children: [
-                Text('🤖', style: TextStyle(fontSize: 14)),
-                SizedBox(width: 6),
-                Text('RESPONSE', style: TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1)),
-              ]),
-              const SizedBox(height: 8),
-              Text(entry.response, style: const TextStyle(fontFamily: 'Inter', fontSize: 15, color: AppTheme.stone800, height: 1.6)),
-            ]),
           ),
         ]),
       ),
