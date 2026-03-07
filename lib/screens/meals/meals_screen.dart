@@ -1499,14 +1499,17 @@ class _ImportUrlDialogState extends State<_ImportUrlDialog> {
       final userId = provider.activeUser?.id ?? '';
       final familyId = provider.activeFamily?.id ?? '';
 
-      final ingredients = <String>[];
+      final ingredients = <RecipeIngredient>[];
       if (result['ingredients'] is List) {
         for (final ing in result['ingredients'] as List) {
           if (ing is Map<String, dynamic>) {
-            final amount = ing['amount']?.toString() ?? '';
-            final unit = ing['unit']?.toString();
-            final name = ing['name']?.toString() ?? '';
-            ingredients.add([if (amount.isNotEmpty) amount, if (unit != null) unit, name].join(' ').trim());
+            ingredients.add(RecipeIngredient(
+              name: ing['name']?.toString() ?? '',
+              quantity: ing['amount']?.toString(),
+              unit: ing['unit']?.toString(),
+            ));
+          } else if (ing is String) {
+            ingredients.add(RecipeIngredient(name: ing));
           }
         }
       }
@@ -1731,12 +1734,11 @@ class _AddRecipeSheetState extends State<_AddRecipeSheet> {
 
     final ingredients = _ingredients
         .where((row) => row.nameController.text.trim().isNotEmpty)
-        .map((row) {
-          final amount = row.amountController.text.trim();
-          final unit = row.unitController.text.trim();
-          final name = row.nameController.text.trim();
-          return [if (amount.isNotEmpty) amount, if (unit.isNotEmpty) unit, name].join(' ').trim();
-        })
+        .map((row) => RecipeIngredient(
+              name: row.nameController.text.trim(),
+              quantity: row.amountController.text.trim().isEmpty ? null : row.amountController.text.trim(),
+              unit: row.unitController.text.trim().isEmpty ? null : row.unitController.text.trim(),
+            ))
         .toList();
 
     final steps = _steps

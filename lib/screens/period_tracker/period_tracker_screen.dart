@@ -201,7 +201,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
                                     Row(children: [
                                       const Text('Flow: ', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500)),
                                       ...List.generate(5, (j) => Icon(
-                                        j < (entry.flowLevel ?? 0) ? Icons.circle : Icons.circle_outlined,
+                                        j < (entry.flowLevel.index + 1) ? Icons.circle : Icons.circle_outlined,
                                         size: 10,
                                         color: const Color(0xFFEC4899),
                                       )),
@@ -304,7 +304,7 @@ class _PeriodLogSheetState extends State<_PeriodLogSheet> {
       userId: provider.activeUser!.id,
       startDate: _startDate,
       endDate: _endDate,
-      flowLevel: _flowLevel,
+      flowLevel: _flowLevel ?? FlowLevel.MEDIUM,
       symptoms: _symptoms,
       notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
     );

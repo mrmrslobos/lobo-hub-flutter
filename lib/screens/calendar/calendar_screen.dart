@@ -1,7 +1,7 @@
 // lib/screens/calendar/calendar_screen.dart
 // Calendar screen for FamilyHub
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Visibility;
 import 'package:provider/provider.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';

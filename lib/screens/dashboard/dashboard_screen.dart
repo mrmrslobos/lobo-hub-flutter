@@ -1,7 +1,7 @@
 // lib/screens/dashboard/dashboard_screen.dart
 // Home dashboard screen for FamilyHub
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Visibility;
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
