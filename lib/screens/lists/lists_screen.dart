@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../services/ai_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 
@@ -119,6 +120,25 @@ class _ListsScreenState extends State<ListsScreen> {
     );
   }
 
+  Future<void> _showAiCategorization() async {
+    if (_selectedList == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select a list first')),
+      );
+      return;
+    }
+
+    final list = _selectedList!;
+    final itemNames = list.items.map((i) => i.name).toList();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _AiCategorizationSheet(list: list, itemNames: itemNames),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
@@ -145,6 +165,7 @@ class _ListsScreenState extends State<ListsScreen> {
         onToggleItem: (item) => _toggleItem(_selectedList!, item),
         onDeleteItem: (id) => _deleteItem(_selectedList!, id),
         onDeleteList: () => _deleteList(_selectedList!),
+        onAiCategorize: _showAiCategorization,
       );
     }
 
@@ -156,7 +177,17 @@ class _ListsScreenState extends State<ListsScreen> {
       ),
       body: CustomScrollView(
         slivers: [
-          const SliverAppBar(title: Text('Lists'), floating: true),
+          SliverAppBar(
+            title: const Text('Lists'),
+            floating: true,
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.auto_awesome),
+                tooltip: 'AI Categorize',
+                onPressed: _showAiCategorization,
+              ),
+            ],
+          ),
           lists.isEmpty
               ? SliverFillRemaining(
                   child: EmptyState(
@@ -250,6 +281,160 @@ class _ListsScreenState extends State<ListsScreen> {
 }
 
 // ─────────────────────────────────────────────
+// AI Categorization Bottom Sheet
+// ─────────────────────────────────────────────
+
+class _AiCategorizationSheet extends StatefulWidget {
+  final ShoppingList list;
+  final List<String> itemNames;
+
+  const _AiCategorizationSheet({required this.list, required this.itemNames});
+
+  @override
+  State<_AiCategorizationSheet> createState() => _AiCategorizationSheetState();
+}
+
+class _AiCategorizationSheetState extends State<_AiCategorizationSheet> {
+  Map<String, List<String>>? _categories;
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _categorize();
+  }
+
+  Future<void> _categorize() async {
+    try {
+      final categories = await AiService.categorizeItems(widget.itemNames);
+      if (mounted) setState(() { _categories = categories; _loading = false; });
+    } catch (e) {
+      if (mounted) setState(() { _error = e.toString(); _loading = false; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 0,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 32,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              margin: const EdgeInsets.symmetric(vertical: 12),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppTheme.stone200,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          Row(
+            children: [
+              const Icon(Icons.auto_awesome, color: AppTheme.primary, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'AI Categories — ${widget.list.name}',
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontWeight: FontWeight.w700,
+                  fontSize: 18,
+                  color: AppTheme.stone900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (_loading)
+            const SizedBox(
+              height: 120,
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_error != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              child: Text(
+                'Error: $_error',
+                style: const TextStyle(color: AppTheme.error, fontFamily: 'Inter'),
+              ),
+            )
+          else if (_categories == null || _categories!.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: Text(
+                'No categories returned.',
+                style: TextStyle(fontFamily: 'Inter', color: AppTheme.stone500),
+              ),
+            )
+          else
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.55,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: _categories!.entries.map((entry) {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            entry.key,
+                            style: const TextStyle(
+                              fontFamily: 'Inter',
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                              letterSpacing: 0.5,
+                              color: AppTheme.primary,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          ...entry.value.map((itemName) => Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 3),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.circle, size: 6, color: AppTheme.stone400),
+                                const SizedBox(width: 8),
+                                Text(
+                                  itemName,
+                                  style: const TextStyle(
+                                    fontFamily: 'Inter',
+                                    fontSize: 14,
+                                    color: AppTheme.stone800,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
 // List detail view
 // ─────────────────────────────────────────────
 
@@ -260,6 +445,7 @@ class _ListDetailView extends StatefulWidget {
   final Future<void> Function(ListItem) onToggleItem;
   final Future<void> Function(String) onDeleteItem;
   final VoidCallback onDeleteList;
+  final VoidCallback onAiCategorize;
 
   const _ListDetailView({
     required this.list,
@@ -268,6 +454,7 @@ class _ListDetailView extends StatefulWidget {
     required this.onToggleItem,
     required this.onDeleteItem,
     required this.onDeleteList,
+    required this.onAiCategorize,
   });
 
   @override
@@ -304,6 +491,11 @@ class _ListDetailViewState extends State<_ListDetailView> {
         leading: IconButton(icon: const Icon(Icons.arrow_back_rounded), onPressed: widget.onBack),
         title: Text(widget.list.name),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.auto_awesome),
+            tooltip: 'AI Categorize',
+            onPressed: widget.onAiCategorize,
+          ),
           IconButton(
             icon: const Icon(Icons.delete_outline_rounded),
             onPressed: () async {
