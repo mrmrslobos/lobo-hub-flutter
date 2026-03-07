@@ -58,7 +58,7 @@ class _PhotosScreenState extends State<PhotosScreen> {
     final photo = Photo(
       id: const Uuid().v4(),
       familyId: provider.activeFamily!.id,
-      uploadedBy: provider.activeUser!.id,
+      uploaderId: provider.activeUser!.id,
       url: file.path,
       caption: caption?.isEmpty == true ? null : caption,
       tags: [],

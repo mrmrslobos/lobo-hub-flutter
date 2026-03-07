@@ -244,7 +244,7 @@ class _PeriodLogSheetState extends State<_PeriodLogSheet> {
   late DateTime _startDate;
   DateTime? _endDate;
   List<String> _symptoms = [];
-  int? _flowLevel;
+  FlowLevel? _flowLevel;
   final _notesCtrl = TextEditingController();
   bool _isSaving = false;
   final _uuid = const Uuid();
@@ -378,8 +378,7 @@ class _PeriodLogSheetState extends State<_PeriodLogSheet> {
               // Flow level
               const Text('Flow Level', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13, color: AppTheme.stone600)),
               const SizedBox(height: 8),
-              Row(children: List.generate(5, (i) {
-                final level = i + 1;
+              Row(children: FlowLevel.values.map((level) {
                 final isSelected = _flowLevel == level;
                 return Expanded(
                   child: Padding(
@@ -395,13 +394,13 @@ class _PeriodLogSheetState extends State<_PeriodLogSheet> {
                           border: Border.all(color: isSelected ? const Color(0xFFEC4899) : AppTheme.stone200, width: isSelected ? 2 : 1),
                         ),
                         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                          Text('$level', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: isSelected ? const Color(0xFFEC4899) : AppTheme.stone500)),
+                          Text(level.name, style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: isSelected ? const Color(0xFFEC4899) : AppTheme.stone500)),
                         ]),
                       ),
                     ),
                   ),
                 );
-              })),
+              }).toList()),
               const SizedBox(height: 20),
               // Symptoms
               const Text('Symptoms', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13, color: AppTheme.stone600)),

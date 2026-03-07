@@ -10,7 +10,8 @@ class AiService {
     String? systemPrompt,
   }) async {
     try {
-      final supabaseUrl = Supabase.instance.client.restUrl;
+      final restUrl = Supabase.instance.client.rest.url;
+      final supabaseUrl = restUrl.replaceAll('/rest/v1', '');
       final token =
           Supabase.instance.client.auth.currentSession?.accessToken ?? '';
       final uri = Uri.parse('$supabaseUrl/functions/v1/ai-proxy');

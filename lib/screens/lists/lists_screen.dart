@@ -26,10 +26,9 @@ class _ListsScreenState extends State<ListsScreen> {
     final list = ShoppingList(
       id: const Uuid().v4(),
       familyId: provider.activeFamily!.id,
-      name: name,
+      creatorId: provider.activeUser!.id,
+      title: name,
       items: [],
-      createdBy: provider.activeUser!.id,
-      createdAt: DateTime.now(),
     );
     final updated = [...db.shoppingLists, list];
     await provider.saveAndSync(db.copyWith(shoppingLists: updated));
@@ -48,7 +47,7 @@ class _ListsScreenState extends State<ListsScreen> {
   Future<void> _addItem(ShoppingList list, String name) async {
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    final newItem = ListItem(id: const Uuid().v4(), name: name, checked: false, quantity: 1);
+    final newItem = ListItem(id: const Uuid().v4(), text: name, checked: false);
     final updatedList = list.copyWith(items: [...list.items, newItem]);
     final updatedLists = db.shoppingLists.map((l) => l.id == list.id ? updatedList : l).toList();
     await provider.saveAndSync(db.copyWith(shoppingLists: updatedLists));
@@ -621,7 +620,7 @@ class _ItemTile extends StatelessWidget {
                   ),
                 ),
               ),
-              if (item.quantity > 1)
+              if (item.quantity != null && item.quantity!.isNotEmpty && item.quantity != '1')
                 Text('×${item.quantity}', style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
             ]),
           ),

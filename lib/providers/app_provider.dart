@@ -220,6 +220,22 @@ class AppProvider extends ChangeNotifier {
   /// Look up a User by their ID
   User? userById(String id) =>
       db.users.firstWhereOrNull((u) => u.id == id);
+
+  /// Returns total approved chore points for a given user in the active family
+  int chorePointsForUser(String userId) {
+    if (_activeFamily == null) return 0;
+    final completions = db.choreCompletions.where(
+      (c) => c.userId == userId &&
+             c.familyId == _activeFamily!.id &&
+             c.approvalStatus == ApprovalStatus.APPROVED,
+    );
+    int total = 0;
+    for (final completion in completions) {
+      final chore = db.chores.firstWhereOrNull((ch) => ch.id == completion.choreId);
+      total += chore?.points ?? 0;
+    }
+    return total;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

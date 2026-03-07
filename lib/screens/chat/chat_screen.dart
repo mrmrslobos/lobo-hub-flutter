@@ -61,9 +61,8 @@ class _ChatScreenState extends State<ChatScreen> {
       final msg = Message(
         id: uuid.v4(),
         familyId: provider.activeFamily!.id,
-        senderId: provider.activeUser!.id,
-        content: text,
-        type: MessageType.text,
+        userId: provider.activeUser!.id,
+        text: text,
         replyToId: _replyTo?.id,
         reactions: {},
         createdAt: DateTime.now(),

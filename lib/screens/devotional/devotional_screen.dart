@@ -870,12 +870,10 @@ class _AddReadingPlanSheetState extends State<_AddReadingPlanSheet> {
     final plan = ReadingPlan(
       id: _uuid.v4(),
       familyId: provider.activeFamily!.id,
+      creatorId: provider.activeUser!.id,
       title: _titleCtrl.text.trim(),
       description: _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
-      entries: _entries,
-      createdBy: provider.activeUser!.id,
       createdAt: DateTime.now(),
-      startDate: DateTime.now(),
     );
     await widget.onSave(plan);
     if (mounted) Navigator.pop(context);

@@ -300,7 +300,7 @@ class _HealthRecordSheetState extends State<_HealthRecordSheet> {
       type: _type,
       title: _titleCtrl.text.trim(),
       data: Map.from(_data),
-      date: _date,
+      updatedAt: _date,
       notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
     );
     await widget.onSave(record);

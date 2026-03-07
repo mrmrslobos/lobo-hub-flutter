@@ -289,13 +289,12 @@ class _AiBreakdownSheetState extends State<_AiBreakdownSheet> {
             familyId: familyId,
             title: title,
             completed: false,
-            priority: TaskPriority.medium,
-            recurrence: TaskRecurrence.none,
+            priority: Priority.MEDIUM,
+            recurrence: Recurrence.NONE,
             dueDate: null,
-            assigneeIds: [userId],
+            assignees: [userId],
             tags: [],
-            createdBy: userId,
-            createdAt: DateTime.now(),
+            creatorId: userId,
           )).toList();
 
       final updatedTasks = [...db.tasks, ...newTasks];
@@ -648,7 +647,7 @@ class _TaskCard extends StatelessWidget {
                           if (task.dueDate != null)
                             _DueDateChip(dueDate: task.dueDate!,
                                 isOverdue: task.isOverdue),
-                          if (task.recurrence != TaskRecurrence.none)
+                          if (task.recurrence != Recurrence.NONE)
                             _RecurrenceChip(
                                 recurrence: task.recurrence),
                           for (final tag in task.tags)
@@ -728,16 +727,16 @@ class _DueDateChip extends StatelessWidget {
 }
 
 class _RecurrenceChip extends StatelessWidget {
-  final TaskRecurrence recurrence;
+  final Recurrence recurrence;
 
   const _RecurrenceChip({required this.recurrence});
 
   @override
   Widget build(BuildContext context) {
     final labels = {
-      TaskRecurrence.daily: 'Daily',
-      TaskRecurrence.weekly: 'Weekly',
-      TaskRecurrence.monthly: 'Monthly',
+      Recurrence.DAILY: 'Daily',
+      Recurrence.WEEKLY: 'Weekly',
+      Recurrence.MONTHLY: 'Monthly',
     };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -800,8 +799,8 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
   late TextEditingController _notesCtrl;
   late TextEditingController _tagsCtrl;
 
-  TaskPriority _priority = TaskPriority.medium;
-  TaskRecurrence _recurrence = TaskRecurrence.none;
+  Priority _priority = Priority.MEDIUM;
+  Recurrence _recurrence = Recurrence.NONE;
   DateTime? _dueDate;
   List<String> _assigneeIds = [];
   bool _loading = false;
@@ -817,7 +816,7 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
       _priority = t.priority;
       _recurrence = t.recurrence;
       _dueDate = t.dueDate;
-      _assigneeIds = List.from(t.assigneeIds);
+      _assigneeIds = List.from(t.assignees);
     }
   }
 
@@ -864,7 +863,7 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
           priority: _priority,
           recurrence: _recurrence,
           dueDate: _dueDate,
-          assigneeIds: _assigneeIds,
+          assignees: _assigneeIds,
           tags: tags,
         );
         final tasks = db.tasks
@@ -883,10 +882,9 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
           priority: _priority,
           recurrence: _recurrence,
           dueDate: _dueDate,
-          assigneeIds: _assigneeIds,
+          assignees: _assigneeIds,
           tags: tags,
-          createdBy: userId,
-          createdAt: DateTime.now(),
+          creatorId: userId,
         );
         final tasks = [...db.tasks, task];
         await provider.saveAndSync(db.copyWith(tasks: tasks));
@@ -1007,7 +1005,7 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
                     _sheetSectionLabel('Priority'),
                     const SizedBox(height: 8),
                     Row(
-                      children: TaskPriority.values
+                      children: Priority.values
                           .map((p) => Expanded(
                                 child: Padding(
                                   padding: const EdgeInsets.only(
@@ -1064,7 +1062,7 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
                     SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       child: Row(
-                        children: TaskRecurrence.values
+                        children: Recurrence.values
                             .map((r) => Padding(
                                   padding:
                                       const EdgeInsets.only(right: 8),
@@ -1190,26 +1188,26 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
         ),
       );
 
-  Color _priorityColor(TaskPriority p) {
+  Color _priorityColor(Priority p) {
     switch (p) {
-      case TaskPriority.high:
+      case Priority.HIGH:
         return AppTheme.error;
-      case TaskPriority.medium:
+      case Priority.MEDIUM:
         return AppTheme.warning;
-      case TaskPriority.low:
+      case Priority.LOW:
         return AppTheme.success;
     }
   }
 
-  String _recurrenceLabel(TaskRecurrence r) {
+  String _recurrenceLabel(Recurrence r) {
     switch (r) {
-      case TaskRecurrence.none:
+      case Recurrence.NONE:
         return 'None';
-      case TaskRecurrence.daily:
+      case Recurrence.DAILY:
         return 'Daily';
-      case TaskRecurrence.weekly:
+      case Recurrence.WEEKLY:
         return 'Weekly';
-      case TaskRecurrence.monthly:
+      case Recurrence.MONTHLY:
         return 'Monthly';
     }
   }

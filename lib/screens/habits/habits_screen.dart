@@ -234,7 +234,7 @@ class _HabitsScreenState extends State<HabitsScreen> {
         habitId: habit.id,
         userId: user.id,
         date: DateTime.now(),
-        createdAt: DateTime.now(),
+        completedAt: DateTime.now(),
       );
       updated = [...db.habitCompletions, completion];
     }
@@ -754,10 +754,10 @@ class _AddHabitSheetState extends State<_AddHabitSheet> {
       id: widget.editHabit?.id ?? _uuid.v4(),
       familyId: widget.familyId,
       userId: widget.userId,
-      title: title,
+      label: title,
       description:
           _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
-      emoji: _emoji,
+      icon: _emoji,
       frequency: _frequency,
       isShared: _isShared,
       targetValue: int.tryParse(_targetValueCtrl.text.trim()),

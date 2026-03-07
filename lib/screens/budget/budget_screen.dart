@@ -104,7 +104,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
               final provider = context.read<AppProvider>();
               final db = provider.db;
               final updated = goal.copyWith(
-                currentAmount: goal.currentAmount + amount,
+                savedAmount: goal.savedAmount + amount,
               );
               final goals = db.savingsGoals
                   .map((g) => g.id == goal.id ? updated : g)
@@ -649,12 +649,12 @@ class _AddGoalSheetState extends State<_AddGoalSheet> {
     final goal = SavingsGoal(
       id: _uuid.v4(),
       familyId: provider.activeFamily!.id,
+      userId: provider.activeUser!.id,
       title: title,
       targetAmount: target,
-      currentAmount: current,
-      emoji: _selectedEmoji,
-      deadline: _deadline,
-      createdBy: provider.activeUser!.id,
+      savedAmount: current,
+      icon: _selectedEmoji,
+      completedAt: _deadline,
       createdAt: DateTime.now(),
     );
     await widget.onSave(goal);
@@ -1194,12 +1194,12 @@ class _BudgetEntrySheetState extends State<_BudgetEntrySheet> {
     final entry = BudgetEntry(
       id: _uuid.v4(),
       familyId: provider.activeFamily!.id,
+      creatorId: provider.activeUser!.id,
       title: _titleCtrl.text.trim(),
       amount: amount,
       category: _category,
-      isIncome: _isIncome,
+      type: _isIncome ? TransactionType.INCOME : TransactionType.EXPENSE,
       date: _date,
-      createdBy: provider.activeUser!.id,
       notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
     );
     await widget.onSave(entry);
