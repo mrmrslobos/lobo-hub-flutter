@@ -23,7 +23,7 @@ enum ListCategory { GROCERY, HARDWARE, PACKING, OTHER }
 
 enum ChoreFrequency { DAILY, WEEKLY, CUSTOM }
 
-enum PollStatus { OPEN, CLOSED }
+enum PollStatus { open, closed }
 
 enum ApprovalStatus { PENDING, APPROVED, REJECTED }
 
@@ -114,9 +114,9 @@ ChoreFrequency choreFrequencyFromString(String? s) {
 }
 
 PollStatus pollStatusFromString(String? s) {
-  switch (s?.toUpperCase()) {
-    case 'CLOSED': return PollStatus.CLOSED;
-    default: return PollStatus.OPEN;
+  switch (s?.toLowerCase()) {
+    case 'closed': return PollStatus.closed;
+    default: return PollStatus.open;
   }
 }
 
@@ -960,40 +960,73 @@ class AIHistory {
 class DailyHabit {
   final String id;
   final String userId;
+  final String? familyId;
   final String label;
   final String? icon;
   final String? color;
+  final String? description;
+  final bool isShared;
+  final String? frequency;
+  final num? targetValue;
+  final String? targetUnit;
   final DateTime createdAt;
   final int order;
 
   const DailyHabit({
     required this.id,
     required this.userId,
+    this.familyId,
     required this.label,
     this.icon,
     this.color,
+    this.description,
+    this.isShared = false,
+    this.frequency,
+    this.targetValue,
+    this.targetUnit,
     required this.createdAt,
     this.order = 0,
   });
 
+  // Convenience aliases
+  String get title => label;
+  String get emoji => icon ?? '';
+
+  DailyHabit copyWith({
+    String? id, String? userId, String? familyId, String? label, String? icon,
+    String? color, String? description, bool? isShared, String? frequency,
+    num? targetValue, String? targetUnit, DateTime? createdAt, int? order,
+  }) => DailyHabit(
+    id: id ?? this.id, userId: userId ?? this.userId, familyId: familyId ?? this.familyId,
+    label: label ?? this.label, icon: icon ?? this.icon, color: color ?? this.color,
+    description: description ?? this.description, isShared: isShared ?? this.isShared,
+    frequency: frequency ?? this.frequency, targetValue: targetValue ?? this.targetValue,
+    targetUnit: targetUnit ?? this.targetUnit, createdAt: createdAt ?? this.createdAt,
+    order: order ?? this.order,
+  );
+
   factory DailyHabit.fromJson(Map<String, dynamic> j) => DailyHabit(
     id: j['id'] as String? ?? '',
     userId: (j['user_id'] ?? j['userId']) as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String?,
     label: j['label'] as String? ?? '',
     icon: j['icon'] as String?,
     color: j['color'] as String?,
+    description: j['description'] as String?,
+    isShared: (j['is_shared'] ?? j['isShared'] ?? false) as bool,
+    frequency: j['frequency'] as String?,
+    targetValue: j['target_value'] ?? j['targetValue'] as num?,
+    targetUnit: (j['target_unit'] ?? j['targetUnit']) as String?,
     createdAt: _parseDate(j['created_at'] ?? j['createdAt']),
     order: (j['order'] as int?) ?? 0,
   );
 
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'user_id': userId,
-    'label': label,
-    'icon': icon,
-    'color': color,
-    'created_at': createdAt.toIso8601String(),
-    'order': order,
+    'id': id, 'user_id': userId, 'family_id': familyId, 'label': label,
+    'icon': icon, 'color': color, 'description': description,
+    'is_shared': isShared, 'frequency': frequency,
+    'target_value': targetValue, 'target_unit': targetUnit,
+    'created_at': createdAt.toIso8601String(), 'order': order,
   };
 }
 
@@ -1028,6 +1061,9 @@ class DailyHabitCompletion {
     'date': date.toIso8601String(),
     'completed_at': completedAt.toIso8601String(),
   };
+
+  // Convenience alias - screens use createdAt
+  DateTime get createdAt => completedAt;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1321,15 +1357,20 @@ class SavingsGoal {
 class PollOption {
   final String id;
   final String text;
+  final List<String> voterIds;
 
-  const PollOption({required this.id, required this.text});
+  const PollOption({required this.id, required this.text, this.voterIds = const []});
+
+  PollOption copyWith({String? id, String? text, List<String>? voterIds}) =>
+      PollOption(id: id ?? this.id, text: text ?? this.text, voterIds: voterIds ?? this.voterIds);
 
   factory PollOption.fromJson(Map<String, dynamic> j) => PollOption(
     id: j['id'] as String? ?? '',
     text: j['text'] as String? ?? '',
+    voterIds: _strList(j['voter_ids'] ?? j['voterIds']),
   );
 
-  Map<String, dynamic> toJson() => {'id': id, 'text': text};
+  Map<String, dynamic> toJson() => {'id': id, 'text': text, 'voter_ids': voterIds};
 }
 
 class Poll {
@@ -1353,7 +1394,7 @@ class Poll {
     this.options = const [],
     this.allowMultiple = false,
     this.anonymous = false,
-    this.status = PollStatus.OPEN,
+    this.status = PollStatus.open,
     this.deadline,
     this.visibility = Visibility.FAMILY,
     required this.createdAt,
@@ -1386,6 +1427,24 @@ class Poll {
     'visibility': visibility.name,
     'created_at': createdAt.toIso8601String(),
   };
+
+  // Convenience aliases
+  String get createdBy => creatorId;
+  DateTime? get expiresAt => deadline;
+  int get totalVotes => options.fold(0, (sum, o) => sum + o.voterIds.length);
+
+  Poll copyWith({
+    String? id, String? familyId, String? creatorId, String? question,
+    List<PollOption>? options, bool? allowMultiple, bool? anonymous,
+    PollStatus? status, DateTime? deadline, Visibility? visibility, DateTime? createdAt,
+  }) => Poll(
+    id: id ?? this.id, familyId: familyId ?? this.familyId,
+    creatorId: creatorId ?? this.creatorId, question: question ?? this.question,
+    options: options ?? this.options, allowMultiple: allowMultiple ?? this.allowMultiple,
+    anonymous: anonymous ?? this.anonymous, status: status ?? this.status,
+    deadline: deadline ?? this.deadline, visibility: visibility ?? this.visibility,
+    createdAt: createdAt ?? this.createdAt,
+  );
 }
 
 class PollVote {
@@ -1450,6 +1509,7 @@ class PrayerWallEntry {
   final String text;
   final String? originalRequestId;
   final List<Reaction> reactions;
+  final List<String> prayedByIds;
   final DateTime date;
   final DateTime? answeredAt;
   final Visibility visibility;
@@ -1462,10 +1522,24 @@ class PrayerWallEntry {
     required this.text,
     this.originalRequestId,
     this.reactions = const [],
+    this.prayedByIds = const [],
     required this.date,
     this.answeredAt,
     this.visibility = Visibility.FAMILY,
   });
+
+  PrayerWallEntry copyWith({
+    String? id, String? familyId, String? creatorId, PrayerWallType? type,
+    String? text, String? originalRequestId, List<Reaction>? reactions,
+    List<String>? prayedByIds, DateTime? date, DateTime? answeredAt, Visibility? visibility,
+  }) => PrayerWallEntry(
+    id: id ?? this.id, familyId: familyId ?? this.familyId,
+    creatorId: creatorId ?? this.creatorId, type: type ?? this.type,
+    text: text ?? this.text, originalRequestId: originalRequestId ?? this.originalRequestId,
+    reactions: reactions ?? this.reactions, prayedByIds: prayedByIds ?? this.prayedByIds,
+    date: date ?? this.date, answeredAt: answeredAt ?? this.answeredAt,
+    visibility: visibility ?? this.visibility,
+  );
 
   factory PrayerWallEntry.fromJson(Map<String, dynamic> j) => PrayerWallEntry(
     id: j['id'] as String? ?? '',
@@ -1475,19 +1549,18 @@ class PrayerWallEntry {
     text: j['text'] as String? ?? '',
     originalRequestId: (j['original_request_id'] ?? j['originalRequestId']) as String?,
     reactions: _parseList(j['reactions'], Reaction.fromJson),
+    prayedByIds: _strList(j['prayed_by_ids'] ?? j['prayedByIds']),
     date: _parseDate(j['date']),
     answeredAt: _parseDateOpt(j['answered_at'] ?? j['answeredAt']),
     visibility: visibilityFromString(j['visibility'] as String?),
   );
 
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'family_id': familyId,
-    'creator_id': creatorId,
-    'type': type.name,
-    'text': text,
+    'id': id, 'family_id': familyId, 'creator_id': creatorId,
+    'type': type.name, 'text': text,
     'original_request_id': originalRequestId,
     'reactions': reactions.map((r) => r.toJson()).toList(),
+    'prayed_by_ids': prayedByIds,
     'date': date.toIso8601String(),
     'answered_at': answeredAt?.toIso8601String(),
     'visibility': visibility.name,
@@ -1677,6 +1750,9 @@ class FamilyPhoto {
     'tags': tags,
     'visibility': visibility.name,
   };
+
+  // Convenience alias
+  String get uploadedBy => uploaderId;
 }
 
 class Milestone {
@@ -2004,11 +2080,16 @@ class HealthRecord {
   final String? insurancePolicyNumber;
   final String? notes;
   final DateTime updatedAt;
+  // Extended log-style fields
+  final String? type;
+  final String? title;
+  final Map<String, String> data;
 
   const HealthRecord({
     required this.id,
     required this.familyId,
-    required this.memberId,
+    String? userId,
+    String? memberId,
     this.updatedBy,
     this.bloodType = BloodType.Unknown,
     this.allergies = const [],
@@ -2022,12 +2103,19 @@ class HealthRecord {
     this.insurancePolicyNumber,
     this.notes,
     required this.updatedAt,
-  });
+    this.type,
+    this.title,
+    this.data = const {},
+  }) : memberId = userId ?? memberId ?? '';
+
+  // Convenience getters
+  String get userId => memberId;
+  DateTime get date => updatedAt;
 
   factory HealthRecord.fromJson(Map<String, dynamic> j) => HealthRecord(
     id: j['id'] as String? ?? '',
     familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
-    memberId: (j['member_id'] ?? j['memberId']) as String? ?? '',
+    memberId: (j['member_id'] ?? j['memberId'] ?? j['user_id'] ?? j['userId']) as String? ?? '',
     updatedBy: (j['updated_by'] ?? j['updatedBy']) as String?,
     bloodType: bloodTypeFromString((j['blood_type'] ?? j['bloodType']) as String?),
     allergies: _parseList(j['allergies'], HealthAllergy.fromJson),
@@ -2041,12 +2129,13 @@ class HealthRecord {
     insurancePolicyNumber: (j['insurance_policy_number'] ?? j['insurancePolicyNumber']) as String?,
     notes: j['notes'] as String?,
     updatedAt: _parseDate(j['updated_at'] ?? j['updatedAt']),
+    type: j['type'] as String?,
+    title: j['title'] as String?,
+    data: (j['data'] as Map<String, dynamic>?)?.map((k, v) => MapEntry(k, v.toString())) ?? const {},
   );
 
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'family_id': familyId,
-    'member_id': memberId,
+    'id': id, 'family_id': familyId, 'member_id': memberId,
     'updated_by': updatedBy,
     'blood_type': bloodType.name,
     'allergies': allergies.map((e) => e.toJson()).toList(),
@@ -2054,12 +2143,11 @@ class HealthRecord {
     'conditions': conditions.map((e) => e.toJson()).toList(),
     'immunizations': immunizations.map((e) => e.toJson()).toList(),
     'emergency_contacts': emergencyContacts.map((e) => e.toJson()).toList(),
-    'doctor_name': doctorName,
-    'doctor_phone': doctorPhone,
+    'doctor_name': doctorName, 'doctor_phone': doctorPhone,
     'insurance_provider': insuranceProvider,
     'insurance_policy_number': insurancePolicyNumber,
-    'notes': notes,
-    'updated_at': updatedAt.toIso8601String(),
+    'notes': notes, 'updated_at': updatedAt.toIso8601String(),
+    'type': type, 'title': title, 'data': data,
   };
 }
 
@@ -2502,10 +2590,23 @@ class AppDB {
     userLocations: userLocations ?? this.userLocations,
     messages: messages ?? this.messages,
     healthRecords: healthRecords ?? this.healthRecords,
-    periodCycles: periodCycles ?? this.periodCycles,
+    prayerWall: prayerRequests ?? prayerWall ?? this.prayerWall,
+    specialDates: occasions ?? specialDates ?? this.specialDates,
+    familyPhotos: photos ?? familyPhotos ?? this.familyPhotos,
+    userLocations: locationShares ?? userLocations ?? this.userLocations,
+    periodCycles: periodEntries ?? periodCycles ?? this.periodCycles,
+    dailyHabitCompletions: habitCompletions ?? dailyHabitCompletions ?? this.dailyHabitCompletions,
     periodSymptoms: periodSymptoms ?? this.periodSymptoms,
     notificationPrefs: notificationPrefs ?? this.notificationPrefs,
   );
+
+  // Convenience alias getters for screen compatibility
+  List<PrayerWallEntry> get prayerRequests => prayerWall;
+  List<PeriodCycle> get periodEntries => periodCycles;
+  List<SpecialDate> get occasions => specialDates;
+  List<FamilyPhoto> get photos => familyPhotos;
+  List<UserLocation> get locationShares => userLocations;
+  List<DailyHabitCompletion> get habitCompletions => dailyHabitCompletions;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
