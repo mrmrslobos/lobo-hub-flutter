@@ -289,6 +289,7 @@ class _OccasionFormSheetState extends State<_OccasionFormSheet> {
     final occasion = Occasion(
       id: _uuid.v4(),
       familyId: provider.activeFamily!.id,
+      creatorId: provider.activeUser!.id,
       title: _titleCtrl.text.trim(),
       type: _type,
       date: _date,

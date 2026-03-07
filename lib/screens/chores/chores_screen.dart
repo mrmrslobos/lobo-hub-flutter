@@ -34,7 +34,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
     final db = provider.db;
     final updated = db.chores.map((c) {
       if (c.id == chore.id) {
-        return c.copyWith(lastCompletedAt: DateTime.now(), lastCompletedBy: userId);
+        return c.copyWith();
       }
       return c;
     }).toList();
@@ -79,7 +79,8 @@ class _ChoresScreenState extends State<ChoresScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    final members = provider.familyMembers;
+    final familyId = family.id;
+    final members = provider.db.users.where((u) => provider.db.familyMembers.any((m) => m.familyId == familyId && m.userId == u.id)).toList();
     final allChores = provider.db.chores.where((c) => c.familyId == family.id).toList();
     final shown = _filterUserId == null
         ? allChores
@@ -352,7 +353,7 @@ class _ChoreFormSheetState extends State<_ChoreFormSheet> {
   final _titleCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
   final _pointsCtrl = TextEditingController(text: '5');
-  ChoreFrequency _frequency = ChoreFrequency.weekly;
+  ChoreFrequency _frequency = ChoreFrequency.WEEKLY;
   List<String> _assigneeIds = [];
   bool _isSaving = false;
   final _uuid = const Uuid();
@@ -372,9 +373,10 @@ class _ChoreFormSheetState extends State<_ChoreFormSheet> {
     final chore = Chore(
       id: _uuid.v4(),
       familyId: provider.activeFamily!.id,
+      creatorId: provider.activeUser!.id,
       title: _titleCtrl.text.trim(),
       description: _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
-      assigneeIds: _assigneeIds,
+      assignees: _assigneeIds,
       frequency: _frequency,
       points: int.tryParse(_pointsCtrl.text) ?? 5,
       createdAt: DateTime.now(),

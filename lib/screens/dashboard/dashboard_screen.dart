@@ -552,7 +552,7 @@ class _EventTile extends StatelessWidget {
     final timeStr = event.allDay
         ? 'All day'
         : DateFormat('h:mm a').format(event.startDate);
-    final isPersonal = event.visibility == EventVisibility.personal;
+    final isPersonal = event.visibility == Visibility.PRIVATE;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),

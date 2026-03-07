@@ -181,7 +181,7 @@ class _FamilyHubAppState extends State<FamilyHubApp> {
         GoRoute(
           path: '/ai-history',
           name: 'ai-history',
-          builder: (context, state) => const AiHistoryScreen(),
+          builder: (context, state) => const AIHistoryScreen(),
         ),
         GoRoute(
           path: '/habits',

@@ -305,7 +305,7 @@ class _EventCard extends StatelessWidget {
   });
 
   Color _visibilityColor() {
-    return event.visibility == EventVisibility.personal
+    return event.visibility == Visibility.PRIVATE
         ? AppTheme.primary
         : const Color(0xFF8B5CF6);
   }
@@ -393,7 +393,7 @@ class _EventCard extends StatelessWidget {
                             ),
                             child: Text(
                               event.visibility ==
-                                      EventVisibility.personal
+                                      Visibility.PRIVATE
                                   ? 'Personal'
                                   : 'Family',
                               style: TextStyle(
@@ -497,7 +497,7 @@ class _EventFormSheetState extends State<_EventFormSheet> {
   late DateTime _startDate;
   late DateTime _endDate;
   bool _allDay = false;
-  EventVisibility _visibility = EventVisibility.family;
+  Visibility _visibility = Visibility.FAMILY;
   bool _loading = false;
 
   @override
@@ -589,6 +589,8 @@ class _EventFormSheetState extends State<_EventFormSheet> {
       final event = CalendarEvent(
         id: widget.editEvent?.id ?? uuid.v4(),
         familyId: provider.activeFamily!.id,
+        creatorId: widget.editEvent?.creatorId ??
+            provider.activeUser!.id,
         title: _titleCtrl.text.trim(),
         description: _descCtrl.text.trim().isEmpty
             ? null
@@ -596,13 +598,9 @@ class _EventFormSheetState extends State<_EventFormSheet> {
         location: _locationCtrl.text.trim().isEmpty
             ? null
             : _locationCtrl.text.trim(),
-        startDate: _startDate,
-        endDate: _allDay ? _startDate : _endDate,
-        allDay: _allDay,
+        start: _startDate,
+        end: _allDay ? _startDate : _endDate,
         visibility: _visibility,
-        createdBy: widget.editEvent?.createdBy ??
-            provider.activeUser!.id,
-        createdAt: widget.editEvent?.createdAt ?? DateTime.now(),
       );
 
       List<CalendarEvent> events;
@@ -729,9 +727,9 @@ class _EventFormSheetState extends State<_EventFormSheet> {
                     ),
                     const SizedBox(height: 8),
                     Row(
-                      children: EventVisibility.values.map((v) {
+                      children: Visibility.values.map((v) {
                         final selected = _visibility == v;
-                        final label = v == EventVisibility.family
+                        final label = v == Visibility.FAMILY
                             ? 'Family'
                             : 'Personal';
                         return Expanded(

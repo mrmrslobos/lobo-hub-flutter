@@ -534,10 +534,7 @@ class _AddMealSheetState extends State<_AddMealSheet> {
     if (widget.existingMeal != null) {
       final updated = widget.existingMeal!.copyWith(
         mealType: _selectedType,
-        title: _titleController.text.trim(),
-        notes: _notesController.text.trim().isEmpty
-            ? null
-            : _notesController.text.trim(),
+        customMeal: _titleController.text.trim(),
       );
       final meals =
           db.mealPlans.map((m) => m.id == updated.id ? updated : m).toList();
@@ -548,11 +545,7 @@ class _AddMealSheetState extends State<_AddMealSheet> {
         familyId: familyId,
         date: widget.day,
         mealType: _selectedType,
-        title: _titleController.text.trim(),
-        notes: _notesController.text.trim().isEmpty
-            ? null
-            : _notesController.text.trim(),
-        createdBy: userId,
+        customMeal: _titleController.text.trim(),
       );
       final meals = [...db.mealPlans, newMeal];
       await provider.saveAndSync(db.copyWith(mealPlans: meals));
@@ -1506,15 +1499,14 @@ class _ImportUrlDialogState extends State<_ImportUrlDialog> {
       final userId = provider.activeUser?.id ?? '';
       final familyId = provider.activeFamily?.id ?? '';
 
-      final ingredients = <RecipeIngredient>[];
+      final ingredients = <String>[];
       if (result['ingredients'] is List) {
         for (final ing in result['ingredients'] as List) {
           if (ing is Map<String, dynamic>) {
-            ingredients.add(RecipeIngredient(
-              name: ing['name']?.toString() ?? '',
-              amount: ing['amount']?.toString() ?? '',
-              unit: ing['unit']?.toString(),
-            ));
+            final amount = ing['amount']?.toString() ?? '';
+            final unit = ing['unit']?.toString();
+            final name = ing['name']?.toString() ?? '';
+            ingredients.add([if (amount.isNotEmpty) amount, if (unit != null) unit, name].join(' ').trim());
           }
         }
       }
@@ -1539,7 +1531,6 @@ class _ImportUrlDialogState extends State<_ImportUrlDialog> {
         tags: const [],
         sourceUrl: url,
         createdBy: userId,
-        createdAt: DateTime.now(),
       );
 
       await provider.saveAndSync(
@@ -1740,13 +1731,12 @@ class _AddRecipeSheetState extends State<_AddRecipeSheet> {
 
     final ingredients = _ingredients
         .where((row) => row.nameController.text.trim().isNotEmpty)
-        .map((row) => RecipeIngredient(
-              name: row.nameController.text.trim(),
-              amount: row.amountController.text.trim(),
-              unit: row.unitController.text.trim().isEmpty
-                  ? null
-                  : row.unitController.text.trim(),
-            ))
+        .map((row) {
+          final amount = row.amountController.text.trim();
+          final unit = row.unitController.text.trim();
+          final name = row.nameController.text.trim();
+          return [if (amount.isNotEmpty) amount, if (unit.isNotEmpty) unit, name].join(' ').trim();
+        })
         .toList();
 
     final steps = _steps
@@ -1757,13 +1747,8 @@ class _AddRecipeSheetState extends State<_AddRecipeSheet> {
     if (widget.existingRecipe != null) {
       final updated = widget.existingRecipe!.copyWith(
         title: _titleController.text.trim(),
-        description: _descController.text.trim().isEmpty
-            ? null
-            : _descController.text.trim(),
         ingredients: ingredients,
         steps: steps,
-        prepMinutes: int.tryParse(_prepController.text),
-        cookMinutes: int.tryParse(_cookController.text),
         servings: int.tryParse(_servingsController.text),
         tags: List.from(_selectedTags),
       );
@@ -1776,17 +1761,11 @@ class _AddRecipeSheetState extends State<_AddRecipeSheet> {
         id: const Uuid().v4(),
         familyId: familyId,
         title: _titleController.text.trim(),
-        description: _descController.text.trim().isEmpty
-            ? null
-            : _descController.text.trim(),
         ingredients: ingredients,
         steps: steps,
-        prepMinutes: int.tryParse(_prepController.text),
-        cookMinutes: int.tryParse(_cookController.text),
         servings: int.tryParse(_servingsController.text),
         tags: List.from(_selectedTags),
         createdBy: userId,
-        createdAt: DateTime.now(),
       );
       await provider.saveAndSync(
           db.copyWith(recipes: [...db.recipes, newRecipe]));

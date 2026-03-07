@@ -8,6 +8,14 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
+/// Simple time-of-day container (replaces the removed flutter_local_notifications Time class).
+class Time {
+  final int hour;
+  final int minute;
+  final int second;
+  const Time(this.hour, [this.minute = 0, this.second = 0]);
+}
+
 class NotificationService {
   static final _plugin = FlutterLocalNotificationsPlugin();
   static bool _initialized = false;
@@ -156,7 +164,8 @@ class NotificationService {
       final token = await getFcmToken();
       if (token == null) return;
 
-      final supabaseUrl = Supabase.instance.client.supabaseUrl;
+      final restUrl = Supabase.instance.client.rest.url;
+      final supabaseUrl = restUrl.replaceAll('/rest/v1', '');
       final accessToken =
           Supabase.instance.client.auth.currentSession?.accessToken ?? '';
       final uri = Uri.parse('$supabaseUrl/functions/v1/notify-family');

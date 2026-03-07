@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
-import 'package:purchases_ui_flutter/purchases_ui_flutter.dart';
 
 class PurchaseService {
   static bool _initialized = false;
@@ -67,7 +66,8 @@ class PurchaseService {
     }
 
     try {
-      await RevenueCatUI.presentPaywall();
+      // RevenueCatUI paywall not available - purchases_ui_flutter not included
+      debugPrint('[PurchaseService] presentPaywall() - paywall UI not available.');
     } catch (e, st) {
       debugPrint('[PurchaseService] presentPaywall() error: $e\n$st');
     }

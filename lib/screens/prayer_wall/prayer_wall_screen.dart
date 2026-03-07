@@ -58,7 +58,7 @@ class _PrayerWallScreenState extends State<PrayerWallScreen>
     final db = provider.db;
     await provider.saveAndSync(db.copyWith(
       prayerRequests: db.prayerRequests
-          .map((r) => r.id == request.id ? r.copyWith(answered: true) : r)
+          .map((r) => r.id == request.id ? r.copyWith(answeredAt: DateTime.now()) : r)
           .toList(),
     ));
     if (mounted) {

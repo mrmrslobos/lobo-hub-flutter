@@ -372,9 +372,9 @@ class _CreatePollSheetState extends State<_CreatePollSheet> {
       question: _questionCtrl.text.trim(),
       options: validOptions.map((t) => PollOption(id: _uuid.v4(), text: t, voterIds: [])).toList(),
       status: PollStatus.open,
-      createdBy: provider.activeUser!.id,
+      creatorId: provider.activeUser!.id,
       createdAt: DateTime.now(),
-      expiresAt: _expiresAt,
+      deadline: _expiresAt,
     );
     await widget.onSave(poll);
     if (mounted) Navigator.pop(context);
