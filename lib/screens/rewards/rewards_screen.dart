@@ -32,6 +32,29 @@ class _RewardsScreenState extends State<RewardsScreen> with SingleTickerProvider
   }
 
   Future<void> _redeemReward(Reward reward, String userId) async {
+    // Confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Redeem Reward?'),
+        content: Text(
+          'Redeem "${reward.title}" for ${reward.pointCost} points?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.success),
+            child: const Text('Redeem 🎉'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
     final provider = context.read<AppProvider>();
     final db = provider.db;
     final updated = db.rewards.map((r) {
@@ -50,7 +73,7 @@ class _RewardsScreenState extends State<RewardsScreen> with SingleTickerProvider
     await provider.saveAndSync(db.copyWith(rewards: updated));
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('${reward.title} redeemed!'),
+        content: Text('${reward.title} redeemed! 🎉'),
         backgroundColor: AppTheme.success,
       ));
     }
@@ -97,12 +120,19 @@ class _RewardsScreenState extends State<RewardsScreen> with SingleTickerProvider
 
     final myRedemptions = rewards.where((r) => r.redeemedBy.contains(user.id)).toList();
 
+    final isOwner = user.id == family.ownerId;
+
     return Scaffold(
       drawer: const AppDrawer(),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showAddRewardSheet,
-        child: const Icon(Icons.add_rounded),
-      ),
+      floatingActionButton: isOwner
+          ? FloatingActionButton.extended(
+              onPressed: _showAddRewardSheet,
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Add Reward',
+                  style: TextStyle(
+                      fontFamily: 'Inter', fontWeight: FontWeight.w700)),
+            )
+          : null,
       body: NestedScrollView(
         headerSliverBuilder: (context, _) => [
           SliverAppBar(
@@ -349,8 +379,14 @@ class _RewardFormSheetState extends State<_RewardFormSheet> {
   final _titleCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
   final _costCtrl = TextEditingController(text: '50');
+  String _selectedIcon = '🎁';
   bool _isSaving = false;
   final _uuid = const Uuid();
+
+  static const _iconOptions = [
+    '🎁', '🎮', '🍕', '🎬', '🏖️', '🛍️', '☕', '🍦', '🎯', '🏆',
+    '💆', '🎤', '🎲', '📱', '🎵', '🌟', '🍫', '🚗', '✈️', '🏠',
+  ];
 
   @override
   void dispose() {
@@ -364,10 +400,12 @@ class _RewardFormSheetState extends State<_RewardFormSheet> {
     if (_titleCtrl.text.trim().isEmpty) return;
     setState(() => _isSaving = true);
     final provider = context.read<AppProvider>();
+    // Prepend icon to title since model has no icon field
+    final titleWithIcon = '$_selectedIcon ${_titleCtrl.text.trim()}';
     final reward = Reward(
       id: _uuid.v4(),
       familyId: provider.activeFamily!.id,
-      title: _titleCtrl.text.trim(),
+      title: titleWithIcon,
       description: _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
       pointCost: int.tryParse(_costCtrl.text) ?? 50,
       redeemedBy: [],
@@ -398,14 +436,60 @@ class _RewardFormSheetState extends State<_RewardFormSheet> {
             ),
           ]),
           const SizedBox(height: 12),
-          TextField(controller: _titleCtrl, autofocus: true, textCapitalization: TextCapitalization.sentences,
-              decoration: const InputDecoration(labelText: 'Reward Title *', prefixIcon: Icon(Icons.card_giftcard_rounded))),
+          // Icon picker
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text('Choose Icon', style: const TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.stone500)),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 48,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: _iconOptions.map((icon) {
+                final selected = _selectedIcon == icon;
+                return GestureDetector(
+                  onTap: () => setState(() => _selectedIcon = icon),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    margin: const EdgeInsets.only(right: 8),
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: selected ? AppTheme.primary.withOpacity(0.1) : AppTheme.stone100,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: selected ? AppTheme.primary : Colors.transparent, width: 2),
+                    ),
+                    child: Center(child: Text(icon, style: const TextStyle(fontSize: 20))),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
           const SizedBox(height: 12),
-          TextField(controller: _descCtrl, maxLines: 2, textCapitalization: TextCapitalization.sentences,
-              decoration: const InputDecoration(labelText: 'Description (optional)', alignLabelWithHint: true)),
+          TextField(
+            controller: _titleCtrl,
+            autofocus: true,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: InputDecoration(
+              labelText: 'Reward Title *',
+              prefixIcon: Text(' $_selectedIcon ', style: const TextStyle(fontSize: 18)),
+              prefixIconConstraints: const BoxConstraints(minWidth: 44),
+            ),
+          ),
           const SizedBox(height: 12),
-          TextField(controller: _costCtrl, keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Points Cost', prefixIcon: Icon(Icons.star_rounded))),
+          TextField(
+            controller: _descCtrl,
+            maxLines: 2,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(labelText: 'Description (optional)', alignLabelWithHint: true),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _costCtrl,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: 'Points Cost', prefixIcon: Icon(Icons.star_rounded)),
+          ),
         ]),
       ),
     );
