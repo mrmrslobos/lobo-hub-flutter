@@ -212,6 +212,14 @@ class AppProvider extends ChangeNotifier {
   bool get isOwner => activeUserRole == Role.OWNER;
   bool get isAdmin =>
       activeUserRole == Role.ADMIN || activeUserRole == Role.OWNER;
+
+  /// All family members for the active family
+  List<FamilyMember> get familyMembers =>
+      db.familyMembers.where((m) => m.familyId == activeFamily?.id).toList();
+
+  /// Look up a User by their ID
+  User? userById(String id) =>
+      db.users.firstWhereOrNull((u) => u.id == id);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
