@@ -1,9 +1,14 @@
-import 'package:flutter/foundation.dart';
+// lib/services/supabase_service.dart
+// FamilyHub - Supabase integration service
+
+// ignore_for_file: avoid_catches_without_on_clauses
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-/// Wraps Supabase client with helpers used throughout the app.
 class SupabaseService {
-  /// Whether Supabase has been initialized with real credentials.
+  static SupabaseClient get client => Supabase.instance.client;
+  static GoTrueClient get auth => Supabase.instance.client.auth;
+
   static bool get isConfigured {
     try {
       return Supabase.instance.client.supabaseUrl.isNotEmpty;
@@ -12,76 +17,214 @@ class SupabaseService {
     }
   }
 
-  static SupabaseClient get _client => Supabase.instance.client;
-  static GoTrueClient get auth => _client.auth;
+  static Future<void> initialize({
+    required String url,
+    required String anonKey,
+  }) async {
+    await Supabase.initialize(url: url, anonKey: anonKey);
+  }
 
-  // ─── Auth ──────────────────────────────────────────────────────────────────
+  // ── Auth ──────────────────────────────────────────────────────────────────
 
   static Future<AuthResponse> signInWithPassword({
     required String email,
     required String password,
-  }) =>
-      auth.signInWithPassword(email: email, password: password);
+  }) {
+    return auth.signInWithPassword(email: email, password: password);
+  }
 
   static Future<AuthResponse> signUp({
     required String email,
     required String password,
-  }) =>
-      auth.signUp(email: email, password: password);
+  }) {
+    return auth.signUp(email: email, password: password);
+  }
 
   static Future<bool> signInWithOAuth(
     OAuthProvider provider, {
     String? redirectTo,
-  }) =>
-      auth.signInWithOAuth(provider, redirectTo: redirectTo);
+  }) {
+    return auth.signInWithOAuth(provider, redirectTo: redirectTo);
+  }
 
   static Future<void> signOut() => auth.signOut();
 
   static Session? get currentSession => auth.currentSession;
+
   static User? get currentUser => auth.currentUser;
 
-  static Future<void> resetPasswordForEmail(String email,
-          {String? redirectTo}) =>
-      auth.resetPasswordForEmail(email, redirectTo: redirectTo);
-
-  static Future<AuthSessionUrlResponse> exchangeCodeForSession(
-          String authCallbackUrl) =>
-      auth.exchangeCodeForSession(authCallbackUrl);
-
-  // ─── Database ──────────────────────────────────────────────────────────────
-
-  /// Upsert rows into a Supabase table.
-  static Future<void> upsertTable(
-      String table, List<Map<String, dynamic>> rows) async {
-    if (rows.isEmpty) return;
-    try {
-      await _client.from(table).upsert(rows, onConflict: 'id');
-    } catch (e) {
-      debugPrint('[Supabase] upsert $table failed: $e');
-    }
+  static Future<void> resetPasswordForEmail(
+    String email, {
+    String? redirectTo,
+  }) {
+    return auth.resetPasswordForEmail(email, redirectTo: redirectTo);
   }
 
-  /// Find a family by join code via RPC.
-  static Future<Map<String, dynamic>?> findFamilyByJoinCode(
-      String code) async {
-    try {
-      final result = await _client
-          .rpc('find_family_by_join_code', params: {'code': code});
-      if (result != null && (result as List).isNotEmpty) {
-        return (result[0] as Map<String, dynamic>);
+  static Future<AuthSessionUrlResponse> exchangeCodeForSession(
+    String authCallbackUrl,
+  ) {
+    return auth.exchangeCodeForSession(authCallbackUrl);
+  }
+
+  // ── Data ──────────────────────────────────────────────────────────────────
+
+  /// Fetch all relevant tables for a family from Supabase (full DB sync).
+  static Future<Map<String, dynamic>> fetchAllTables(String familyId) async {
+    const familyScopedTables = [
+      'families',
+      'tasks',
+      'events',
+      'recipes',
+      'meal_plans',
+      'lists',
+      'devotionals',
+      'budget_categories',
+      'transactions',
+      'chores',
+      'polls',
+      'reward_items',
+      'savings_goals',
+      'prayer_wall',
+      'special_dates',
+      'family_photos',
+      'milestones',
+      'saved_places',
+      'messages',
+      'health_records',
+    ];
+
+    const familyIdTables = [
+      'family_members',
+      'chore_completions',
+      'poll_votes',
+      'reward_redemptions',
+      'period_cycles',
+      'period_symptoms',
+    ];
+
+    const userScopedTables = [
+      'fitness_metrics',
+      'fitness_plans',
+      'ai_history',
+      'daily_habits',
+      'daily_habit_completions',
+      'user_locations',
+    ];
+
+    final result = <String, dynamic>{};
+
+    // Family-scoped tables
+    for (final table in familyScopedTables) {
+      try {
+        result[table] = await client
+            .from(table)
+            .select()
+            .eq('family_id', familyId);
+      } catch (_) {
+        result[table] = [];
       }
-    } catch (e) {
-      debugPrint('[Supabase] findFamilyByJoinCode failed: $e');
     }
+
+    // Tables that use family_id but may be named differently
+    for (final table in familyIdTables) {
+      try {
+        result[table] = await client
+            .from(table)
+            .select()
+            .eq('family_id', familyId);
+      } catch (_) {
+        result[table] = [];
+      }
+    }
+
+    // User-scoped tables: fetch members first then query by user_id
+    try {
+      final members = await client
+          .from('family_members')
+          .select('user_id')
+          .eq('family_id', familyId);
+
+      final userIds = (members as List)
+          .map((m) => m['user_id'] as String)
+          .toList();
+
+      if (userIds.isNotEmpty) {
+        // Fetch users
+        try {
+          result['users'] = await client
+              .from('users')
+              .select()
+              .inFilter('id', userIds);
+        } catch (_) {
+          result['users'] = [];
+        }
+
+        // Fetch user-scoped tables
+        for (final table in userScopedTables) {
+          try {
+            result[table] = await client
+                .from(table)
+                .select()
+                .inFilter('user_id', userIds);
+          } catch (_) {
+            result[table] = [];
+          }
+        }
+      } else {
+        result['users'] = [];
+        for (final table in userScopedTables) {
+          result[table] = [];
+        }
+      }
+    } catch (_) {
+      result['users'] = [];
+      for (final table in userScopedTables) {
+        result[table] = [];
+      }
+    }
+
+    return result;
+  }
+
+  /// Upsert rows into a table, using 'id' as the conflict column.
+  static Future<void> upsertTable(
+    String table,
+    List<Map<String, dynamic>> rows,
+  ) async {
+    if (rows.isEmpty) return;
+    await client.from(table).upsert(rows, onConflict: 'id');
+  }
+
+  /// Call a Supabase RPC function.
+  static Future<dynamic> rpc(
+    String function, {
+    Map<String, dynamic>? params,
+  }) {
+    return client.rpc(function, params: params);
+  }
+
+  /// Find a family by its join code via RPC.
+  static Future<Map<String, dynamic>?> findFamilyByJoinCode(
+    String code,
+  ) async {
+    try {
+      final result = await client.rpc(
+        'find_family_by_join_code',
+        params: {'code': code},
+      );
+      if (result != null && (result as List).isNotEmpty) {
+        return result[0] as Map<String, dynamic>;
+      }
+    } catch (_) {}
     return null;
   }
 
-  /// Subscribe to realtime family channel.
-  static RealtimeChannel subscribeFamilyChannel(
+  /// Subscribe to realtime broadcast events for a family channel.
+  static RealtimeChannel subscribeToFamily(
     String familyId, {
     required void Function(Map<String, dynamic>) onBroadcast,
   }) {
-    return _client
+    return client
         .channel('family:$familyId')
         .onBroadcast(
           event: 'db_change',
@@ -90,18 +233,8 @@ class SupabaseService {
         .subscribe();
   }
 
-  /// Unsubscribe from a channel.
-  static Future<void> unsubscribeChannel(RealtimeChannel channel) async {
-    await _client.removeChannel(channel);
-  }
-
-  // ─── RPC ───────────────────────────────────────────────────────────────────
-
-  static Future<void> claimOwnedFamilies() async {
-    try {
-      await _client.rpc('claim_owned_families');
-    } catch (e) {
-      debugPrint('[Supabase] claimOwnedFamilies failed (non-fatal): $e');
-    }
+  /// Unsubscribe and remove a realtime channel.
+  static Future<void> unsubscribe(RealtimeChannel channel) async {
+    await client.removeChannel(channel);
   }
 }
