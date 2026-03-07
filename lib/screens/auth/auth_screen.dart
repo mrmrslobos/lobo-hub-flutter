@@ -370,13 +370,7 @@ class _AuthScreenState extends State<AuthScreen> {
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(
                     horizontal: 24, vertical: 32),
-                child: Column(
-                  children: [
-                    _buildLogo(),
-                    const SizedBox(height: 32),
-                    _buildCard(),
-                  ],
-                ),
+                child: _buildCard(),
               ),
             ),
           ),
@@ -483,10 +477,41 @@ class _AuthScreenState extends State<AuthScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _sectionTitle('Welcome back.'),
-          const SizedBox(height: 6),
-          _subtitle('Sign in to your family hub'),
-          const SizedBox(height: 24),
+          Center(
+            child: Column(
+              children: [
+                Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Icon(Icons.auto_awesome, color: Colors.white, size: 36),
+                ),
+                const SizedBox(height: 14),
+                const Text(
+                  'FamilyHub',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 30,
+                    fontWeight: FontWeight.w900,
+                    color: AppTheme.stone900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Welcome back.',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 14,
+                    color: AppTheme.stone500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 28),
           _emailField(),
           const SizedBox(height: 12),
           _passwordField(),
@@ -506,7 +531,14 @@ class _AuthScreenState extends State<AuthScreen> {
           const SizedBox(height: 8),
           ElevatedButton(
             onPressed: _login,
-            child: const Text('Sign In'),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text('Sign In'),
+                SizedBox(width: 8),
+                Icon(Icons.arrow_forward, size: 18),
+              ],
+            ),
           ),
           if (_supabaseConfigured) ...[
             const SizedBox(height: 20),
@@ -1053,7 +1085,7 @@ class _AuthScreenState extends State<AuthScreen> {
         keyboardType: TextInputType.emailAddress,
         autocorrect: false,
         decoration: const InputDecoration(
-          labelText: 'Email',
+          hintText: 'Email Address',
           prefixIcon: Icon(Icons.email_outlined),
         ),
       );
@@ -1063,7 +1095,7 @@ class _AuthScreenState extends State<AuthScreen> {
         validator: _passwordValidator,
         obscureText: _obscurePassword,
         decoration: InputDecoration(
-          labelText: 'Password',
+          hintText: 'Password',
           prefixIcon: const Icon(Icons.lock_outline),
           suffixIcon: IconButton(
             icon: Icon(
@@ -1099,62 +1131,76 @@ class _AuthScreenState extends State<AuthScreen> {
         children: [
           _oauthBtn(
             label: 'Continue with Google',
-            emoji: 'G',
+            leading: _googleIcon(),
             onTap: () => _oauthSignIn('google'),
           ),
           const SizedBox(height: 8),
           _oauthBtn(
             label: 'Continue with Apple',
-            icon: Icons.apple,
+            leading: const Icon(Icons.apple, size: 20, color: AppTheme.stone800),
             onTap: () => _oauthSignIn('apple'),
           ),
           const SizedBox(height: 8),
           _oauthBtn(
             label: 'Continue with Microsoft',
-            emoji: 'M',
+            leading: _microsoftIcon(),
             onTap: () => _oauthSignIn('microsoft'),
           ),
         ],
       );
 
+  Widget _googleIcon() => SizedBox(
+        width: 20,
+        height: 20,
+        child: CustomPaint(painter: _GoogleLogoPainter()),
+      );
+
+  Widget _microsoftIcon() => SizedBox(
+        width: 20,
+        height: 20,
+        child: Row(
+          children: [
+            Column(
+              children: [
+                Container(width: 9, height: 9, color: const Color(0xFFF25022)),
+                Container(width: 9, height: 9, color: const Color(0xFF00A4EF)),
+              ],
+            ),
+            const SizedBox(width: 2),
+            Column(
+              children: [
+                Container(width: 9, height: 9, color: const Color(0xFF7FBA00)),
+                Container(width: 9, height: 9, color: const Color(0xFFFFB900)),
+              ],
+            ),
+          ],
+        ),
+      );
+
   Widget _oauthBtn({
     required String label,
-    String? emoji,
-    IconData? icon,
+    required Widget leading,
     required VoidCallback onTap,
   }) =>
       OutlinedButton(
         onPressed: onTap,
         style: OutlinedButton.styleFrom(
-          padding:
-              const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
           alignment: Alignment.centerLeft,
+          side: const BorderSide(color: AppTheme.stone200),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         ),
         child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            if (icon != null)
-              Icon(icon, size: 20, color: AppTheme.stone700)
-            else if (emoji != null)
-              Container(
-                width: 20,
-                height: 20,
-                alignment: Alignment.center,
-                child: Text(
-                  emoji,
-                  style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w900,
-                      fontFamily: 'Inter',
-                      color: AppTheme.stone700),
-                ),
-              ),
+            leading,
             const SizedBox(width: 12),
             Text(label,
                 style: const TextStyle(
                     fontFamily: 'Inter',
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
-                    color: AppTheme.stone700)),
+                    color: AppTheme.stone800)),
           ],
         ),
       );
@@ -1207,4 +1253,48 @@ class _AuthScreenState extends State<AuthScreen> {
           ),
         ),
       );
+}
+
+// ─── Google Logo Painter ──────────────────────────────────────────────────────
+
+class _GoogleLogoPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final s = size.width;
+    final paint = Paint()..style = PaintingStyle.fill;
+
+    // Blue segment
+    paint.color = const Color(0xFF4285F4);
+    canvas.drawArc(
+      Rect.fromCircle(center: Offset(s / 2, s / 2), radius: s / 2),
+      -0.52, 1.04, true, paint,
+    );
+    // Red segment
+    paint.color = const Color(0xFFEA4335);
+    canvas.drawArc(
+      Rect.fromCircle(center: Offset(s / 2, s / 2), radius: s / 2),
+      -2.62, 1.57, true, paint,
+    );
+    // Yellow segment
+    paint.color = const Color(0xFFFBBC05);
+    canvas.drawArc(
+      Rect.fromCircle(center: Offset(s / 2, s / 2), radius: s / 2),
+      2.09, 0.53, true, paint,
+    );
+    // Green segment
+    paint.color = const Color(0xFF34A853);
+    canvas.drawArc(
+      Rect.fromCircle(center: Offset(s / 2, s / 2), radius: s / 2),
+      0.52, 1.57, true, paint,
+    );
+    // White center circle
+    paint.color = Colors.white;
+    canvas.drawCircle(Offset(s / 2, s / 2), s * 0.35, paint);
+    // Blue bar (right side)
+    paint.color = const Color(0xFF4285F4);
+    canvas.drawRect(Rect.fromLTWH(s / 2, s * 0.35, s / 2, s * 0.3), paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
