@@ -1,0 +1,46 @@
+{
+  "name": "lobohub",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "assets:generate": "npx capacitor-assets generate --assetPath assets",
+    "cap:sync": "npm run build && npx cap sync",
+    "cap:ios": "npm run build && npx cap sync ios && npx cap open ios",
+    "cap:android": "npm run build && npx cap sync android && npx cap open android",
+    "postinstall": "patch-package && node scripts/fix-proguard.cjs"
+  },
+  "dependencies": {
+    "@aparajita/capacitor-biometric-auth": "^10.0.0",
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/app": "^8.0.1",
+    "@capacitor/core": "^8.0.0",
+    "@capacitor/ios": "^8.0.0",
+    "@capacitor/push-notifications": "^8.0.0",
+    "@capacitor/splash-screen": "^8.0.0",
+    "@capacitor/status-bar": "^8.0.0",
+    "@google/genai": "^1.41.0",
+    "@revenuecat/purchases-capacitor": "^12.1.3",
+    "@revenuecat/purchases-capacitor-ui": "^12.1.3",
+    "@supabase/supabase-js": "^2.48.1",
+    "date-fns": "^4.1.0",
+    "lucide-react": "^0.564.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-is": "^19.2.4",
+    "react-router-dom": "^7.13.0",
+    "recharts": "^3.7.0"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.0.0",
+    "@types/node": "^22.14.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "patch-package": "^8.0.1",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
+  }
+}

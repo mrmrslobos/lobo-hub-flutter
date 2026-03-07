@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  lobo-hub:
+    build:
+      context: .
+      # Build-time args (still used so import.meta.env works in dev mode).
+      # Copy .env.example to .env and fill in your values, then run:
+      #   docker compose up --build
+      args:
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
+        VITE_GEMINI_API_KEY: ${VITE_GEMINI_API_KEY}
+        VITE_GEMINI_MODEL: ${VITE_GEMINI_MODEL:-gemini-2.0-flash}
+    # Runtime env vars — injected into window.process.env by docker-entrypoint.sh.
+    # This means you can update credentials and restart the container WITHOUT
+    # rebuilding the image (docker compose up -d, no --build needed).
+    environment:
+      - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
+      - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}
+      - VITE_GEMINI_API_KEY=${VITE_GEMINI_API_KEY}
+      - VITE_GEMINI_MODEL=${VITE_GEMINI_MODEL:-gemini-2.0-flash}
+    ports:
+      - "3000:80"
+    restart: unless-stopped
