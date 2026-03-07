@@ -422,6 +422,43 @@ class _PeriodLogSheetState extends State<_PeriodLogSheet> {
                   ),
                 );
               }).toList()),
+              const SizedBox(height: 20),
+              // Mood
+              const Text('Mood', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13, color: AppTheme.stone600)),
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: _moodOptions.map((emoji) {
+                  final selected = _mood == emoji;
+                  return GestureDetector(
+                    onTap: () => setState(() => _mood = emoji),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: selected ? const Color(0xFFFCE7F3) : AppTheme.stone50,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: selected ? const Color(0xFFEC4899) : AppTheme.stone200),
+                      ),
+                      child: Text(emoji, style: TextStyle(fontSize: selected ? 28 : 22)),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 20),
+              // Privacy note
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFCE7F3).withOpacity(0.5),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Row(children: [
+                  Icon(Icons.lock_outline_rounded, size: 14, color: Color(0xFFEC4899)),
+                  SizedBox(width: 8),
+                  Expanded(child: Text('Only you can see this data', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w500, color: Color(0xFFEC4899)))),
+                ]),
+              ),
               const SizedBox(height: 16),
               TextField(controller: _notesCtrl, maxLines: 3, decoration: const InputDecoration(labelText: 'Notes (optional)', alignLabelWithHint: true)),
             ]),
