@@ -5,9 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config/theme.dart';
 import '../providers/app_provider.dart';
+import 'biometric_lock.dart';
 
 // ─────────────────────────────────────────────
 // Data model for nav items
@@ -55,6 +57,7 @@ class AppDrawer extends StatelessWidget {
       _NavItem(emoji: '❤️', label: 'Health', route: '/health'),
     ]),
     _NavSection(title: 'Lifestyle', items: [
+      _NavItem(emoji: '🎯', label: 'Habits', route: '/habits'),
       _NavItem(emoji: '🍽️', label: 'Meals', route: '/meals'),
       _NavItem(emoji: '💪', label: 'Fitness', route: '/fitness'),
       _NavItem(emoji: '🌸', label: 'Period Tracker', route: '/period-tracker'),
@@ -66,6 +69,15 @@ class AppDrawer extends StatelessWidget {
       _NavItem(emoji: '🎁', label: 'Rewards', route: '/rewards'),
     ]),
   ];
+
+  void _showSettingsSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _SettingsBottomSheet(),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -123,6 +135,42 @@ class AppDrawer extends StatelessWidget {
                     isActive: currentRoute == '/ai-history',
                     canAccess: true,
                   ),
+
+                  // Settings section
+                  const Divider(height: 1),
+                  const SizedBox(height: 4),
+                  _SectionHeader(title: 'Settings'),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+                    child: Material(
+                      color: Colors.transparent,
+                      borderRadius: BorderRadius.circular(12),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () => _showSettingsSheet(context),
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          child: Row(
+                            children: [
+                              Text('⚙️', style: TextStyle(fontSize: 18)),
+                              SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'Settings',
+                                  style: TextStyle(
+                                    fontFamily: 'Inter',
+                                    fontWeight: FontWeight.w500,
+                                    fontSize: 14,
+                                    color: AppTheme.stone800,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -134,6 +182,220 @@ class AppDrawer extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// Settings Bottom Sheet
+// ─────────────────────────────────────────────
+
+class _SettingsBottomSheet extends StatefulWidget {
+  const _SettingsBottomSheet();
+
+  @override
+  State<_SettingsBottomSheet> createState() => _SettingsBottomSheetState();
+}
+
+class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
+  bool _biometricEnabled = false;
+  String _selectedLocale = 'US';
+  bool _loading = true;
+
+  static const _countries = [
+    ('🇺🇸', 'United States', 'US'),
+    ('🇬🇧', 'United Kingdom', 'GB'),
+    ('🇨🇦', 'Canada', 'CA'),
+    ('🇦🇺', 'Australia', 'AU'),
+    ('🇮🇳', 'India', 'IN'),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPrefs();
+  }
+
+  Future<void> _loadPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _biometricEnabled = prefs.getBool('lobohub_biometric_enabled') ?? false;
+      _selectedLocale = prefs.getString('lobohub_locale') ?? 'US';
+      _loading = false;
+    });
+  }
+
+  Future<void> _toggleBiometric(bool value) async {
+    await BiometricLockScreen.setBiometricEnabled(value);
+    setState(() => _biometricEnabled = value);
+  }
+
+  Future<void> _selectLocale(String code) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('lobohub_locale', code);
+    setState(() => _selectedLocale = code);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 0,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 32,
+      ),
+      child: _loading
+          ? const SizedBox(height: 200, child: Center(child: CircularProgressIndicator()))
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Handle
+                Center(
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(vertical: 12),
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppTheme.stone200,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const Text(
+                  'Settings',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontWeight: FontWeight.w700,
+                    fontSize: 20,
+                    color: AppTheme.stone900,
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // Biometric Lock toggle
+                Container(
+                  decoration: BoxDecoration(
+                    color: AppTheme.stone50,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: SwitchListTile(
+                    title: const Text(
+                      'Biometric Lock',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontWeight: FontWeight.w600,
+                        fontSize: 15,
+                        color: AppTheme.stone900,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'Require fingerprint or face to open app',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 12,
+                        color: AppTheme.stone500,
+                      ),
+                    ),
+                    value: _biometricEnabled,
+                    onChanged: _toggleBiometric,
+                    secondary: const Icon(Icons.fingerprint_rounded, color: AppTheme.primary),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Country/Region selector
+                const Text(
+                  'Country / Region',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    letterSpacing: 0.5,
+                    color: AppTheme.stone500,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  decoration: BoxDecoration(
+                    color: AppTheme.stone50,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    children: _countries.map((c) {
+                      final (flag, name, code) = c;
+                      final isSelected = _selectedLocale == code;
+                      return ListTile(
+                        leading: Text(flag, style: const TextStyle(fontSize: 22)),
+                        title: Text(
+                          name,
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                            fontSize: 14,
+                            color: isSelected ? AppTheme.primary : AppTheme.stone800,
+                          ),
+                        ),
+                        trailing: isSelected
+                            ? const Icon(Icons.check_circle_rounded, color: AppTheme.primary, size: 20)
+                            : null,
+                        onTap: () => _selectLocale(code),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      );
+                    }).toList(),
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // About section
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryLight,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'About',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                          color: AppTheme.primaryDark,
+                        ),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        'FamilyHub',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                          color: AppTheme.stone900,
+                        ),
+                      ),
+                      Text(
+                        'Version 1.0.0',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 13,
+                          color: AppTheme.stone500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
     );
   }
 }
@@ -432,7 +694,12 @@ class _DrawerFooter extends StatelessWidget {
             child: OutlinedButton.icon(
               onPressed: () {
                 Navigator.of(context).pop();
-                // TODO: open settings screen
+                showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.transparent,
+                  builder: (_) => const _SettingsBottomSheet(),
+                );
               },
               icon: const Icon(Icons.settings_outlined, size: 16),
               label: const Text('Settings'),

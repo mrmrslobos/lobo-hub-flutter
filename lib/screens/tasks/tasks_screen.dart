@@ -9,6 +9,7 @@ import 'package:uuid/uuid.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../services/ai_service.dart';
 import '../../widgets/common_widgets.dart';
 
 // ─── Filter enum ──────────────────────────────────────────────────────────────
@@ -114,6 +115,18 @@ class _TasksScreenState extends State<TasksScreen> {
     );
   }
 
+  void _showAiBreakdownSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => _AiBreakdownSheet(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<AppProvider>(
@@ -160,7 +173,7 @@ class _TasksScreenState extends State<TasksScreen> {
                       )
                     : ListView.builder(
                         padding: const EdgeInsets.fromLTRB(
-                            16, 0, 16, 100),
+                            16, 0, 16, 120),
                         itemCount: tasks.length,
                         itemBuilder: (ctx, i) {
                           final task = tasks[i];
@@ -180,12 +193,326 @@ class _TasksScreenState extends State<TasksScreen> {
               ),
             ],
           ),
-          floatingActionButton: FloatingActionButton(
-            onPressed: () => _showAddTaskSheet(context),
-            child: const Icon(Icons.add),
+          floatingActionButton: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              // ─── AI Breakdown FAB ──────────────────────────────────
+              FloatingActionButton.extended(
+                heroTag: 'ai_breakdown_fab',
+                onPressed: () => _showAiBreakdownSheet(context),
+                backgroundColor: const Color(0xFF8B5CF6),
+                icon: const Text('✨', style: TextStyle(fontSize: 16)),
+                label: const Text(
+                  'AI Breakdown',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              // ─── Add Task FAB ──────────────────────────────────────
+              FloatingActionButton(
+                heroTag: 'add_task_fab',
+                onPressed: () => _showAddTaskSheet(context),
+                child: const Icon(Icons.add),
+              ),
+            ],
           ),
         );
       },
+    );
+  }
+}
+
+// ─── AI Breakdown Sheet ───────────────────────────────────────────────────────
+
+class _AiBreakdownSheet extends StatefulWidget {
+  @override
+  State<_AiBreakdownSheet> createState() => _AiBreakdownSheetState();
+}
+
+class _AiBreakdownSheetState extends State<_AiBreakdownSheet> {
+  final _goalCtrl = TextEditingController();
+  bool _loading = false;
+  List<String>? _subTasks;
+  late List<bool> _selected;
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _goalCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _breakdown() async {
+    final goal = _goalCtrl.text.trim();
+    if (goal.isEmpty) return;
+    setState(() {
+      _loading = true;
+      _subTasks = null;
+    });
+    final result = await AiService.breakdownTask(goal);
+    if (mounted) {
+      setState(() {
+        _loading = false;
+        _subTasks = result;
+        _selected = List.filled(result.length, true);
+      });
+    }
+  }
+
+  Future<void> _addAllTasks() async {
+    if (_subTasks == null) return;
+    setState(() => _saving = true);
+    try {
+      final provider = context.read<AppProvider>();
+      final db = provider.db;
+      final familyId = provider.activeFamily!.id;
+      final userId = provider.activeUser!.id;
+      const uuid = Uuid();
+
+      final selectedTitles = <String>[];
+      for (int i = 0; i < _subTasks!.length; i++) {
+        if (_selected[i]) selectedTitles.add(_subTasks![i]);
+      }
+
+      if (selectedTitles.isEmpty) {
+        if (mounted) Navigator.pop(context);
+        return;
+      }
+
+      final newTasks = selectedTitles.map((title) => Task(
+            id: uuid.v4(),
+            familyId: familyId,
+            title: title,
+            completed: false,
+            priority: TaskPriority.medium,
+            recurrence: TaskRecurrence.none,
+            dueDate: null,
+            assigneeIds: [userId],
+            tags: [],
+            createdBy: userId,
+            createdAt: DateTime.now(),
+          )).toList();
+
+      final updatedTasks = [...db.tasks, ...newTasks];
+      await provider.saveAndSync(db.copyWith(tasks: updatedTasks));
+
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Added ${newTasks.length} task${newTasks.length == 1 ? '' : 's'}!'),
+            backgroundColor: AppTheme.success,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.7,
+      maxChildSize: 0.92,
+      minChildSize: 0.4,
+      expand: false,
+      builder: (_, controller) => Container(
+        decoration: const BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          children: [
+            const SheetHandle(),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+              child: Row(
+                children: [
+                  const Text('✨', style: TextStyle(fontSize: 22)),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      'AI Task Breakdown',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontWeight: FontWeight.w800,
+                        fontSize: 20,
+                        color: AppTheme.stone900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                controller: controller,
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
+                children: [
+                  // Goal input
+                  Text(
+                    'Describe your goal',
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.stone700,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _goalCtrl,
+                    autofocus: _subTasks == null,
+                    maxLines: 3,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: const InputDecoration(
+                      hintText: 'e.g. Plan Sarah\'s birthday party',
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _loading ? null : _breakdown,
+                      icon: _loading
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor:
+                                    AlwaysStoppedAnimation(Colors.white),
+                              ),
+                            )
+                          : const Text('✨', style: TextStyle(fontSize: 14)),
+                      label: Text(_loading ? 'Breaking down...' : 'Generate Sub-Tasks'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF8B5CF6),
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ),
+
+                  // Results
+                  if (_subTasks != null) ...[
+                    const SizedBox(height: 24),
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Generated sub-tasks',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: AppTheme.stone700,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          '${_selected.where((s) => s).length} selected',
+                          style: const TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 12,
+                            color: AppTheme.stone500,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    if (_subTasks!.isEmpty)
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: AppTheme.stone50,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Text(
+                          'No sub-tasks were generated. Try rephrasing your goal.',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 13,
+                            color: AppTheme.stone500,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      )
+                    else
+                      ...List.generate(_subTasks!.length, (i) {
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          decoration: BoxDecoration(
+                            color: _selected[i]
+                                ? const Color(0xFF8B5CF6).withOpacity(0.06)
+                                : AppTheme.stone50,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: _selected[i]
+                                  ? const Color(0xFF8B5CF6).withOpacity(0.3)
+                                  : AppTheme.stone200,
+                            ),
+                          ),
+                          child: CheckboxListTile(
+                            value: _selected[i],
+                            onChanged: (v) => setState(() => _selected[i] = v ?? false),
+                            title: Text(
+                              _subTasks![i],
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                                color: _selected[i]
+                                    ? AppTheme.stone900
+                                    : AppTheme.stone400,
+                                decoration: _selected[i]
+                                    ? null
+                                    : TextDecoration.lineThrough,
+                              ),
+                            ),
+                            activeColor: const Color(0xFF8B5CF6),
+                            controlAffinity: ListTileControlAffinity.leading,
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 2),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                          ),
+                        );
+                      }),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: (_saving || _selected.every((s) => !s))
+                            ? null
+                            : _addAllTasks,
+                        child: _saving
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor:
+                                      AlwaysStoppedAnimation(Colors.white),
+                                ),
+                              )
+                            : Text(
+                                'Add ${_selected.where((s) => s).length} Task${_selected.where((s) => s).length == 1 ? '' : 's'}',
+                              ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
