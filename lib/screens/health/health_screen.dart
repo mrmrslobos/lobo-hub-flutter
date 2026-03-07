@@ -88,7 +88,7 @@ class _HealthScreenState extends State<HealthScreen> {
     // Group by type
     final grouped = <String, List<HealthRecord>>{};
     for (final r in records) {
-      grouped.putIfAbsent(r.type, () => []).add(r);
+      grouped.putIfAbsent(r.type ?? 'Other', () => []).add(r);
     }
 
     return Scaffold(
@@ -168,7 +168,7 @@ class _HealthScreenState extends State<HealthScreen> {
                         ),
                         ...entry.value.map((record) => Padding(
                           padding: const EdgeInsets.only(bottom: 8),
-                          child: _RecordCard(record: record, emoji: _typeEmoji(record.type), onDelete: () => _deleteRecord(record.id)),
+                          child: _RecordCard(record: record, emoji: _typeEmoji(record.type ?? ''), onDelete: () => _deleteRecord(record.id)),
                         )),
                       ])).toList(),
                     ]),
@@ -221,7 +221,7 @@ class _RecordCard extends StatelessWidget {
           Text(emoji, style: const TextStyle(fontSize: 20)),
           const SizedBox(width: 10),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(record.title, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 14, color: AppTheme.stone900)),
+            Text(record.title ?? '', style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 14, color: AppTheme.stone900)),
             if (record.notes != null && record.notes!.isNotEmpty) ...[
               const SizedBox(height: 2),
               Text(record.notes!, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500), maxLines: 2, overflow: TextOverflow.ellipsis),

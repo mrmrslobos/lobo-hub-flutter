@@ -45,14 +45,15 @@ class _LocationScreenState extends State<LocationScreen> {
             userId: l.userId,
             latitude: l.latitude,
             longitude: l.longitude,
-            address: l.address,
+            placeName: l.placeName,
+            nearPlace: l.nearPlace,
             isSharing: sharing,
             updatedAt: DateTime.now(),
           );
         }
         return l;
       }).toList();
-      await provider.saveAndSync(db.copyWith(locationShares: updated));
+      await provider.saveAndSync(db.copyWith(locationShares: updated.cast<UserLocation>()));
     }
   }
 

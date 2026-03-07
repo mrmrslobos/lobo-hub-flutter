@@ -592,7 +592,7 @@ class _EntryDetailView extends StatelessWidget {
                       color: AppTheme.stone400,
                       letterSpacing: 1.1)),
               const SizedBox(height: 8),
-              Text(entry.content,
+              Text(entry.content ?? '',
                   style: const TextStyle(
                       fontFamily: 'Inter',
                       fontSize: 15,

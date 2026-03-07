@@ -627,17 +627,17 @@ class Recipe {
   final String id;
   final String familyId;
   final String title;
-  final List<String> ingredients;
+  final List<RecipeIngredient> ingredients;
   final List<String> steps;
   final int servings;
   final List<String> tags;
   final String? image;
 
-  const Recipe({
+  Recipe({
     required this.id,
     required this.familyId,
     required this.title,
-    this.ingredients = const [],
+    List<RecipeIngredient>? ingredients,
     this.steps = const [],
     int? servings,
     this.tags = const [],
@@ -649,24 +649,38 @@ class Recipe {
     String? sourceUrl,
     String? createdBy,
     String? creatorId,
-  }) : servings = servings ?? 4;
+  }) : servings = servings ?? 4,
+       ingredients = ingredients ?? const [];
 
-  factory Recipe.fromJson(Map<String, dynamic> j) => Recipe(
-    id: j['id'] as String? ?? '',
-    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
-    title: j['title'] as String? ?? '',
-    ingredients: _strList(j['ingredients']),
-    steps: _strList(j['steps']),
-    servings: (j['servings'] as int?) ?? 4,
-    tags: _strList(j['tags']),
-    image: j['image'] as String?,
-  );
+  factory Recipe.fromJson(Map<String, dynamic> j) {
+    final rawIngs = j['ingredients'];
+    final List<RecipeIngredient> ingredients;
+    if (rawIngs is List) {
+      ingredients = rawIngs.map((e) {
+        if (e is String) return RecipeIngredient.fromString(e);
+        if (e is Map<String, dynamic>) return RecipeIngredient.fromJson(e);
+        return RecipeIngredient.fromString(e.toString());
+      }).toList();
+    } else {
+      ingredients = const [];
+    }
+    return Recipe(
+      id: j['id'] as String? ?? '',
+      familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
+      title: j['title'] as String? ?? '',
+      ingredients: ingredients,
+      steps: _strList(j['steps']),
+      servings: (j['servings'] as int?) ?? 4,
+      tags: _strList(j['tags']),
+      image: j['image'] as String?,
+    );
+  }
 
   Map<String, dynamic> toJson() => {
     'id': id,
     'family_id': familyId,
     'title': title,
-    'ingredients': ingredients,
+    'ingredients': ingredients.map((e) => e.toJson()).toList(),
     'steps': steps,
     'servings': servings,
     'tags': tags,
@@ -680,7 +694,7 @@ class Recipe {
   int? get cookMinutes => null;
 
   Recipe copyWith({
-    String? id, String? familyId, String? title, List<String>? ingredients,
+    String? id, String? familyId, String? title, List<RecipeIngredient>? ingredients,
     List<String>? steps, int? servings, List<String>? tags, String? image,
   }) => Recipe(
     id: id ?? this.id, familyId: familyId ?? this.familyId,
@@ -695,9 +709,21 @@ class RecipeIngredient {
   final String? quantity;
   final String? unit;
 
-  const RecipeIngredient({required this.name, this.quantity, this.unit});
+  const RecipeIngredient({required this.name, this.quantity, this.unit, String? amount})
+      : quantity = quantity ?? amount;
+
+  // Convenience alias used by screens
+  String? get amount => quantity;
 
   factory RecipeIngredient.fromString(String s) => RecipeIngredient(name: s);
+
+  factory RecipeIngredient.fromJson(Map<String, dynamic> j) => RecipeIngredient(
+    name: j['name'] as String? ?? '',
+    quantity: j['quantity'] as String?,
+    unit: j['unit'] as String?,
+  );
+
+  Map<String, dynamic> toJson() => {'name': name, 'quantity': quantity, 'unit': unit};
 
   @override
   String toString() => quantity != null ? '$quantity${unit != null ? ' $unit' : ''} $name' : name;
@@ -711,9 +737,10 @@ class MealPlanEntry {
   final String id;
   final String familyId;
   final DateTime date;
-  final MealType mealType;
+  final String mealType; // stored as lowercase string ('breakfast','lunch','dinner','snack')
   final String? recipeId;
   final String? customMeal;
+  final String? notes;
 
   const MealPlanEntry({
     required this.id,
@@ -722,9 +749,8 @@ class MealPlanEntry {
     required this.mealType,
     this.recipeId,
     this.customMeal,
-    // Accept but ignore extra fields from screen
+    this.notes,
     String? title,
-    String? notes,
     String? createdBy,
     String? creatorId,
   });
@@ -733,30 +759,33 @@ class MealPlanEntry {
     id: j['id'] as String? ?? '',
     familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
     date: _parseDate(j['date']),
-    mealType: mealTypeFromString((j['meal_type'] ?? j['mealType']) as String?),
+    mealType: ((j['meal_type'] ?? j['mealType']) as String? ?? 'breakfast').toLowerCase(),
     recipeId: (j['recipe_id'] ?? j['recipeId']) as String?,
     customMeal: (j['custom_meal'] ?? j['customMeal']) as String?,
+    notes: j['notes'] as String?,
   );
 
   Map<String, dynamic> toJson() => {
     'id': id,
     'family_id': familyId,
     'date': date.toIso8601String(),
-    'meal_type': mealType.name,
+    'meal_type': mealType,
     'recipe_id': recipeId,
     'custom_meal': customMeal,
+    'notes': notes,
   };
 
   // Convenience getters
   String get title => customMeal ?? '';
 
   MealPlanEntry copyWith({
-    String? id, String? familyId, DateTime? date, MealType? mealType,
-    String? recipeId, String? customMeal,
+    String? id, String? familyId, DateTime? date, String? mealType,
+    String? recipeId, String? customMeal, String? notes,
   }) => MealPlanEntry(
     id: id ?? this.id, familyId: familyId ?? this.familyId,
     date: date ?? this.date, mealType: mealType ?? this.mealType,
     recipeId: recipeId ?? this.recipeId, customMeal: customMeal ?? this.customMeal,
+    notes: notes ?? this.notes,
   );
 }
 
@@ -2184,7 +2213,8 @@ class SpecialDate {
     required this.creatorId,
     String? name,
     String? title,
-    this.type = SpecialDateType.BIRTHDAY,
+    SpecialDateType? type,
+    String? typeStr,
     int? month,
     int? day,
     int? year,
@@ -2196,6 +2226,7 @@ class SpecialDate {
     this.visibility = Visibility.FAMILY,
     DateTime? createdAt,
   }) : name = name ?? title ?? '',
+       type = type ?? (typeStr != null ? specialDateTypeFromString(typeStr) : SpecialDateType.BIRTHDAY),
        month = month ?? date?.month ?? 1,
        day = day ?? date?.day ?? 1,
        year = (recurring == true) ? null : (year ?? date?.year),

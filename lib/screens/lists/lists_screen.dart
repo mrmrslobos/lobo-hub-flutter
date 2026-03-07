@@ -306,8 +306,13 @@ class _AiCategorizationSheetState extends State<_AiCategorizationSheet> {
 
   Future<void> _categorize() async {
     try {
-      final categories = await AiService.categorizeItems(widget.itemNames);
-      if (mounted) setState(() { _categories = categories; _loading = false; });
+      // categorizeItems returns Map<item, category>; invert to Map<category, [items]>
+      final raw = await AiService.categorizeItems(widget.itemNames);
+      final grouped = <String, List<String>>{};
+      for (final entry in raw.entries) {
+        grouped.putIfAbsent(entry.value, () => []).add(entry.key);
+      }
+      if (mounted) setState(() { _categories = grouped; _loading = false; });
     } catch (e) {
       if (mounted) setState(() { _error = e.toString(); _loading = false; });
     }

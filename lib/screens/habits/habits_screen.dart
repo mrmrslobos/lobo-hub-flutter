@@ -727,7 +727,7 @@ class _AddHabitSheetState extends State<_AddHabitSheet> {
       _emoji = h.emoji;
       _titleCtrl.text = h.title;
       _descCtrl.text = h.description ?? '';
-      _frequency = h.frequency;
+      _frequency = h.frequency ?? 'daily';
       _isShared = h.isShared;
       _targetValueCtrl.text = h.targetValue?.toString() ?? '';
       _targetUnitCtrl.text = h.targetUnit ?? '';
