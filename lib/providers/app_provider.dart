@@ -1,261 +1,228 @@
 // lib/providers/app_provider.dart
-import 'dart:async';
-import 'dart:convert';
+// FamilyHub - Main application state provider
+
+// ignore_for_file: avoid_catches_without_on_clauses
+
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../models/models.dart';
-import '../config/app_config.dart';
+import '../services/database_service.dart';
 import '../services/supabase_service.dart';
 
 class AppProvider extends ChangeNotifier {
-  AppDB _db = AppDB.empty();
   User? _activeUser;
   Family? _activeFamily;
-  bool _isLoading = true;
-  String? _error;
-  
-  // Realtime
-  RealtimeChannel? _realtimeChannel;
-  
-  // Subscription tier cache
-  bool _hasAI = false;
-  bool _hasBase = false;
-  bool _isInTrial = false;
+  AppDB _db = AppDB.empty();
+  bool _isInitializing = true;
+  bool _isLocked = false;
+  Set<String> _unreadModules = {};
 
-  // Getters
-  AppDB get db => _db;
+  // ── Getters ───────────────────────────────────────────────────────────────
+
   User? get activeUser => _activeUser;
   Family? get activeFamily => _activeFamily;
-  bool get isLoading => _isLoading;
-  bool get isInitializing => _isLoading;
-  String? get error => _error;
+  AppDB get db => _db;
+  bool get isInitializing => _isInitializing;
+  bool get isLocked => _isLocked;
   bool get isAuthenticated => _activeUser != null && _activeFamily != null;
-  bool get hasAI => _hasAI;
-  bool get hasBase => _hasBase || _isInTrial;
-  bool get isInTrial => _isInTrial;
+  Set<String> get unreadModules => _unreadModules;
 
-  AppProvider() {
-    _loadFromStorage();
+  /// Returns the up-to-date Family from the DB (reflects any edits).
+  Family? get currentFamily {
+    if (_activeFamily == null) return null;
+    return _db.families.firstWhereOrNull((f) => f.id == _activeFamily!.id) ??
+        _activeFamily;
   }
 
-  // ─── Init ────────────────────────────────────────────────────────────────
+  // ── Initialization ────────────────────────────────────────────────────────
 
-  Future<void> _loadFromStorage() async {
-    _isLoading = true;
+  Future<void> initialize() async {
+    _isInitializing = true;
     notifyListeners();
+
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final dbJson = prefs.getString(AppConfig.storageKey);
-      final activeUserId = prefs.getString(AppConfig.activeUserKey);
+      _db = await DatabaseService.loadLocal();
 
-      if (dbJson != null) {
-        _db = AppDB.fromJsonString(dbJson);
-      }
-
-      if (activeUserId != null) {
-        _activeUser = _db.users.cast<User?>().firstWhere(
-          (u) => u?.id == activeUserId, orElse: () => null);
-        if (_activeUser != null) {
-          final membership = _db.familyMembers.cast<FamilyMember?>().firstWhere(
-            (m) => m?.userId == _activeUser!.id, orElse: () => null);
-          if (membership != null) {
-            _activeFamily = _db.families.cast<Family?>().firstWhere(
-              (f) => f?.id == membership.familyId, orElse: () => null);
-          }
+      if (SupabaseService.isConfigured) {
+        final session = SupabaseService.currentSession;
+        if (session != null) {
+          await _resolveUserFromSession(
+            session.user.id,
+            session.user.email ?? '',
+          );
         }
       }
-
-      // If already authenticated, subscribe to realtime
-      if (isAuthenticated) {
-        _subscribeRealtime();
-      }
     } catch (e) {
-      _error = 'Failed to load data: $e';
+      debugPrint('AppProvider.initialize error: $e');
     } finally {
-      _isLoading = false;
+      _isInitializing = false;
       notifyListeners();
     }
   }
 
-  Future<void> _saveToStorage() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(AppConfig.storageKey, _db.toJsonString());
-      if (_activeUser != null) {
-        await prefs.setString(AppConfig.activeUserKey, _activeUser!.id);
+  Future<void> _resolveUserFromSession(String userId, String email) async {
+    var user = _db.users.firstWhereOrNull((u) => u.id == userId);
+
+    if (user == null) {
+      // Try to get the current active family from local state and reconcile
+      final knownFamilyId = _activeFamily?.id;
+      if (knownFamilyId != null) {
+        _db = await DatabaseService.reconcileCloud(_db, knownFamilyId);
+        user = _db.users.firstWhereOrNull((u) => u.id == userId);
       }
-    } catch (e) {
-      debugPrint('[AppProvider] save failed: $e');
+    }
+
+    if (user != null) {
+      final membership = _db.familyMembers.firstWhereOrNull(
+        (m) => m.userId == user!.id,
+      );
+      if (membership != null) {
+        final family = _db.families.firstWhereOrNull(
+          (f) => f.id == membership.familyId,
+        );
+        if (family != null) {
+          _activeUser = user;
+          _activeFamily = family;
+        }
+      }
     }
   }
 
-  // ─── Auth ────────────────────────────────────────────────────────────────
+  // ── Auth ──────────────────────────────────────────────────────────────────
 
-  Future<void> authenticate(User user, Family family) async {
-    // Upsert user
-    final users = List<User>.from(_db.users);
-    final userIdx = users.indexWhere((u) => u.id == user.id);
-    if (userIdx >= 0) users[userIdx] = user; else users.add(user);
-
-    // Upsert family
-    final families = List<Family>.from(_db.families);
-    final familyIdx = families.indexWhere((f) => f.id == family.id);
-    if (familyIdx >= 0) families[familyIdx] = family; else families.add(family);
-
-    // Ensure membership
-    final members = List<FamilyMember>.from(_db.familyMembers);
-    if (!members.any((m) => m.userId == user.id && m.familyId == family.id)) {
-      members.add(FamilyMember(
-        id: '${user.id}_${family.id}',
-        familyId: family.id,
-        userId: user.id,
-        role: family.ownerId == user.id ? 'owner' : 'member',
-        joinedAt: DateTime.now(),
-      ));
-    }
-
-    _db = _db.copyWith(users: users, families: families, familyMembers: members);
+  void authenticate(User user, Family family) {
     _activeUser = user;
     _activeFamily = family;
-
-    await _saveToStorage();
-    _subscribeRealtime();
+    _db = DatabaseService.db;
     notifyListeners();
   }
 
   Future<void> logout() async {
-    await _unsubscribeRealtime();
     _activeUser = null;
     _activeFamily = null;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(AppConfig.activeUserKey);
+    _isLocked = false;
+    _unreadModules = {};
+
+    if (SupabaseService.isConfigured) {
+      try {
+        await SupabaseService.signOut();
+      } catch (_) {}
+    }
+
+    await DatabaseService.clearLocal();
+    _db = AppDB.empty();
     notifyListeners();
   }
 
-  // ─── Data mutation ───────────────────────────────────────────────────────
+  // ── DB mutations ──────────────────────────────────────────────────────────
 
+  /// Update DB in-memory and persist to local storage (no cloud sync).
+  void updateDb(AppDB newDb) {
+    _db = newDb;
+    DatabaseService.saveLocal(newDb);
+    notifyListeners();
+  }
+
+  /// Update DB, notify listeners immediately, then persist + cloud sync.
   Future<void> saveAndSync(AppDB newDb) async {
     _db = newDb;
+    notifyListeners();
     if (_activeFamily != null) {
-      final updated = _db.families.cast<Family?>().firstWhere(
-        (f) => f?.id == _activeFamily!.id, orElse: () => null);
-      if (updated != null) _activeFamily = updated;
-    }
-    await _saveToStorage();
-    _broadcastChange();
-    notifyListeners();
-  }
-
-  // ─── Realtime ────────────────────────────────────────────────────────────
-
-  void _subscribeRealtime() {
-    if (_activeFamily == null) return;
-    // Safely check Supabase is configured
-    if (!SupabaseService.isConfigured) return;
-
-    _unsubscribeRealtime();
-    
-    _realtimeChannel = SupabaseService.subscribeFamilyChannel(
-      _activeFamily!.id,
-      onBroadcast: (payload) {
-        // Another device changed the DB — re-fetch from cloud
-        _fetchFromCloud();
-      },
-    );
-  }
-
-  Future<void> _unsubscribeRealtime() async {
-    if (_realtimeChannel != null) {
-      await SupabaseService.unsubscribeChannel(_realtimeChannel!);
-      _realtimeChannel = null;
+      await DatabaseService.saveAndSync(newDb, _activeFamily!.id);
+    } else {
+      await DatabaseService.saveLocal(newDb);
     }
   }
 
-  void _broadcastChange() {
-    // Broadcast to family channel so other devices update
-    _realtimeChannel?.sendBroadcastMessage(
-      event: 'db_change',
-      payload: {'userId': _activeUser?.id, 'ts': DateTime.now().millisecondsSinceEpoch},
-    );
-  }
+  // ── Unread tracking ───────────────────────────────────────────────────────
 
-  Future<void> _fetchFromCloud() async {
-    if (!SupabaseService.isConfigured || _activeFamily == null) return;
-    try {
-      // Upsert key tables from Supabase — simplified: just re-save local state
-      // In production, fetch each table and merge
-      debugPrint('[AppProvider] Received realtime broadcast, refreshing...');
+  void markModuleRead(String path) {
+    if (_unreadModules.contains(path)) {
+      _unreadModules = Set.from(_unreadModules)..remove(path);
       notifyListeners();
-    } catch (e) {
-      debugPrint('[AppProvider] fetchFromCloud failed: $e');
     }
   }
 
-  // ─── Module access ───────────────────────────────────────────────────────
-
-  bool canAccess(String path) {
-    if (_activeFamily == null) return false;
-    final enabledModules = _activeFamily!.enabledModules;
-    if (enabledModules.isEmpty) return true;
-    if (!enabledModules.contains(path)) return false;
-    
-    // Check user-level module access (parental controls)
-    if (_activeUser != null) {
-      final membership = _db.familyMembers.cast<FamilyMember?>().firstWhere(
-        (m) => m?.userId == _activeUser!.id && m?.familyId == _activeFamily!.id,
-        orElse: () => null,
-      );
-      if (membership?.moduleAccess != null) {
-        return membership!.moduleAccess!.contains(path);
-      }
+  void markModuleUnread(String path) {
+    if (!_unreadModules.contains(path)) {
+      _unreadModules = Set.from(_unreadModules)..add(path);
+      notifyListeners();
     }
-    return true;
   }
 
-  // ─── Subscription ────────────────────────────────────────────────────────
+  // ── Lock ──────────────────────────────────────────────────────────────────
 
-  void setEntitlements({required bool hasBase, required bool hasAI, required bool isInTrial}) {
-    _hasBase = hasBase;
-    _hasAI = hasAI;
-    _isInTrial = isInTrial;
+  void setLocked(bool locked) {
+    _isLocked = locked;
     notifyListeners();
   }
 
-  // ─── Helpers ─────────────────────────────────────────────────────────────
+  // ── Access control ────────────────────────────────────────────────────────
 
-  List<User> get familyMembers {
-    if (_activeFamily == null) return [];
-    final memberIds = _db.familyMembers
-        .where((m) => m.familyId == _activeFamily!.id)
-        .map((m) => m.userId)
-        .toSet();
-    return _db.users.where((u) => memberIds.contains(u.id)).toList();
-  }
+  /// Returns true if the active user can access the given module path.
+  bool canAccess(String path) {
+    if (_activeUser == null || _activeFamily == null) return true;
 
-  FamilyMember? membershipFor(String userId) =>
-    _db.familyMembers.cast<FamilyMember?>().firstWhere(
-      (m) => m?.userId == userId && m?.familyId == _activeFamily?.id,
-      orElse: () => null,
+    final family = currentFamily;
+    final enabled = family?.enabledModules;
+    if (enabled != null && enabled.isNotEmpty && !enabled.contains(path)) {
+      return false;
+    }
+
+    final membership = _db.familyMembers.firstWhereOrNull(
+      (m) =>
+          m.userId == _activeUser!.id && m.familyId == _activeFamily!.id,
     );
 
-  User? userById(String id) =>
-      _db.users.cast<User?>().firstWhere((u) => u?.id == id, orElse: () => null);
-
-  int chorePointsForUser(String userId) {
-    return _db.chores
-        .where((c) => c.familyId == _activeFamily?.id && c.lastCompletedBy == userId)
-        .fold(0, (sum, c) => sum + c.points);
+    final access = membership?.moduleAccess;
+    if (access == null || access.isEmpty) return true;
+    return access.contains(path);
   }
 
-  void clearError() {
-    _error = null;
-    notifyListeners();
+  // ── Family helpers ────────────────────────────────────────────────────────
+
+  List<Family> get userFamilies {
+    if (_activeUser == null) return [];
+    return _db.families.where((f) {
+      return _db.familyMembers.any(
+        (m) => m.userId == _activeUser!.id && m.familyId == f.id,
+      );
+    }).toList();
   }
 
-  @override
-  void dispose() {
-    _unsubscribeRealtime();
-    super.dispose();
+  void switchFamily(String familyId) {
+    final family = _db.families.firstWhereOrNull((f) => f.id == familyId);
+    if (family != null) {
+      _activeFamily = family;
+      notifyListeners();
+    }
+  }
+
+  /// Returns the FamilyMember record for the active user in the active family.
+  FamilyMember? get activeUserMembership {
+    if (_activeUser == null || _activeFamily == null) return null;
+    return _db.familyMembers.firstWhereOrNull(
+      (m) => m.userId == _activeUser!.id && m.familyId == _activeFamily!.id,
+    );
+  }
+
+  /// Returns the Role of the active user, or MEMBER if unknown.
+  Role get activeUserRole => activeUserMembership?.role ?? Role.MEMBER;
+
+  bool get isOwner => activeUserRole == Role.OWNER;
+  bool get isAdmin =>
+      activeUserRole == Role.ADMIN || activeUserRole == Role.OWNER;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Extension: firstWhereOrNull on List
+// ─────────────────────────────────────────────────────────────────────────────
+
+extension ListWhereOrNull<T> on List<T> {
+  T? firstWhereOrNull(bool Function(T element) test) {
+    for (final element in this) {
+      if (test(element)) return element;
+    }
+    return null;
   }
 }
