@@ -4,6 +4,9 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app.dart';
 import 'providers/app_provider.dart';
+import 'services/locale_service.dart';
+import 'services/notification_service.dart';
+import 'services/purchase_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -34,9 +37,20 @@ void main() async {
     );
   }
 
+  // Initialize notification service
+  await NotificationService.init();
+
+  // Initialize purchase service if keys are provided
+  const iosKey = String.fromEnvironment('RC_IOS_KEY', defaultValue: '');
+  const androidKey = String.fromEnvironment('RC_ANDROID_KEY', defaultValue: '');
+  await PurchaseService.init(iosApiKey: iosKey, androidApiKey: androidKey);
+
   runApp(
-    ChangeNotifierProvider(
-      create: (_) => AppProvider(),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => AppProvider()),
+        ChangeNotifierProvider(create: (_) => LocaleService()..init()),
+      ],
       child: const FamilyHubApp(),
     ),
   );
