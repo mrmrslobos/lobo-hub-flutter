@@ -17,12 +17,12 @@ def flutterVersionName = localProperties.getProperty('flutter.versionName') ?: '
 
 android {
     namespace 'com.lobohub.app'
-    compileSdkVersion 34
+    compileSdkVersion 36
 
     defaultConfig {
         applicationId 'com.lobohub.app'
         minSdkVersion 21
-        targetSdkVersion 34
+        targetSdkVersion 36
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
         multiDexEnabled true
