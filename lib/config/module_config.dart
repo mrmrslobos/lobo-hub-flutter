@@ -39,6 +39,7 @@ const moduleGroups = [
   ModuleGroup(
     label: 'Lifestyle',
     modules: [
+      ModuleInfo(path: '/habits', name: 'Habits', emoji: '🎯', desc: 'Daily habit tracking & streaks'),
       ModuleInfo(path: '/meals', name: 'Meals', emoji: '🍽️', desc: 'Meal planning & recipes'),
       ModuleInfo(path: '/fitness', name: 'Fitness', emoji: '💪', desc: 'Health & workout tracking'),
       ModuleInfo(path: '/period-tracker', name: 'Period Tracker', emoji: '🌸', desc: 'Cycle & wellness tracking'),
@@ -55,7 +56,7 @@ const moduleGroups = [
   ),
 ];
 
-const essentialModules = ['/tasks', '/calendar', '/chores', '/rewards', '/meals'];
+const essentialModules = ['/tasks', '/calendar', '/chores', '/rewards', '/meals', '/habits'];
 
 List<String> get allModulePaths =>
     moduleGroups.expand((g) => g.modules.map((m) => m.path)).toList();
