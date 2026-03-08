@@ -591,7 +591,8 @@ class _AiBreakdownSheetState extends State<_AiBreakdownSheet> {
       _loading = true;
       _subTasks = null;
     });
-    final result = await AiService.breakdownTask(goal);
+    final familyId = context.read<AppProvider>().activeFamily?.id ?? '';
+    final result = await AiService.breakdownTask(goal, familyId: familyId);
     if (mounted) {
       setState(() {
         _loading = false;

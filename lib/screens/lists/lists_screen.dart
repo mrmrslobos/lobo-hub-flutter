@@ -442,7 +442,8 @@ class _AiCategorizationSheetState extends State<_AiCategorizationSheet> {
   Future<void> _categorize() async {
     try {
       // categorizeItems returns Map<item, category>; invert to Map<category, [items]>
-      final raw = await AiService.categorizeItems(widget.itemNames);
+      final familyId = context.read<AppProvider>().activeFamily?.id ?? '';
+      final raw = await AiService.categorizeItems(widget.itemNames, familyId: familyId);
       final grouped = <String, List<String>>{};
       for (final entry in raw.entries) {
         grouped.putIfAbsent(entry.value, () => []).add(entry.key);
@@ -759,7 +760,8 @@ class _AiTextToChecklistSheetState extends State<_AiTextToChecklistSheet> {
         'Turn this text into a structured checklist: "$text". Return a JSON array of objects with "text" and "quantity".';
 
     try {
-      final raw = await AiService.ask(prompt: prompt, module: 'lists', systemPrompt: systemPrompt);
+      final familyId = context.read<AppProvider>().activeFamily?.id ?? '';
+      final raw = await AiService.ask(prompt: '$systemPrompt\n\n$prompt', feature: 'ai_lists', familyId: familyId);
       if (raw == null || !mounted) {
         if (mounted) setState(() => _loading = false);
         return;
@@ -779,7 +781,6 @@ class _AiTextToChecklistSheetState extends State<_AiTextToChecklistSheet> {
       final provider = context.read<AppProvider>();
       final db = provider.db;
       final userId = provider.activeUser?.id ?? '';
-      final familyId = provider.activeFamily?.id ?? '';
 
       final items = decoded.map((item) {
         final itemText = item is Map ? (item['text']?.toString() ?? '') : item.toString();

@@ -108,7 +108,11 @@ class AppProvider extends ChangeNotifier {
   void authenticate(User user, Family family) {
     _activeUser = user;
     _activeFamily = family;
-    _db = DatabaseService.db;
+    // Only fall back to DatabaseService cache if _db hasn't been populated
+    // (e.g. via setDb after cloud reconciliation).
+    if (_db.families.isEmpty) {
+      _db = DatabaseService.db;
+    }
     notifyListeners();
   }
 

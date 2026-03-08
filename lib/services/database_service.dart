@@ -135,12 +135,16 @@ class DatabaseService {
 
   // ── Cloud reconcile ───────────────────────────────────────────────────────
 
-  /// Fetch cloud data and merge it with the local DB.
+  /// Fetch cloud data, merge with local DB, and persist the result.
   static Future<AppDB> reconcileCloud(AppDB local, String familyId) async {
     if (!SupabaseService.isConfigured) return local;
     try {
       final cloudData = await SupabaseService.fetchAllTables(familyId);
-      return _mergeWithCloud(local, cloudData);
+      final merged = _mergeWithCloud(local, cloudData);
+      // Update static cache and persist so authenticate() picks up cloud data
+      _cache = merged;
+      await saveLocal(merged);
+      return merged;
     } catch (_) {
       return local;
     }

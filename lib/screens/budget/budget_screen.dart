@@ -1199,10 +1199,12 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet> {
   }
 
   Future<void> _fetchAnalysis() async {
+    final familyId = context.read<AppProvider>().activeFamily?.id ?? '';
     final result = await AiService.analyzeBudget(
       totalIncome: widget.totalIncome,
       totalExpenses: widget.totalExpenses,
       byCategory: widget.byCategory,
+      familyId: familyId,
     );
     if (mounted) {
       setState(() {
@@ -1760,7 +1762,8 @@ $text
 ''';
 
     try {
-      final raw = await AiService.ask(prompt: prompt, module: 'budget', systemPrompt: systemPrompt);
+      final familyId = provider.activeFamily?.id ?? '';
+      final raw = await AiService.ask(prompt: '$systemPrompt\n\n$prompt', feature: 'ai_budget', familyId: familyId);
       if (raw == null || !mounted) {
         if (mounted) setState(() => _loading = false);
         return;
