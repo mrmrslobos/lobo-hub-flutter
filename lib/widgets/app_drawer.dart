@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config/theme.dart';
+import '../models/models.dart';
 import '../providers/app_provider.dart';
 import 'biometric_lock.dart';
 
@@ -69,6 +70,16 @@ class AppDrawer extends StatelessWidget {
       _NavItem(emoji: '🎁', label: 'Rewards', route: '/rewards'),
     ]),
   ];
+
+  void _showManageMembersSheet(BuildContext context) {
+    Navigator.pop(context); // close drawer
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _ManageMembersSheet(),
+    );
+  }
 
   void _showSettingsSheet(BuildContext context) {
     showModalBottomSheet(
@@ -140,6 +151,38 @@ class AppDrawer extends StatelessWidget {
                   const Divider(height: 1),
                   const SizedBox(height: 4),
                   _SectionHeader(title: 'Settings'),
+                  if (provider.isAdmin)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+                      child: Material(
+                        color: Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () => _showManageMembersSheet(context),
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            child: Row(
+                              children: [
+                                Text('👨‍👩‍👧‍👦', style: TextStyle(fontSize: 18)),
+                                SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    'Manage Members',
+                                    style: TextStyle(
+                                      fontFamily: 'Inter',
+                                      fontWeight: FontWeight.w500,
+                                      fontSize: 14,
+                                      color: AppTheme.stone800,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
                     child: Material(
@@ -736,6 +779,366 @@ class _DrawerFooter extends StatelessWidget {
       ),
     );
   }
+}
+
+// ─────────────────────────────────────────────
+// Public helper: UserAvatarWidget (reusable across screens)
+// ─────────────────────────────────────────────
+
+// ─────────────────────────────────────────────
+// Manage Members Bottom Sheet
+// ─────────────────────────────────────────────
+
+class _ManageMembersSheet extends StatefulWidget {
+  const _ManageMembersSheet();
+
+  @override
+  State<_ManageMembersSheet> createState() => _ManageMembersSheetState();
+}
+
+class _ManageMembersSheetState extends State<_ManageMembersSheet> {
+  static const _kidsPresetRoutes = ['/', '/calendar', '/meals', '/chores', '/rewards'];
+
+  static const _allModules = [
+    ('/', '🏠', 'Dashboard'),
+    ('/chat', '💬', 'Chat'),
+    ('/tasks', '✅', 'Tasks'),
+    ('/calendar', '📅', 'Calendar'),
+    ('/chores', '🧹', 'Chores'),
+    ('/lists', '📋', 'Lists'),
+    ('/meals', '🍽️', 'Meals'),
+    ('/polls', '🗳️', 'Polls'),
+    ('/birthdays', '🎉', 'Occasions'),
+    ('/photos', '📸', 'Photos'),
+    ('/location', '📍', 'Location'),
+    ('/health', '❤️', 'Health'),
+    ('/habits', '🎯', 'Habits'),
+    ('/fitness', '💪', 'Fitness'),
+    ('/period-tracker', '🌸', 'Period Tracker'),
+    ('/devotional', '📖', 'Devotional'),
+    ('/prayer-wall', '🙏', 'Prayer Wall'),
+    ('/budget', '💰', 'Budget'),
+    ('/rewards', '🎁', 'Rewards'),
+  ];
+
+  // Mutable copy of members to edit before saving
+  late List<_EditableMember> _members;
+  String? _expandedUserId;
+
+  @override
+  void initState() {
+    super.initState();
+    final provider = context.read<AppProvider>();
+    final db = provider.db;
+    final familyId = provider.activeFamily?.id;
+    _members = db.familyMembers
+        .where((m) => m.familyId == familyId)
+        .map((m) {
+      // Resolve display name from users list
+      final user = db.users.where((u) => u.id == m.userId).firstOrNull;
+      return _EditableMember(
+        userId: m.userId,
+        familyId: m.familyId,
+        role: m.role,
+        moduleAccess: m.moduleAccess != null ? List<String>.from(m.moduleAccess!) : null,
+        displayName: m.displayName ?? user?.name ?? m.userId,
+      );
+    }).toList();
+  }
+
+  bool _isKidsPreset(List<String>? access) {
+    if (access == null) return false;
+    if (access.length != _kidsPresetRoutes.length) return false;
+    return _kidsPresetRoutes.every(access.contains);
+  }
+
+  void _applyKidsPreset(int index) {
+    setState(() {
+      _members[index].moduleAccess = List<String>.from(_kidsPresetRoutes);
+    });
+  }
+
+  void _removeRestrictions(int index) {
+    setState(() {
+      _members[index].moduleAccess = null;
+    });
+  }
+
+  void _toggleModule(int memberIdx, String route) {
+    setState(() {
+      final m = _members[memberIdx];
+      if (m.moduleAccess == null) {
+        // Currently unrestricted → restrict to all except this one
+        m.moduleAccess = _allModules.map((e) => e.$1).where((r) => r != route).toList();
+      } else if (m.moduleAccess!.contains(route)) {
+        m.moduleAccess!.remove(route);
+      } else {
+        m.moduleAccess!.add(route);
+      }
+    });
+  }
+
+  Future<void> _save() async {
+    final provider = context.read<AppProvider>();
+    final db = provider.db;
+    final familyId = provider.activeFamily?.id;
+
+    // Build updated familyMembers list
+    final updated = db.familyMembers.map((m) {
+      if (m.familyId != familyId) return m;
+      final edited = _members.where((e) => e.userId == m.userId).firstOrNull;
+      if (edited == null) return m;
+      return FamilyMember(
+        userId: m.userId,
+        familyId: m.familyId,
+        role: m.role,
+        moduleAccess: edited.moduleAccess,
+        displayName: m.displayName,
+      );
+    }).toList();
+
+    await provider.saveAndSync(db.copyWith(familyMembers: updated));
+    if (mounted) Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.85),
+      decoration: const BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Handle
+          Center(
+            child: Container(
+              margin: const EdgeInsets.symmetric(vertical: 12),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppTheme.stone200,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Manage Members',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontWeight: FontWeight.w700,
+                      fontSize: 20,
+                      color: AppTheme.stone900,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: _save,
+                  child: const Text('Save'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Flexible(
+            child: ListView.builder(
+              shrinkWrap: true,
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+              itemCount: _members.length,
+              itemBuilder: (context, i) => _buildMemberCard(i),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMemberCard(int index) {
+    final m = _members[index];
+    final isExpanded = _expandedUserId == m.userId;
+    final isKid = _isKidsPreset(m.moduleAccess);
+    final isRestricted = m.moduleAccess != null;
+
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      color: AppTheme.stone50,
+      elevation: 0,
+      child: Column(
+        children: [
+          ListTile(
+            onTap: () => setState(() {
+              _expandedUserId = isExpanded ? null : m.userId;
+            }),
+            leading: UserAvatarWidget(name: m.displayName, radius: 20),
+            title: Text(
+              m.displayName,
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontWeight: FontWeight.w600,
+                fontSize: 15,
+                color: AppTheme.stone900,
+              ),
+            ),
+            subtitle: Text(
+              isKid
+                  ? 'Kids Preset'
+                  : isRestricted
+                      ? 'Custom Access (${m.moduleAccess!.length} modules)'
+                      : 'Full Access',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 12,
+                color: isKid ? AppTheme.primary : AppTheme.stone500,
+                fontWeight: isKid ? FontWeight.w600 : FontWeight.w400,
+              ),
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: m.role == Role.OWNER
+                        ? const Color(0xFFFEF3C7)
+                        : m.role == Role.ADMIN
+                            ? AppTheme.primaryLight
+                            : AppTheme.stone100,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    m.role.name,
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontWeight: FontWeight.w600,
+                      fontSize: 10,
+                      color: m.role == Role.OWNER
+                          ? const Color(0xFF92400E)
+                          : m.role == Role.ADMIN
+                              ? AppTheme.primaryDark
+                              : AppTheme.stone600,
+                    ),
+                  ),
+                ),
+                Icon(
+                  isExpanded ? Icons.expand_less : Icons.expand_more,
+                  color: AppTheme.stone400,
+                ),
+              ],
+            ),
+          ),
+          if (isExpanded) ...[
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Quick action buttons
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => _applyKidsPreset(index),
+                          icon: const Icon(Icons.child_care, size: 16),
+                          label: const Text('Kids Preset'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: isKid ? Colors.white : AppTheme.primary,
+                            backgroundColor: isKid ? AppTheme.primary : null,
+                            side: BorderSide(color: AppTheme.primary.withValues(alpha: 0.3)),
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            textStyle: const TextStyle(
+                              fontFamily: 'Inter',
+                              fontWeight: FontWeight.w600,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => _removeRestrictions(index),
+                          icon: const Icon(Icons.lock_open, size: 16),
+                          label: const Text('Full Access'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: !isRestricted ? Colors.white : AppTheme.stone600,
+                            backgroundColor: !isRestricted ? AppTheme.stone600 : null,
+                            side: BorderSide(color: AppTheme.stone300),
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            textStyle: const TextStyle(
+                              fontFamily: 'Inter',
+                              fontWeight: FontWeight.w600,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'MODULE ACCESS',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontWeight: FontWeight.w700,
+                      fontSize: 10,
+                      letterSpacing: 1.0,
+                      color: AppTheme.stone400,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: _allModules.map((mod) {
+                      final (route, emoji, label) = mod;
+                      final hasAccess = m.moduleAccess == null || m.moduleAccess!.contains(route);
+                      return FilterChip(
+                        selected: hasAccess,
+                        label: Text('$emoji $label', style: const TextStyle(fontSize: 12)),
+                        onSelected: (_) => _toggleModule(index, route),
+                        selectedColor: AppTheme.primaryLight,
+                        checkmarkColor: AppTheme.primary,
+                        backgroundColor: AppTheme.stone100,
+                        side: BorderSide.none,
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        visualDensity: VisualDensity.compact,
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _EditableMember {
+  final String userId;
+  final String familyId;
+  final Role role;
+  List<String>? moduleAccess;
+  final String displayName;
+
+  _EditableMember({
+    required this.userId,
+    required this.familyId,
+    required this.role,
+    this.moduleAccess,
+    required this.displayName,
+  });
 }
 
 // ─────────────────────────────────────────────

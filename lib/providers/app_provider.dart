@@ -97,6 +97,12 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Switch the active user (for kid account switching)
+  void switchActiveUser(User user) {
+    _activeUser = user;
+    notifyListeners();
+  }
+
   Future<void> logout() async {
     _activeUser = null;
     _activeFamily = null;

@@ -9,6 +9,7 @@ import 'package:flutter/material.dart' hide Visibility;
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../config/theme.dart';
 import '../../models/models.dart';
@@ -411,6 +412,30 @@ Return ONLY the JSON array, no markdown.''',
                 p.familyId == familyId && p.status == PollStatus.open)
             .toList();
 
+        // Check if current user is a restricted (kid) member
+        final userMembership = db.familyMembers
+            .where((m) => m.userId == user.id && m.familyId == familyId)
+            .toList();
+        final isRestricted = userMembership.isNotEmpty &&
+            userMembership.first.moduleAccess != null &&
+            userMembership.first.moduleAccess!.isNotEmpty;
+
+        // Find switchable kids (for parent view)
+        final switchableKids = db.familyMembers
+            .where((m) =>
+                m.familyId == familyId &&
+                m.userId != user.id &&
+                m.moduleAccess != null &&
+                m.moduleAccess!.isNotEmpty)
+            .map((m) => db.users.where((u) => u.id == m.userId).toList())
+            .where((u) => u.isNotEmpty)
+            .map((u) => u.first)
+            .toList();
+
+        if (isRestricted) {
+          return _buildKidsDashboard(context, provider, user, family, db, familyId, today, choresToday, choresCompletedToday, todayMealPlans, tasksDueToday);
+        }
+
         return Scaffold(
           drawer: const AppDrawer(),
           backgroundColor: AppTheme.background,
@@ -448,6 +473,9 @@ Return ONLY the JSON array, no markdown.''',
               padding: EdgeInsets.zero,
               children: [
                 _buildHeroSection(family),
+                // Kid switcher for parents
+                if (switchableKids.isNotEmpty)
+                  _buildKidSwitcher(context, provider, switchableKids, family),
                 _buildActionButtons(context),
                 _buildAnnouncementSection(context, provider, family),
                 _buildAISuggestionsSection(),
@@ -485,6 +513,245 @@ Return ONLY the JSON array, no markdown.''',
   // ═══════════════════════════════════════════════════════════════════════════
   // Builder methods
   // ═══════════════════════════════════════════════════════════════════════════
+
+  // ── Kids Dashboard (restricted member view) ────────────────────────────────
+
+  Widget _buildKidsDashboard(
+    BuildContext context,
+    AppProvider provider,
+    User user,
+    Family family,
+    AppDB db,
+    String familyId,
+    DateTime today,
+    List<Chore> choresToday,
+    int choresCompletedToday,
+    List<MealPlanEntry> todayMealPlans,
+    List<Task> tasksDueToday,
+  ) {
+    final dayName = DateFormat('EEEE').format(today);
+    final monthDay = DateFormat('MMMM d').format(today);
+    final firstName = user.name.split(' ').first;
+
+    // Calculate kid's points from approved chore completions
+    final approvedCompletions = db.choreCompletions.where((cc) =>
+      cc.familyId == familyId &&
+      cc.userId == user.id &&
+      cc.approvalStatus == ApprovalStatus.APPROVED
+    ).toList();
+    final totalPoints = approvedCompletions.fold<int>(0, (sum, cc) {
+      final chore = db.chores.where((c) => c.id == cc.choreId).toList();
+      return sum + (chore.isNotEmpty ? chore.first.points : 0);
+    });
+
+    // Kid's chores (assigned to them or unassigned)
+    final myChores = choresToday.where((c) =>
+      c.assignees.isEmpty || c.assignees.contains(user.id)
+    ).toList();
+    final todayCompletions = db.choreCompletions.where((cc) =>
+      cc.familyId == familyId && cc.userId == user.id && _isSameDay(cc.date, today)
+    ).toList();
+    final completedChoreIds = todayCompletions.map((cc) => cc.choreId).toSet();
+    final myChoresCompleted = myChores.where((c) => completedChoreIds.contains(c.id)).length;
+
+    return Scaffold(
+      backgroundColor: AppTheme.background,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        title: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
+          const SizedBox(width: 6),
+          const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
+        ]),
+        centerTitle: false,
+      ),
+      body: RefreshIndicator(
+        onRefresh: _onRefresh,
+        color: AppTheme.primary,
+        child: ListView(
+          padding: const EdgeInsets.only(bottom: 32),
+          children: [
+            // Greeting
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Hey $firstName! \u{1F44B}', style: const TextStyle(fontFamily: 'Inter', fontSize: 28, fontWeight: FontWeight.w900, color: AppTheme.stone900)),
+                const SizedBox(height: 4),
+                Text("It's $dayName, $monthDay. Here's your day.", style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone500)),
+              ]),
+            ),
+            const SizedBox(height: 20),
+
+            // Quick Stats Row
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(children: [
+                Expanded(child: _kidStatCard('Chores Done', '$myChoresCompleted/${myChores.length}', Icons.assignment_turned_in_rounded, const Color(0xFF16A34A))),
+                const SizedBox(width: 10),
+                Expanded(child: _kidStatCard('Tasks Due', '${tasksDueToday.length}', Icons.check_circle_outline_rounded, const Color(0xFF2563EB))),
+                const SizedBox(width: 10),
+                Expanded(child: _kidStatCard('Reward Pts', '$totalPoints', Icons.star_rounded, const Color(0xFFD97706))),
+              ]),
+            ),
+            const SizedBox(height: 20),
+
+            // My Chores Today
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppTheme.stone100),
+                ),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Row(children: [
+                    Icon(Icons.cleaning_services_rounded, size: 20, color: Color(0xFF16A34A)),
+                    SizedBox(width: 8),
+                    Text('My Chores Today', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 16, color: AppTheme.stone900)),
+                  ]),
+                  const SizedBox(height: 12),
+                  if (myChores.isEmpty)
+                    const Text('No chores today! Enjoy your free time.', style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone500))
+                  else
+                    ...myChores.map((chore) {
+                      final isDone = completedChoreIds.contains(chore.id);
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: GestureDetector(
+                          onTap: isDone ? null : () async {
+                            final completion = ChoreCompletion(
+                              id: const Uuid().v4(),
+                              choreId: chore.id,
+                              userId: user.id,
+                              familyId: familyId,
+                              date: today,
+                              completedAt: DateTime.now(),
+                            );
+                            await provider.saveAndSync(db.copyWith(
+                              choreCompletions: [...db.choreCompletions, completion],
+                            ));
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: isDone ? const Color(0xFFDCFCE7) : AppTheme.stone50,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: isDone ? const Color(0xFF86EFAC) : AppTheme.stone200),
+                            ),
+                            child: Row(children: [
+                              Container(
+                                width: 24, height: 24,
+                                decoration: BoxDecoration(
+                                  color: isDone ? const Color(0xFF16A34A) : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: isDone ? const Color(0xFF16A34A) : AppTheme.stone300, width: 2),
+                                ),
+                                child: isDone ? const Icon(Icons.check_rounded, size: 14, color: Colors.white) : null,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  chore.title,
+                                  style: TextStyle(
+                                    fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600,
+                                    color: isDone ? AppTheme.stone400 : AppTheme.stone800,
+                                    decoration: isDone ? TextDecoration.lineThrough : null,
+                                  ),
+                                ),
+                              ),
+                              if (chore.points > 0)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(color: const Color(0xFFFEF3C7), borderRadius: BorderRadius.circular(8)),
+                                  child: Text('${chore.points} pts', style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFFD97706))),
+                                ),
+                            ]),
+                          ),
+                        ),
+                      );
+                    }),
+                ]),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Today's Meals
+            _buildTodayMeals(context, todayMealPlans),
+
+            // Today's Tasks
+            _buildTodayFocus(context, tasksDueToday, const [], provider),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _kidStatCard(String label, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(icon, size: 20, color: color),
+        const SizedBox(height: 8),
+        Text(value, style: TextStyle(fontFamily: 'Inter', fontSize: 20, fontWeight: FontWeight.w900, color: color)),
+        Text(label, style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w600, color: AppTheme.stone400)),
+      ]),
+    );
+  }
+
+  // ── Kid Switcher (for parents) ─────────────────────────────────────────────
+
+  Widget _buildKidSwitcher(BuildContext context, AppProvider provider, List<User> kids, Family family) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFEFF6FF),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFBFDBFE)),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Row(children: [
+            Icon(Icons.child_care_rounded, size: 18, color: Color(0xFF2563EB)),
+            SizedBox(width: 6),
+            Text('Switch to Kid View', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF2563EB))),
+          ]),
+          const SizedBox(height: 8),
+          Wrap(spacing: 8, runSpacing: 8, children: kids.map((kid) {
+            return GestureDetector(
+              onTap: () {
+                provider.switchActiveUser(kid);
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFBFDBFE)),
+                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Container(
+                    width: 8, height: 8,
+                    decoration: const BoxDecoration(color: Color(0xFF22C55E), shape: BoxShape.circle),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(kid.name.split(' ').first, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13, color: AppTheme.stone700)),
+                ]),
+              ),
+            );
+          }).toList()),
+        ]),
+      ),
+    );
+  }
 
   Widget _buildHeroSection(Family family) {
     final now = DateTime.now();
