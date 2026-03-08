@@ -28,7 +28,8 @@ class BiometricLockScreen extends StatefulWidget {
   State<BiometricLockScreen> createState() => _BiometricLockScreenState();
 }
 
-class _BiometricLockScreenState extends State<BiometricLockScreen> {
+class _BiometricLockScreenState extends State<BiometricLockScreen>
+    with WidgetsBindingObserver {
   final LocalAuthentication _localAuth = LocalAuthentication();
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
 
@@ -39,6 +40,7 @@ class _BiometricLockScreenState extends State<BiometricLockScreen> {
 
   // PIN entry state
   bool _showPinEntry = false;
+  bool _isSettingPin = false; // true when creating a new PIN
   bool _biometricsAvailable = true;
   final TextEditingController _pinController = TextEditingController();
   String? _pinError;
@@ -46,13 +48,24 @@ class _BiometricLockScreenState extends State<BiometricLockScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _checkAndAuthenticate();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _pinController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Re-lock when app is resumed from background (if biometric is enabled)
+    if (state == AppLifecycleState.resumed && _biometricEnabled && _unlocked) {
+      // Only re-lock after being paused for a while (not for quick app switches)
+      // For now, don't auto-re-lock to avoid annoying UX
+    }
   }
 
   Future<void> _checkAndAuthenticate() async {
@@ -86,44 +99,94 @@ class _BiometricLockScreenState extends State<BiometricLockScreen> {
     try {
       final canCheck = await _localAuth.canCheckBiometrics;
       final isDeviceSupported = await _localAuth.isDeviceSupported();
+      final availableBiometrics = await _localAuth.getAvailableBiometrics();
 
-      if (!canCheck && !isDeviceSupported) {
-        setState(() {
-          _biometricsAvailable = false;
-          _showPinEntry = true;
-        });
-        return;
+      // Check if actual biometrics (fingerprint/face) are enrolled
+      final hasBiometrics = canCheck && availableBiometrics.isNotEmpty;
+
+      if (hasBiometrics) {
+        // Try biometric-first authentication (fingerprint / face)
+        final authenticated = await _localAuth.authenticate(
+          localizedReason: 'Unlock FamilyHub with your fingerprint or face',
+          options: const AuthenticationOptions(
+            biometricOnly: true, // Only allow fingerprint/face, not device PIN
+            stickyAuth: true,
+          ),
+        );
+
+        if (authenticated) {
+          setState(() {
+            _unlocked = true;
+            _authFailed = false;
+          });
+          return;
+        } else {
+          // Biometric failed/cancelled → offer PIN fallback
+          setState(() {
+            _authFailed = true;
+            _biometricsAvailable = true;
+          });
+          return;
+        }
       }
 
-      final authenticated = await _localAuth.authenticate(
-        localizedReason: 'Unlock FamilyHub',
-        options: const AuthenticationOptions(biometricOnly: false),
-      );
+      // No biometrics available → try device credentials (system PIN/pattern)
+      if (isDeviceSupported) {
+        final authenticated = await _localAuth.authenticate(
+          localizedReason: 'Unlock FamilyHub',
+          options: const AuthenticationOptions(
+            biometricOnly: false,
+            stickyAuth: true,
+          ),
+        );
 
-      if (authenticated) {
-        setState(() {
-          _unlocked = true;
-          _authFailed = false;
-        });
-      } else {
-        setState(() {
-          _authFailed = true;
-        });
+        if (authenticated) {
+          setState(() {
+            _unlocked = true;
+            _authFailed = false;
+          });
+          return;
+        }
       }
-    } on PlatformException {
-      setState(() {
-        _biometricsAvailable = false;
-        _showPinEntry = true;
-      });
+
+      // Nothing worked → fall back to app PIN
+      await _showPinFallback();
+    } on PlatformException catch (e) {
+      debugPrint('[BiometricLock] PlatformException: $e');
+      // Platform doesn't support any auth → fall back to app PIN
+      await _showPinFallback();
     }
+  }
+
+  Future<void> _showPinFallback() async {
+    final storedPin = await _secureStorage.read(key: 'lobohub_pin');
+    setState(() {
+      _biometricsAvailable = false;
+      _showPinEntry = true;
+      _isSettingPin = storedPin == null;
+    });
+  }
+
+  void _switchToPinEntry() async {
+    final storedPin = await _secureStorage.read(key: 'lobohub_pin');
+    setState(() {
+      _showPinEntry = true;
+      _authFailed = false;
+      _isSettingPin = storedPin == null;
+    });
   }
 
   Future<void> _verifyPin() async {
     final enteredPin = _pinController.text.trim();
+    if (enteredPin.length < 4) {
+      setState(() => _pinError = 'PIN must be 4 digits');
+      return;
+    }
+
     final storedPin = await _secureStorage.read(key: 'lobohub_pin');
 
     if (storedPin == null) {
-      // No PIN stored — save this one
+      // No PIN stored — save this one as the new PIN
       await _secureStorage.write(key: 'lobohub_pin', value: enteredPin);
       setState(() {
         _unlocked = true;
@@ -165,12 +228,14 @@ class _BiometricLockScreenState extends State<BiometricLockScreen> {
       home: _LockScreen(
         authFailed: _authFailed,
         showPinEntry: _showPinEntry,
+        isSettingPin: _isSettingPin,
         biometricsAvailable: _biometricsAvailable,
         pinController: _pinController,
         pinError: _pinError,
         onAuthenticate: _authenticate,
         onVerifyPin: _verifyPin,
         onPinChanged: (_) => setState(() => _pinError = null),
+        onSwitchToPin: _switchToPinEntry,
       ),
     );
   }
@@ -181,22 +246,26 @@ class _BiometricLockScreenState extends State<BiometricLockScreen> {
 class _LockScreen extends StatelessWidget {
   final bool authFailed;
   final bool showPinEntry;
+  final bool isSettingPin;
   final bool biometricsAvailable;
   final TextEditingController pinController;
   final String? pinError;
   final VoidCallback onAuthenticate;
   final VoidCallback onVerifyPin;
   final ValueChanged<String> onPinChanged;
+  final VoidCallback onSwitchToPin;
 
   const _LockScreen({
     required this.authFailed,
     required this.showPinEntry,
+    required this.isSettingPin,
     required this.biometricsAvailable,
     required this.pinController,
     required this.pinError,
     required this.onAuthenticate,
     required this.onVerifyPin,
     required this.onPinChanged,
+    required this.onSwitchToPin,
   });
 
   @override
@@ -234,10 +303,14 @@ class _LockScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  showPinEntry ? 'Enter your PIN' : 'Tap to unlock',
+                  showPinEntry
+                      ? (isSettingPin
+                          ? 'Create a 4-digit PIN'
+                          : 'Enter your PIN')
+                      : 'Tap to unlock with biometrics',
                   style: TextStyle(
                     fontSize: 16,
-                    color: Colors.white.withOpacity(0.8),
+                    color: Colors.white.withValues(alpha: 0.8),
                   ),
                 ),
                 const SizedBox(height: 48),
@@ -246,6 +319,7 @@ class _LockScreen extends StatelessWidget {
                   _PinEntryWidget(
                     controller: pinController,
                     error: pinError,
+                    isSettingPin: isSettingPin,
                     onChanged: onPinChanged,
                     onSubmit: onVerifyPin,
                   )
@@ -257,9 +331,9 @@ class _LockScreen extends StatelessWidget {
                       height: 88,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: Colors.white.withOpacity(0.15),
+                        color: Colors.white.withValues(alpha: 0.15),
                         border: Border.all(
-                          color: Colors.white.withOpacity(0.4),
+                          color: Colors.white.withValues(alpha: 0.4),
                           width: 2,
                         ),
                       ),
@@ -276,13 +350,13 @@ class _LockScreen extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 16, vertical: 10),
                       decoration: BoxDecoration(
-                        color: Colors.red.withOpacity(0.2),
+                        color: Colors.red.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                            color: Colors.red.withOpacity(0.4), width: 1),
+                            color: Colors.red.withValues(alpha: 0.4), width: 1),
                       ),
                       child: const Text(
-                        'Authentication failed. Try again.',
+                        'Biometric authentication failed. Try again or use PIN.',
                         style: TextStyle(color: Colors.white, fontSize: 14),
                         textAlign: TextAlign.center,
                       ),
@@ -292,14 +366,30 @@ class _LockScreen extends StatelessWidget {
 
                 const SizedBox(height: 32),
 
-                if (!showPinEntry && !biometricsAvailable)
+                // Always show "Use PIN instead" when on biometric screen
+                if (!showPinEntry)
                   TextButton(
-                    onPressed: onAuthenticate,
+                    onPressed: onSwitchToPin,
                     child: Text(
                       'Use PIN instead',
                       style: TextStyle(
-                        color: Colors.white.withOpacity(0.8),
+                        color: Colors.white.withValues(alpha: 0.8),
                         decoration: TextDecoration.underline,
+                        decorationColor: Colors.white.withValues(alpha: 0.8),
+                      ),
+                    ),
+                  ),
+
+                // Show "Try biometrics" when on PIN screen and biometrics are available
+                if (showPinEntry && biometricsAvailable)
+                  TextButton(
+                    onPressed: onAuthenticate,
+                    child: Text(
+                      'Use fingerprint / face instead',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.8),
+                        decoration: TextDecoration.underline,
+                        decorationColor: Colors.white.withValues(alpha: 0.8),
                       ),
                     ),
                   ),
@@ -315,12 +405,14 @@ class _LockScreen extends StatelessWidget {
 class _PinEntryWidget extends StatelessWidget {
   final TextEditingController controller;
   final String? error;
+  final bool isSettingPin;
   final ValueChanged<String> onChanged;
   final VoidCallback onSubmit;
 
   const _PinEntryWidget({
     required this.controller,
     required this.error,
+    required this.isSettingPin,
     required this.onChanged,
     required this.onSubmit,
   });
@@ -329,6 +421,23 @@ class _PinEntryWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
+        if (isSettingPin)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.amber.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+              ),
+              child: const Text(
+                'No PIN set yet. Enter a 4-digit PIN to use as your backup unlock method.',
+                style: TextStyle(color: Colors.white, fontSize: 13),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
         SizedBox(
           width: 200,
           child: TextField(
@@ -341,6 +450,7 @@ class _PinEntryWidget extends StatelessWidget {
               LengthLimitingTextInputFormatter(4),
             ],
             onChanged: onChanged,
+            onSubmitted: (_) => onSubmit(),
             textAlign: TextAlign.center,
             style: const TextStyle(
               color: Colors.white,
@@ -351,13 +461,13 @@ class _PinEntryWidget extends StatelessWidget {
               counterText: '',
               hintText: '• • • •',
               hintStyle: TextStyle(
-                color: Colors.white.withOpacity(0.4),
+                color: Colors.white.withValues(alpha: 0.4),
                 fontSize: 32,
                 letterSpacing: 12,
               ),
               enabledBorder: UnderlineInputBorder(
                 borderSide:
-                    BorderSide(color: Colors.white.withOpacity(0.5), width: 2),
+                    BorderSide(color: Colors.white.withValues(alpha: 0.5), width: 2),
               ),
               focusedBorder: const UnderlineInputBorder(
                 borderSide: BorderSide(color: Colors.white, width: 2),
@@ -378,9 +488,9 @@ class _PinEntryWidget extends StatelessWidget {
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
           ),
-          child: const Text(
-            'Unlock',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          child: Text(
+            isSettingPin ? 'Set PIN & Unlock' : 'Unlock',
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
           ),
         ),
       ],
