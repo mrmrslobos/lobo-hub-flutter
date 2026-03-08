@@ -825,9 +825,10 @@ class _DevotionalFormSheetState extends State<_DevotionalFormSheet> {
     if (topic.isEmpty) return;
     setState(() => _isAiGenerating = true);
 
-    const systemPrompt =
-        'You are a family devotional writer for a Christian family app. Always respond with valid JSON only, no markdown fences.';
+    final familyId = context.read<AppProvider>().activeFamily?.id ?? '';
     final prompt = '''
+You are a family devotional writer for a Christian family app. Always respond with valid JSON only, no markdown fences.
+
 Create a family devotional about "$topic". Return a JSON object with:
 - "title" (string)
 - "scripture" (string, e.g. "John 3:16")
@@ -837,7 +838,7 @@ Create a family devotional about "$topic". Return a JSON object with:
 ''';
 
     try {
-      final raw = await AiService.ask(prompt: prompt, module: 'devotional', systemPrompt: systemPrompt);
+      final raw = await AiService.ask(prompt: prompt, feature: 'ai_devotional', familyId: familyId);
       if (raw == null || !mounted) {
         if (mounted) setState(() => _isAiGenerating = false);
         return;
@@ -1107,10 +1108,12 @@ class _AddReadingPlanSheetState extends State<_AddReadingPlanSheet> {
     });
 
     try {
+      final familyId = context.read<AppProvider>().activeFamily?.id ?? '';
       final response = await AiService.ask(
         prompt:
             'Generate a 7-day devotional reading plan on $topic. Return JSON with fields: title, description, entries (array of {day, title, scripture, content})',
-        module: 'devotional',
+        feature: 'ai_devotional',
+        familyId: familyId,
       );
 
       if (response == null) {

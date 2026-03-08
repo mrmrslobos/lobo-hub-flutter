@@ -92,9 +92,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final income = budgetEntries.where((e) => e.isIncome).fold<double>(0, (s, e) => s + e.amount);
     final expenses = budgetEntries.where((e) => !e.isIncome).fold<double>(0, (s, e) => s + e.amount);
 
-    const systemPrompt =
-        'You are a warm, encouraging family assistant for a Christian family app. Always respond with valid JSON only, no markdown fences.';
     final prompt = '''
+You are a warm, encouraging family assistant for a Christian family app. Always respond with valid JSON only, no markdown fences.
+
 Generate a monthly recap for the $familyName family for $monthName.
 
 Data:
@@ -116,7 +116,7 @@ Return a JSON object:
 ''';
 
     try {
-      final raw = await AiService.ask(prompt: prompt, module: 'dashboard', systemPrompt: systemPrompt);
+      final raw = await AiService.ask(prompt: prompt, feature: 'ai_motivation', familyId: familyId);
       if (raw == null || !mounted) {
         if (mounted) setState(() => _monthlySummaryLoading = false);
         return;
@@ -183,7 +183,9 @@ Active lists: ${db.lists.where((l) => l.familyId == familyId).length}
 
     try {
       final raw = await AiService.ask(
-        prompt: '''Based on this family's current data, generate 3 personalized, actionable suggestions to help them today. Each suggestion should be helpful and specific.
+        prompt: '''You are a helpful family assistant AI. Give practical, encouraging suggestions based on the family data. Respond with valid JSON only.
+
+Based on this family's current data, generate 3 personalized, actionable suggestions to help them today. Each suggestion should be helpful and specific.
 
 $contextStr
 
@@ -196,8 +198,8 @@ Respond with a JSON array of objects, each with:
 - "route": app route like "/tasks", "/meals", "/calendar", "/fitness", "/budget", "/prayer-wall", "/chores", "/lists"
 
 Return ONLY the JSON array, no markdown.''',
-        module: 'dashboard',
-        systemPrompt: 'You are a helpful family assistant AI. Give practical, encouraging suggestions based on the family data. Respond with valid JSON only.',
+        feature: 'ai_motivation',
+        familyId: familyId,
       );
 
       if (raw != null && mounted) {

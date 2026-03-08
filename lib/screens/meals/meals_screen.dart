@@ -144,7 +144,8 @@ Return a JSON array of exactly 3 objects, each with these fields:
 ''';
 
     try {
-      final raw = await AiService.ask(prompt: prompt, module: 'meals', systemPrompt: systemPrompt);
+      final familyId = context.read<AppProvider>().activeFamily?.id ?? '';
+      final raw = await AiService.ask(prompt: '$systemPrompt\n\n$prompt', feature: 'ai_recipes', familyId: familyId);
       if (raw == null) {
         if (mounted) setState(() => _chefLoading = false);
         return;
@@ -236,7 +237,8 @@ Return a JSON array of 7 objects, each with:
 ''';
 
     try {
-      final raw = await AiService.ask(prompt: prompt, module: 'meals', systemPrompt: systemPrompt);
+      final familyId = context.read<AppProvider>().activeFamily?.id ?? '';
+      final raw = await AiService.ask(prompt: '$systemPrompt\n\n$prompt', feature: 'ai_recipes', familyId: familyId);
       if (raw == null) {
         if (mounted) setState(() => _weekPlannerLoading = false);
         return;
@@ -342,6 +344,7 @@ Return a JSON array of 7 objects, each with:
         try {
           final categories = await AiService.categorizeItems(
             allIngredients.map((i) => i.split(' ').last).toList(),
+            familyId: familyId,
           );
           for (var i = 0; i < listItems.length; i++) {
             final itemName = allIngredients[i].split(' ').last;
@@ -387,7 +390,8 @@ Return a JSON array of 7 objects, each with:
     setState(() => _importLoading = true);
 
     try {
-      final result = await AiService.scrapeRecipe(url);
+      final familyId = context.read<AppProvider>().activeFamily?.id ?? '';
+      final result = await AiService.scrapeRecipe(url, familyId: familyId);
       if (result == null) {
         if (mounted) {
           setState(() => _importLoading = false);
@@ -1259,7 +1263,8 @@ The replacement should be similar in style but different. Keep it healthy and fa
 ''';
 
     try {
-      final raw = await AiService.ask(prompt: prompt, module: 'meals', systemPrompt: systemPrompt);
+      final familyId = context.read<AppProvider>().activeFamily?.id ?? '';
+      final raw = await AiService.ask(prompt: '$systemPrompt\n\n$prompt', feature: 'ai_recipes', familyId: familyId);
       if (!context.mounted) return;
       Navigator.pop(context); // dismiss loading
 
@@ -2380,7 +2385,8 @@ class _ImportUrlDialogState extends State<_ImportUrlDialog> {
     });
 
     try {
-      final result = await AiService.scrapeRecipe(url);
+      final familyId = context.read<AppProvider>().activeFamily?.id ?? '';
+      final result = await AiService.scrapeRecipe(url, familyId: familyId);
       if (result == null) {
         setState(() {
           _error = 'Could not extract recipe. Try a different URL.';

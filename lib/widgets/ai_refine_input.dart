@@ -17,7 +17,7 @@ const _uuid = Uuid();
 // ─────────────────────────────────────────────────────────────────────────────
 
 class AiRefineInput extends StatefulWidget {
-  final String module;
+  final String feature;
   final String placeholder;
   final String? systemPrompt;
   final void Function(String response) onResult;
@@ -25,7 +25,7 @@ class AiRefineInput extends StatefulWidget {
 
   const AiRefineInput({
     super.key,
-    required this.module,
+    required this.feature,
     required this.placeholder,
     this.systemPrompt,
     required this.onResult,
@@ -55,10 +55,18 @@ class _AiRefineInputState extends State<AiRefineInput> {
     setState(() => _loading = true);
 
     try {
+      final provider = context.read<AppProvider>();
+      final familyId = provider.activeFamily?.id ?? '';
+
+      // Prepend system prompt to the user prompt if provided
+      final fullPrompt = widget.systemPrompt != null
+          ? '${widget.systemPrompt}\n\n$text'
+          : text;
+
       final response = await AiService.ask(
-        prompt: text,
-        module: widget.module,
-        systemPrompt: widget.systemPrompt,
+        prompt: fullPrompt,
+        feature: widget.feature,
+        familyId: familyId,
       );
 
       if (!mounted) return;
@@ -70,7 +78,6 @@ class _AiRefineInputState extends State<AiRefineInput> {
 
       // Save to AI history if requested
       if (widget.showHistory) {
-        final provider = context.read<AppProvider>();
         final user = provider.activeUser;
         final family = provider.activeFamily;
         if (user != null && family != null) {
@@ -80,7 +87,7 @@ class _AiRefineInputState extends State<AiRefineInput> {
             userId: user.id,
             prompt: text,
             response: response,
-            module: widget.module,
+            module: widget.feature,
             createdAt: DateTime.now(),
           );
           final updatedDb = provider.db.copyWith(
@@ -211,7 +218,7 @@ class _AiRefineInputState extends State<AiRefineInput> {
 
 Future<String?> showAiInputSheet(
   BuildContext context, {
-  required String module,
+  required String feature,
   required String placeholder,
   String? systemPrompt,
 }) async {
@@ -223,7 +230,7 @@ Future<String?> showAiInputSheet(
     backgroundColor: Colors.transparent,
     builder: (sheetCtx) {
       return _AiInputSheet(
-        module: module,
+        feature: feature,
         placeholder: placeholder,
         systemPrompt: systemPrompt,
         onResult: (response) {
@@ -238,13 +245,13 @@ Future<String?> showAiInputSheet(
 }
 
 class _AiInputSheet extends StatelessWidget {
-  final String module;
+  final String feature;
   final String placeholder;
   final String? systemPrompt;
   final void Function(String) onResult;
 
   const _AiInputSheet({
-    required this.module,
+    required this.feature,
     required this.placeholder,
     required this.systemPrompt,
     required this.onResult,
@@ -292,7 +299,7 @@ class _AiInputSheet extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           AiRefineInput(
-            module: module,
+            feature: feature,
             placeholder: placeholder,
             systemPrompt: systemPrompt,
             onResult: onResult,

@@ -4,33 +4,55 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AiService {
+  /// Call the Supabase ai-proxy edge function.
+  ///
+  /// [feature] must match a key in the edge function's FEATURE_TIER_MAP
+  /// (e.g. 'ai_tasks', 'ai_recipes', 'ai_fitness', 'ai_budget', 'ai_lists').
+  /// [familyId] is the current family's ID for subscription-tier verification.
   static Future<String?> ask({
     required String prompt,
-    required String module,
-    String? systemPrompt,
+    required String feature,
+    required String familyId,
+    String? responseMimeType,
+    Map<String, dynamic>? responseSchema,
   }) async {
     try {
       final restUrl = Supabase.instance.client.rest.url;
       final supabaseUrl = restUrl.replaceAll('/rest/v1', '');
-      final token =
-          Supabase.instance.client.auth.currentSession?.accessToken ?? '';
+      final anonKey = Supabase.instance.client.rest.headers['apikey'] ?? '';
       final uri = Uri.parse('$supabaseUrl/functions/v1/ai-proxy');
+
+      final body = <String, dynamic>{
+        'familyId': familyId,
+        'feature': feature,
+        'prompt': prompt,
+      };
+      if (responseMimeType != null) {
+        body['responseMimeType'] = responseMimeType;
+      }
+      if (responseSchema != null) {
+        body['responseSchema'] = responseSchema;
+      }
 
       final response = await http.post(
         uri,
         headers: {
-          'Authorization': 'Bearer $token',
+          'Authorization': 'Bearer $anonKey',
           'Content-Type': 'application/json',
         },
-        body: jsonEncode({
-          'prompt': prompt,
-          'module': module,
-          if (systemPrompt != null) 'systemPrompt': systemPrompt,
-        }),
+        body: jsonEncode(body),
       );
 
       if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is Map<String, dynamic> && data.containsKey('text')) {
+          return data['text'] as String?;
+        }
+        // Fallback: return raw body if it's not the expected JSON wrapper
         return response.body;
+      } else if (response.statusCode == 402) {
+        debugPrint('[AiService] Subscription required: ${response.body}');
+        return null;
       } else {
         debugPrint(
             '[AiService] Non-200 response: ${response.statusCode} ${response.body}');
@@ -44,14 +66,15 @@ class AiService {
 
   static Future<Map<String, dynamic>?> askJson({
     required String prompt,
-    required String module,
-    String? systemPrompt,
+    required String feature,
+    required String familyId,
   }) async {
     try {
       final raw = await ask(
         prompt: prompt,
-        module: module,
-        systemPrompt: systemPrompt,
+        feature: feature,
+        familyId: familyId,
+        responseMimeType: 'application/json',
       );
       if (raw == null) return null;
       final decoded = jsonDecode(raw);
@@ -63,9 +86,10 @@ class AiService {
     }
   }
 
-  static Future<Map<String, dynamic>?> scrapeRecipe(String url) async {
-    const systemPrompt =
-        'You are a recipe extraction assistant. Always respond with valid JSON only, no markdown.';
+  static Future<Map<String, dynamic>?> scrapeRecipe(
+    String url, {
+    required String familyId,
+  }) async {
     final prompt = '''
 Extract the recipe from this URL and return a JSON object with exactly these fields:
 - title (string)
@@ -80,14 +104,15 @@ URL: $url
 ''';
     return askJson(
       prompt: prompt,
-      module: 'meals',
-      systemPrompt: systemPrompt,
+      feature: 'ai_recipes',
+      familyId: familyId,
     );
   }
 
-  static Future<List<String>> breakdownTask(String goal) async {
-    const systemPrompt =
-        'You are a productivity assistant. Respond with a JSON array of strings only, no markdown.';
+  static Future<List<String>> breakdownTask(
+    String goal, {
+    required String familyId,
+  }) async {
     final prompt =
         'Break the following goal into 3 to 7 concrete, actionable sub-tasks. '
         'Return a JSON array of strings.\n\nGoal: $goal';
@@ -95,8 +120,9 @@ URL: $url
     try {
       final raw = await ask(
         prompt: prompt,
-        module: 'tasks',
-        systemPrompt: systemPrompt,
+        feature: 'ai_tasks',
+        familyId: familyId,
+        responseMimeType: 'application/json',
       );
       if (raw == null) return [];
       final decoded = jsonDecode(raw);
@@ -114,9 +140,8 @@ URL: $url
     required String goals,
     required int daysPerWeek,
     required String fitnessLevel,
+    required String familyId,
   }) async {
-    const systemPrompt =
-        'You are a certified personal trainer. Provide clear, safe, and effective workout plans.';
     final prompt = '''
 Create a detailed weekly workout plan with the following parameters:
 - Fitness goals: $goals
@@ -127,15 +152,15 @@ Format the plan clearly with day-by-day workouts, sets, reps, and rest periods.
 ''';
     return ask(
       prompt: prompt,
-      module: 'fitness',
-      systemPrompt: systemPrompt,
+      feature: 'ai_fitness',
+      familyId: familyId,
     );
   }
 
   static Future<Map<String, String>> categorizeItems(
-      List<String> items) async {
-    const systemPrompt =
-        'You are a grocery categorization assistant. Respond with valid JSON only, no markdown.';
+    List<String> items, {
+    required String familyId,
+  }) async {
     final prompt = '''
 Categorize each of the following shopping list items into one of these categories:
 Produce, Dairy, Meat, Bakery, Frozen, Pantry, Beverages, Other.
@@ -148,8 +173,8 @@ Items: ${items.join(', ')}
     try {
       final result = await askJson(
         prompt: prompt,
-        module: 'shopping',
-        systemPrompt: systemPrompt,
+        feature: 'ai_lists',
+        familyId: familyId,
       );
       if (result == null) return {};
       return result.map((k, v) => MapEntry(k.toString(), v.toString()));
@@ -163,9 +188,8 @@ Items: ${items.join(', ')}
     required double totalIncome,
     required double totalExpenses,
     required Map<String, double> byCategory,
+    required String familyId,
   }) async {
-    const systemPrompt =
-        'You are a personal finance advisor. Provide actionable and encouraging budget feedback.';
     final categoryLines = byCategory.entries
         .map((e) => '  - ${e.key}: \$${e.value.toStringAsFixed(2)}')
         .join('\n');
@@ -187,8 +211,8 @@ Please provide:
 ''';
     return ask(
       prompt: prompt,
-      module: 'budget',
-      systemPrompt: systemPrompt,
+      feature: 'ai_budget',
+      familyId: familyId,
     );
   }
 }
