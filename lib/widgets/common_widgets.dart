@@ -1,5 +1,6 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Visibility;
 import '../config/theme.dart';
+import '../models/models.dart';
 
 // ─── Rounded Section Card ───────────────────────────────────────────────────
 class SectionCard extends StatelessWidget {
@@ -821,6 +822,229 @@ class FamilyHubAppBar extends StatelessWidget implements PreferredSizeWidget {
             onPressed: () => Scaffold.of(context).openEndDrawer(),
           ),
         ),
+      ],
+    );
+  }
+}
+
+// ─── Share Picker ───────────────────────────────────────────────────────────
+/// A reusable widget that lets you choose between sharing with the whole family
+/// or picking specific members. Returns [Visibility] + [List<String>] of selected IDs.
+
+class SharePicker extends StatefulWidget {
+  final List<SharePickerMember> members;
+  final Visibility initialVisibility;
+  final List<String> initialSharedWith;
+  final ValueChanged<SharePickerResult> onChanged;
+
+  const SharePicker({
+    super.key,
+    required this.members,
+    this.initialVisibility = Visibility.FAMILY,
+    this.initialSharedWith = const [],
+    required this.onChanged,
+  });
+
+  @override
+  State<SharePicker> createState() => _SharePickerState();
+}
+
+class SharePickerResult {
+  final Visibility visibility;
+  final List<String> sharedWith;
+  const SharePickerResult({required this.visibility, required this.sharedWith});
+}
+
+class SharePickerMember {
+  final String id;
+  final String name;
+  const SharePickerMember({required this.id, required this.name});
+}
+
+class _SharePickerState extends State<SharePicker> {
+  late Visibility _visibility;
+  late Set<String> _selected;
+
+  @override
+  void initState() {
+    super.initState();
+    _visibility = widget.initialVisibility;
+    _selected = Set.from(widget.initialSharedWith);
+  }
+
+  void _emit() {
+    widget.onChanged(SharePickerResult(
+      visibility: _visibility,
+      sharedWith: _visibility == Visibility.SPECIFIC ? _selected.toList() : [],
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Share with',
+          style: TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: AppTheme.stone700,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: GestureDetector(
+                onTap: () {
+                  setState(() => _visibility = Visibility.FAMILY);
+                  _emit();
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: BoxDecoration(
+                    color: _visibility == Visibility.FAMILY
+                        ? AppTheme.primary.withValues(alpha: 0.12)
+                        : AppTheme.stone50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: _visibility == Visibility.FAMILY
+                          ? AppTheme.primary
+                          : AppTheme.stone200,
+                      width: _visibility == Visibility.FAMILY ? 1.5 : 1,
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.family_restroom_rounded,
+                          size: 16,
+                          color: _visibility == Visibility.FAMILY
+                              ? AppTheme.primary
+                              : AppTheme.stone500),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Whole Family',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: _visibility == Visibility.FAMILY
+                              ? AppTheme.primary
+                              : AppTheme.stone500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: GestureDetector(
+                onTap: () {
+                  setState(() => _visibility = Visibility.SPECIFIC);
+                  _emit();
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: BoxDecoration(
+                    color: _visibility == Visibility.SPECIFIC
+                        ? AppTheme.primary.withValues(alpha: 0.12)
+                        : AppTheme.stone50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: _visibility == Visibility.SPECIFIC
+                          ? AppTheme.primary
+                          : AppTheme.stone200,
+                      width: _visibility == Visibility.SPECIFIC ? 1.5 : 1,
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.person_add_rounded,
+                          size: 16,
+                          color: _visibility == Visibility.SPECIFIC
+                              ? AppTheme.primary
+                              : AppTheme.stone500),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Specific People',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: _visibility == Visibility.SPECIFIC
+                              ? AppTheme.primary
+                              : AppTheme.stone500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (_visibility == Visibility.SPECIFIC) ...[
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: widget.members.map((m) {
+              final isOn = _selected.contains(m.id);
+              return GestureDetector(
+                onTap: () {
+                  setState(() {
+                    if (isOn) {
+                      _selected.remove(m.id);
+                    } else {
+                      _selected.add(m.id);
+                    }
+                  });
+                  _emit();
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: isOn
+                        ? AppTheme.primary.withValues(alpha: 0.1)
+                        : AppTheme.stone100,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: isOn ? AppTheme.primary : Colors.transparent,
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      AvatarInitials(name: m.name, size: 22),
+                      const SizedBox(width: 6),
+                      Text(
+                        m.name.split(' ').first,
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: isOn ? AppTheme.primary : AppTheme.stone700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
       ],
     );
   }

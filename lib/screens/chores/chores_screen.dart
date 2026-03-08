@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 
@@ -65,6 +66,10 @@ class _ChoresScreenState extends State<ChoresScreen> {
           final provider = context.read<AppProvider>();
           final db = provider.db;
           await provider.saveAndSync(db.copyWith(chores: [...db.chores, chore]));
+          NotificationService.notifyFamilyActivity(
+            title: 'New Chore Added',
+            body: '${provider.activeUser?.name ?? "Someone"} added: ${chore.title}',
+          );
         },
       ),
     );

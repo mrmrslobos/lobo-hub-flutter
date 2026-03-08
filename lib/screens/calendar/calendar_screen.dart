@@ -13,6 +13,7 @@ import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../services/calendar_sync_service.dart';
+import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 
@@ -1108,6 +1109,7 @@ class _EventFormSheetState extends State<_EventFormSheet> {
   late DateTime _endDate;
   bool _allDay = false;
   Visibility _visibility = Visibility.FAMILY;
+  List<String> _sharedWith = [];
   bool _loading = false;
 
   @override
@@ -1123,6 +1125,7 @@ class _EventFormSheetState extends State<_EventFormSheet> {
       _endDate = e.endDate;
       _allDay = e.allDay;
       _visibility = e.visibility;
+      _sharedWith = List.from(e.sharedWith);
     } else {
       final base = DateTime(widget.initialDate.year,
           widget.initialDate.month, widget.initialDate.day, 9, 0);
@@ -1211,6 +1214,7 @@ class _EventFormSheetState extends State<_EventFormSheet> {
         start: _startDate,
         end: _allDay ? _startDate : _endDate,
         visibility: _visibility,
+        sharedWith: _sharedWith,
       );
 
       List<CalendarEvent> events;
@@ -1222,6 +1226,12 @@ class _EventFormSheetState extends State<_EventFormSheet> {
         events = [...db.events, event];
       }
       await provider.saveAndSync(db.copyWith(events: events));
+      if (widget.editEvent == null) {
+        NotificationService.notifyFamilyActivity(
+          title: 'New Calendar Event',
+          body: '${provider.activeUser?.name ?? "Someone"} added: ${event.title}',
+        );
+      }
       if (mounted) Navigator.pop(context);
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -1325,66 +1335,17 @@ class _EventFormSheetState extends State<_EventFormSheet> {
                       ),
                     const SizedBox(height: 16),
 
-                    // Visibility
-                    const Text(
-                      'Visibility',
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.stone700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: Visibility.values.map((v) {
-                        final selected = _visibility == v;
-                        final label = v == Visibility.FAMILY
-                            ? 'Family'
-                            : 'Personal';
-                        return Expanded(
-                          child: Padding(
-                            padding:
-                                const EdgeInsets.only(right: 8),
-                            child: GestureDetector(
-                              onTap: () =>
-                                  setState(() => _visibility = v),
-                              child: AnimatedContainer(
-                                duration:
-                                    const Duration(milliseconds: 150),
-                                padding: const EdgeInsets.symmetric(
-                                    vertical: 10),
-                                decoration: BoxDecoration(
-                                  color: selected
-                                      ? AppTheme.primary
-                                          .withOpacity(0.1)
-                                      : AppTheme.stone50,
-                                  borderRadius:
-                                      BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color: selected
-                                        ? AppTheme.primary
-                                        : AppTheme.stone200,
-                                    width: selected ? 1.5 : 1,
-                                  ),
-                                ),
-                                alignment: Alignment.center,
-                                child: Text(
-                                  label,
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                    fontFamily: 'Inter',
-                                    color: selected
-                                        ? AppTheme.primary
-                                        : AppTheme.stone500,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        );
-                      }).toList(),
+                    // Share with
+                    SharePicker(
+                      members: context.read<AppProvider>().familyMembers
+                          .map((m) => SharePickerMember(id: m.id, name: m.name))
+                          .toList(),
+                      initialVisibility: _visibility,
+                      initialSharedWith: _sharedWith,
+                      onChanged: (result) => setState(() {
+                        _visibility = result.visibility;
+                        _sharedWith = result.sharedWith;
+                      }),
                     ),
                     const SizedBox(height: 24),
 

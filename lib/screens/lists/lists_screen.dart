@@ -1,6 +1,6 @@
 // lib/screens/lists/lists_screen.dart
 import 'dart:convert';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Visibility;
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
@@ -8,6 +8,7 @@ import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
+import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 
@@ -21,7 +22,7 @@ class ListsScreen extends StatefulWidget {
 class _ListsScreenState extends State<ListsScreen> {
   ShoppingList? _selectedList;
 
-  Future<void> _createList(String name) async {
+  Future<void> _createList(String name, {Visibility visibility = Visibility.FAMILY, List<String> sharedWith = const []}) async {
     final provider = context.read<AppProvider>();
     final db = provider.db;
     final list = ShoppingList(
@@ -30,9 +31,17 @@ class _ListsScreenState extends State<ListsScreen> {
       creatorId: provider.activeUser!.id,
       title: name,
       items: [],
+      visibility: visibility,
+      sharedWith: sharedWith,
     );
     final updated = [...db.shoppingLists, list];
     await provider.saveAndSync(db.copyWith(shoppingLists: updated));
+    if (visibility != Visibility.PRIVATE) {
+      NotificationService.notifyFamilyActivity(
+        title: 'New List Created',
+        body: '${provider.activeUser?.name ?? "Someone"} created: ${list.title}',
+      );
+    }
     setState(() => _selectedList = list);
   }
 
@@ -53,6 +62,13 @@ class _ListsScreenState extends State<ListsScreen> {
     final updatedLists = db.shoppingLists.map((l) => l.id == list.id ? updatedList : l).toList();
     await provider.saveAndSync(db.copyWith(shoppingLists: updatedLists));
     setState(() => _selectedList = updatedList);
+    // Notify family about new item on shared list
+    if (list.visibility != Visibility.PRIVATE) {
+      NotificationService.notifyFamilyActivity(
+        title: 'Item Added to ${list.title}',
+        body: '${provider.activeUser?.name ?? "Someone"} added: $name',
+      );
+    }
   }
 
   Future<void> _toggleItem(ShoppingList list, ListItem item) async {
@@ -63,6 +79,13 @@ class _ListsScreenState extends State<ListsScreen> {
     final updatedLists = db.shoppingLists.map((l) => l.id == list.id ? updatedList : l).toList();
     await provider.saveAndSync(db.copyWith(shoppingLists: updatedLists));
     setState(() => _selectedList = updatedList);
+    // Notify family when item is checked off on shared list
+    if (!item.checked && list.visibility != Visibility.PRIVATE) {
+      NotificationService.notifyFamilyActivity(
+        title: '${list.title} Updated',
+        body: '${provider.activeUser?.name ?? "Someone"} checked off: ${item.text}',
+      );
+    }
   }
 
   Future<void> _deleteItem(ShoppingList list, String itemId) async {
@@ -76,12 +99,16 @@ class _ListsScreenState extends State<ListsScreen> {
 
   void _showNewListSheet() {
     final ctrl = TextEditingController();
+    final provider = context.read<AppProvider>();
+    final members = provider.familyMembers;
+    var shareResult = const SharePickerResult(visibility: Visibility.FAMILY, sharedWith: []);
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
         child: Container(
           decoration: const BoxDecoration(color: AppTheme.surface, borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
@@ -96,10 +123,15 @@ class _ListsScreenState extends State<ListsScreen> {
               decoration: const InputDecoration(labelText: 'List Name *', prefixIcon: Icon(Icons.list_rounded)),
               onSubmitted: (v) {
                 if (v.trim().isNotEmpty) {
-                  Navigator.pop(context);
-                  _createList(v.trim());
+                  Navigator.pop(ctx);
+                  _createList(v.trim(), visibility: shareResult.visibility, sharedWith: shareResult.sharedWith);
                 }
               },
+            ),
+            const SizedBox(height: 16),
+            SharePicker(
+              members: members.map((m) => SharePickerMember(id: m.id, name: m.name)).toList(),
+              onChanged: (result) => shareResult = result,
             ),
             const SizedBox(height: 16),
             SizedBox(
@@ -107,8 +139,8 @@ class _ListsScreenState extends State<ListsScreen> {
               child: ElevatedButton(
                 onPressed: () {
                   if (ctrl.text.trim().isNotEmpty) {
-                    Navigator.pop(context);
-                    _createList(ctrl.text.trim());
+                    Navigator.pop(ctx);
+                    _createList(ctrl.text.trim(), visibility: shareResult.visibility, sharedWith: shareResult.sharedWith);
                   }
                 },
                 child: const Text('Create List'),

@@ -10,6 +10,7 @@ import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
+import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 
@@ -84,6 +85,10 @@ class _TasksScreenState extends State<TasksScreen> {
     final tasks =
         db.tasks.map((t) => t.id == task.id ? updated : t).toList();
     await provider.saveAndSync(db.copyWith(tasks: tasks));
+    // Cancel reminder when task is completed
+    if (updated.completed) {
+      NotificationService.cancelTaskReminder(task.id);
+    }
   }
 
   Future<void> _deleteTask(
@@ -109,6 +114,7 @@ class _TasksScreenState extends State<TasksScreen> {
       final db = provider.db;
       final tasks = db.tasks.where((t) => t.id != task.id).toList();
       await provider.saveAndSync(db.copyWith(tasks: tasks));
+      NotificationService.cancelTaskReminder(task.id);
     }
   }
 
@@ -1133,8 +1139,19 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
   Priority _priority = Priority.MEDIUM;
   Recurrence _recurrence = Recurrence.NONE;
   DateTime? _dueDate;
+  TimeOfDay? _dueTime;
+  int? _reminderMinutes;
   List<String> _assigneeIds = [];
   bool _loading = false;
+
+  static const _reminderOptions = [
+    (0, 'At time of task'),
+    (5, '5 minutes before'),
+    (15, '15 minutes before'),
+    (30, '30 minutes before'),
+    (60, '1 hour before'),
+    (1440, '1 day before'),
+  ];
 
   @override
   void initState() {
@@ -1148,6 +1165,14 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
       _recurrence = t.recurrence;
       _dueDate = t.dueDate;
       _assigneeIds = List.from(t.assignees);
+      _reminderMinutes = t.reminderMinutes;
+      if (t.dueTime != null && t.dueTime!.contains(':')) {
+        final parts = t.dueTime!.split(':');
+        _dueTime = TimeOfDay(
+          hour: int.tryParse(parts[0]) ?? 0,
+          minute: int.tryParse(parts[1]) ?? 0,
+        );
+      }
     }
   }
 
@@ -1185,8 +1210,13 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
           .where((t) => t.isNotEmpty)
           .toList();
 
+      final dueTimeStr = _dueTime != null
+          ? '${_dueTime!.hour.toString().padLeft(2, '0')}:${_dueTime!.minute.toString().padLeft(2, '0')}'
+          : null;
+
+      Task savedTask;
       if (widget.editTask != null) {
-        final updated = widget.editTask!.copyWith(
+        savedTask = widget.editTask!.copyWith(
           title: _titleCtrl.text.trim(),
           notes: _notesCtrl.text.trim().isEmpty
               ? null
@@ -1194,15 +1224,17 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
           priority: _priority,
           recurrence: _recurrence,
           dueDate: _dueDate,
+          dueTime: dueTimeStr,
+          reminderMinutes: _reminderMinutes,
           assignees: _assigneeIds,
           tags: tags,
         );
         final tasks = db.tasks
-            .map((t) => t.id == updated.id ? updated : t)
+            .map((t) => t.id == savedTask.id ? savedTask : t)
             .toList();
         await provider.saveAndSync(db.copyWith(tasks: tasks));
       } else {
-        final task = Task(
+        savedTask = Task(
           id: uuid.v4(),
           familyId: familyId,
           title: _titleCtrl.text.trim(),
@@ -1213,13 +1245,39 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
           priority: _priority,
           recurrence: _recurrence,
           dueDate: _dueDate,
+          dueTime: dueTimeStr,
+          reminderMinutes: _reminderMinutes,
           assignees: _assigneeIds,
           tags: tags,
           creatorId: userId,
         );
-        final tasks = [...db.tasks, task];
+        final tasks = [...db.tasks, savedTask];
         await provider.saveAndSync(db.copyWith(tasks: tasks));
+
+        // Notify family about new shared task
+        if (_assigneeIds.length > 1 || (_assigneeIds.isNotEmpty && _assigneeIds.first != userId)) {
+          NotificationService.notifyFamilyActivity(
+            title: 'New Task Assigned',
+            body: '${provider.activeUser?.name ?? 'Someone'} created: ${savedTask.title}',
+            payload: 'task:${savedTask.id}',
+          );
+        }
       }
+
+      // Schedule reminder notification if configured
+      if (savedTask.dueDate != null && dueTimeStr != null && _reminderMinutes != null) {
+        await NotificationService.scheduleTaskReminder(
+          taskId: savedTask.id,
+          taskTitle: savedTask.title,
+          dueDate: savedTask.dueDate!,
+          dueTime: dueTimeStr,
+          reminderMinutes: _reminderMinutes!,
+        );
+      } else {
+        // Cancel any existing reminder if settings removed
+        await NotificationService.cancelTaskReminder(savedTask.id);
+      }
+
       if (mounted) Navigator.pop(context);
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -1331,6 +1389,87 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
                       ),
                     ),
                     const SizedBox(height: 16),
+
+                    // Due time (only shown when due date is set)
+                    if (_dueDate != null) ...[
+                      _sheetSectionLabel('Due time'),
+                      const SizedBox(height: 8),
+                      GestureDetector(
+                        onTap: () async {
+                          final picked = await showTimePicker(
+                            context: context,
+                            initialTime: _dueTime ?? TimeOfDay.now(),
+                          );
+                          if (picked != null) setState(() => _dueTime = picked);
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                          decoration: BoxDecoration(
+                            color: AppTheme.stone50,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: AppTheme.stone200),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.access_time_rounded, size: 18, color: AppTheme.stone500),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  _dueTime != null
+                                      ? _dueTime!.format(context)
+                                      : 'No time set',
+                                  style: TextStyle(
+                                    fontFamily: 'Inter',
+                                    fontSize: 14,
+                                    color: _dueTime != null ? AppTheme.stone800 : AppTheme.stone400,
+                                  ),
+                                ),
+                              ),
+                              if (_dueTime != null)
+                                GestureDetector(
+                                  onTap: () => setState(() {
+                                    _dueTime = null;
+                                    _reminderMinutes = null;
+                                  }),
+                                  child: const Icon(Icons.clear, size: 18, color: AppTheme.stone400),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+
+                    // Reminder (only shown when due date + time are set)
+                    if (_dueDate != null && _dueTime != null) ...[
+                      _sheetSectionLabel('Reminder'),
+                      const SizedBox(height: 8),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            // "None" option
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: IndigoChip(
+                                label: 'None',
+                                selected: _reminderMinutes == null,
+                                onTap: () => setState(() => _reminderMinutes = null),
+                              ),
+                            ),
+                            ..._reminderOptions.map((opt) => Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: IndigoChip(
+                                label: opt.$2,
+                                selected: _reminderMinutes == opt.$1,
+                                onTap: () => setState(() => _reminderMinutes = opt.$1),
+                              ),
+                            )),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
 
                     // Priority
                     _sheetSectionLabel('Priority'),
