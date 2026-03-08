@@ -91,90 +91,361 @@ class _HealthScreenState extends State<HealthScreen> {
       grouped.putIfAbsent(r.type ?? 'Other', () => []).add(r);
     }
 
+    // Blood type options
+    const bloodTypes = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'Unknown'];
+
+    // Find blood type record for selected user
+    final bloodTypeRecord = records.where((r) => r.type == 'blood_type').toList();
+    final currentBloodType = bloodTypeRecord.isNotEmpty ? (bloodTypeRecord.first.data['value'] ?? 'Unknown') : 'Unknown';
+
+    // Section records
+    final emergencyContacts = records.where((r) => r.type == 'emergency_contact').toList();
+    final allergies = records.where((r) => r.type == 'allergy').toList();
+    final medications = records.where((r) => r.type == 'medication').toList();
+    final conditions = records.where((r) => r.type == 'condition').toList();
+    final immunizations = records.where((r) => r.type == 'immunization').toList();
+    final doctorInsurance = records.where((r) => r.type == 'doctor_insurance' || r.type == 'appointment').toList();
+
     return Scaffold(
+      backgroundColor: AppTheme.background,
       drawer: const AppDrawer(),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showAddRecordSheet(_selectedUserId!),
-        child: const Icon(Icons.add_rounded),
-      ),
-      body: CustomScrollView(
-        slivers: [
-          const SliverAppBar(title: Text('Health Records'), floating: true),
-          // Member selector
-          if (members.length > 1)
-            SliverToBoxAdapter(
-              child: SizedBox(
-                height: 52,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                  children: members.map((m) => Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: FilterChip(
-                      label: Text(m.name.split(' ').first),
-                      selected: _selectedUserId == m.id,
-                      onSelected: (_) => setState(() => _selectedUserId = m.id),
-                      showCheckmark: false,
-                      avatar: UserAvatarWidget(name: m.name, radius: 10),
-                    ),
-                  )).toList(),
-                ),
-              ),
-            ),
-          // Member header
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(colors: [Color(0xFFEF4444), Color(0xFFDC2626)], begin: Alignment.topLeft, end: Alignment.bottomRight),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Row(children: [
-                  UserAvatarWidget(name: selectedUser.name, radius: 22),
-                  const SizedBox(width: 12),
-                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(selectedUser.name, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: Colors.white)),
-                    Text('${records.length} record${records.length == 1 ? '' : 's'}', style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white70)),
-                  ])),
-                  const Text('❤️', style: TextStyle(fontSize: 28)),
-                ]),
-              ),
-            ),
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
+            onPressed: () => Scaffold.of(context).openDrawer(),
           ),
-          records.isEmpty
-              ? SliverFillRemaining(
-                  child: EmptyState(
-                    emoji: '❤️',
-                    title: 'No health records',
-                    subtitle: 'Add health info for ${selectedUser.name.split(' ').first}.',
-                    actionLabel: 'Add Record',
-                    onAction: () => _showAddRecordSheet(_selectedUserId!),
-                  ),
-                )
-              : SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
-                  sliver: SliverList(
-                    delegate: SliverChildListDelegate([
-                      ...grouped.entries.map((entry) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          child: Row(children: [
-                            Text(_typeEmoji(entry.key), style: const TextStyle(fontSize: 16)),
-                            const SizedBox(width: 8),
-                            Text(entry.key.replaceAll('_', ' ').toUpperCase(), style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1)),
-                          ]),
-                        ),
-                        ...entry.value.map((record) => Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: _RecordCard(record: record, emoji: _typeEmoji(record.type ?? ''), onDelete: () => _deleteRecord(record.id)),
-                        )),
-                      ])).toList(),
-                    ]),
-                  ),
-                ),
+        ),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
+            const SizedBox(width: 6),
+            const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
+          ],
+        ),
+        centerTitle: false,
+        titleSpacing: 0,
+        actions: [
+          IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
         ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.only(bottom: 32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Page Header ──
+            PageHeader(
+              title: '\u2764\uFE0F Health Records',
+              subtitle: 'Allergies, medications & emergency info',
+              actions: [
+                ActionChipButton(
+                  icon: Icons.add_rounded,
+                  label: 'Add Record',
+                  onTap: () => _showAddRecordSheet(_selectedUserId!),
+                  isPrimary: true,
+                ),
+              ],
+            ),
+
+            // ── Horizontal scrollable member avatars ──
+            SizedBox(
+              height: 90,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                children: members.map((m) {
+                  final isSelected = _selectedUserId == m.id;
+                  return GestureDetector(
+                    onTap: () => setState(() => _selectedUserId = m.id),
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 16),
+                      child: Column(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(3),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: isSelected ? AppTheme.primary : Colors.transparent,
+                                width: 2.5,
+                              ),
+                            ),
+                            child: AvatarInitials(name: m.name, size: 48),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            m.name.split(' ').first,
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 12,
+                              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                              color: isSelected ? AppTheme.primary : AppTheme.stone600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            // ── Blood Type Section ──
+            _buildExpandableSection(
+              icon: Icons.bloodtype_rounded,
+              title: 'Blood Type',
+              initiallyExpanded: true,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: bloodTypes.map((bt) {
+                    final isSelected = currentBloodType == bt;
+                    return GestureDetector(
+                      onTap: () {},
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: isSelected ? AppTheme.primary : AppTheme.stone50,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: isSelected ? AppTheme.primary : AppTheme.stone200),
+                        ),
+                        child: Text(
+                          bt,
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                            fontSize: 13,
+                            color: isSelected ? Colors.white : AppTheme.stone600,
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
+
+            // ── Emergency Contacts Section ──
+            _buildExpandableSection(
+              icon: Icons.emergency_rounded,
+              title: 'Emergency Contacts',
+              count: emergencyContacts.length,
+              child: Column(
+                children: [
+                  ...emergencyContacts.map((r) => Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+                    child: _RecordCard(record: r, emoji: '🚨', onDelete: () => _deleteRecord(r.id)),
+                  )),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                    child: GestureDetector(
+                      onTap: () => _showAddRecordSheet(_selectedUserId!),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: AppTheme.stone200, style: BorderStyle.solid),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.add_rounded, size: 16, color: AppTheme.stone400),
+                            SizedBox(width: 4),
+                            Text('Add Contact', style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.stone500)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // ── Allergies Section ──
+            _buildExpandableSection(
+              icon: Icons.warning_amber_rounded,
+              title: 'Allergies',
+              count: allergies.length,
+              child: Column(
+                children: [
+                  ...allergies.map((r) => Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+                    child: _RecordCard(record: r, emoji: '🌿', onDelete: () => _deleteRecord(r.id)),
+                  )),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                    child: GestureDetector(
+                      onTap: () => _showAddRecordSheet(_selectedUserId!),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: AppTheme.stone200, style: BorderStyle.solid),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.add_rounded, size: 16, color: AppTheme.stone400),
+                            SizedBox(width: 4),
+                            Text('Add Allergy', style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.stone500)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // ── Medications Section ──
+            _buildExpandableSection(
+              icon: Icons.medication_rounded,
+              title: 'Medications',
+              count: medications.length,
+              child: Column(
+                children: [
+                  ...medications.map((r) => Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+                    child: _RecordCard(record: r, emoji: '💊', onDelete: () => _deleteRecord(r.id)),
+                  )),
+                  if (medications.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(14, 0, 14, 14),
+                      child: Text('No medications recorded.', style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400)),
+                    ),
+                ],
+              ),
+            ),
+
+            // ── Medical Conditions Section ──
+            _buildExpandableSection(
+              icon: Icons.local_hospital_rounded,
+              title: 'Medical Conditions',
+              count: conditions.length,
+              child: Column(
+                children: [
+                  ...conditions.map((r) => Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+                    child: _RecordCard(record: r, emoji: '🏥', onDelete: () => _deleteRecord(r.id)),
+                  )),
+                  if (conditions.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(14, 0, 14, 14),
+                      child: Text('No conditions recorded.', style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400)),
+                    ),
+                ],
+              ),
+            ),
+
+            // ── Immunizations Section ──
+            _buildExpandableSection(
+              icon: Icons.vaccines_rounded,
+              title: 'Immunizations',
+              count: immunizations.length,
+              child: Column(
+                children: [
+                  ...immunizations.map((r) => Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+                    child: _RecordCard(record: r, emoji: '💉', onDelete: () => _deleteRecord(r.id)),
+                  )),
+                  if (immunizations.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(14, 0, 14, 14),
+                      child: Text('No immunizations recorded.', style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400)),
+                    ),
+                ],
+              ),
+            ),
+
+            // ── Doctor & Insurance Section ──
+            _buildExpandableSection(
+              icon: Icons.medical_information_rounded,
+              title: 'Doctor & Insurance',
+              count: doctorInsurance.length,
+              child: Column(
+                children: [
+                  ...doctorInsurance.map((r) => Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+                    child: _RecordCard(record: r, emoji: '📋', onDelete: () => _deleteRecord(r.id)),
+                  )),
+                  if (doctorInsurance.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(14, 0, 14, 14),
+                      child: Text('No doctor or insurance info recorded.', style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400)),
+                    ),
+                ],
+              ),
+            ),
+
+            // ── Last updated footer ──
+            if (records.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                child: Text(
+                  'Last updated ${DateFormat('MMM d, y').format(records.first.date)}',
+                  style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExpandableSection({
+    required IconData icon,
+    required String title,
+    int? count,
+    bool initiallyExpanded = false,
+    required Widget child,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppTheme.stone100),
+        ),
+        child: Theme(
+          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            initiallyExpanded: initiallyExpanded,
+            tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+            leading: Icon(icon, size: 20, color: AppTheme.stone600),
+            title: Row(
+              children: [
+                Text(title, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone800)),
+                if (count != null) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppTheme.stone100,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text('$count', style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.stone500)),
+                  ),
+                ],
+              ],
+            ),
+            children: [
+              const Divider(height: 1, color: AppTheme.stone100),
+              child,
+            ],
+          ),
+        ),
       ),
     );
   }

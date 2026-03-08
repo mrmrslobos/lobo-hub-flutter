@@ -88,14 +88,44 @@ class _LocationScreenState extends State<LocationScreen> {
     final shareMap = {for (final l in locationShares) l.userId: l};
 
     return Scaffold(
+      backgroundColor: AppTheme.background,
       drawer: const AppDrawer(),
-      body: CustomScrollView(
-        slivers: [
-          const SliverAppBar(title: Text('Location'), floating: true),
-          // My sharing toggle
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
+            onPressed: () => Scaffold.of(context).openDrawer(),
+          ),
+        ),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
+            const SizedBox(width: 6),
+            const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
+          ],
+        ),
+        centerTitle: false,
+        titleSpacing: 0,
+        actions: [
+          IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.only(bottom: 32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const PageHeader(
+              title: '\u{1F4CD} Family Location',
+              subtitle: 'See where everyone is',
+            ),
+            // My sharing toggle
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -109,7 +139,7 @@ class _LocationScreenState extends State<LocationScreen> {
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Row(children: [
-                  Text(isSharing ? '📍' : '📵', style: const TextStyle(fontSize: 28)),
+                  Text(isSharing ? '\u{1F4CD}' : '\u{1F4F5}', style: const TextStyle(fontSize: 28)),
                   const SizedBox(width: 12),
                   Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text(isSharing ? 'Sharing Location' : 'Location Hidden', style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: Colors.white)),
@@ -124,81 +154,76 @@ class _LocationScreenState extends State<LocationScreen> {
                 ]),
               ),
             ),
-          ),
-          // Family members
-          const SliverToBoxAdapter(
-            child: Padding(
+            // Family members
+            const Padding(
               padding: EdgeInsets.fromLTRB(20, 20, 20, 8),
               child: Text('FAMILY', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1)),
             ),
-          ),
-          members.isEmpty
-              ? const SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text('No family members found.', style: TextStyle(color: AppTheme.stone400)),
-                  ),
-                )
-              : SliverPadding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  sliver: SliverList(
-                    delegate: SliverChildBuilderDelegate(
-                      (ctx, i) {
-                        final member = members[i];
-                        final share = shareMap[member.id];
-                        final isMe = member.id == user.id;
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: AppTheme.surface,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: AppTheme.stone100),
+            if (members.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 20),
+                child: Text('No family members found.', style: TextStyle(color: AppTheme.stone400)),
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: members.length,
+                  itemBuilder: (ctx, i) {
+                    final member = members[i];
+                    final share = shareMap[member.id];
+                    final isMe = member.id == user.id;
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: AppTheme.surface,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: AppTheme.stone100),
+                      ),
+                      child: Row(children: [
+                        Stack(children: [
+                          UserAvatarWidget(name: member.name, radius: 22),
+                          Positioned(
+                            bottom: 0, right: 0,
+                            child: Container(
+                              width: 12, height: 12,
+                              decoration: BoxDecoration(
+                                color: share?.isSharing == true ? AppTheme.success : AppTheme.stone300,
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.white, width: 2),
+                              ),
+                            ),
                           ),
-                          child: Row(children: [
-                            Stack(children: [
-                              UserAvatarWidget(name: member.name, radius: 22),
-                              Positioned(
-                                bottom: 0, right: 0,
-                                child: Container(
-                                  width: 12, height: 12,
-                                  decoration: BoxDecoration(
-                                    color: share?.isSharing == true ? AppTheme.success : AppTheme.stone300,
-                                    shape: BoxShape.circle,
-                                    border: Border.all(color: Colors.white, width: 2),
-                                  ),
-                                ),
-                              ),
-                            ]),
-                            const SizedBox(width: 12),
-                            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                              Text(
-                                '${member.name}${isMe ? ' (You)' : ''}',
-                                style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone900),
-                              ),
-                              if (share?.isSharing == true) ...[
-                                const SizedBox(height: 2),
-                                Text(
-                                  share?.address ?? 'Location shared',
-                                  style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
-                                  maxLines: 1, overflow: TextOverflow.ellipsis,
-                                ),
-                              ] else
-                                const Text('Location hidden', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
-                            ])),
-                            if (share != null)
-                              Text(_timeAgo(share.updatedAt), style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
-                          ]),
-                        );
-                      },
-                      childCount: members.length,
-                    ),
-                  ),
+                        ]),
+                        const SizedBox(width: 12),
+                        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(
+                            '${member.name}${isMe ? ' (You)' : ''}',
+                            style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone900),
+                          ),
+                          if (share?.isSharing == true) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              share?.address ?? 'Location shared',
+                              style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
+                              maxLines: 1, overflow: TextOverflow.ellipsis,
+                            ),
+                          ] else
+                            const Text('Location hidden', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
+                        ])),
+                        if (share != null)
+                          Text(_timeAgo(share.updatedAt), style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
+                      ]),
+                    );
+                  },
                 ),
-          // Map placeholder
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              ),
+            // Map placeholder
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Container(
                 height: 200,
                 decoration: BoxDecoration(
@@ -214,9 +239,8 @@ class _LocationScreenState extends State<LocationScreen> {
                 ]),
               ),
             ),
-          ),
-          const SliverToBoxAdapter(child: SizedBox(height: 32)),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -169,111 +169,177 @@ class _ListsScreenState extends State<ListsScreen> {
     }
 
     return Scaffold(
+      backgroundColor: AppTheme.background,
       drawer: const AppDrawer(),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showNewListSheet,
-        child: const Icon(Icons.add_rounded),
-      ),
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            title: const Text('Lists'),
-            floating: true,
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.auto_awesome),
-                tooltip: 'AI Categorize',
-                onPressed: _showAiCategorization,
-              ),
-            ],
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
+            onPressed: () => Scaffold.of(context).openDrawer(),
           ),
-          lists.isEmpty
-              ? SliverFillRemaining(
-                  child: EmptyState(
-                    emoji: '📋',
-                    title: 'No lists yet',
-                    subtitle: 'Create a shopping list for your family.',
-                    actionLabel: 'Create List',
-                    onAction: _showNewListSheet,
-                  ),
-                )
-              : SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
-                  sliver: SliverList(
-                    delegate: SliverChildBuilderDelegate(
-                      (ctx, i) {
-                        final list = lists[i];
-                        final checked = list.items.where((it) => it.checked).length;
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Dismissible(
-                            key: Key(list.id),
-                            direction: DismissDirection.endToStart,
-                            background: Container(
-                              alignment: Alignment.centerRight,
-                              padding: const EdgeInsets.only(right: 20),
-                              decoration: BoxDecoration(color: AppTheme.error, borderRadius: BorderRadius.circular(16)),
-                              child: const Icon(Icons.delete_outline_rounded, color: Colors.white),
-                            ),
-                            confirmDismiss: (_) async => await showDialog<bool>(
-                              context: context,
-                              builder: (ctx) => AlertDialog(
-                                title: const Text('Delete List'),
-                                content: Text('Delete "${list.name}"?'),
-                                actions: [
-                                  TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-                                  TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
-                                ],
-                              ),
-                            ),
-                            onDismissed: (_) => _deleteList(list),
-                            child: GestureDetector(
-                              onTap: () => setState(() => _selectedList = list),
-                              child: Container(
-                                padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                  color: AppTheme.surface,
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(color: AppTheme.stone100),
-                                ),
-                                child: Row(children: [
-                                  Container(
-                                    width: 44, height: 44,
-                                    decoration: BoxDecoration(color: AppTheme.primaryLight, borderRadius: BorderRadius.circular(12)),
-                                    child: const Icon(Icons.list_rounded, color: AppTheme.primary, size: 22),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                    Text(list.name, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: AppTheme.stone900)),
-                                    Text(
-                                      '${list.items.length} item${list.items.length == 1 ? '' : 's'}${list.items.isNotEmpty ? ' · $checked done' : ''}',
-                                      style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
-                                    ),
-                                  ])),
-                                  if (list.items.isNotEmpty) ...[
-                                    SizedBox(
-                                      width: 36, height: 36,
-                                      child: CircularProgressIndicator(
-                                        value: checked / list.items.length,
-                                        strokeWidth: 3,
-                                        backgroundColor: AppTheme.stone100,
-                                        valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.success),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                  ],
-                                  const Icon(Icons.chevron_right_rounded, color: AppTheme.stone400),
-                                ]),
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                      childCount: lists.length,
+        ),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
+            const SizedBox(width: 6),
+            const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
+          ],
+        ),
+        centerTitle: false,
+        titleSpacing: 0,
+        actions: [
+          IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.only(bottom: 32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Page Header ──
+            PageHeader(
+              title: '\u{1F4CB} Family Lists',
+              subtitle: 'Shared shopping & to-do lists',
+              actions: [
+                ActionChipButton(
+                  icon: Icons.add_rounded,
+                  label: 'New List',
+                  onTap: _showNewListSheet,
+                  isPrimary: true,
+                ),
+              ],
+            ),
+
+            // ── AI Checklist Wizard card ──
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)]),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(children: [
+                  const Text('\u{1F9D9}', style: TextStyle(fontSize: 28)),
+                  const SizedBox(width: 12),
+                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Text('AI Checklist Wizard', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white)),
+                    const Text('Smart categorization & suggestions', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white70)),
+                  ])),
+                  GestureDetector(
+                    onTap: _showAiCategorization,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(8)),
+                      child: const Text('Try It', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12, color: Colors.white)),
                     ),
                   ),
+                ]),
+              ),
+            ),
+
+            // ── YOUR LISTS heading ──
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 20),
+              child: Text(
+                'YOUR LISTS',
+                style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1),
+              ),
+            ),
+
+            const SizedBox(height: 10),
+
+            // ── List items ──
+            if (lists.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: OnboardingCard(
+                  emoji: '\u{1F4CB}',
+                  title: 'Create Your First List',
+                  bullets: ['Shopping lists with smart categorization', 'Share with family members', 'AI-powered item suggestions'],
+                  actionLabel: '+ New List',
+                  onAction: _showNewListSheet,
                 ),
-        ],
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Column(
+                  children: lists.map((list) {
+                    final checked = list.items.where((it) => it.checked).length;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Dismissible(
+                        key: Key(list.id),
+                        direction: DismissDirection.endToStart,
+                        background: Container(
+                          alignment: Alignment.centerRight,
+                          padding: const EdgeInsets.only(right: 20),
+                          decoration: BoxDecoration(color: AppTheme.error, borderRadius: BorderRadius.circular(16)),
+                          child: const Icon(Icons.delete_outline_rounded, color: Colors.white),
+                        ),
+                        confirmDismiss: (_) async => await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Delete List'),
+                            content: Text('Delete "${list.name}"?'),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+                            ],
+                          ),
+                        ),
+                        onDismissed: (_) => _deleteList(list),
+                        child: GestureDetector(
+                          onTap: () => setState(() => _selectedList = list),
+                          child: Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: AppTheme.surface,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: AppTheme.stone100),
+                            ),
+                            child: Row(children: [
+                              Container(
+                                width: 44, height: 44,
+                                decoration: BoxDecoration(color: AppTheme.primaryLight, borderRadius: BorderRadius.circular(12)),
+                                child: const Icon(Icons.list_rounded, color: AppTheme.primary, size: 22),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Text(list.name, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: AppTheme.stone900)),
+                                Text(
+                                  '${list.items.length} item${list.items.length == 1 ? '' : 's'}${list.items.isNotEmpty ? ' \u00B7 $checked done' : ''}',
+                                  style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
+                                ),
+                              ])),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.stone100,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  '${list.items.length}',
+                                  style: const TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.stone600),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              const Icon(Icons.chevron_right_rounded, color: AppTheme.stone400),
+                            ]),
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -490,13 +556,29 @@ class _ListDetailViewState extends State<_ListDetailView> {
     final checked = widget.list.items.where((i) => i.checked).toList();
 
     return Scaffold(
+      backgroundColor: AppTheme.background,
       drawer: const AppDrawer(),
       appBar: AppBar(
-        leading: IconButton(icon: const Icon(Icons.arrow_back_rounded), onPressed: widget.onBack),
-        title: Text(widget.list.name),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded, color: AppTheme.stone700),
+          onPressed: widget.onBack,
+        ),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
+            const SizedBox(width: 6),
+            const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
+          ],
+        ),
+        centerTitle: false,
+        titleSpacing: 0,
         actions: [
           IconButton(
-            icon: const Icon(Icons.auto_awesome),
+            icon: const Icon(Icons.auto_awesome, color: AppTheme.stone500),
             tooltip: 'AI Categorize',
             onPressed: widget.onAiCategorize,
           ),

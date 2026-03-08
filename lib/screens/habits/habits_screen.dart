@@ -10,6 +10,7 @@ import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../widgets/app_drawer.dart';
+import '../../widgets/common_widgets.dart';
 
 const _uuid = Uuid();
 
@@ -88,118 +89,109 @@ class _HabitsScreenState extends State<HabitsScreen> {
         .length;
 
     return Scaffold(
+      backgroundColor: AppTheme.background,
       drawer: const AppDrawer(),
-      body: CustomScrollView(
-        slivers: [
-          // ── SliverAppBar ──────────────────────────────────────────────────
-          SliverAppBar(
-            expandedHeight: 120,
-            floating: false,
-            pinned: true,
-            elevation: 0,
-            backgroundColor: AppTheme.surface,
-            surfaceTintColor: Colors.transparent,
-            flexibleSpace: FlexibleSpaceBar(
-              titlePadding: const EdgeInsets.fromLTRB(20, 0, 16, 14),
-              title: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Daily Habits',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: AppTheme.stone900,
-                    ),
-                  ),
-                  Text(
-                    DateFormat('EEEE, MMMM d').format(today),
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w400,
-                      color: AppTheme.stone500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            leading: Builder(
-              builder: (ctx) => IconButton(
-                icon: const Icon(Icons.menu, color: AppTheme.stone900),
-                onPressed: () => Scaffold.of(ctx).openDrawer(),
-              ),
-            ),
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
+            onPressed: () => Scaffold.of(context).openDrawer(),
           ),
+        ),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
+            const SizedBox(width: 6),
+            const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
+          ],
+        ),
+        centerTitle: false,
+        titleSpacing: 0,
+        actions: [
+          IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.only(bottom: 32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Page Header ──
+            PageHeader(
+              title: '\u{1F3AF} Daily Habits',
+              subtitle: DateFormat('EEEE, MMMM d').format(DateTime.now()),
+              actions: [
+                ActionChipButton(
+                  icon: Icons.add_rounded,
+                  label: 'Add Habit',
+                  onTap: () => _showAddHabitSheet(context, user, family, db, provider),
+                ),
+              ],
+            ),
 
-          // ── Progress card ─────────────────────────────────────────────────
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            // ── Progress card ──
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
               child: _ProgressCard(
                 completed: completed,
                 total: allHabits.length,
               ),
             ),
-          ),
 
-          // ── Habit list ────────────────────────────────────────────────────
-          allHabits.isEmpty
-              ? SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: _EmptyState(
-                    onAdd: () => _showAddHabitSheet(context, user, family, db, provider),
-                  ),
-                )
-              : SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
-                  sliver: SliverList(
-                    delegate: SliverChildBuilderDelegate(
-                      (context, index) {
-                        final habit = allHabits[index];
-                        final isDone =
-                            todayCompletions.any((c) => c.habitId == habit.id);
-                        final streak = _calcStreak(
-                          habit,
-                          db.habitCompletions,
-                          user.id,
-                        );
-                        return _HabitCard(
-                          habit: habit,
-                          isDone: isDone,
-                          streak: streak,
-                          onToggle: () => _toggleCompletion(
-                            context,
-                            provider,
-                            db,
-                            habit,
-                            isDone,
-                            user,
-                            todayCompletions,
-                          ),
-                          onLongPress: () => _showHabitOptions(
-                            context,
-                            provider,
-                            db,
-                            habit,
-                            user,
-                            family,
-                          ),
-                        );
-                      },
-                      childCount: allHabits.length,
-                    ),
-                  ),
+            // ── Habit list ──
+            if (allHabits.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: OnboardingCard(
+                  emoji: '\u{1F3AF}',
+                  title: 'Start Tracking Habits',
+                  bullets: ['Build positive daily routines', 'Track streaks and progress', 'Share habits with family members'],
+                  actionLabel: '+ Add Habit',
+                  onAction: () => _showAddHabitSheet(context, user, family, db, provider),
                 ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () =>
-            _showAddHabitSheet(context, user, family, db, provider),
-        backgroundColor: AppTheme.primary,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.add),
-        label: const Text('Add Habit'),
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Column(
+                  children: allHabits.map((habit) {
+                    final isDone = todayCompletions.any((c) => c.habitId == habit.id);
+                    final streak = _calcStreak(
+                      habit,
+                      db.habitCompletions,
+                      user.id,
+                    );
+                    return _HabitCard(
+                      habit: habit,
+                      isDone: isDone,
+                      streak: streak,
+                      onToggle: () => _toggleCompletion(
+                        context,
+                        provider,
+                        db,
+                        habit,
+                        isDone,
+                        user,
+                        todayCompletions,
+                      ),
+                      onLongPress: () => _showHabitOptions(
+                        context,
+                        provider,
+                        db,
+                        habit,
+                        user,
+                        family,
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

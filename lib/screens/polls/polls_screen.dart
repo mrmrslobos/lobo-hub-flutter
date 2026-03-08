@@ -74,6 +74,8 @@ class _PollsScreenState extends State<PollsScreen> {
     );
   }
 
+  int _selectedFilter = 0; // 0=Open, 1=Closed, 2=All
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
@@ -89,69 +91,216 @@ class _PollsScreenState extends State<PollsScreen> {
     final openPolls = polls.where((p) => p.status == PollStatus.open).toList();
     final closedPolls = polls.where((p) => p.status == PollStatus.closed).toList();
 
+    // My votes count
+    final myVotes = polls.where((p) => p.options.any((o) => o.voterIds.contains(user.id))).length;
+
+    // Filtered polls based on selected filter
+    final filteredPolls = _selectedFilter == 0
+        ? openPolls
+        : _selectedFilter == 1
+            ? closedPolls
+            : polls;
+
     return Scaffold(
       drawer: const AppDrawer(),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showCreatePollSheet,
-        child: const Icon(Icons.add_rounded),
+      backgroundColor: AppTheme.background,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
+            onPressed: () => Scaffold.of(context).openDrawer(),
+          ),
+        ),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
+            const SizedBox(width: 6),
+            const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
+          ],
+        ),
+        centerTitle: false,
+        titleSpacing: 0,
+        actions: [
+          IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
+        ],
       ),
-      body: CustomScrollView(
-        slivers: [
-          const SliverAppBar(title: Text('Polls'), floating: true),
-          polls.isEmpty
-              ? SliverFillRemaining(
-                  child: EmptyState(
-                    emoji: '🗳️',
-                    title: 'No polls yet',
-                    subtitle: 'Create polls for your family to vote on.',
-                    actionLabel: 'Create Poll',
-                    onAction: _showCreatePollSheet,
-                  ),
-                )
-              : SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
-                  sliver: SliverList(
-                    delegate: SliverChildListDelegate([
-                      if (openPolls.isNotEmpty) ...[
-                        const _SectionLabel(label: 'OPEN'),
-                        const SizedBox(height: 8),
-                        ...openPolls.map((poll) => Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: _PollCard(
-                                poll: poll,
-                                userId: user.id,
-                                isExpanded: _expandedPollId == poll.id,
-                                onTap: () => setState(() {
-                                  _expandedPollId = _expandedPollId == poll.id ? null : poll.id;
-                                }),
-                                onVote: (optId) => _vote(poll, optId),
-                                onClose: () => _closePoll(poll),
-                                onDelete: () => _deletePoll(poll.id),
-                              ),
-                            )),
-                      ],
-                      if (closedPolls.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        const _SectionLabel(label: 'CLOSED'),
-                        const SizedBox(height: 8),
-                        ...closedPolls.map((poll) => Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: _PollCard(
-                                poll: poll,
-                                userId: user.id,
-                                isExpanded: _expandedPollId == poll.id,
-                                onTap: () => setState(() {
-                                  _expandedPollId = _expandedPollId == poll.id ? null : poll.id;
-                                }),
-                                onVote: null,
-                                onClose: null,
-                                onDelete: () => _deletePoll(poll.id),
-                              ),
-                            )),
-                      ],
-                    ]),
+      body: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          // Page Header
+          PageHeader(
+            title: 'Family Polls',
+            subtitle: 'Decide things together',
+            actions: [
+              ActionChipButton(
+                icon: Icons.add,
+                label: 'New Poll',
+                onTap: _showCreatePollSheet,
+                isPrimary: true,
+              ),
+            ],
+          ),
+
+          // Stats Row
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _buildStatCard(
+                    icon: Icons.poll_outlined,
+                    iconBgColor: const Color(0xFFDBEAFE),
+                    iconColor: const Color(0xFF3B82F6),
+                    value: '${polls.length}',
+                    label: 'Total Polls',
                   ),
                 ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _buildStatCard(
+                    icon: Icons.check_circle_outline,
+                    iconBgColor: const Color(0xFFD1FAE5),
+                    iconColor: const Color(0xFF10B981),
+                    value: '${openPolls.length}',
+                    label: 'Open Now',
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _buildStatCard(
+                    icon: Icons.bar_chart_rounded,
+                    iconBgColor: const Color(0xFFEDE9FE),
+                    iconColor: const Color(0xFF8B5CF6),
+                    value: '$myVotes',
+                    label: 'My Votes',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Filter chips
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                IndigoChip(
+                  label: 'Open (${openPolls.length})',
+                  selected: _selectedFilter == 0,
+                  onTap: () => setState(() => _selectedFilter = 0),
+                ),
+                const SizedBox(width: 8),
+                IndigoChip(
+                  label: 'Closed (${closedPolls.length})',
+                  selected: _selectedFilter == 1,
+                  onTap: () => setState(() => _selectedFilter = 1),
+                ),
+                const SizedBox(width: 8),
+                IndigoChip(
+                  label: 'All (${polls.length})',
+                  selected: _selectedFilter == 2,
+                  onTap: () => setState(() => _selectedFilter = 2),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Poll cards or empty state
+          if (filteredPolls.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Container(
+                padding: const EdgeInsets.all(32),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppTheme.stone100),
+                ),
+                child: Column(
+                  children: [
+                    Icon(Icons.poll_outlined, size: 40, color: AppTheme.stone300),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'No open polls',
+                      style: TextStyle(fontFamily: 'Inter', fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.stone600),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Create one to get the family voting!',
+                      style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Column(
+                children: filteredPolls.map((poll) => Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _PollCard(
+                    poll: poll,
+                    userId: user.id,
+                    isExpanded: _expandedPollId == poll.id,
+                    onTap: () => setState(() {
+                      _expandedPollId = _expandedPollId == poll.id ? null : poll.id;
+                    }),
+                    onVote: poll.status == PollStatus.open ? (optId) => _vote(poll, optId) : null,
+                    onClose: poll.status == PollStatus.open ? () => _closePoll(poll) : null,
+                    onDelete: () => _deletePoll(poll.id),
+                  ),
+                )).toList(),
+              ),
+            ),
+
+          const SizedBox(height: 32),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatCard({
+    required IconData icon,
+    required Color iconBgColor,
+    required Color iconColor,
+    required String value,
+    required String label,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.stone100),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: iconBgColor,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, size: 18, color: iconColor),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            value,
+            style: const TextStyle(fontFamily: 'Inter', fontSize: 22, fontWeight: FontWeight.w900, color: AppTheme.stone900),
+          ),
+          Text(
+            label,
+            style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone500),
+          ),
         ],
       ),
     );

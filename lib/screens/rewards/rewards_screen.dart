@@ -16,21 +16,7 @@ class RewardsScreen extends StatefulWidget {
   State<RewardsScreen> createState() => _RewardsScreenState();
 }
 
-class _RewardsScreenState extends State<RewardsScreen> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
+class _RewardsScreenState extends State<RewardsScreen> {
   Future<void> _redeemReward(Reward reward, String userId) async {
     // Confirmation dialog
     final confirmed = await showDialog<bool>(
@@ -114,190 +100,210 @@ class _RewardsScreenState extends State<RewardsScreen> with SingleTickerProvider
     final members = provider.familyMembers;
     final rewards = provider.db.rewards.where((r) => r.familyId == family.id).toList();
     final myPoints = provider.chorePointsForUser(user.id);
-
-    final sortedMembers = [...members]
-      ..sort((a, b) => provider.chorePointsForUser(b.id).compareTo(provider.chorePointsForUser(a.id)));
-
-    final myRedemptions = rewards.where((r) => r.redeemedBy.contains(user.id)).toList();
-
     final isOwner = user.id == family.ownerId;
 
     return Scaffold(
+      backgroundColor: AppTheme.background,
       drawer: const AppDrawer(),
-      floatingActionButton: isOwner
-          ? FloatingActionButton.extended(
-              onPressed: _showAddRewardSheet,
-              icon: const Icon(Icons.add_rounded),
-              label: const Text('Add Reward',
-                  style: TextStyle(
-                      fontFamily: 'Inter', fontWeight: FontWeight.w700)),
-            )
-          : null,
-      body: NestedScrollView(
-        headerSliverBuilder: (context, _) => [
-          SliverAppBar(
-            title: const Text('Rewards'),
-            floating: true,
-            bottom: TabBar(
-              controller: _tabController,
-              tabs: const [Tab(text: 'Rewards'), Tab(text: 'Redeemed')],
-            ),
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
+            onPressed: () => Scaffold.of(context).openDrawer(),
+          ),
+        ),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
+            const SizedBox(width: 6),
+            const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
+          ],
+        ),
+        centerTitle: false,
+        titleSpacing: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500),
+            onPressed: () {},
           ),
         ],
-        body: TabBarView(
-          controller: _tabController,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.only(bottom: 40),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Tab 1: Rewards + Leaderboard
-            CustomScrollView(
-              slivers: [
-                // My points banner
-                SliverToBoxAdapter(
-                  child: Container(
-                    margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [AppTheme.primary, Color(0xFF8B5CF6)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
+            // ── Page Header ──
+            PageHeader(
+              title: 'Reward Store',
+              subtitle: 'Manage rewards, savings goals, and approve requests',
+              actions: isOwner
+                  ? [
+                      ActionChipButton(
+                        icon: Icons.savings_rounded,
+                        label: 'Add Goal',
+                        onTap: () {},
+                        isPrimary: true,
                       ),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(children: [
-                      const Text('⭐', style: TextStyle(fontSize: 32)),
-                      const SizedBox(width: 12),
-                      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text('$myPoints', style: const TextStyle(fontFamily: 'Inter', fontSize: 32, fontWeight: FontWeight.w900, color: Colors.white)),
-                        const Text('My Points', style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: Colors.white70)),
-                      ]),
-                      const Spacer(),
-                      const Text('🏆', style: TextStyle(fontSize: 24)),
-                    ]),
-                  ),
-                ),
-                // Leaderboard
-                if (sortedMembers.length > 1) ...[
-                  const SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(20, 16, 20, 8),
-                      child: Text('LEADERBOARD', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1)),
-                    ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: SizedBox(
-                      height: 88,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        itemCount: sortedMembers.length,
-                        separatorBuilder: (_, __) => const SizedBox(width: 8),
-                        itemBuilder: (ctx, i) {
-                          final m = sortedMembers[i];
-                          final pts = provider.chorePointsForUser(m.id);
-                          final medal = i == 0 ? '🥇' : i == 1 ? '🥈' : i == 2 ? '🥉' : '${i + 1}';
-                          return Container(
-                            width: 100,
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: i == 0 ? AppTheme.primary.withOpacity(0.08) : AppTheme.stone50,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: i == 0 ? AppTheme.primary.withOpacity(0.2) : AppTheme.stone100),
-                            ),
-                            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                              Text(medal, style: const TextStyle(fontSize: 16)),
-                              const SizedBox(height: 2),
-                              Text(m.name.split(' ').first, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.stone800)),
-                              Text('$pts pts', style: TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w600, color: i == 0 ? AppTheme.primary : AppTheme.stone500)),
-                            ]),
-                          );
-                        },
+                      ActionChipButton(
+                        icon: Icons.card_giftcard_rounded,
+                        label: 'Add Reward',
+                        onTap: _showAddRewardSheet,
+                        backgroundColor: AppTheme.stone800,
                       ),
-                    ),
-                  ),
-                ],
-                // Rewards grid
-                const SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(20, 16, 20, 8),
-                    child: Text('AVAILABLE REWARDS', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1)),
-                  ),
-                ),
-                rewards.isEmpty
-                    ? SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.all(32),
-                          child: EmptyState(
-                            emoji: '🎁',
-                            title: 'No rewards yet',
-                            subtitle: 'Add rewards for the family to redeem.',
-                            actionLabel: 'Add Reward',
-                            onAction: _showAddRewardSheet,
-                          ),
-                        ),
-                      )
-                    : SliverPadding(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
-                        sliver: SliverGrid(
-                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 2,
-                            crossAxisSpacing: 10,
-                            mainAxisSpacing: 10,
-                            childAspectRatio: 1.1,
-                          ),
-                          delegate: SliverChildBuilderDelegate(
-                            (ctx, i) {
-                              final reward = rewards[i];
-                              final canRedeem = myPoints >= reward.pointCost;
-                              final alreadyRedeemed = reward.redeemedBy.contains(user.id);
-                              return _RewardCard(
-                                reward: reward,
-                                canRedeem: canRedeem && !alreadyRedeemed,
-                                alreadyRedeemed: alreadyRedeemed,
-                                onRedeem: canRedeem && !alreadyRedeemed
-                                    ? () => _redeemReward(reward, user.id)
-                                    : null,
-                                onDelete: () => _deleteReward(reward.id),
-                              );
-                            },
-                            childCount: rewards.length,
-                          ),
-                        ),
-                      ),
-              ],
+                    ]
+                  : null,
             ),
-            // Tab 2: My redeemed
-            myRedemptions.isEmpty
-                ? const EmptyState(emoji: '🎫', title: 'No redemptions', subtitle: 'Redeem rewards to see them here.')
-                : ListView.separated(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: myRedemptions.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
-                    itemBuilder: (ctx, i) {
-                      final r = myRedemptions[i];
-                      return Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: AppTheme.success.withOpacity(0.05),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: AppTheme.success.withOpacity(0.2)),
-                        ),
-                        child: Row(children: [
-                          const Icon(Icons.check_circle_rounded, color: AppTheme.success, size: 32),
-                          const SizedBox(width: 12),
-                          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text(r.title, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: AppTheme.stone900)),
-                            if (r.description != null)
-                              Text(r.description!, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500)),
-                          ])),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(color: AppTheme.warning.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-                            child: Text('${r.pointCost} pts', style: const TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.warning)),
-                          ),
-                        ]),
-                      );
-                    },
+
+            // ── Kids' Balances Section ──
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+              child: const Text(
+                "Kids' Balances",
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.stone900,
+                ),
+              ),
+            ),
+            ...members.map((member) {
+              final pts = provider.chorePointsForUser(member.id);
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: AppTheme.stone100),
                   ),
+                  child: Row(
+                    children: [
+                      AvatarInitials(name: member.name, size: 44),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              member.name,
+                              style: const TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.stone900,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Earned: \$$pts',
+                              style: const TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 13,
+                                fontWeight: FontWeight.w400,
+                                color: AppTheme.stone500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            '\$$pts',
+                            style: const TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 24,
+                              fontWeight: FontWeight.w900,
+                              color: AppTheme.success,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          const Text(
+                            'Available balance',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 11,
+                              fontWeight: FontWeight.w400,
+                              color: AppTheme.stone400,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+
+            const SizedBox(height: 12),
+
+            // ── Reward Catalog Section ──
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              child: const Text(
+                'Reward Catalog',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.stone900,
+                ),
+              ),
+            ),
+
+            if (rewards.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: OnboardingCard(
+                  emoji: '🎁',
+                  title: 'Set up your family reward store',
+                  bullets: const [
+                    'Kids earn points by completing chores',
+                    'Create rewards with a point cost — screen time, treats, outings',
+                    'Review and approve every redemption request',
+                    'Kids can also set savings goals for bigger items',
+                  ],
+                  actionLabel: 'Add First Reward',
+                  onAction: _showAddRewardSheet,
+                ),
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                    childAspectRatio: 1.1,
+                  ),
+                  itemCount: rewards.length,
+                  itemBuilder: (ctx, i) {
+                    final reward = rewards[i];
+                    final canRedeem = myPoints >= reward.pointCost;
+                    final alreadyRedeemed = reward.redeemedBy.contains(user.id);
+                    return _RewardCard(
+                      reward: reward,
+                      canRedeem: canRedeem && !alreadyRedeemed,
+                      alreadyRedeemed: alreadyRedeemed,
+                      onRedeem: canRedeem && !alreadyRedeemed
+                          ? () => _redeemReward(reward, user.id)
+                          : null,
+                      onDelete: () => _deleteReward(reward.id),
+                    );
+                  },
+                ),
+              ),
           ],
         ),
       ),

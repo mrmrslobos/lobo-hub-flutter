@@ -76,45 +76,73 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
         : allEntries.where((e) => e.module == _selectedModule).toList();
 
     return Scaffold(
+      backgroundColor: AppTheme.background,
       drawer: const AppDrawer(),
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            title: const Text('AI History'),
-            floating: true,
-            actions: [
-              if (allEntries.isNotEmpty)
-                IconButton(
-                  icon: const Icon(Icons.delete_sweep_rounded),
-                  onPressed: () async {
-                    final confirm = await showDialog<bool>(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        title: const Text('Clear All History'),
-                        content: const Text('This will remove all AI history for you. Continue?'),
-                        actions: [
-                          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-                          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Clear', style: TextStyle(color: AppTheme.error))),
-                        ],
-                      ),
-                    );
-                    if (confirm == true && mounted) {
-                      final prov = context.read<AppProvider>();
-                      final db = prov.db;
-                      await prov.saveAndSync(db.copyWith(
-                        aiHistory: db.aiHistory.where((e) => e.userId != user.id).toList(),
-                      ));
-                    }
-                  },
-                  tooltip: 'Clear all',
-                  color: AppTheme.error,
-                ),
-            ],
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
+            onPressed: () => Scaffold.of(context).openDrawer(),
           ),
-          // Module filter chips
-          if (modules.isNotEmpty)
-            SliverToBoxAdapter(
-              child: SizedBox(
+        ),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
+            const SizedBox(width: 6),
+            const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
+          ],
+        ),
+        centerTitle: false,
+        titleSpacing: 0,
+        actions: [
+          IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.only(bottom: 32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            PageHeader(
+              title: '\u{1F916} AI History',
+              subtitle: 'Your AI interactions & responses',
+              actions: [
+                if (allEntries.isNotEmpty)
+                  ActionChipButton(
+                    icon: Icons.delete_sweep_rounded,
+                    label: 'Clear All',
+                    onTap: () async {
+                      final confirm = await showDialog<bool>(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          title: const Text('Clear All History'),
+                          content: const Text('This will remove all AI history for you. Continue?'),
+                          actions: [
+                            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Clear', style: TextStyle(color: AppTheme.error))),
+                          ],
+                        ),
+                      );
+                      if (confirm == true && mounted) {
+                        final prov = context.read<AppProvider>();
+                        final db = prov.db;
+                        await prov.saveAndSync(db.copyWith(
+                          aiHistory: db.aiHistory.where((e) => e.userId != user.id).toList(),
+                        ));
+                      }
+                    },
+                    backgroundColor: AppTheme.error.withOpacity(0.1),
+                    foregroundColor: AppTheme.error,
+                  ),
+              ],
+            ),
+            // Module filter chips
+            if (modules.isNotEmpty)
+              SizedBox(
                 height: 48,
                 child: ListView(
                   scrollDirection: Axis.horizontal,
@@ -141,36 +169,36 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
                   ],
                 ),
               ),
-            ),
-          shown.isEmpty
-              ? SliverFillRemaining(
-                  child: EmptyState(
-                    emoji: '🤖',
-                    title: 'No AI history',
-                    subtitle: 'Your AI interactions will appear here.',
-                  ),
-                )
-              : SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-                  sliver: SliverList(
-                    delegate: SliverChildBuilderDelegate(
-                      (ctx, i) {
-                        final entry = shown[i];
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: _HistoryCard(
-                            entry: entry,
-                            moduleColor: _moduleColor(entry.module),
-                            onTap: () => _openDetail(context, entry, _moduleColor(entry.module)),
-                            onDelete: () => _deleteEntry(entry.id),
-                          ),
-                        );
-                      },
-                      childCount: shown.length,
-                    ),
-                  ),
+            if (shown.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: OnboardingCard(
+                  emoji: '\u{1F916}',
+                  title: 'No AI history',
+                  bullets: [
+                    'Your AI interactions will appear here',
+                    'Use AI features across the app to generate history',
+                    'Review past prompts and responses',
+                  ],
                 ),
-        ],
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Column(
+                  children: shown.map((entry) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _HistoryCard(
+                      entry: entry,
+                      moduleColor: _moduleColor(entry.module),
+                      onTap: () => _openDetail(context, entry, _moduleColor(entry.module)),
+                      onDelete: () => _deleteEntry(entry.id),
+                    ),
+                  )).toList(),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

@@ -10,6 +10,7 @@ import 'package:uuid/uuid.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 
 // ─── CalendarScreen ───────────────────────────────────────────────────────────
@@ -99,192 +100,438 @@ class _CalendarScreenState extends State<CalendarScreen> {
         final selectedEvents = _eventsForDay(provider, _selectedDay);
         final eventMap = _buildEventMap(provider);
 
+        // Upcoming events (next 7 days)
+        final now = DateTime.now();
+        final todayDate = DateTime(now.year, now.month, now.day);
+        final weekEnd = todayDate.add(const Duration(days: 7));
+        final upcomingEvents = provider.db.events
+            .where((e) =>
+                e.familyId == provider.activeFamily?.id &&
+                e.startDate.isAfter(todayDate) &&
+                e.startDate.isBefore(weekEnd))
+            .toList()
+          ..sort((a, b) => a.startDate.compareTo(b.startDate));
+
         return Scaffold(
+          drawer: const AppDrawer(),
           backgroundColor: AppTheme.background,
-          body: Column(
+          appBar: AppBar(
+            backgroundColor: Colors.white,
+            elevation: 0,
+            scrolledUnderElevation: 0,
+            leading: Builder(
+              builder: (context) => IconButton(
+                icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
+                onPressed: () => Scaffold.of(context).openDrawer(),
+              ),
+            ),
+            title: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
+                const SizedBox(width: 6),
+                const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
+              ],
+            ),
+            centerTitle: false,
+            titleSpacing: 0,
+            actions: [
+              IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
+            ],
+          ),
+          body: ListView(
+            padding: EdgeInsets.zero,
             children: [
-              // ─── Header ──────────────────────────────────────────────
-              const GradientHeader(
-                title: 'Calendar',
-                subtitle: 'Family schedule & events',
-                startColor: Color(0xFF8B5CF6),
-                endColor: Color(0xFFEC4899),
+              // Page Header
+              PageHeader(
+                title: 'Family Calendar',
+                subtitle: 'Coordinate schedules and plan life together.',
+                actions: [
+                  ActionChipButton(
+                    icon: Icons.calendar_month_outlined,
+                    label: 'My Calendars',
+                    onTap: () {},
+                    backgroundColor: Colors.white,
+                    foregroundColor: AppTheme.stone700,
+                  ),
+                  ActionChipButton(
+                    icon: Icons.auto_awesome,
+                    label: 'Plan Event',
+                    onTap: () {},
+                    isPrimary: true,
+                  ),
+                  ActionChipButton(
+                    icon: Icons.add,
+                    label: 'Add Event',
+                    onTap: () => _showAddEventSheet(context),
+                    backgroundColor: AppTheme.stone800,
+                  ),
+                ],
               ),
 
-              // ─── Calendar ─────────────────────────────────────────────
-              Container(
-                color: Colors.white,
-                child: TableCalendar<CalendarEvent>(
-                  firstDay: DateTime.utc(2020, 1, 1),
-                  lastDay: DateTime.utc(2030, 12, 31),
-                  focusedDay: _focusedDay,
-                  calendarFormat: _calFormat,
-                  selectedDayPredicate: (day) =>
-                      isSameDay(_selectedDay, day),
-                  eventLoader: (day) {
-                    final key = DateTime(day.year, day.month, day.day);
-                    return eventMap[key] ?? [];
-                  },
-                  onDaySelected: (selected, focused) {
-                    setState(() {
-                      _selectedDay = selected;
-                      _focusedDay = focused;
-                    });
-                  },
-                  onFormatChanged: (format) {
-                    setState(() => _calFormat = format);
-                  },
-                  onPageChanged: (focused) {
-                    _focusedDay = focused;
-                  },
-                  calendarStyle: CalendarStyle(
-                    selectedDecoration: const BoxDecoration(
-                      color: AppTheme.primary,
-                      shape: BoxShape.circle,
+              // AI Event Strategist card
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFF7C3AED), Color(0xFF6366F1)],
                     ),
-                    todayDecoration: BoxDecoration(
-                      color: AppTheme.primary.withOpacity(0.15),
-                      shape: BoxShape.circle,
-                    ),
-                    todayTextStyle: const TextStyle(
-                      color: AppTheme.primary,
-                      fontWeight: FontWeight.w700,
-                      fontFamily: 'Inter',
-                    ),
-                    selectedTextStyle: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                      fontFamily: 'Inter',
-                    ),
-                    defaultTextStyle: const TextStyle(
-                      fontFamily: 'Inter',
-                      color: AppTheme.stone800,
-                    ),
-                    weekendTextStyle: const TextStyle(
-                      fontFamily: 'Inter',
-                      color: AppTheme.stone600,
-                    ),
-                    outsideTextStyle: const TextStyle(
-                      fontFamily: 'Inter',
-                      color: AppTheme.stone300,
-                    ),
-                    markerDecoration: const BoxDecoration(
-                      color: AppTheme.primary,
-                      shape: BoxShape.circle,
-                    ),
-                    markerSize: 6,
-                    markersMaxCount: 3,
+                    borderRadius: BorderRadius.circular(16),
                   ),
-                  headerStyle: const HeaderStyle(
-                    formatButtonVisible: true,
-                    titleCentered: true,
-                    formatButtonDecoration: BoxDecoration(
-                      color: AppTheme.primaryLight,
-                      borderRadius:
-                          BorderRadius.all(Radius.circular(12)),
-                    ),
-                    formatButtonTextStyle: TextStyle(
-                      color: AppTheme.primary,
-                      fontFamily: 'Inter',
-                      fontWeight: FontWeight.w600,
-                      fontSize: 12,
-                    ),
-                    titleTextStyle: TextStyle(
-                      fontFamily: 'Inter',
-                      fontWeight: FontWeight.w700,
-                      fontSize: 16,
-                      color: AppTheme.stone900,
-                    ),
-                    leftChevronIcon: Icon(Icons.chevron_left,
-                        color: AppTheme.stone600),
-                    rightChevronIcon: Icon(Icons.chevron_right,
-                        color: AppTheme.stone600),
-                  ),
-                  daysOfWeekStyle: const DaysOfWeekStyle(
-                    weekdayStyle: TextStyle(
-                      fontFamily: 'Inter',
-                      fontWeight: FontWeight.w600,
-                      fontSize: 12,
-                      color: AppTheme.stone500,
-                    ),
-                    weekendStyle: TextStyle(
-                      fontFamily: 'Inter',
-                      fontWeight: FontWeight.w600,
-                      fontSize: 12,
-                      color: AppTheme.stone400,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 32,
+                            height: 32,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(Icons.auto_awesome, size: 18, color: Colors.white),
+                          ),
+                          const SizedBox(width: 10),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'AI Event Strategist',
+                                  style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white),
+                                ),
+                                Text(
+                                  'Quick event planning with smart suggestions',
+                                  style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white70),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.edit_outlined, size: 16, color: Colors.white.withOpacity(0.6)),
+                            const SizedBox(width: 10),
+                            Text(
+                              'Describe an event to plan...',
+                              style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: Colors.white.withOpacity(0.6)),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Text(
+                            'Quick Plan',
+                            style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF7C3AED)),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
+              const SizedBox(height: 16),
 
-              const Divider(height: 1),
-
-              // ─── Events list for selected day ─────────────────────────
+              // Calendar in a white card
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                child: Row(
-                  children: [
-                    Text(
-                      DateFormat('EEEE, MMM d').format(_selectedDay),
-                      style: const TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.stone700,
-                      ),
-                    ),
-                    const Spacer(),
-                    if (selectedEvents.isNotEmpty)
-                      Text(
-                        '${selectedEvents.length} event${selectedEvents.length == 1 ? '' : 's'}',
-                        style: const TextStyle(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppTheme.stone100),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: TableCalendar<CalendarEvent>(
+                      firstDay: DateTime.utc(2020, 1, 1),
+                      lastDay: DateTime.utc(2030, 12, 31),
+                      focusedDay: _focusedDay,
+                      calendarFormat: _calFormat,
+                      selectedDayPredicate: (day) =>
+                          isSameDay(_selectedDay, day),
+                      eventLoader: (day) {
+                        final key = DateTime(day.year, day.month, day.day);
+                        return eventMap[key] ?? [];
+                      },
+                      onDaySelected: (selected, focused) {
+                        setState(() {
+                          _selectedDay = selected;
+                          _focusedDay = focused;
+                        });
+                      },
+                      onFormatChanged: (format) {
+                        setState(() => _calFormat = format);
+                      },
+                      onPageChanged: (focused) {
+                        _focusedDay = focused;
+                      },
+                      calendarStyle: CalendarStyle(
+                        selectedDecoration: const BoxDecoration(
+                          color: AppTheme.primary,
+                          shape: BoxShape.circle,
+                        ),
+                        todayDecoration: BoxDecoration(
+                          color: AppTheme.primary.withOpacity(0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        todayTextStyle: const TextStyle(
+                          color: AppTheme.primary,
+                          fontWeight: FontWeight.w700,
                           fontFamily: 'Inter',
+                        ),
+                        selectedTextStyle: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontFamily: 'Inter',
+                        ),
+                        defaultTextStyle: const TextStyle(
+                          fontFamily: 'Inter',
+                          color: AppTheme.stone800,
+                        ),
+                        weekendTextStyle: const TextStyle(
+                          fontFamily: 'Inter',
+                          color: AppTheme.stone600,
+                        ),
+                        outsideTextStyle: const TextStyle(
+                          fontFamily: 'Inter',
+                          color: AppTheme.stone300,
+                        ),
+                        markerDecoration: const BoxDecoration(
+                          color: AppTheme.primary,
+                          shape: BoxShape.circle,
+                        ),
+                        markerSize: 6,
+                        markersMaxCount: 3,
+                      ),
+                      headerStyle: const HeaderStyle(
+                        formatButtonVisible: true,
+                        titleCentered: true,
+                        formatButtonDecoration: BoxDecoration(
+                          color: AppTheme.primaryLight,
+                          borderRadius:
+                              BorderRadius.all(Radius.circular(12)),
+                        ),
+                        formatButtonTextStyle: TextStyle(
+                          color: AppTheme.primary,
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                        ),
+                        titleTextStyle: TextStyle(
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                          color: AppTheme.stone900,
+                        ),
+                        leftChevronIcon: Icon(Icons.chevron_left,
+                            color: AppTheme.stone600),
+                        rightChevronIcon: Icon(Icons.chevron_right,
+                            color: AppTheme.stone600),
+                      ),
+                      daysOfWeekStyle: const DaysOfWeekStyle(
+                        weekdayStyle: TextStyle(
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                          color: AppTheme.stone500,
+                        ),
+                        weekendStyle: TextStyle(
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w600,
                           fontSize: 12,
                           color: AppTheme.stone400,
                         ),
                       ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Import External Calendar section
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'IMPORT EXTERNAL CALENDAR',
+                      style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppTheme.stone100),
+                      ),
+                      child: Column(
+                        children: [
+                          _buildImportOption(Icons.upload_file_rounded, 'Upload .ics File', 'Import events from a calendar file'),
+                          const Divider(height: 1),
+                          _buildImportOption(Icons.link_rounded, 'Subscribe via URL', 'Sync with an external calendar feed'),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Coming Up section
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          DateFormat('EEEE, MMM d').format(_selectedDay),
+                          style: const TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.stone700,
+                          ),
+                        ),
+                        const Spacer(),
+                        if (selectedEvents.isNotEmpty)
+                          Text(
+                            '${selectedEvents.length} event${selectedEvents.length == 1 ? '' : 's'}',
+                            style: const TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 12,
+                              color: AppTheme.stone400,
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    if (selectedEvents.isEmpty)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: AppTheme.stone100),
+                        ),
+                        child: Column(
+                          children: [
+                            const Text('📅', style: TextStyle(fontSize: 32)),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Nothing scheduled',
+                              style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone500),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'Tap + Add Event to add an event for this day',
+                              style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      ...selectedEvents.map((event) => _EventCard(
+                        event: event,
+                        provider: provider,
+                        onEdit: () => _showAddEventSheet(context, event: event),
+                        onDelete: () => _deleteEvent(context, provider, event),
+                      )),
                   ],
                 ),
               ),
 
-              Expanded(
-                child: selectedEvents.isEmpty
-                    ? EmptyState(
-                        emoji: '📅',
-                        title: 'Nothing scheduled',
-                        subtitle:
-                            'Tap + to add an event for this day',
-                        actionLabel: 'Add Event',
-                        onAction: () =>
-                            _showAddEventSheet(context),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.fromLTRB(
-                            16, 0, 16, 100),
-                        itemCount: selectedEvents.length,
-                        itemBuilder: (ctx, i) {
-                          return _EventCard(
-                            event: selectedEvents[i],
-                            provider: provider,
-                            onEdit: () => _showAddEventSheet(
-                                context,
-                                event: selectedEvents[i]),
-                            onDelete: () => _deleteEvent(
-                                context,
-                                provider,
-                                selectedEvents[i]),
-                          );
-                        },
-                      ),
-              ),
+              // Upcoming events
+              if (upcomingEvents.isNotEmpty) ...[
+                const SizedBox(height: 20),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: const Text(
+                    'COMING UP',
+                    style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Column(
+                    children: upcomingEvents.map((event) => _EventCard(
+                      event: event,
+                      provider: provider,
+                      onEdit: () => _showAddEventSheet(context, event: event),
+                      onDelete: () => _deleteEvent(context, provider, event),
+                    )).toList(),
+                  ),
+                ),
+              ],
+
+              const SizedBox(height: 32),
             ],
-          ),
-          floatingActionButton: FloatingActionButton(
-            onPressed: () => _showAddEventSheet(context),
-            child: const Icon(Icons.add),
           ),
         );
       },
+    );
+  }
+
+  Widget _buildImportOption(IconData icon, String title, String subtitle) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: AppTheme.stone50,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, size: 18, color: AppTheme.stone500),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone800),
+                ),
+                Text(
+                  subtitle,
+                  style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
+                ),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_right_rounded, size: 20, color: AppTheme.stone300),
+        ],
+      ),
     );
   }
 }

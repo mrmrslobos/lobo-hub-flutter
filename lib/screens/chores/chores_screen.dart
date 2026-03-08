@@ -93,87 +93,260 @@ class _ChoresScreenState extends State<ChoresScreen> {
       return a.title.compareTo(b.title);
     });
 
-    final userPoints = {for (final m in members) m.id: provider.chorePointsForUser(m.id)};
+    // Weekly view data
+    final now = DateTime.now();
+    final weekStart = now.subtract(Duration(days: now.weekday % 7)); // Sunday
+    final dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    final todayIndex = now.weekday % 7;
 
     return Scaffold(
       drawer: const AppDrawer(),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showAddSheet,
-        child: const Icon(Icons.add_rounded),
+      backgroundColor: AppTheme.background,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
+            onPressed: () => Scaffold.of(context).openDrawer(),
+          ),
+        ),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
+            const SizedBox(width: 6),
+            const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
+          ],
+        ),
+        centerTitle: false,
+        titleSpacing: 0,
+        actions: [
+          IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
+        ],
       ),
-      body: CustomScrollView(
-        slivers: [
-          const SliverAppBar(title: Text('Chores'), floating: true),
-          if (members.isNotEmpty)
-            SliverToBoxAdapter(
-              child: _PointsStrip(members: members, userPoints: userPoints),
-            ),
-          SliverToBoxAdapter(
-            child: SizedBox(
-              height: 48,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      body: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          // Page Header
+          PageHeader(
+            title: 'Chore Chart',
+            subtitle: 'Keep the pack accountable',
+            actions: [
+              ActionChipButton(
+                icon: Icons.add,
+                label: 'Add Chore',
+                onTap: _showAddSheet,
+                isPrimary: true,
+              ),
+            ],
+          ),
+
+          // Weekly View Card
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppTheme.stone100),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Weekly View header with arrows
                   Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: FilterChip(
-                      label: const Text('All'),
-                      selected: _filterUserId == null,
-                      onSelected: (_) => setState(() => _filterUserId = null),
-                      showCheckmark: false,
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                    child: Row(
+                      children: [
+                        const Text(
+                          'Weekly View',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontWeight: FontWeight.w700,
+                            fontSize: 16,
+                            color: AppTheme.stone900,
+                          ),
+                        ),
+                        const Spacer(),
+                        Icon(Icons.chevron_left_rounded, size: 22, color: AppTheme.stone400),
+                        const SizedBox(width: 4),
+                        const Text(
+                          'This Week',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.stone600,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Icon(Icons.chevron_right_rounded, size: 22, color: AppTheme.stone400),
+                      ],
                     ),
                   ),
-                  ...members.map((m) => Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: FilterChip(
-                          label: Text(m.name.split(' ').first),
-                          selected: _filterUserId == m.id,
-                          onSelected: (_) => setState(() => _filterUserId = m.id),
-                          showCheckmark: false,
+                  const SizedBox(height: 12),
+
+                  // Day headers
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Row(
+                      children: [
+                        const SizedBox(width: 140), // space for chore name column
+                        ...List.generate(7, (i) {
+                          final isToday = i == todayIndex;
+                          return Expanded(
+                            child: Center(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                                decoration: isToday
+                                    ? BoxDecoration(
+                                        color: AppTheme.primary.withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(8),
+                                      )
+                                    : null,
+                                child: Text(
+                                  dayLabels[i],
+                                  style: TextStyle(
+                                    fontFamily: 'Inter',
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: isToday ? AppTheme.primary : AppTheme.stone400,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        }),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 16),
+
+                  // Chore rows
+                  if (shown.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Center(
+                        child: Column(
+                          children: [
+                            const Text('🧹', style: TextStyle(fontSize: 32)),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'No chores yet',
+                              style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone500),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'Add chores to keep the family on track.',
+                              style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
+                            ),
+                          ],
                         ),
-                      )),
+                      ),
+                    )
+                  else
+                    ...shown.map((chore) {
+                      final doneToday = _isCompletedToday(chore);
+                      final assigneeNames = chore.assigneeIds.map((id) {
+                        final m = members.cast<User?>().firstWhere(
+                            (m) => m?.id == id, orElse: () => null);
+                        return m?.name.split(' ').first ?? 'Member';
+                      }).toList();
+                      final emoji = chore.title.contains('Dish') ? '🍽️'
+                          : chore.title.contains('Trash') || chore.title.contains('Garbage') ? '🗑️'
+                          : chore.title.contains('Laundry') ? '👕'
+                          : chore.title.contains('Vacuum') || chore.title.contains('Clean') ? '🧹'
+                          : chore.title.contains('Cook') || chore.title.contains('Meal') ? '🍳'
+                          : chore.title.contains('Walk') || chore.title.contains('Dog') ? '🐕'
+                          : '✨';
+
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                        child: Row(
+                          children: [
+                            // Chore info column
+                            SizedBox(
+                              width: 140,
+                              child: Row(
+                                children: [
+                                  Text(emoji, style: const TextStyle(fontSize: 18)),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          chore.title,
+                                          style: const TextStyle(
+                                            fontFamily: 'Inter',
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                            color: AppTheme.stone800,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        if (assigneeNames.isNotEmpty)
+                                          Text(
+                                            assigneeNames.first,
+                                            style: const TextStyle(
+                                              fontFamily: 'Inter',
+                                              fontSize: 11,
+                                              color: AppTheme.stone400,
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            // Day checkboxes
+                            ...List.generate(7, (dayIdx) {
+                              final isToday = dayIdx == todayIndex;
+                              final checked = isToday && doneToday;
+                              return Expanded(
+                                child: Center(
+                                  child: GestureDetector(
+                                    onTap: isToday && !doneToday ? () => _completeChore(chore) : null,
+                                    child: Container(
+                                      width: 24,
+                                      height: 24,
+                                      decoration: BoxDecoration(
+                                        color: checked
+                                            ? AppTheme.success.withOpacity(0.15)
+                                            : Colors.transparent,
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(
+                                          color: checked
+                                              ? AppTheme.success
+                                              : isToday
+                                                  ? AppTheme.stone300
+                                                  : AppTheme.stone200,
+                                          width: checked ? 2 : 1,
+                                        ),
+                                      ),
+                                      child: checked
+                                          ? const Icon(Icons.check_rounded, size: 14, color: AppTheme.success)
+                                          : null,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }),
+                          ],
+                        ),
+                      );
+                    }),
+
+                  const SizedBox(height: 12),
                 ],
               ),
             ),
           ),
-          shown.isEmpty
-              ? SliverFillRemaining(
-                  child: EmptyState(
-                    emoji: '🧹',
-                    title: 'No chores yet',
-                    subtitle: 'Add chores to keep the family on track.',
-                    actionLabel: 'Add Chore',
-                    onAction: _showAddSheet,
-                  ),
-                )
-              : SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-                  sliver: SliverList(
-                    delegate: SliverChildBuilderDelegate(
-                      (context, i) {
-                        final chore = shown[i];
-                        final doneToday = _isCompletedToday(chore);
-                        final assigneeNames = chore.assigneeIds.map((id) {
-                          final m = members.cast<User?>().firstWhere(
-                              (m) => m?.id == id, orElse: () => null);
-                          return m?.name.split(' ').first ?? 'Member';
-                        }).toList();
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: _ChoreCard(
-                            chore: chore,
-                            doneToday: doneToday,
-                            assigneeNames: assigneeNames,
-                            onComplete: doneToday ? null : () => _completeChore(chore),
-                            onDelete: () => _deleteChore(chore.id),
-                          ),
-                        );
-                      },
-                      childCount: shown.length,
-                    ),
-                  ),
-                ),
+          const SizedBox(height: 32),
         ],
       ),
     );

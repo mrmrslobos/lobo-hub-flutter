@@ -10,6 +10,7 @@ import 'package:intl/intl.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 
 // ─── Chat screen ──────────────────────────────────────────────────────────────
@@ -176,16 +177,33 @@ class _ChatScreenState extends State<ChatScreen> {
         return Scaffold(
           backgroundColor: AppTheme.background,
           resizeToAvoidBottomInset: true,
+          drawer: const AppDrawer(),
+          appBar: AppBar(
+            backgroundColor: Colors.white,
+            elevation: 0,
+            scrolledUnderElevation: 0,
+            leading: Builder(
+              builder: (context) => IconButton(
+                icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
+                onPressed: () => Scaffold.of(context).openDrawer(),
+              ),
+            ),
+            title: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
+                const SizedBox(width: 6),
+                const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
+              ],
+            ),
+            centerTitle: false,
+            titleSpacing: 0,
+            actions: [
+              IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
+            ],
+          ),
           body: Column(
             children: [
-              // ─── Header ───────────────────────────────────────────────
-              const GradientHeader(
-                title: 'Chat',
-                subtitle: 'Family messages',
-                startColor: Color(0xFF10B981),
-                endColor: Color(0xFF3B82F6),
-              ),
-
               // ─── Message list ──────────────────────────────────────────
               Expanded(
                 child: messages.isEmpty
