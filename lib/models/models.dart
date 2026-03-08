@@ -258,6 +258,17 @@ class User {
     DateTime? createdAt,
   });
 
+  String get initials {
+    if (name.isEmpty) return '?';
+    final parts = name.trim().split(' ');
+    if (parts.length >= 2) {
+      return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+    }
+    return name[0].toUpperCase();
+  }
+
+  String? get avatarUrl => avatar;
+
   factory User.fromJson(Map<String, dynamic> j) => User(
     id: j['id'] as String? ?? '',
     name: j['name'] as String? ?? '',
