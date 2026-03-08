@@ -62,14 +62,38 @@ class DatabaseService {
     }
   }
 
+  /// Convert snake_case keys to camelCase for Supabase column compatibility.
+  static String _snakeToCamel(String s) {
+    final parts = s.split('_');
+    if (parts.length <= 1) return s;
+    return parts.first +
+        parts.skip(1).map((p) => p.isEmpty ? '' : '${p[0].toUpperCase()}${p.substring(1)}').join();
+  }
+
+  static Map<String, dynamic> _toCamel(Map<String, dynamic> row) {
+    return row.map((k, v) => MapEntry(_snakeToCamel(k), v));
+  }
+
+  static List<Map<String, dynamic>> _camelRows(List<Map<String, dynamic>> rows) {
+    return rows.map(_toCamel).toList();
+  }
+
   static Future<void> _syncToCloud(AppDB db, String familyId) async {
-    Future<void> up(String table, List<Map<String, dynamic>> rows) async {
+    Future<void> up(String table, List<Map<String, dynamic>> rows,
+        {String? onConflict}) async {
       if (rows.isNotEmpty) {
-        await SupabaseService.upsertTable(table, rows);
+        await SupabaseService.upsertTable(table, _camelRows(rows),
+            onConflict: onConflict);
       }
     }
 
     final fid = familyId;
+
+    // Core identity tables
+    await up('users', db.users.map((u) => u.toJson()).toList());
+    await up('families', db.families.map((f) => f.toJson()).toList());
+    await up('family_members', db.familyMembers.map((m) => m.toJson()).toList(),
+        onConflict: 'userId,familyId');
 
     await up('tasks',
         db.tasks.map((t) => {...t.toJson(), 'familyId': fid}).toList());
