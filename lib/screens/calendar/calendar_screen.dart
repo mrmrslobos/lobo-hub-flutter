@@ -13,6 +13,7 @@ import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../services/calendar_sync_service.dart';
+import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 
@@ -1222,6 +1223,12 @@ class _EventFormSheetState extends State<_EventFormSheet> {
         events = [...db.events, event];
       }
       await provider.saveAndSync(db.copyWith(events: events));
+      if (widget.editEvent == null) {
+        NotificationService.notifyFamilyActivity(
+          title: 'New Calendar Event',
+          body: '${provider.activeUser?.name ?? "Someone"} added: ${event.title}',
+        );
+      }
       if (mounted) Navigator.pop(context);
     } finally {
       if (mounted) setState(() => _loading = false);

@@ -149,6 +149,97 @@ class NotificationService {
     await _plugin.cancel(id);
   }
 
+  /// Schedule a task reminder notification at a specific date/time.
+  /// The notification ID is derived from the task ID hash for consistency.
+  static Future<void> scheduleTaskReminder({
+    required String taskId,
+    required String taskTitle,
+    required DateTime dueDate,
+    required String dueTime,
+    required int reminderMinutes,
+  }) async {
+    if (!_initialized) await init();
+
+    // Parse dueTime (HH:mm format)
+    final parts = dueTime.split(':');
+    if (parts.length < 2) return;
+    final hour = int.tryParse(parts[0]) ?? 0;
+    final minute = int.tryParse(parts[1]) ?? 0;
+
+    final dueDateTime = tz.TZDateTime(
+      tz.local,
+      dueDate.year,
+      dueDate.month,
+      dueDate.day,
+      hour,
+      minute,
+    );
+
+    final notifyAt = dueDateTime.subtract(Duration(minutes: reminderMinutes));
+    if (notifyAt.isBefore(tz.TZDateTime.now(tz.local))) return; // already passed
+
+    final notifId = taskId.hashCode.abs() % 2147483647; // keep within int range
+
+    final body = reminderMinutes == 0
+        ? '$taskTitle — due now!'
+        : '$taskTitle — due in $reminderMinutes minutes';
+
+    const androidDetails = AndroidNotificationDetails(
+      'lobohub_task_reminders',
+      'Task Reminders',
+      channelDescription: 'Reminders for tasks with due dates',
+      importance: Importance.high,
+      priority: Priority.high,
+    );
+    const details = NotificationDetails(
+      android: androidDetails,
+      iOS: DarwinNotificationDetails(),
+    );
+
+    await _plugin.zonedSchedule(
+      notifId,
+      'Task Reminder',
+      body,
+      notifyAt,
+      details,
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+      payload: 'task:$taskId',
+    );
+  }
+
+  /// Cancel a previously scheduled task reminder.
+  static Future<void> cancelTaskReminder(String taskId) async {
+    final notifId = taskId.hashCode.abs() % 2147483647;
+    await _plugin.cancel(notifId);
+  }
+
+  /// Show an immediate notification when a family member adds a shared item.
+  static Future<void> notifyFamilyActivity({
+    required String title,
+    required String body,
+    String? payload,
+  }) async {
+    if (!_initialized) await init();
+
+    const androidDetails = AndroidNotificationDetails(
+      'lobohub_family_activity',
+      'Family Activity',
+      channelDescription: 'Notifications when family members add shared items',
+      importance: Importance.defaultImportance,
+      priority: Priority.defaultPriority,
+    );
+    const details = NotificationDetails(
+      android: androidDetails,
+      iOS: DarwinNotificationDetails(),
+    );
+
+    // Use current timestamp as notification ID for uniqueness
+    final notifId = DateTime.now().millisecondsSinceEpoch % 2147483647;
+    await _plugin.show(notifId, title, body, details, payload: payload);
+  }
+
   static Future<String?> getFcmToken() async {
     try {
       return await FirebaseMessaging.instance.getToken();

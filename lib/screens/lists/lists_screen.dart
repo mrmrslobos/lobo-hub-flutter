@@ -8,6 +8,7 @@ import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
+import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 
@@ -33,6 +34,10 @@ class _ListsScreenState extends State<ListsScreen> {
     );
     final updated = [...db.shoppingLists, list];
     await provider.saveAndSync(db.copyWith(shoppingLists: updated));
+    NotificationService.notifyFamilyActivity(
+      title: 'New List Created',
+      body: '${provider.activeUser?.name ?? "Someone"} created: ${list.title}',
+    );
     setState(() => _selectedList = list);
   }
 
