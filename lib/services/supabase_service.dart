@@ -121,7 +121,7 @@ class SupabaseService {
         result[table] = await client
             .from(table)
             .select()
-            .eq('family_id', familyId);
+            .eq('familyId', familyId);
       } catch (_) {
         result[table] = [];
       }
@@ -133,7 +133,7 @@ class SupabaseService {
         result[table] = await client
             .from(table)
             .select()
-            .eq('family_id', familyId);
+            .eq('familyId', familyId);
       } catch (_) {
         result[table] = [];
       }
@@ -143,11 +143,11 @@ class SupabaseService {
     try {
       final members = await client
           .from('family_members')
-          .select('user_id')
-          .eq('family_id', familyId);
+          .select('userId')
+          .eq('familyId', familyId);
 
       final userIds = (members as List)
-          .map((m) => m['user_id'] as String)
+          .map((m) => m['userId'] as String)
           .toList();
 
       if (userIds.isNotEmpty) {
@@ -167,7 +167,7 @@ class SupabaseService {
             result[table] = await client
                 .from(table)
                 .select()
-                .inFilter('user_id', userIds);
+                .inFilter('userId', userIds);
           } catch (_) {
             result[table] = [];
           }

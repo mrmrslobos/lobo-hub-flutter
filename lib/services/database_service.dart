@@ -72,23 +72,23 @@ class DatabaseService {
     final fid = familyId;
 
     await up('tasks',
-        db.tasks.map((t) => {...t.toJson(), 'family_id': fid}).toList());
+        db.tasks.map((t) => {...t.toJson(), 'familyId': fid}).toList());
     await up('events',
-        db.events.map((e) => {...e.toJson(), 'family_id': fid}).toList());
+        db.events.map((e) => {...e.toJson(), 'familyId': fid}).toList());
     await up('recipes',
-        db.recipes.map((r) => {...r.toJson(), 'family_id': fid}).toList());
+        db.recipes.map((r) => {...r.toJson(), 'familyId': fid}).toList());
     await up('meal_plans',
-        db.mealPlans.map((m) => {...m.toJson(), 'family_id': fid}).toList());
+        db.mealPlans.map((m) => {...m.toJson(), 'familyId': fid}).toList());
     await up('lists',
-        db.lists.map((l) => {...l.toJson(), 'family_id': fid}).toList());
+        db.lists.map((l) => {...l.toJson(), 'familyId': fid}).toList());
     await up('devotionals',
-        db.devotionals.map((d) => {...d.toJson(), 'family_id': fid}).toList());
+        db.devotionals.map((d) => {...d.toJson(), 'familyId': fid}).toList());
     await up('fitness_metrics',
         db.fitness.map((f) => f.toJson()).toList());
     await up('budget_categories',
-        db.budgetCategories.map((b) => {...b.toJson(), 'family_id': fid}).toList());
+        db.budgetCategories.map((b) => {...b.toJson(), 'familyId': fid}).toList());
     await up('transactions',
-        db.transactions.map((t) => {...t.toJson(), 'family_id': fid}).toList());
+        db.transactions.map((t) => {...t.toJson(), 'familyId': fid}).toList());
     await up('ai_history',
         db.aiHistory.map((a) => a.toJson()).toList());
     await up('daily_habits',
@@ -96,41 +96,41 @@ class DatabaseService {
     await up('daily_habit_completions',
         db.dailyHabitCompletions.map((c) => c.toJson()).toList());
     await up('chores',
-        db.chores.map((c) => {...c.toJson(), 'family_id': fid}).toList());
+        db.chores.map((c) => {...c.toJson(), 'familyId': fid}).toList());
     await up('chore_completions',
         db.choreCompletions.map((c) => c.toJson()).toList());
     await up('polls',
-        db.polls.map((p) => {...p.toJson(), 'family_id': fid}).toList());
+        db.polls.map((p) => {...p.toJson(), 'familyId': fid}).toList());
     await up('poll_votes',
         db.pollVotes.map((v) => v.toJson()).toList());
     await up('reward_items',
-        db.rewardItems.map((r) => {...r.toJson(), 'family_id': fid}).toList());
+        db.rewardItems.map((r) => {...r.toJson(), 'familyId': fid}).toList());
     await up('reward_redemptions',
         db.rewardRedemptions.map((r) => r.toJson()).toList());
     await up('savings_goals',
-        db.savingsGoals.map((g) => {...g.toJson(), 'family_id': fid}).toList());
+        db.savingsGoals.map((g) => {...g.toJson(), 'familyId': fid}).toList());
     await up('prayer_wall',
-        db.prayerWall.map((p) => {...p.toJson(), 'family_id': fid}).toList());
+        db.prayerWall.map((p) => {...p.toJson(), 'familyId': fid}).toList());
     await up('special_dates',
-        db.specialDates.map((s) => {...s.toJson(), 'family_id': fid}).toList());
+        db.specialDates.map((s) => {...s.toJson(), 'familyId': fid}).toList());
     await up('family_photos',
-        db.familyPhotos.map((p) => {...p.toJson(), 'family_id': fid}).toList());
+        db.familyPhotos.map((p) => {...p.toJson(), 'familyId': fid}).toList());
     await up('milestones',
-        db.milestones.map((m) => {...m.toJson(), 'family_id': fid}).toList());
+        db.milestones.map((m) => {...m.toJson(), 'familyId': fid}).toList());
     await up('saved_places',
-        db.savedPlaces.map((s) => {...s.toJson(), 'family_id': fid}).toList());
+        db.savedPlaces.map((s) => {...s.toJson(), 'familyId': fid}).toList());
     await up('user_locations',
         db.userLocations.map((u) => u.toJson()).toList());
     await up('messages',
-        db.messages.map((m) => {...m.toJson(), 'family_id': fid}).toList());
+        db.messages.map((m) => {...m.toJson(), 'familyId': fid}).toList());
     await up('health_records',
-        db.healthRecords.map((h) => {...h.toJson(), 'family_id': fid}).toList());
+        db.healthRecords.map((h) => {...h.toJson(), 'familyId': fid}).toList());
     await up('period_cycles',
         db.periodCycles.map((c) => c.toJson()).toList());
     await up('period_symptoms',
         db.periodSymptoms.map((s) => s.toJson()).toList());
     await up('external_calendars',
-        db.externalCalendars.map((c) => {...c.toJson(), 'family_id': fid}).toList());
+        db.externalCalendars.map((c) => {...c.toJson(), 'familyId': fid}).toList());
   }
 
   // ── Cloud reconcile ───────────────────────────────────────────────────────
