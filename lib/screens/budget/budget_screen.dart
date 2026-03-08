@@ -1,6 +1,7 @@
 // lib/screens/budget/budget_screen.dart
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
@@ -128,6 +129,170 @@ class _BudgetScreenState extends State<BudgetScreen> {
     );
   }
 
+  void _showExportMenu({
+    required List<BudgetEntry> entries,
+    required List<BudgetCategoryRecord> categories,
+    required double totalIncome,
+    required double totalExpenses,
+    required String familyName,
+  }) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: AppTheme.surface,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Center(
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(color: AppTheme.stone200, borderRadius: BorderRadius.circular(2)),
+                ),
+              ),
+              const Text('Export Finance Report', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 18, color: AppTheme.stone900)),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.table_chart_rounded, color: AppTheme.primary),
+                title: const Text('Copy as CSV', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+                subtitle: const Text('Copy transaction data to clipboard', style: TextStyle(fontSize: 12)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                tileColor: AppTheme.stone50,
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _exportCsv(entries);
+                },
+              ),
+              const SizedBox(height: 8),
+              ListTile(
+                leading: const Icon(Icons.summarize_rounded, color: AppTheme.primary),
+                title: const Text('View Report', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+                subtitle: const Text('View formatted finance summary', style: TextStyle(fontSize: 12)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                tileColor: AppTheme.stone50,
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showReportView(
+                    entries: entries,
+                    categories: categories,
+                    totalIncome: totalIncome,
+                    totalExpenses: totalExpenses,
+                    familyName: familyName,
+                  );
+                },
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _exportCsv(List<BudgetEntry> entries) {
+    final sorted = List<BudgetEntry>.from(entries)
+      ..sort((a, b) => b.date.compareTo(a.date));
+    final lines = <String>['Date,Description,Category,Type,Amount'];
+    for (final e in sorted) {
+      final date = DateFormat('yyyy-MM-dd').format(e.date);
+      final desc = e.description.replaceAll(',', ' ');
+      final cat = e.category.name;
+      final type = e.isIncome ? 'INCOME' : 'EXPENSE';
+      final amt = e.amount.toStringAsFixed(2);
+      lines.add('$date,$desc,$cat,$type,$amt');
+    }
+    Clipboard.setData(ClipboardData(text: lines.join('\n')));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('CSV copied to clipboard!')),
+    );
+  }
+
+  void _showReportView({
+    required List<BudgetEntry> entries,
+    required List<BudgetCategoryRecord> categories,
+    required double totalIncome,
+    required double totalExpenses,
+    required String familyName,
+  }) {
+    final net = totalIncome - totalExpenses;
+    final byCategory = <String, double>{};
+    for (final e in entries.where((e) => !e.isIncome)) {
+      byCategory[e.category.name] = (byCategory[e.category.name] ?? 0) + e.amount;
+    }
+    final catLimits = <String, double>{};
+    for (final c in categories) {
+      catLimits[c.name] = c.monthlyLimit;
+    }
+
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog.fullscreen(
+        child: Scaffold(
+          appBar: AppBar(
+            title: const Text('Finance Report', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700)),
+            leading: IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+          ),
+          body: ListView(
+            padding: const EdgeInsets.all(20),
+            children: [
+              Text('Family Finance Report', style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 22, color: AppTheme.stone900)),
+              const SizedBox(height: 4),
+              Text('Generated ${DateFormat('MMMM d, yyyy').format(DateTime.now())} · $familyName',
+                style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500)),
+              const SizedBox(height: 20),
+              // Summary cards
+              Row(children: [
+                _ReportSummaryBox(label: 'Income', value: _formatCurrency(totalIncome), color: const Color(0xFF166534), bgColor: const Color(0xFFF0FDF4)),
+                const SizedBox(width: 8),
+                _ReportSummaryBox(label: 'Expenses', value: _formatCurrency(totalExpenses), color: const Color(0xFF9F1239), bgColor: const Color(0xFFFFF1F2)),
+                const SizedBox(width: 8),
+                _ReportSummaryBox(label: 'Net', value: _formatCurrency(net), color: net >= 0 ? const Color(0xFF166534) : const Color(0xFF9F1239), bgColor: net >= 0 ? const Color(0xFFF0FDF4) : const Color(0xFFFFF1F2)),
+              ]),
+              const SizedBox(height: 24),
+              // Category breakdown
+              const Text('BUDGET CATEGORIES', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 11, letterSpacing: 1.0, color: AppTheme.stone400)),
+              const SizedBox(height: 8),
+              ...byCategory.entries.map((e) {
+                final limit = catLimits[e.key] ?? 0;
+                final pct = limit > 0 ? (e.value / limit * 100).toStringAsFixed(0) : '—';
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(children: [
+                    Expanded(flex: 3, child: Text(e.key, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13))),
+                    Expanded(flex: 2, child: Text('Limit: ${_formatCurrency(limit)}', style: const TextStyle(fontSize: 12, color: AppTheme.stone500))),
+                    Expanded(flex: 2, child: Text('Spent: ${_formatCurrency(e.value)}', style: const TextStyle(fontSize: 12, color: AppTheme.stone700, fontWeight: FontWeight.w600))),
+                    SizedBox(width: 50, child: Text('$pct%', textAlign: TextAlign.right, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.primary))),
+                  ]),
+                );
+              }),
+              const SizedBox(height: 24),
+              // Transactions table
+              const Text('TRANSACTIONS', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 11, letterSpacing: 1.0, color: AppTheme.stone400)),
+              const SizedBox(height: 8),
+              ...(List<BudgetEntry>.from(entries)..sort((a, b) => b.date.compareTo(a.date))).map((e) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3),
+                child: Row(children: [
+                  SizedBox(width: 80, child: Text(DateFormat('MMM d').format(e.date), style: const TextStyle(fontSize: 12, color: AppTheme.stone500))),
+                  Expanded(child: Text(e.description, style: const TextStyle(fontSize: 13, fontFamily: 'Inter'), overflow: TextOverflow.ellipsis)),
+                  Text(
+                    '${e.isIncome ? '+' : '-'}${_formatCurrency(e.amount)}',
+                    style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: e.isIncome ? const Color(0xFF166534) : const Color(0xFF9F1239)),
+                  ),
+                ]),
+              )),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _showAiAnalysis(
     BuildContext context, {
     required double totalIncome,
@@ -248,7 +413,13 @@ class _BudgetScreenState extends State<BudgetScreen> {
               ActionChipButton(
                 icon: Icons.arrow_drop_down,
                 label: 'Export',
-                onTap: () {},
+                onTap: () => _showExportMenu(
+                  entries: allEntries,
+                  categories: categories,
+                  totalIncome: totalIncome,
+                  totalExpenses: totalExpenses,
+                  familyName: family.name as String? ?? 'My Family',
+                ),
                 backgroundColor: AppTheme.stone100,
                 foregroundColor: AppTheme.stone700,
               ),
@@ -1791,6 +1962,43 @@ $text
           ],
           if (_parsedTransactions == null) SizedBox(height: padding),
         ],
+      ),
+    );
+  }
+}
+
+// ─── Report Summary Box ──────────────────────────────────────────────────────
+
+class _ReportSummaryBox extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+  final Color bgColor;
+
+  const _ReportSummaryBox({
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.bgColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 11, color: color.withValues(alpha: 0.75))),
+            const SizedBox(height: 4),
+            Text(value, style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 16, color: color)),
+          ],
+        ),
       ),
     );
   }

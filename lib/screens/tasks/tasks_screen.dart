@@ -15,7 +15,7 @@ import '../../widgets/common_widgets.dart';
 
 // ─── Filter enum ──────────────────────────────────────────────────────────────
 
-enum _TaskFilter { all, mine, today, done }
+enum _TaskFilter { all, mine, others, today, highPriority, done }
 
 // ─── Tasks screen ─────────────────────────────────────────────────────────────
 
@@ -46,10 +46,17 @@ class _TasksScreenState extends State<TasksScreen> {
           return !t.completed &&
               (t.assigneeIds.contains(userId) ||
                   t.createdBy == userId);
+        case _TaskFilter.others:
+          return !t.completed &&
+              !t.assigneeIds.contains(userId) &&
+              t.createdBy != userId &&
+              t.assigneeIds.isNotEmpty;
         case _TaskFilter.today:
           return !t.completed &&
               t.dueDate != null &&
               _isSameDay(t.dueDate!, today);
+        case _TaskFilter.highPriority:
+          return !t.completed && t.priority == Priority.HIGH;
         case _TaskFilter.done:
           return t.completed;
       }
@@ -419,8 +426,8 @@ class _TasksScreenState extends State<TasksScreen> {
                       const SizedBox(width: 8),
                       IndigoChip(
                         label: 'Others',
-                        selected: false,
-                        onTap: () {},
+                        selected: _filter == _TaskFilter.others,
+                        onTap: () => setState(() => _filter = _TaskFilter.others),
                       ),
                       const SizedBox(width: 8),
                       IndigoChip(
@@ -431,8 +438,8 @@ class _TasksScreenState extends State<TasksScreen> {
                       const SizedBox(width: 8),
                       IndigoChip(
                         label: 'High Priority',
-                        selected: false,
-                        onTap: () {},
+                        selected: _filter == _TaskFilter.highPriority,
+                        onTap: () => setState(() => _filter = _TaskFilter.highPriority),
                       ),
                     ],
                   ),

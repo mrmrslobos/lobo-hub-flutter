@@ -4,6 +4,7 @@
 
 import 'dart:convert';
 
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -159,8 +160,22 @@ class _FitnessScreenState extends State<FitnessScreen> {
         .toList();
     final latestPlan = storedPlan.isNotEmpty ? storedPlan.last : null;
 
-    // Weight progress placeholder
-    const weightProgress = '+0.0 kg';
+    // Weight data from FitnessMetric records
+    final weightMetrics = provider.db.fitness
+        .where((m) => m.type == 'WEIGHT' && m.userId == user.id)
+        .toList()
+      ..sort((a, b) => a.date.compareTo(b.date));
+
+    String weightProgress;
+    if (weightMetrics.length >= 2) {
+      final diff = weightMetrics.last.value - weightMetrics.first.value;
+      final sign = diff >= 0 ? '+' : '';
+      weightProgress = '$sign${diff.toStringAsFixed(1)} kg';
+    } else if (weightMetrics.length == 1) {
+      weightProgress = '${weightMetrics.first.value.toStringAsFixed(1)} kg';
+    } else {
+      weightProgress = 'No data';
+    }
 
     return Scaffold(
       drawer: const AppDrawer(),
@@ -344,8 +359,8 @@ class _FitnessScreenState extends State<FitnessScreen> {
                                 color: AppTheme.stone400,
                                 letterSpacing: 0.8)),
                         const SizedBox(height: 6),
-                        const Text(weightProgress,
-                            style: TextStyle(
+                        Text(weightProgress,
+                            style: const TextStyle(
                                 fontFamily: 'Inter',
                                 fontSize: 22,
                                 fontWeight: FontWeight.w900,
@@ -386,6 +401,112 @@ class _FitnessScreenState extends State<FitnessScreen> {
               ],
             ),
           ),
+
+          // ── Weight Trend Chart ──
+          if (weightMetrics.length >= 2)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppTheme.stone200),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.monitor_weight_outlined, size: 18, color: AppTheme.stone400),
+                        const SizedBox(width: 6),
+                        const Text('Weight Trends',
+                            style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 16, color: AppTheme.stone800)),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      height: 200,
+                      child: LineChart(
+                        LineChartData(
+                          gridData: FlGridData(
+                            show: true,
+                            drawVerticalLine: false,
+                            horizontalInterval: 5,
+                            getDrawingHorizontalLine: (value) => FlLine(
+                              color: AppTheme.stone100,
+                              strokeWidth: 1,
+                            ),
+                          ),
+                          titlesData: FlTitlesData(
+                            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                            bottomTitles: AxisTitles(
+                              sideTitles: SideTitles(
+                                showTitles: true,
+                                interval: (weightMetrics.length / 4).ceilToDouble().clamp(1, double.infinity),
+                                getTitlesWidget: (value, meta) {
+                                  final idx = value.toInt();
+                                  if (idx < 0 || idx >= weightMetrics.length) return const SizedBox();
+                                  return Padding(
+                                    padding: const EdgeInsets.only(top: 6),
+                                    child: Text(
+                                      DateFormat('MMM d').format(weightMetrics[idx].date),
+                                      style: const TextStyle(fontSize: 9, color: AppTheme.stone400),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                            leftTitles: AxisTitles(
+                              sideTitles: SideTitles(
+                                showTitles: true,
+                                reservedSize: 40,
+                                getTitlesWidget: (value, meta) => Text(
+                                  value.toStringAsFixed(0),
+                                  style: const TextStyle(fontSize: 10, color: AppTheme.stone400),
+                                ),
+                              ),
+                            ),
+                          ),
+                          borderData: FlBorderData(show: false),
+                          lineBarsData: [
+                            LineChartBarData(
+                              spots: List.generate(
+                                weightMetrics.length,
+                                (i) => FlSpot(i.toDouble(), weightMetrics[i].value),
+                              ),
+                              isCurved: true,
+                              color: AppTheme.primary,
+                              barWidth: 3,
+                              dotData: FlDotData(
+                                show: true,
+                                getDotPainter: (spot, percent, barData, index) =>
+                                    FlDotCirclePainter(radius: 3, color: AppTheme.primary, strokeWidth: 0),
+                              ),
+                              belowBarData: BarAreaData(
+                                show: true,
+                                color: AppTheme.primary.withValues(alpha: 0.08),
+                              ),
+                            ),
+                          ],
+                          lineTouchData: LineTouchData(
+                            touchTooltipData: LineTouchTooltipData(
+                              getTooltipItems: (spots) => spots.map((s) =>
+                                LineTooltipItem(
+                                  '${s.y.toStringAsFixed(1)} kg',
+                                  const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12, color: Colors.white),
+                                ),
+                              ).toList(),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
 
           // ── AI Fitness Plan Section ──
           Padding(
