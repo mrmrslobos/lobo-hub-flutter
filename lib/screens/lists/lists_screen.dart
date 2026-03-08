@@ -781,7 +781,6 @@ class _AiTextToChecklistSheetState extends State<_AiTextToChecklistSheet> {
       final provider = context.read<AppProvider>();
       final db = provider.db;
       final userId = provider.activeUser?.id ?? '';
-      final familyId = provider.activeFamily?.id ?? '';
 
       final items = decoded.map((item) {
         final itemText = item is Map ? (item['text']?.toString() ?? '') : item.toString();

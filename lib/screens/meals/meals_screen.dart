@@ -253,7 +253,6 @@ Return a JSON array of 7 objects, each with:
       final provider = context.read<AppProvider>();
       var db = provider.db;
       final userId = provider.activeUser?.id ?? '';
-      final familyId = provider.activeFamily?.id ?? '';
 
       final now = DateTime.now();
       final monday = now.subtract(Duration(days: now.weekday - 1));
@@ -405,7 +404,6 @@ Return a JSON array of 7 objects, each with:
       final provider = context.read<AppProvider>();
       final db = provider.db;
       final userId = provider.activeUser?.id ?? '';
-      final familyId = provider.activeFamily?.id ?? '';
 
       final ingredients = <RecipeIngredient>[];
       if (result['ingredients'] is List) {
@@ -1297,7 +1295,6 @@ The replacement should be similar in style but different. Keep it healthy and fa
 
       // Optionally create a recipe from the swap
       final userId = provider.activeUser?.id ?? '';
-      final familyId = provider.activeFamily?.id ?? '';
       final ingredients = <RecipeIngredient>[];
       if (decoded['ingredients'] is List) {
         for (final ing in decoded['ingredients'] as List) {
