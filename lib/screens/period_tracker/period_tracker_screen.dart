@@ -28,13 +28,14 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     _currentMonth = DateTime(now.year, now.month);
   }
 
-  void _showLogSheet({PeriodEntry? existing}) {
+  void _showLogSheet({PeriodEntry? existing, DateTime? initialDate}) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => _PeriodLogSheet(
         existing: existing,
+        initialDate: initialDate,
         onSave: (entry) async {
           final provider = context.read<AppProvider>();
           final db = provider.db;
@@ -50,6 +51,104 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     );
   }
 
+  void _showDayActionSheet(DateTime date) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _DayActionSheet(
+        date: date,
+        onPeriodStarted: () {
+          Navigator.pop(context);
+          _showLogSheet(initialDate: date);
+        },
+        onLogSymptoms: () {
+          Navigator.pop(context);
+          _showSymptomsSheet(date: date);
+        },
+        onLogIntimate: () {
+          Navigator.pop(context);
+          _logIntimate(date);
+        },
+      ),
+    );
+  }
+
+  void _showSymptomsSheet({required DateTime date}) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _SymptomsSheet(
+        date: date,
+        onSave: (log) async {
+          final provider = context.read<AppProvider>();
+          final db = provider.db;
+          await provider.saveAndSync(db.copyWith(
+            periodSymptoms: [...db.periodSymptoms, log],
+          ));
+        },
+      ),
+    );
+  }
+
+  Future<void> _logIntimate(DateTime date) async {
+    final provider = context.read<AppProvider>();
+    final user = provider.activeUser!;
+    final family = provider.activeFamily!;
+    final db = provider.db;
+    final dateOnly = DateTime(date.year, date.month, date.day);
+
+    // Check if a symptom log already exists for this day; if so, add to it
+    final existing = db.periodSymptoms
+        .where((s) => s.userId == user.id && _isSameDay(s.date, dateOnly))
+        .toList();
+
+    if (existing.isNotEmpty) {
+      final log = existing.first;
+      if (!log.symptoms.contains('Intimate 💕')) {
+        final updated = log.symptoms.toList()..add('Intimate 💕');
+        final updatedLog = PeriodSymptomLog(
+          id: log.id,
+          userId: log.userId,
+          familyId: log.familyId,
+          date: log.date,
+          symptoms: updated,
+          mood: log.mood,
+          painLevel: log.painLevel,
+          notes: log.notes,
+          createdAt: log.createdAt,
+        );
+        await provider.saveAndSync(db.copyWith(
+          periodSymptoms: db.periodSymptoms.map((s) => s.id == log.id ? updatedLog : s).toList(),
+        ));
+      }
+    } else {
+      final log = PeriodSymptomLog(
+        id: const Uuid().v4(),
+        userId: user.id,
+        familyId: family.id,
+        date: dateOnly,
+        symptoms: const ['Intimate 💕'],
+        createdAt: DateTime.now(),
+      );
+      await provider.saveAndSync(db.copyWith(
+        periodSymptoms: [...db.periodSymptoms, log],
+      ));
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Logged intimate activity for ${DateFormat('MMM d').format(date)}'),
+          backgroundColor: const Color(0xFF9F1239),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
   Future<void> _deleteEntry(String id) async {
     final provider = context.read<AppProvider>();
     final db = provider.db;
@@ -57,6 +156,9 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
       periodEntries: db.periodEntries.where((e) => e.id != id).toList(),
     ));
   }
+
+  bool _isSameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
 
   int? _cycleLengthDays(List<PeriodEntry> entries) {
     if (entries.length < 2) return null;
@@ -209,6 +311,18 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     final periodDates = _periodDates(entries);
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
+    final provider = context.watch<AppProvider>();
+    final user = provider.activeUser;
+
+    // Collect symptom log dates and intimate dates
+    final symptomLogs = user != null
+        ? provider.db.periodSymptoms.where((s) => s.userId == user.id).toList()
+        : <PeriodSymptomLog>[];
+    final symptomDates = symptomLogs.map((s) => DateTime(s.date.year, s.date.month, s.date.day)).toSet();
+    final intimateDates = symptomLogs
+        .where((s) => s.symptoms.contains('Intimate 💕'))
+        .map((s) => DateTime(s.date.year, s.date.month, s.date.day))
+        .toSet();
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -218,6 +332,8 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
             currentMonth: _currentMonth,
             today: today,
             periodDates: periodDates,
+            symptomDates: symptomDates,
+            intimateDates: intimateDates,
             onPrevMonth: () {
               setState(() {
                 _currentMonth = DateTime(_currentMonth.year, _currentMonth.month - 1);
@@ -228,7 +344,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
                 _currentMonth = DateTime(_currentMonth.year, _currentMonth.month + 1);
               });
             },
-            onDayTap: (date) => _showLogSheet(),
+            onDayTap: (date) => _showDayActionSheet(date),
           ),
           const SizedBox(height: 16),
           // Legend
@@ -504,6 +620,8 @@ class _PeriodCalendar extends StatelessWidget {
   final DateTime currentMonth;
   final DateTime today;
   final Set<DateTime> periodDates;
+  final Set<DateTime> symptomDates;
+  final Set<DateTime> intimateDates;
   final VoidCallback onPrevMonth;
   final VoidCallback onNextMonth;
   final ValueChanged<DateTime> onDayTap;
@@ -512,10 +630,18 @@ class _PeriodCalendar extends StatelessWidget {
     required this.currentMonth,
     required this.today,
     required this.periodDates,
+    this.symptomDates = const {},
+    this.intimateDates = const {},
     required this.onPrevMonth,
     required this.onNextMonth,
     required this.onDayTap,
   });
+
+  Widget _dot(Color color) => Container(
+    width: 4, height: 4,
+    margin: const EdgeInsets.symmetric(horizontal: 1),
+    decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -596,14 +722,17 @@ class _PeriodCalendar extends StatelessWidget {
                     final date = DateTime(year, month, dayIndex);
                     final isToday = date == today;
                     final isPeriod = periodDates.contains(date);
+                    final hasSymptom = symptomDates.contains(date);
+                    final hasIntimate = intimateDates.contains(date);
 
                     return Expanded(
                       child: GestureDetector(
                         onTap: () => onDayTap(date),
                         child: Container(
-                          height: 40,
+                          height: 44,
                           margin: const EdgeInsets.all(1),
                           decoration: BoxDecoration(
+                            color: isPeriod ? const Color(0xFFDC2626).withOpacity(0.12) : null,
                             shape: BoxShape.circle,
                             border: isToday
                                 ? Border.all(color: const Color(0xFFE11D48), width: 2)
@@ -618,20 +747,23 @@ class _PeriodCalendar extends StatelessWidget {
                                   fontFamily: 'Inter',
                                   fontSize: 13,
                                   fontWeight: isToday ? FontWeight.w800 : FontWeight.w500,
-                                  color: isToday
-                                      ? const Color(0xFFE11D48)
-                                      : AppTheme.stone700,
+                                  color: isPeriod
+                                      ? const Color(0xFFDC2626)
+                                      : isToday
+                                          ? const Color(0xFFE11D48)
+                                          : AppTheme.stone700,
                                 ),
                               ),
-                              if (isPeriod)
-                                Container(
-                                  width: 5,
-                                  height: 5,
-                                  margin: const EdgeInsets.only(top: 1),
-                                  decoration: const BoxDecoration(
-                                    color: Color(0xFFDC2626),
-                                    shape: BoxShape.circle,
-                                  ),
+                              const SizedBox(height: 1),
+                              // Indicator dots
+                              if (isPeriod || hasSymptom || hasIntimate)
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (isPeriod) _dot(const Color(0xFFDC2626)),
+                                    if (hasSymptom) _dot(const Color(0xFF8B5CF6)),
+                                    if (hasIntimate) _dot(const Color(0xFF991B1B)),
+                                  ],
                                 ),
                             ],
                           ),
@@ -655,8 +787,9 @@ class _PeriodCalendar extends StatelessWidget {
 
 class _PeriodLogSheet extends StatefulWidget {
   final PeriodEntry? existing;
+  final DateTime? initialDate;
   final Future<void> Function(PeriodEntry) onSave;
-  const _PeriodLogSheet({this.existing, required this.onSave});
+  const _PeriodLogSheet({this.existing, this.initialDate, required this.onSave});
 
   @override
   State<_PeriodLogSheet> createState() => _PeriodLogSheetState();
@@ -688,7 +821,7 @@ class _PeriodLogSheetState extends State<_PeriodLogSheet> {
   void initState() {
     super.initState();
     final e = widget.existing;
-    _startDate = e?.startDate ?? DateTime.now();
+    _startDate = e?.startDate ?? widget.initialDate ?? DateTime.now();
     _endDate = e?.endDate;
     _symptoms = List.from(e?.symptoms ?? []);
     _flowLevel = e?.flowLevel;
@@ -882,6 +1015,316 @@ class _PeriodLogSheetState extends State<_PeriodLogSheet> {
               ),
               const SizedBox(height: 16),
               TextField(controller: _notesCtrl, maxLines: 3, decoration: const InputDecoration(labelText: 'Notes (optional)', alignLabelWithHint: true)),
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// Day action sheet (tap a calendar date)
+// ─────────────────────────────────────────────
+
+class _DayActionSheet extends StatelessWidget {
+  final DateTime date;
+  final VoidCallback onPeriodStarted;
+  final VoidCallback onLogSymptoms;
+  final VoidCallback onLogIntimate;
+
+  const _DayActionSheet({
+    required this.date,
+    required this.onPeriodStarted,
+    required this.onLogSymptoms,
+    required this.onLogIntimate,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final dayLabel = DateFormat('EEEE, MMMM d').format(date);
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 36),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Handle
+          Center(
+            child: Container(
+              width: 36, height: 4,
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(color: const Color(0xFFE5E7EB), borderRadius: BorderRadius.circular(2)),
+            ),
+          ),
+          // Header row
+          Row(children: [
+            Expanded(
+              child: Text(
+                dayLabel,
+                style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: Color(0xFF111827)),
+              ),
+            ),
+            GestureDetector(
+              onTap: () => Navigator.pop(context),
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                child: const Icon(Icons.close, size: 20, color: Color(0xFF9CA3AF)),
+              ),
+            ),
+          ]),
+          const SizedBox(height: 20),
+
+          // Period Started button (red)
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              icon: const Text('\u{1F525}', style: TextStyle(fontSize: 18)),
+              label: const Text('Period Started', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16)),
+              onPressed: onPeriodStarted,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFE11D48),
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // Log Symptoms button (pink/light)
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              icon: const Text('\u{1F615}', style: TextStyle(fontSize: 18)),
+              label: const Text('Log Symptoms', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16)),
+              onPressed: onLogSymptoms,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFFCE7F3),
+                foregroundColor: const Color(0xFFE11D48),
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // Log Intimate button (light/white)
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.favorite_border_rounded, size: 20),
+              label: const Text('Log Intimate', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16)),
+              onPressed: onLogIntimate,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFF9FAFB),
+                foregroundColor: const Color(0xFF374151),
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  side: const BorderSide(color: Color(0xFFE5E7EB)),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// Quick symptoms sheet
+// ─────────────────────────────────────────────
+
+class _SymptomsSheet extends StatefulWidget {
+  final DateTime date;
+  final Future<void> Function(PeriodSymptomLog) onSave;
+
+  const _SymptomsSheet({required this.date, required this.onSave});
+
+  @override
+  State<_SymptomsSheet> createState() => _SymptomsSheetState();
+}
+
+class _SymptomsSheetState extends State<_SymptomsSheet> {
+  final List<String> _selected = [];
+  CycleMood? _mood;
+  int? _painLevel;
+  final _notesCtrl = TextEditingController();
+  bool _isSaving = false;
+
+  static const _symptomOptions = [
+    'Cramps 😣', 'Headache 🤕', 'Bloating 🤰', 'Fatigue 😴',
+    'Mood Swings 🌪️', 'Nausea 🤢', 'Backache 🦴', 'Spotting 🔴',
+    'Breast tenderness', 'Insomnia 😰', 'Cravings 🍫', 'Anxiety 😟',
+  ];
+
+  @override
+  void dispose() {
+    _notesCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (_selected.isEmpty && _mood == null && _painLevel == null && _notesCtrl.text.trim().isEmpty) {
+      Navigator.pop(context);
+      return;
+    }
+    setState(() => _isSaving = true);
+    final provider = context.read<AppProvider>();
+    final log = PeriodSymptomLog(
+      id: const Uuid().v4(),
+      userId: provider.activeUser!.id,
+      familyId: provider.activeFamily!.id,
+      date: DateTime(widget.date.year, widget.date.month, widget.date.day),
+      symptoms: _selected,
+      mood: _mood,
+      painLevel: _painLevel,
+      notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+      createdAt: DateTime.now(),
+    );
+    await widget.onSave(log);
+    if (mounted) Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dayLabel = DateFormat('MMMM d').format(widget.date);
+    return DraggableScrollableSheet(
+      initialChildSize: 0.75, maxChildSize: 0.92, minChildSize: 0.5, expand: false,
+      builder: (_, controller) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(children: [
+          // Handle
+          Center(
+            child: Container(
+              width: 36, height: 4,
+              margin: const EdgeInsets.fromLTRB(0, 12, 0, 0),
+              decoration: BoxDecoration(color: const Color(0xFFE5E7EB), borderRadius: BorderRadius.circular(2)),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+            child: Row(children: [
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('Log Symptoms', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 20, color: Color(0xFF1F2937))),
+                  Text(dayLabel, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: Color(0xFFEC4899))),
+                ]),
+              ),
+              TextButton(
+                onPressed: _isSaving ? null : _save,
+                child: _isSaving
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Text('Save', style: TextStyle(fontWeight: FontWeight.w700)),
+              ),
+            ]),
+          ),
+          Expanded(
+            child: ListView(controller: controller, padding: const EdgeInsets.fromLTRB(20, 16, 20, 32), children: [
+              // Symptoms
+              const Text('Symptoms', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF6B7280))),
+              const SizedBox(height: 10),
+              Wrap(spacing: 8, runSpacing: 8, children: _symptomOptions.map((s) {
+                final isSelected = _selected.contains(s);
+                return GestureDetector(
+                  onTap: () => setState(() { isSelected ? _selected.remove(s) : _selected.add(s); }),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: isSelected ? const Color(0xFFFCE7F3) : const Color(0xFFF9FAFB),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: isSelected ? const Color(0xFFEC4899) : const Color(0xFFE5E7EB), width: isSelected ? 1.5 : 1),
+                    ),
+                    child: Text(s, style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: isSelected ? const Color(0xFFEC4899) : const Color(0xFF6B7280))),
+                  ),
+                );
+              }).toList()),
+              const SizedBox(height: 20),
+              // Mood
+              const Text('Mood', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF6B7280))),
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: CycleMood.values.map((mood) {
+                  final emojis = {'GREAT': '😄', 'GOOD': '🙂', 'OKAY': '😐', 'LOW': '😔', 'ROUGH': '😢'};
+                  final emoji = emojis[mood.name] ?? '😐';
+                  final selected = _mood == mood;
+                  return GestureDetector(
+                    onTap: () => setState(() => _mood = selected ? null : mood),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: selected ? const Color(0xFFFCE7F3) : const Color(0xFFF9FAFB),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: selected ? const Color(0xFFEC4899) : const Color(0xFFE5E7EB)),
+                      ),
+                      child: Text(emoji, style: TextStyle(fontSize: selected ? 26 : 20)),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 20),
+              // Pain level
+              const Text('Pain Level (1–10)', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF6B7280))),
+              const SizedBox(height: 10),
+              Row(
+                children: List.generate(10, (i) {
+                  final level = i + 1;
+                  final selected = _painLevel == level;
+                  return Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() => _painLevel = selected ? null : level),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 100),
+                        height: 32,
+                        margin: const EdgeInsets.symmetric(horizontal: 2),
+                        decoration: BoxDecoration(
+                          color: selected ? const Color(0xFFEC4899) : (level <= (_painLevel ?? 0) ? const Color(0xFFFCE7F3) : const Color(0xFFF3F4F6)),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Center(
+                          child: Text('$level', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: selected ? Colors.white : const Color(0xFF9CA3AF))),
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+              ),
+              const SizedBox(height: 20),
+              // Notes
+              TextField(
+                controller: _notesCtrl,
+                maxLines: 3,
+                decoration: const InputDecoration(labelText: 'Notes (optional)', alignLabelWithHint: true),
+              ),
+              const SizedBox(height: 16),
+              // Privacy note
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFCE7F3).withOpacity(0.5),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Row(children: [
+                  Icon(Icons.lock_outline_rounded, size: 14, color: Color(0xFFEC4899)),
+                  SizedBox(width: 8),
+                  Expanded(child: Text('Only you can see this data', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w500, color: Color(0xFFEC4899)))),
+                ]),
+              ),
             ]),
           ),
         ]),
