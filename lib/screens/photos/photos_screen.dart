@@ -99,86 +99,122 @@ class _PhotosScreenState extends State<PhotosScreen> {
     photos.sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
     return Scaffold(
+      backgroundColor: AppTheme.background,
       drawer: const AppDrawer(),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _pickAndAddPhoto,
-        child: const Icon(Icons.add_a_photo_rounded),
-      ),
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            title: const Text('Photos'),
-            floating: true,
-            actions: [
-              IconButton(icon: const Icon(Icons.add_a_photo_rounded), onPressed: _pickAndAddPhoto, tooltip: 'Add photo'),
-            ],
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
+            onPressed: () => Scaffold.of(context).openDrawer(),
           ),
-          photos.isEmpty
-              ? SliverFillRemaining(
-                  child: EmptyState(
-                    emoji: '📸',
-                    title: 'No photos yet',
-                    subtitle: 'Upload photos to share with your family.',
-                    actionLabel: 'Add Photo',
-                    onAction: _pickAndAddPhoto,
+        ),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
+            const SizedBox(width: 6),
+            const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
+          ],
+        ),
+        centerTitle: false,
+        titleSpacing: 0,
+        actions: [
+          IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.only(bottom: 32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            PageHeader(
+              title: '\u{1F4F8} Family Photos',
+              subtitle: 'Shared memories & moments',
+              actions: [
+                ActionChipButton(
+                  icon: Icons.add_a_photo_rounded,
+                  label: 'Add Photo',
+                  onTap: _pickAndAddPhoto,
+                  isPrimary: true,
+                ),
+              ],
+            ),
+            if (photos.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: OnboardingCard(
+                  emoji: '\u{1F4F8}',
+                  title: 'No photos yet',
+                  bullets: [
+                    'Share photos with your family',
+                    'Capture and upload special moments',
+                    'View and manage shared memories',
+                  ],
+                  actionLabel: 'Add Photo',
+                  onAction: _pickAndAddPhoto,
+                ),
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    crossAxisSpacing: 6,
+                    mainAxisSpacing: 6,
                   ),
-                )
-              : SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 100),
-                  sliver: SliverGrid(
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 3,
-                      crossAxisSpacing: 6,
-                      mainAxisSpacing: 6,
-                    ),
-                    delegate: SliverChildBuilderDelegate(
-                      (ctx, i) {
-                        final photo = photos[i];
-                        final uploaderName = provider.userById(photo.uploadedBy)?.name ?? 'Member';
-                        return GestureDetector(
-                          onTap: () => _viewPhoto(context, photo, uploaderName),
-                          onLongPress: () async {
-                            final action = await showModalBottomSheet<String>(
-                              context: context,
-                              builder: (_) => SafeArea(
-                                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                                  ListTile(leading: const Icon(Icons.delete_outline_rounded, color: AppTheme.error), title: const Text('Delete photo', style: TextStyle(color: AppTheme.error)), onTap: () => Navigator.pop(context, 'delete')),
-                                  ListTile(leading: const Icon(Icons.close_rounded), title: const Text('Cancel'), onTap: () => Navigator.pop(context)),
-                                ]),
-                              ),
-                            );
-                            if (action == 'delete') _deletePhoto(photo.id);
-                          },
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(10),
-                            child: Stack(fit: StackFit.expand, children: [
-                              _isNetworkUrl(photo.url)
-                                  ? Image.network(photo.url, fit: BoxFit.cover, errorBuilder: (_, __, ___) => _photoPlaceholder())
-                                  : Image.file(File(photo.url), fit: BoxFit.cover, errorBuilder: (_, __, ___) => _photoPlaceholder()),
-                              if (photo.caption != null)
-                                Positioned(
-                                  bottom: 0, left: 0, right: 0,
-                                  child: Container(
-                                    padding: const EdgeInsets.all(4),
-                                    decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        begin: Alignment.bottomCenter,
-                                        end: Alignment.topCenter,
-                                        colors: [Colors.black.withOpacity(0.7), Colors.transparent],
-                                      ),
-                                    ),
-                                    child: Text(photo.caption!, style: const TextStyle(color: Colors.white, fontSize: 9, fontFamily: 'Inter'), maxLines: 1, overflow: TextOverflow.ellipsis),
-                                  ),
-                                ),
+                  itemCount: photos.length,
+                  itemBuilder: (ctx, i) {
+                    final photo = photos[i];
+                    final uploaderName = provider.userById(photo.uploadedBy)?.name ?? 'Member';
+                    return GestureDetector(
+                      onTap: () => _viewPhoto(context, photo, uploaderName),
+                      onLongPress: () async {
+                        final action = await showModalBottomSheet<String>(
+                          context: context,
+                          builder: (_) => SafeArea(
+                            child: Column(mainAxisSize: MainAxisSize.min, children: [
+                              ListTile(leading: const Icon(Icons.delete_outline_rounded, color: AppTheme.error), title: const Text('Delete photo', style: TextStyle(color: AppTheme.error)), onTap: () => Navigator.pop(context, 'delete')),
+                              ListTile(leading: const Icon(Icons.close_rounded), title: const Text('Cancel'), onTap: () => Navigator.pop(context)),
                             ]),
                           ),
                         );
+                        if (action == 'delete') _deletePhoto(photo.id);
                       },
-                      childCount: photos.length,
-                    ),
-                  ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: Stack(fit: StackFit.expand, children: [
+                          _isNetworkUrl(photo.url)
+                              ? Image.network(photo.url, fit: BoxFit.cover, errorBuilder: (_, __, ___) => _photoPlaceholder())
+                              : Image.file(File(photo.url), fit: BoxFit.cover, errorBuilder: (_, __, ___) => _photoPlaceholder()),
+                          if (photo.caption != null)
+                            Positioned(
+                              bottom: 0, left: 0, right: 0,
+                              child: Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.bottomCenter,
+                                    end: Alignment.topCenter,
+                                    colors: [Colors.black.withOpacity(0.7), Colors.transparent],
+                                  ),
+                                ),
+                                child: Text(photo.caption!, style: const TextStyle(color: Colors.white, fontSize: 9, fontFamily: 'Inter'), maxLines: 1, overflow: TextOverflow.ellipsis),
+                              ),
+                            ),
+                        ]),
+                      ),
+                    );
+                  },
                 ),
-        ],
+              ),
+          ],
+        ),
       ),
     );
   }

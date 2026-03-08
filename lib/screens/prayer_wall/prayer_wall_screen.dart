@@ -1,7 +1,6 @@
 // lib/screens/prayer_wall/prayer_wall_screen.dart
 // ignore_for_file: use_build_context_synchronously
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
@@ -17,6 +16,29 @@ const _warmGreen = Color(0xFF16A34A);
 const _warmPink = Color(0xFFEC4899);
 const _warmIndigo = Color(0xFF6366F1);
 
+String _timeAgo(DateTime date) {
+  final now = DateTime.now();
+  final diff = now.difference(date);
+  if (diff.inDays >= 365) {
+    final years = (diff.inDays / 365).floor();
+    return years == 1 ? '1 year ago' : '$years years ago';
+  } else if (diff.inDays >= 30) {
+    final months = (diff.inDays / 30).floor();
+    return months == 1 ? '1 month ago' : '$months months ago';
+  } else if (diff.inDays >= 7) {
+    final weeks = (diff.inDays / 7).floor();
+    return weeks == 1 ? '1 week ago' : '$weeks weeks ago';
+  } else if (diff.inDays >= 1) {
+    return diff.inDays == 1 ? '1 day ago' : '${diff.inDays} days ago';
+  } else if (diff.inHours >= 1) {
+    return diff.inHours == 1 ? '1 hour ago' : '${diff.inHours} hours ago';
+  } else if (diff.inMinutes >= 1) {
+    return diff.inMinutes == 1 ? '1 minute ago' : '${diff.inMinutes} minutes ago';
+  } else {
+    return 'just now';
+  }
+}
+
 class PrayerWallScreen extends StatefulWidget {
   const PrayerWallScreen({super.key});
 
@@ -24,21 +46,8 @@ class PrayerWallScreen extends StatefulWidget {
   State<PrayerWallScreen> createState() => _PrayerWallScreenState();
 }
 
-class _PrayerWallScreenState extends State<PrayerWallScreen>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 3, vsync: this);
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
+class _PrayerWallScreenState extends State<PrayerWallScreen> {
+  String _selectedFilter = 'all';
 
   Future<void> _togglePrayed(PrayerRequest request, String userId) async {
     final provider = context.read<AppProvider>();
@@ -78,7 +87,7 @@ class _PrayerWallScreenState extends State<PrayerWallScreen>
 
   void _showAddSheet() {
     final initialType =
-        _tabController.index == 0 ? 'gratitude' : 'request';
+        _selectedFilter == 'gratitude' ? 'gratitude' : _selectedFilter == 'request' ? 'request' : 'gratitude';
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -109,74 +118,243 @@ class _PrayerWallScreenState extends State<PrayerWallScreen>
         .toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
-    final unanswered = all.where((r) => !r.answered).toList();
+    final gratitudes = all.where((r) => r.type == PrayerWallType.GRATITUDE).toList();
+    final requests = all.where((r) => r.type == PrayerWallType.REQUEST && !r.answered).toList();
     final answered = all.where((r) => r.answered).toList();
+
+    // Build user lookup map
+    final userMap = <String, User>{};
+    for (final u in provider.db.users) {
+      userMap[u.id] = u;
+    }
+
+    // Filter posts based on selected filter
+    List<PrayerRequest> filtered;
+    switch (_selectedFilter) {
+      case 'gratitude':
+        filtered = gratitudes;
+        break;
+      case 'request':
+        filtered = requests;
+        break;
+      case 'answered':
+        filtered = answered;
+        break;
+      default:
+        filtered = all;
+    }
 
     return Scaffold(
       backgroundColor: _warmCream,
       drawer: const AppDrawer(),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showAddSheet,
-        backgroundColor: _warmAmber,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.add_rounded),
-        label: const Text('Add Entry',
-            style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700)),
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
+            onPressed: () => Scaffold.of(context).openDrawer(),
+          ),
+        ),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
+            const SizedBox(width: 6),
+            const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
+          ],
+        ),
+        centerTitle: false,
+        titleSpacing: 0,
+        actions: [
+          IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
+        ],
       ),
-      body: NestedScrollView(
-        headerSliverBuilder: (ctx, _) => [
-          SliverAppBar(
-            backgroundColor: _warmCream,
-            title: const Text('🕊️ Prayer Wall'),
-            floating: true,
-            bottom: TabBar(
-              controller: _tabController,
-              indicatorColor: _warmAmber,
-              labelColor: _warmAmber,
-              unselectedLabelColor: AppTheme.stone500,
-              tabs: const [
-                Tab(text: '🙏 Gratitude'),
-                Tab(text: '🙏 Requests'),
-                Tab(text: '✅ Answered'),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
+        children: [
+          // Page header
+          const PageHeader(
+            title: 'Prayer Wall',
+            subtitle: 'Share gratitude, lift up prayers, and celebrate answered ones.',
+          ),
+
+          const SizedBox(height: 8),
+
+          // + New Post button
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _showAddSheet,
+              icon: const Icon(Icons.add_rounded, size: 20),
+              label: const Text('New Post',
+                  style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _warmIndigo,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                elevation: 0,
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          // Stats row
+          Row(
+            children: [
+              _StatBox(
+                count: gratitudes.length,
+                label: 'GRATITUDES',
+                backgroundColor: const Color(0xFFFEF3C7),
+                textColor: _warmAmber,
+              ),
+              const SizedBox(width: 10),
+              _StatBox(
+                count: requests.length,
+                label: 'REQUESTS',
+                backgroundColor: const Color(0xFFEEF2FF),
+                textColor: _warmIndigo,
+              ),
+              const SizedBox(width: 10),
+              _StatBox(
+                count: answered.length,
+                label: 'ANSWERED',
+                backgroundColor: const Color(0xFFDCFCE7),
+                textColor: _warmGreen,
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 20),
+
+          // Filter chips
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _FilterChip(
+                  label: 'All',
+                  count: null,
+                  selected: _selectedFilter == 'all',
+                  onTap: () => setState(() => _selectedFilter = 'all'),
+                ),
+                const SizedBox(width: 8),
+                _FilterChip(
+                  label: 'Gratitude',
+                  count: gratitudes.length,
+                  selected: _selectedFilter == 'gratitude',
+                  onTap: () => setState(() => _selectedFilter = 'gratitude'),
+                ),
+                const SizedBox(width: 8),
+                _FilterChip(
+                  label: 'Requests',
+                  count: requests.length,
+                  selected: _selectedFilter == 'request',
+                  onTap: () => setState(() => _selectedFilter = 'request'),
+                ),
+                const SizedBox(width: 8),
+                _FilterChip(
+                  label: 'Answered',
+                  count: answered.length,
+                  selected: _selectedFilter == 'answered',
+                  onTap: () => setState(() => _selectedFilter = 'answered'),
+                ),
               ],
             ),
           ),
+
+          const SizedBox(height: 16),
+
+          // Posts
+          if (filtered.isEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 40),
+              child: EmptyState(
+                emoji: '🙏',
+                title: _selectedFilter == 'gratitude'
+                    ? 'No gratitude entries yet'
+                    : _selectedFilter == 'request'
+                        ? 'No prayer requests yet'
+                        : _selectedFilter == 'answered'
+                            ? 'No answered prayers yet'
+                            : 'No posts yet',
+                subtitle: 'Tap "+ New Post" to share with your family',
+              ),
+            )
+          else
+            ...filtered.map((request) {
+              final author = userMap[request.creatorId];
+              final isGratitude = request.type == PrayerWallType.GRATITUDE;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _PrayerCard(
+                  request: request,
+                  userId: user.id,
+                  accentColor: isGratitude ? _warmAmber : request.answered ? _warmGreen : _warmIndigo,
+                  onPrayed: () => _togglePrayed(request, user.id),
+                  onAnswered: !request.answered && request.type == PrayerWallType.REQUEST
+                      ? () => _markAnswered(request)
+                      : null,
+                  onDelete: () => _deleteRequest(request.id),
+                  authorName: author?.name ?? 'Family Member',
+                  isGratitude: isGratitude,
+                ),
+              );
+            }),
         ],
-        body: TabBarView(
-          controller: _tabController,
+      ),
+    );
+  }
+}
+
+// ─── Stat Box ─────────────────────────────────────────────────────────────────
+
+class _StatBox extends StatelessWidget {
+  final int count;
+  final String label;
+  final Color backgroundColor;
+  final Color textColor;
+
+  const _StatBox({
+    required this.count,
+    required this.label,
+    required this.backgroundColor,
+    required this.textColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(
+          color: backgroundColor,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Column(
           children: [
-            // Gratitude tab — re-uses unanswered pool (no type field in model)
-            _PrayerList(
-              requests: unanswered,
-              userId: user.id,
-              accentColor: _warmPink,
-              onPrayed: (r) => _togglePrayed(r, user.id),
-              onAnswered: null,
-              onDelete: _deleteRequest,
-              emptyTitle: 'No gratitude entries yet',
-              emptySubtitle: 'Share what you\'re thankful for today',
+            Text(
+              '$count',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontWeight: FontWeight.w800,
+                fontSize: 24,
+                color: textColor,
+              ),
             ),
-            // Requests tab
-            _PrayerList(
-              requests: unanswered,
-              userId: user.id,
-              accentColor: _warmIndigo,
-              onPrayed: (r) => _togglePrayed(r, user.id),
-              onAnswered: _markAnswered,
-              onDelete: _deleteRequest,
-              emptyTitle: 'No prayer requests yet',
-              emptySubtitle: 'Share what\'s on your heart',
-            ),
-            // Answered tab
-            _PrayerList(
-              requests: answered,
-              userId: user.id,
-              accentColor: _warmGreen,
-              onPrayed: (r) => _togglePrayed(r, user.id),
-              onAnswered: null,
-              onDelete: _deleteRequest,
-              emptyTitle: 'No answered prayers yet',
-              emptySubtitle: 'Long-press a request to mark it answered',
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontWeight: FontWeight.w700,
+                fontSize: 10,
+                letterSpacing: 0.8,
+                color: textColor.withOpacity(0.7),
+              ),
             ),
           ],
         ),
@@ -185,51 +363,68 @@ class _PrayerWallScreenState extends State<PrayerWallScreen>
   }
 }
 
-// ─── List ─────────────────────────────────────────────────────────────────────
+// ─── Filter Chip ──────────────────────────────────────────────────────────────
 
-class _PrayerList extends StatelessWidget {
-  final List<PrayerRequest> requests;
-  final String userId;
-  final Color accentColor;
-  final Future<void> Function(PrayerRequest) onPrayed;
-  final Future<void> Function(PrayerRequest)? onAnswered;
-  final Future<void> Function(String) onDelete;
-  final String emptyTitle;
-  final String emptySubtitle;
+class _FilterChip extends StatelessWidget {
+  final String label;
+  final int? count;
+  final bool selected;
+  final VoidCallback onTap;
 
-  const _PrayerList({
-    required this.requests,
-    required this.userId,
-    required this.accentColor,
-    required this.onPrayed,
-    required this.onAnswered,
-    required this.onDelete,
-    required this.emptyTitle,
-    required this.emptySubtitle,
+  const _FilterChip({
+    required this.label,
+    required this.count,
+    required this.selected,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    if (requests.isEmpty) {
-      return EmptyState(
-        emoji: '🙏',
-        title: emptyTitle,
-        subtitle: emptySubtitle,
-      );
-    }
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-      itemCount: requests.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (ctx, i) => _PrayerCard(
-        request: requests[i],
-        userId: userId,
-        accentColor: accentColor,
-        onPrayed: () => onPrayed(requests[i]),
-        onAnswered: onAnswered != null && !requests[i].answered
-            ? () => onAnswered!(requests[i])
-            : null,
-        onDelete: () => onDelete(requests[i].id),
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? _warmIndigo : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: selected ? _warmIndigo : AppTheme.stone200,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: selected ? Colors.white : AppTheme.stone600,
+              ),
+            ),
+            if (count != null) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                decoration: BoxDecoration(
+                  color: selected ? Colors.white.withOpacity(0.25) : AppTheme.stone100,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '$count',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontWeight: FontWeight.w700,
+                    fontSize: 11,
+                    color: selected ? Colors.white : AppTheme.stone500,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -244,6 +439,8 @@ class _PrayerCard extends StatelessWidget {
   final VoidCallback onPrayed;
   final VoidCallback? onAnswered;
   final VoidCallback onDelete;
+  final String authorName;
+  final bool isGratitude;
 
   static const _reactionEmojis = ['🙏', '❤️', '✨', '🕊️', '⭐'];
 
@@ -254,6 +451,8 @@ class _PrayerCard extends StatelessWidget {
     required this.onPrayed,
     required this.onAnswered,
     required this.onDelete,
+    required this.authorName,
+    required this.isGratitude,
   });
 
   @override
@@ -261,6 +460,9 @@ class _PrayerCard extends StatelessWidget {
     final hasPrayed = request.prayedByIds.contains(userId);
     final isAnswered = request.answered;
     final isOwner = request.userId == userId;
+
+    // Emoji avatar based on first letter of name
+    final avatarEmoji = isGratitude ? '🌟' : '🙏';
 
     return GestureDetector(
       onLongPress: onAnswered,
@@ -296,14 +498,18 @@ class _PrayerCard extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: isAnswered
-                ? _warmGreen.withOpacity(0.05)
-                : Colors.white,
+            color: isGratitude
+                ? const Color(0xFFFFFBEB)
+                : isAnswered
+                    ? _warmGreen.withOpacity(0.05)
+                    : Colors.white,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-                color: isAnswered
-                    ? _warmGreen.withOpacity(0.25)
-                    : accentColor.withOpacity(0.2)),
+                color: isGratitude
+                    ? const Color(0xFFFDE68A)
+                    : isAnswered
+                        ? _warmGreen.withOpacity(0.25)
+                        : accentColor.withOpacity(0.2)),
             boxShadow: [
               BoxShadow(
                 color: accentColor.withOpacity(0.07),
@@ -313,26 +519,73 @@ class _PrayerCard extends StatelessWidget {
             ],
           ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            // Header
+            // Header row: avatar + name + badge + timestamp + close button
             Row(children: [
-              Text(isAnswered ? '✅' : '🙏',
-                  style: const TextStyle(fontSize: 20)),
+              // Emoji avatar
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: isGratitude
+                      ? const Color(0xFFFEF3C7)
+                      : isAnswered
+                          ? _warmGreen.withOpacity(0.1)
+                          : const Color(0xFFEEF2FF),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                alignment: Alignment.center,
+                child: Text(avatarEmoji, style: const TextStyle(fontSize: 18)),
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        request.title,
-                        style: const TextStyle(
-                          fontFamily: 'Inter',
-                          fontWeight: FontWeight.w700,
-                          fontSize: 15,
-                          color: AppTheme.stone900,
-                        ),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              authorName,
+                              style: const TextStyle(
+                                fontFamily: 'Inter',
+                                fontWeight: FontWeight.w700,
+                                fontSize: 14,
+                                color: AppTheme.stone900,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: isGratitude
+                                  ? const Color(0xFFFEF3C7)
+                                  : isAnswered
+                                      ? _warmGreen.withOpacity(0.1)
+                                      : const Color(0xFFEEF2FF),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              isAnswered ? 'ANSWERED' : isGratitude ? 'GRATITUDE' : 'REQUEST',
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                fontWeight: FontWeight.w700,
+                                fontSize: 9,
+                                letterSpacing: 0.5,
+                                color: isGratitude
+                                    ? _warmAmber
+                                    : isAnswered
+                                        ? _warmGreen
+                                        : _warmIndigo,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
+                      const SizedBox(height: 2),
                       Text(
-                        DateFormat('MMM d').format(request.createdAt),
+                        _timeAgo(request.createdAt),
                         style: const TextStyle(
                           fontFamily: 'Inter',
                           fontSize: 11,
@@ -341,32 +594,26 @@ class _PrayerCard extends StatelessWidget {
                       ),
                     ]),
               ),
-              if (isAnswered)
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: _warmGreen.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Text('Answered',
-                      style: TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: _warmGreen)),
-                ),
-              if (isOwner) ...[
-                const SizedBox(width: 6),
+              if (isOwner)
                 GestureDetector(
                   onTap: onDelete,
                   child: const Icon(Icons.close_rounded,
-                      size: 16, color: AppTheme.stone300),
+                      size: 18, color: AppTheme.stone300),
                 ),
-              ],
             ]),
+            // Title
+            const SizedBox(height: 12),
+            Text(
+              request.title,
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontWeight: FontWeight.w700,
+                fontSize: 15,
+                color: AppTheme.stone900,
+              ),
+            ),
             if (request.body != null && request.body!.isNotEmpty) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
               Text(
                 request.body!,
                 style: const TextStyle(

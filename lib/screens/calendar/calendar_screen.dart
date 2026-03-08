@@ -1,7 +1,9 @@
 // lib/screens/calendar/calendar_screen.dart
 // Calendar screen for FamilyHub
+// ignore_for_file: use_build_context_synchronously
 
 import 'package:flutter/material.dart' hide Visibility;
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
@@ -10,6 +12,8 @@ import 'package:uuid/uuid.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../services/calendar_sync_service.dart';
+import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 
 // ─── CalendarScreen ───────────────────────────────────────────────────────────
@@ -25,6 +29,274 @@ class _CalendarScreenState extends State<CalendarScreen> {
   DateTime _focusedDay = DateTime.now();
   DateTime _selectedDay = DateTime.now();
   CalendarFormat _calFormat = CalendarFormat.month;
+  bool _isSyncing = false;
+
+  // ── Google Calendar ──────────────────────────────────────────────────────
+
+  Future<void> _connectGoogleCalendar() async {
+    final account = await CalendarSyncService.signInGoogle();
+    if (account == null || !mounted) return;
+
+    setState(() => _isSyncing = true);
+    try {
+      final calendars = await CalendarSyncService.fetchGoogleCalendarList();
+      if (!mounted) return;
+
+      if (calendars.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No Google Calendars found')),
+        );
+        setState(() => _isSyncing = false);
+        return;
+      }
+
+      // Show calendar picker
+      final selected = await showModalBottomSheet<List<String>>(
+        context: context,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        builder: (_) => _GoogleCalendarPicker(calendars: calendars),
+      );
+
+      if (selected == null || selected.isEmpty || !mounted) {
+        setState(() => _isSyncing = false);
+        return;
+      }
+
+      final provider = context.read<AppProvider>();
+      final user = provider.activeUser!;
+      final family = provider.activeFamily!;
+      var db = provider.db;
+
+      for (final calId in selected) {
+        final cal = calendars.firstWhere((c) => c.id == calId);
+        final extCal = ExternalCalendar(
+          id: const Uuid().v4(),
+          familyId: family.id,
+          userId: user.id,
+          type: ExternalCalendarType.google,
+          name: cal.summary ?? 'Google Calendar',
+          googleCalendarId: calId,
+          color: cal.backgroundColor,
+          enabled: true,
+        );
+
+        // Check if already connected
+        final existing = db.externalCalendars.where(
+          (e) => e.googleCalendarId == calId && e.userId == user.id,
+        );
+        if (existing.isNotEmpty) continue;
+
+        db = db.copyWith(
+          externalCalendars: [...db.externalCalendars, extCal],
+        );
+
+        // Fetch events from this calendar
+        final events = await CalendarSyncService.fetchGoogleCalendarEvents(
+          googleCalendarId: calId,
+          familyId: family.id,
+          userId: user.id,
+          externalCalendarId: extCal.id,
+        );
+
+        // Merge: remove old events from this external calendar, add new
+        final existingEvents = db.events
+            .where((e) => e.externalCalendarId != extCal.id)
+            .toList();
+        db = db.copyWith(events: [...existingEvents, ...events]);
+      }
+
+      await provider.saveAndSync(db);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Synced ${selected.length} calendar(s) from Google')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Sync failed: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSyncing = false);
+    }
+  }
+
+  Future<void> _syncExternalCalendar(ExternalCalendar cal) async {
+    setState(() => _isSyncing = true);
+    try {
+      final provider = context.read<AppProvider>();
+      final user = provider.activeUser!;
+      final family = provider.activeFamily!;
+
+      List<CalendarEvent> newEvents;
+      if (cal.type == ExternalCalendarType.google && cal.googleCalendarId != null) {
+        // Re-auth silently
+        await CalendarSyncService.silentSignIn();
+        newEvents = await CalendarSyncService.fetchGoogleCalendarEvents(
+          googleCalendarId: cal.googleCalendarId!,
+          familyId: family.id,
+          userId: user.id,
+          externalCalendarId: cal.id,
+        );
+      } else if (cal.type == ExternalCalendarType.icsUrl && cal.icsUrl != null) {
+        newEvents = await CalendarSyncService.fetchIcsEvents(
+          url: cal.icsUrl!,
+          familyId: family.id,
+          userId: user.id,
+          externalCalendarId: cal.id,
+        );
+      } else {
+        setState(() => _isSyncing = false);
+        return;
+      }
+
+      // Replace old events from this calendar
+      final db = provider.db;
+      final otherEvents = db.events
+          .where((e) => e.externalCalendarId != cal.id)
+          .toList();
+      final updatedCal = cal.copyWith(lastSyncedAt: DateTime.now());
+      final updatedCalendars = db.externalCalendars
+          .map((c) => c.id == cal.id ? updatedCal : c)
+          .toList();
+
+      await provider.saveAndSync(db.copyWith(
+        events: [...otherEvents, ...newEvents],
+        externalCalendars: updatedCalendars,
+      ));
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Synced ${newEvents.length} events from ${cal.name}')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Sync failed: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSyncing = false);
+    }
+  }
+
+  Future<void> _removeExternalCalendar(ExternalCalendar cal) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove calendar'),
+        content: Text('Remove "${cal.name}" and all its imported events?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remove', style: TextStyle(color: AppTheme.error)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final provider = context.read<AppProvider>();
+    final db = provider.db;
+    await provider.saveAndSync(db.copyWith(
+      externalCalendars: db.externalCalendars.where((c) => c.id != cal.id).toList(),
+      events: db.events.where((e) => e.externalCalendarId != cal.id).toList(),
+    ));
+  }
+
+  // ── ICS URL Import ───────────────────────────────────────────────────────
+
+  Future<void> _showSubscribeUrlSheet() async {
+    final result = await showModalBottomSheet<Map<String, String>>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => const _IcsUrlSheet(),
+    );
+    if (result == null || !mounted) return;
+
+    final url = result['url']!;
+    final name = result['name'] ?? 'External Calendar';
+
+    setState(() => _isSyncing = true);
+    try {
+      final provider = context.read<AppProvider>();
+      final user = provider.activeUser!;
+      final family = provider.activeFamily!;
+
+      final extCal = ExternalCalendar(
+        id: const Uuid().v4(),
+        familyId: family.id,
+        userId: user.id,
+        type: ExternalCalendarType.icsUrl,
+        name: name,
+        icsUrl: url,
+        enabled: true,
+      );
+
+      final events = await CalendarSyncService.fetchIcsEvents(
+        url: url,
+        familyId: family.id,
+        userId: user.id,
+        externalCalendarId: extCal.id,
+      );
+
+      final db = provider.db;
+      await provider.saveAndSync(db.copyWith(
+        externalCalendars: [...db.externalCalendars, extCal],
+        events: [...db.events, ...events],
+      ));
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Imported ${events.length} events from $name')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Import failed: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSyncing = false);
+    }
+  }
+
+  // ── My Calendars Sheet ───────────────────────────────────────────────────
+
+  void _showMyCalendars() {
+    final provider = context.read<AppProvider>();
+    final user = provider.activeUser;
+    if (user == null) return;
+
+    final myCalendars = provider.db.externalCalendars
+        .where((c) => c.userId == user.id)
+        .toList();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => _MyCalendarsSheet(
+        calendars: myCalendars,
+        onSync: _syncExternalCalendar,
+        onRemove: _removeExternalCalendar,
+        onConnectGoogle: _connectGoogleCalendar,
+        onSubscribeUrl: _showSubscribeUrlSheet,
+      ),
+    );
+  }
 
   List<CalendarEvent> _eventsForDay(
       AppProvider provider, DateTime day) {
@@ -99,192 +371,530 @@ class _CalendarScreenState extends State<CalendarScreen> {
         final selectedEvents = _eventsForDay(provider, _selectedDay);
         final eventMap = _buildEventMap(provider);
 
+        // Upcoming events (next 7 days)
+        final now = DateTime.now();
+        final todayDate = DateTime(now.year, now.month, now.day);
+        final weekEnd = todayDate.add(const Duration(days: 7));
+        final upcomingEvents = provider.db.events
+            .where((e) =>
+                e.familyId == provider.activeFamily?.id &&
+                e.startDate.isAfter(todayDate) &&
+                e.startDate.isBefore(weekEnd))
+            .toList()
+          ..sort((a, b) => a.startDate.compareTo(b.startDate));
+
         return Scaffold(
+          drawer: const AppDrawer(),
           backgroundColor: AppTheme.background,
-          body: Column(
+          appBar: AppBar(
+            backgroundColor: Colors.white,
+            elevation: 0,
+            scrolledUnderElevation: 0,
+            leading: Builder(
+              builder: (context) => IconButton(
+                icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
+                onPressed: () => Scaffold.of(context).openDrawer(),
+              ),
+            ),
+            title: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
+                const SizedBox(width: 6),
+                const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
+              ],
+            ),
+            centerTitle: false,
+            titleSpacing: 0,
+            actions: [
+              IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
+            ],
+          ),
+          body: ListView(
+            padding: EdgeInsets.zero,
             children: [
-              // ─── Header ──────────────────────────────────────────────
-              const GradientHeader(
-                title: 'Calendar',
-                subtitle: 'Family schedule & events',
-                startColor: Color(0xFF8B5CF6),
-                endColor: Color(0xFFEC4899),
+              // Page Header
+              PageHeader(
+                title: 'Family Calendar',
+                subtitle: 'Coordinate schedules and plan life together.',
+                actions: [
+                  ActionChipButton(
+                    icon: Icons.calendar_month_outlined,
+                    label: 'My Calendars',
+                    onTap: _showMyCalendars,
+                    backgroundColor: Colors.white,
+                    foregroundColor: AppTheme.stone700,
+                  ),
+                  ActionChipButton(
+                    icon: Icons.sync_rounded,
+                    label: _isSyncing ? 'Syncing...' : 'Google Sync',
+                    onTap: _isSyncing ? () {} : _connectGoogleCalendar,
+                    isPrimary: true,
+                  ),
+                  ActionChipButton(
+                    icon: Icons.add,
+                    label: 'Add Event',
+                    onTap: () => _showAddEventSheet(context),
+                    backgroundColor: AppTheme.stone800,
+                  ),
+                ],
               ),
 
-              // ─── Calendar ─────────────────────────────────────────────
-              Container(
-                color: Colors.white,
-                child: TableCalendar<CalendarEvent>(
-                  firstDay: DateTime.utc(2020, 1, 1),
-                  lastDay: DateTime.utc(2030, 12, 31),
-                  focusedDay: _focusedDay,
-                  calendarFormat: _calFormat,
-                  selectedDayPredicate: (day) =>
-                      isSameDay(_selectedDay, day),
-                  eventLoader: (day) {
-                    final key = DateTime(day.year, day.month, day.day);
-                    return eventMap[key] ?? [];
-                  },
-                  onDaySelected: (selected, focused) {
-                    setState(() {
-                      _selectedDay = selected;
-                      _focusedDay = focused;
-                    });
-                  },
-                  onFormatChanged: (format) {
-                    setState(() => _calFormat = format);
-                  },
-                  onPageChanged: (focused) {
-                    _focusedDay = focused;
-                  },
-                  calendarStyle: CalendarStyle(
-                    selectedDecoration: const BoxDecoration(
-                      color: AppTheme.primary,
-                      shape: BoxShape.circle,
+              // AI Event Strategist card
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFF7C3AED), Color(0xFF6366F1)],
                     ),
-                    todayDecoration: BoxDecoration(
-                      color: AppTheme.primary.withOpacity(0.15),
-                      shape: BoxShape.circle,
-                    ),
-                    todayTextStyle: const TextStyle(
-                      color: AppTheme.primary,
-                      fontWeight: FontWeight.w700,
-                      fontFamily: 'Inter',
-                    ),
-                    selectedTextStyle: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                      fontFamily: 'Inter',
-                    ),
-                    defaultTextStyle: const TextStyle(
-                      fontFamily: 'Inter',
-                      color: AppTheme.stone800,
-                    ),
-                    weekendTextStyle: const TextStyle(
-                      fontFamily: 'Inter',
-                      color: AppTheme.stone600,
-                    ),
-                    outsideTextStyle: const TextStyle(
-                      fontFamily: 'Inter',
-                      color: AppTheme.stone300,
-                    ),
-                    markerDecoration: const BoxDecoration(
-                      color: AppTheme.primary,
-                      shape: BoxShape.circle,
-                    ),
-                    markerSize: 6,
-                    markersMaxCount: 3,
+                    borderRadius: BorderRadius.circular(16),
                   ),
-                  headerStyle: const HeaderStyle(
-                    formatButtonVisible: true,
-                    titleCentered: true,
-                    formatButtonDecoration: BoxDecoration(
-                      color: AppTheme.primaryLight,
-                      borderRadius:
-                          BorderRadius.all(Radius.circular(12)),
-                    ),
-                    formatButtonTextStyle: TextStyle(
-                      color: AppTheme.primary,
-                      fontFamily: 'Inter',
-                      fontWeight: FontWeight.w600,
-                      fontSize: 12,
-                    ),
-                    titleTextStyle: TextStyle(
-                      fontFamily: 'Inter',
-                      fontWeight: FontWeight.w700,
-                      fontSize: 16,
-                      color: AppTheme.stone900,
-                    ),
-                    leftChevronIcon: Icon(Icons.chevron_left,
-                        color: AppTheme.stone600),
-                    rightChevronIcon: Icon(Icons.chevron_right,
-                        color: AppTheme.stone600),
-                  ),
-                  daysOfWeekStyle: const DaysOfWeekStyle(
-                    weekdayStyle: TextStyle(
-                      fontFamily: 'Inter',
-                      fontWeight: FontWeight.w600,
-                      fontSize: 12,
-                      color: AppTheme.stone500,
-                    ),
-                    weekendStyle: TextStyle(
-                      fontFamily: 'Inter',
-                      fontWeight: FontWeight.w600,
-                      fontSize: 12,
-                      color: AppTheme.stone400,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 32,
+                            height: 32,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(Icons.auto_awesome, size: 18, color: Colors.white),
+                          ),
+                          const SizedBox(width: 10),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'AI Event Strategist',
+                                  style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white),
+                                ),
+                                Text(
+                                  'Quick event planning with smart suggestions',
+                                  style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white70),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.edit_outlined, size: 16, color: Colors.white.withOpacity(0.6)),
+                            const SizedBox(width: 10),
+                            Text(
+                              'Describe an event to plan...',
+                              style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: Colors.white.withOpacity(0.6)),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Text(
+                            'Quick Plan',
+                            style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF7C3AED)),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
+              const SizedBox(height: 16),
 
-              const Divider(height: 1),
-
-              // ─── Events list for selected day ─────────────────────────
+              // Calendar in a white card
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                child: Row(
-                  children: [
-                    Text(
-                      DateFormat('EEEE, MMM d').format(_selectedDay),
-                      style: const TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.stone700,
-                      ),
-                    ),
-                    const Spacer(),
-                    if (selectedEvents.isNotEmpty)
-                      Text(
-                        '${selectedEvents.length} event${selectedEvents.length == 1 ? '' : 's'}',
-                        style: const TextStyle(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppTheme.stone100),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: TableCalendar<CalendarEvent>(
+                      firstDay: DateTime.utc(2020, 1, 1),
+                      lastDay: DateTime.utc(2030, 12, 31),
+                      focusedDay: _focusedDay,
+                      calendarFormat: _calFormat,
+                      selectedDayPredicate: (day) =>
+                          isSameDay(_selectedDay, day),
+                      eventLoader: (day) {
+                        final key = DateTime(day.year, day.month, day.day);
+                        return eventMap[key] ?? [];
+                      },
+                      onDaySelected: (selected, focused) {
+                        setState(() {
+                          _selectedDay = selected;
+                          _focusedDay = focused;
+                        });
+                      },
+                      onFormatChanged: (format) {
+                        setState(() => _calFormat = format);
+                      },
+                      onPageChanged: (focused) {
+                        _focusedDay = focused;
+                      },
+                      calendarStyle: CalendarStyle(
+                        selectedDecoration: const BoxDecoration(
+                          color: AppTheme.primary,
+                          shape: BoxShape.circle,
+                        ),
+                        todayDecoration: BoxDecoration(
+                          color: AppTheme.primary.withOpacity(0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        todayTextStyle: const TextStyle(
+                          color: AppTheme.primary,
+                          fontWeight: FontWeight.w700,
                           fontFamily: 'Inter',
+                        ),
+                        selectedTextStyle: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontFamily: 'Inter',
+                        ),
+                        defaultTextStyle: const TextStyle(
+                          fontFamily: 'Inter',
+                          color: AppTheme.stone800,
+                        ),
+                        weekendTextStyle: const TextStyle(
+                          fontFamily: 'Inter',
+                          color: AppTheme.stone600,
+                        ),
+                        outsideTextStyle: const TextStyle(
+                          fontFamily: 'Inter',
+                          color: AppTheme.stone300,
+                        ),
+                        markerDecoration: const BoxDecoration(
+                          color: AppTheme.primary,
+                          shape: BoxShape.circle,
+                        ),
+                        markerSize: 6,
+                        markersMaxCount: 3,
+                      ),
+                      headerStyle: const HeaderStyle(
+                        formatButtonVisible: true,
+                        titleCentered: true,
+                        formatButtonDecoration: BoxDecoration(
+                          color: AppTheme.primaryLight,
+                          borderRadius:
+                              BorderRadius.all(Radius.circular(12)),
+                        ),
+                        formatButtonTextStyle: TextStyle(
+                          color: AppTheme.primary,
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                        ),
+                        titleTextStyle: TextStyle(
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                          color: AppTheme.stone900,
+                        ),
+                        leftChevronIcon: Icon(Icons.chevron_left,
+                            color: AppTheme.stone600),
+                        rightChevronIcon: Icon(Icons.chevron_right,
+                            color: AppTheme.stone600),
+                      ),
+                      daysOfWeekStyle: const DaysOfWeekStyle(
+                        weekdayStyle: TextStyle(
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                          color: AppTheme.stone500,
+                        ),
+                        weekendStyle: TextStyle(
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w600,
                           fontSize: 12,
                           color: AppTheme.stone400,
                         ),
                       ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // External calendars section
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'EXTERNAL CALENDARS',
+                      style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1),
+                    ),
+                    const SizedBox(height: 8),
+                    // Connected calendars
+                    ..._buildConnectedCalendars(provider),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppTheme.stone100),
+                      ),
+                      child: Column(
+                        children: [
+                          _buildImportOption(
+                            Icons.account_circle_rounded,
+                            'Connect Google Calendar',
+                            'Sync events from your Google account',
+                            onTap: _isSyncing ? null : _connectGoogleCalendar,
+                          ),
+                          const Divider(height: 1),
+                          _buildImportOption(
+                            Icons.link_rounded,
+                            'Subscribe via URL',
+                            'Import from an .ics calendar feed',
+                            onTap: _showSubscribeUrlSheet,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Coming Up section
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          DateFormat('EEEE, MMM d').format(_selectedDay),
+                          style: const TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.stone700,
+                          ),
+                        ),
+                        const Spacer(),
+                        if (selectedEvents.isNotEmpty)
+                          Text(
+                            '${selectedEvents.length} event${selectedEvents.length == 1 ? '' : 's'}',
+                            style: const TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 12,
+                              color: AppTheme.stone400,
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    if (selectedEvents.isEmpty)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: AppTheme.stone100),
+                        ),
+                        child: Column(
+                          children: [
+                            const Text('📅', style: TextStyle(fontSize: 32)),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Nothing scheduled',
+                              style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone500),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'Tap + Add Event to add an event for this day',
+                              style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      ...selectedEvents.map((event) => _EventCard(
+                        event: event,
+                        provider: provider,
+                        onEdit: () => _showAddEventSheet(context, event: event),
+                        onDelete: () => _deleteEvent(context, provider, event),
+                      )),
                   ],
                 ),
               ),
 
-              Expanded(
-                child: selectedEvents.isEmpty
-                    ? EmptyState(
-                        emoji: '📅',
-                        title: 'Nothing scheduled',
-                        subtitle:
-                            'Tap + to add an event for this day',
-                        actionLabel: 'Add Event',
-                        onAction: () =>
-                            _showAddEventSheet(context),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.fromLTRB(
-                            16, 0, 16, 100),
-                        itemCount: selectedEvents.length,
-                        itemBuilder: (ctx, i) {
-                          return _EventCard(
-                            event: selectedEvents[i],
-                            provider: provider,
-                            onEdit: () => _showAddEventSheet(
-                                context,
-                                event: selectedEvents[i]),
-                            onDelete: () => _deleteEvent(
-                                context,
-                                provider,
-                                selectedEvents[i]),
-                          );
-                        },
-                      ),
-              ),
+              // Upcoming events
+              if (upcomingEvents.isNotEmpty) ...[
+                const SizedBox(height: 20),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: const Text(
+                    'COMING UP',
+                    style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Column(
+                    children: upcomingEvents.map((event) => _EventCard(
+                      event: event,
+                      provider: provider,
+                      onEdit: () => _showAddEventSheet(context, event: event),
+                      onDelete: () => _deleteEvent(context, provider, event),
+                    )).toList(),
+                  ),
+                ),
+              ],
+
+              const SizedBox(height: 32),
             ],
-          ),
-          floatingActionButton: FloatingActionButton(
-            onPressed: () => _showAddEventSheet(context),
-            child: const Icon(Icons.add),
           ),
         );
       },
+    );
+  }
+
+  List<Widget> _buildConnectedCalendars(AppProvider provider) {
+    final user = provider.activeUser;
+    if (user == null) return [];
+    final calendars = provider.db.externalCalendars
+        .where((c) => c.userId == user.id)
+        .toList();
+    if (calendars.isEmpty) return [];
+
+    return [
+      ...calendars.map((cal) => Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppTheme.stone100),
+        ),
+        child: Row(children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: cal.type == ExternalCalendarType.google
+                  ? const Color(0xFF4285F4).withOpacity(0.1)
+                  : AppTheme.primary.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              cal.type == ExternalCalendarType.google
+                  ? Icons.account_circle_rounded
+                  : Icons.link_rounded,
+              size: 18,
+              color: cal.type == ExternalCalendarType.google
+                  ? const Color(0xFF4285F4)
+                  : AppTheme.primary,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(cal.name, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.stone800)),
+              Text(
+                'Last synced ${_timeAgo(cal.lastSyncedAt)}',
+                style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400),
+              ),
+            ],
+          )),
+          GestureDetector(
+            onTap: _isSyncing ? null : () => _syncExternalCalendar(cal),
+            child: Padding(
+              padding: const EdgeInsets.all(6),
+              child: Icon(Icons.sync_rounded, size: 18, color: _isSyncing ? AppTheme.stone300 : AppTheme.primary),
+            ),
+          ),
+          GestureDetector(
+            onTap: () => _removeExternalCalendar(cal),
+            child: const Padding(
+              padding: EdgeInsets.all(6),
+              child: Icon(Icons.close_rounded, size: 18, color: AppTheme.stone400),
+            ),
+          ),
+        ]),
+      )),
+      const SizedBox(height: 4),
+    ];
+  }
+
+  String _timeAgo(DateTime dt) {
+    final diff = DateTime.now().difference(dt);
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
+  }
+
+  Widget _buildImportOption(IconData icon, String title, String subtitle, {VoidCallback? onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: AppTheme.stone50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, size: 18, color: AppTheme.stone500),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone800),
+                  ),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded, size: 20, color: AppTheme.stone300),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -848,6 +1458,474 @@ class _EventFormSheetState extends State<_EventFormSheet> {
                 size: 16, color: AppTheme.stone400),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ─── Google Calendar Picker ──────────────────────────────────────────────────
+
+class _GoogleCalendarPicker extends StatefulWidget {
+  final List<dynamic> calendars; // gcal.CalendarListEntry items
+
+  const _GoogleCalendarPicker({required this.calendars});
+
+  @override
+  State<_GoogleCalendarPicker> createState() => _GoogleCalendarPickerState();
+}
+
+class _GoogleCalendarPickerState extends State<_GoogleCalendarPicker> {
+  final Set<String> _selected = {};
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SheetHandle(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+            child: Row(children: [
+              const Expanded(
+                child: Text(
+                  'Select Google Calendars',
+                  style: TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.stone900),
+                ),
+              ),
+              TextButton(
+                onPressed: _selected.isEmpty ? null : () => Navigator.pop(context, _selected.toList()),
+                child: Text(
+                  'Import (${_selected.length})',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontWeight: FontWeight.w700,
+                    color: _selected.isEmpty ? AppTheme.stone300 : AppTheme.primary,
+                  ),
+                ),
+              ),
+            ]),
+          ),
+          const SizedBox(height: 8),
+          ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.5),
+            child: ListView.builder(
+              shrinkWrap: true,
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+              itemCount: widget.calendars.length,
+              itemBuilder: (ctx, i) {
+                final cal = widget.calendars[i];
+                final calId = (cal as dynamic).id as String? ?? '';
+                final name = (cal as dynamic).summary as String? ?? 'Calendar';
+                final isSelected = _selected.contains(calId);
+
+                return GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      if (isSelected) {
+                        _selected.remove(calId);
+                      } else {
+                        _selected.add(calId);
+                      }
+                    });
+                  },
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: isSelected ? AppTheme.primary.withOpacity(0.05) : Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isSelected ? AppTheme.primary : AppTheme.stone100,
+                        width: isSelected ? 1.5 : 1,
+                      ),
+                    ),
+                    child: Row(children: [
+                      Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF4285F4).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.calendar_today_rounded, size: 16, color: Color(0xFF4285F4)),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          name,
+                          style: const TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone800),
+                        ),
+                      ),
+                      Icon(
+                        isSelected ? Icons.check_circle_rounded : Icons.circle_outlined,
+                        color: isSelected ? AppTheme.primary : AppTheme.stone300,
+                        size: 22,
+                      ),
+                    ]),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── ICS URL Subscribe Sheet ─────────────────────────────────────────────────
+
+class _IcsUrlSheet extends StatefulWidget {
+  const _IcsUrlSheet();
+
+  @override
+  State<_IcsUrlSheet> createState() => _IcsUrlSheetState();
+}
+
+class _IcsUrlSheetState extends State<_IcsUrlSheet> {
+  final _urlCtrl = TextEditingController();
+  final _nameCtrl = TextEditingController();
+  bool _loading = false;
+
+  @override
+  void dispose() {
+    _urlCtrl.dispose();
+    _nameCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final url = _urlCtrl.text.trim();
+    if (url.isEmpty) return;
+
+    if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('webcal://')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid URL')),
+      );
+      return;
+    }
+
+    final normalizedUrl = url.replaceFirst('webcal://', 'https://');
+    setState(() => _loading = true);
+
+    String name = _nameCtrl.text.trim();
+    if (name.isEmpty) {
+      try {
+        final response = await http.get(Uri.parse(normalizedUrl));
+        if (response.statusCode == 200) {
+          name = CalendarSyncService.extractIcsCalendarName(response.body) ?? 'External Calendar';
+        } else {
+          name = 'External Calendar';
+        }
+      } catch (_) {
+        name = 'External Calendar';
+      }
+    }
+
+    if (mounted) {
+      Navigator.pop(context, {'url': normalizedUrl, 'name': name});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SheetHandle(),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    'Subscribe via URL',
+                    style: TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.stone900),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Paste an .ics calendar feed URL to import events. Supports Google Calendar, Outlook, Apple Calendar, and other iCal feeds.',
+                    style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone500),
+                  ),
+                  const SizedBox(height: 20),
+                  TextFormField(
+                    controller: _urlCtrl,
+                    autofocus: true,
+                    keyboardType: TextInputType.url,
+                    decoration: const InputDecoration(
+                      labelText: 'Calendar URL *',
+                      hintText: 'https://calendar.google.com/.../.ics',
+                      prefixIcon: Icon(Icons.link_rounded),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _nameCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Calendar Name (optional)',
+                      hintText: 'Work Calendar',
+                      prefixIcon: Icon(Icons.label_outline_rounded),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  ElevatedButton.icon(
+                    onPressed: _loading ? null : _submit,
+                    icon: _loading
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(Colors.white)),
+                          )
+                        : const Icon(Icons.download_rounded),
+                    label: Text(_loading ? 'Importing...' : 'Import Calendar'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── My Calendars Sheet ──────────────────────────────────────────────────────
+
+class _MyCalendarsSheet extends StatelessWidget {
+  final List<ExternalCalendar> calendars;
+  final Future<void> Function(ExternalCalendar) onSync;
+  final Future<void> Function(ExternalCalendar) onRemove;
+  final VoidCallback onConnectGoogle;
+  final VoidCallback onSubscribeUrl;
+
+  const _MyCalendarsSheet({
+    required this.calendars,
+    required this.onSync,
+    required this.onRemove,
+    required this.onConnectGoogle,
+    required this.onSubscribeUrl,
+  });
+
+  String _timeAgo(DateTime dt) {
+    final diff = DateTime.now().difference(dt);
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.6,
+      maxChildSize: 0.85,
+      minChildSize: 0.3,
+      builder: (ctx, scrollCtrl) => Container(
+        decoration: const BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: Column(children: [
+          const SheetHandle(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+            child: Row(children: [
+              const Expanded(
+                child: Text(
+                  'My Calendars',
+                  style: TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.stone900),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close_rounded, color: AppTheme.stone400),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ]),
+          ),
+          Expanded(
+            child: ListView(
+              controller: scrollCtrl,
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
+              children: [
+                // Local calendar
+                Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppTheme.primary.withOpacity(0.2)),
+                  ),
+                  child: Row(children: [
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: AppTheme.primary.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(Icons.calendar_today_rounded, size: 18, color: AppTheme.primary),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('FamilyHub Calendar', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.stone900)),
+                        Text('Local events', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
+                      ],
+                    )),
+                    Icon(Icons.check_circle_rounded, size: 20, color: AppTheme.primary),
+                  ]),
+                ),
+
+                // External calendars
+                ...calendars.map((cal) => Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppTheme.stone100),
+                  ),
+                  child: Row(children: [
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: cal.type == ExternalCalendarType.google
+                            ? const Color(0xFF4285F4).withOpacity(0.1)
+                            : AppTheme.primary.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(
+                        cal.type == ExternalCalendarType.google
+                            ? Icons.account_circle_rounded
+                            : Icons.link_rounded,
+                        size: 18,
+                        color: cal.type == ExternalCalendarType.google
+                            ? const Color(0xFF4285F4)
+                            : AppTheme.primary,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(cal.name, style: const TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone800)),
+                        Text(
+                          '${cal.type == ExternalCalendarType.google ? 'Google' : 'URL'} \u00b7 Synced ${_timeAgo(cal.lastSyncedAt)}',
+                          style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400),
+                        ),
+                      ],
+                    )),
+                    GestureDetector(
+                      onTap: () {
+                        Navigator.pop(context);
+                        onSync(cal);
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.all(6),
+                        child: Icon(Icons.sync_rounded, size: 18, color: AppTheme.primary),
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: () {
+                        Navigator.pop(context);
+                        onRemove(cal);
+                      },
+                      child: const Padding(
+                        padding: EdgeInsets.all(6),
+                        child: Icon(Icons.delete_outline_rounded, size: 18, color: AppTheme.error),
+                      ),
+                    ),
+                  ]),
+                )),
+
+                const SizedBox(height: 16),
+                const Text(
+                  'ADD CALENDAR',
+                  style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1),
+                ),
+                const SizedBox(height: 8),
+                GestureDetector(
+                  onTap: () {
+                    Navigator.pop(context);
+                    onConnectGoogle();
+                  },
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppTheme.stone100),
+                    ),
+                    child: Row(children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF4285F4).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.account_circle_rounded, size: 18, color: Color(0xFF4285F4)),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Google Calendar', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone800)),
+                          Text('Sign in and sync your Google calendars', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
+                        ],
+                      )),
+                      const Icon(Icons.add_circle_outline_rounded, size: 20, color: AppTheme.stone400),
+                    ]),
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () {
+                    Navigator.pop(context);
+                    onSubscribeUrl();
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppTheme.stone100),
+                    ),
+                    child: Row(children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: AppTheme.primary.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(Icons.link_rounded, size: 18, color: AppTheme.primary),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Subscribe via URL', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone800)),
+                          Text('Import from .ics calendar feed', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
+                        ],
+                      )),
+                      const Icon(Icons.add_circle_outline_rounded, size: 20, color: AppTheme.stone400),
+                    ]),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ]),
       ),
     );
   }

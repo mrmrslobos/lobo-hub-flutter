@@ -95,35 +95,366 @@ class _MealsScreenState extends State<MealsScreen>
 
   @override
   Widget build(BuildContext context) {
+    final provider = context.watch<AppProvider>();
+    final familyId = provider.activeFamily?.id ?? '';
+    final now = DateTime.now();
+    final monday = now.subtract(Duration(days: now.weekday - 1));
+    final sunday = monday.add(const Duration(days: 6));
+    final weekLabel = '${DateFormat('MMM d').format(monday)} - ${DateFormat('MMM d').format(sunday)}';
+
     return Scaffold(
       backgroundColor: AppTheme.background,
+      drawer: const AppDrawer(),
       appBar: AppBar(
-        title: const Text('Meals'),
-        bottom: TabBar(
-          controller: _tabController,
-          labelColor: AppTheme.primary,
-          unselectedLabelColor: AppTheme.stone500,
-          indicatorColor: AppTheme.primary,
-          tabs: const [
-            Tab(icon: Icon(Icons.calendar_month_outlined), text: 'Meal Plan'),
-            Tab(icon: Icon(Icons.menu_book_outlined), text: 'Recipes'),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
+            onPressed: () => Scaffold.of(context).openDrawer(),
+          ),
+        ),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
+            const SizedBox(width: 6),
+            const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
+          ],
+        ),
+        centerTitle: false,
+        titleSpacing: 0,
+        actions: [
+          IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.only(bottom: 32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Page Header ──
+            const PageHeader(
+              title: 'Meal Hub',
+              subtitle: 'Plan nutrition and manage family recipes.',
+            ),
+
+            // ── Tab chips ──
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => _tabController.animateTo(0),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: _tabController.index == 0 ? AppTheme.primary : Colors.transparent,
+                          borderRadius: BorderRadius.circular(10),
+                          border: _tabController.index == 0 ? null : Border.all(color: AppTheme.stone200),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          'Weekly Plan',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                            color: _tabController.index == 0 ? Colors.white : AppTheme.stone600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => _tabController.animateTo(1),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: _tabController.index == 1 ? AppTheme.primary : Colors.transparent,
+                          borderRadius: BorderRadius.circular(10),
+                          border: _tabController.index == 1 ? null : Border.all(color: AppTheme.stone200),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          'Recipe Box',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                            color: _tabController.index == 1 ? Colors.white : AppTheme.stone600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // ── AI Chef Suggestion card ──
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF16A34A), Color(0xFF0D9488)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(children: [
+                      Icon(Icons.restaurant_rounded, size: 18, color: Colors.white),
+                      SizedBox(width: 8),
+                      Text('AI Chef Suggestion', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white)),
+                    ]),
+                    const SizedBox(height: 8),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const TextField(
+                        style: TextStyle(color: Colors.white, fontFamily: 'Inter', fontSize: 14),
+                        decoration: InputDecoration(
+                          hintText: 'e.g. Quick dinner for 4, vegetarian...',
+                          hintStyle: TextStyle(color: Colors.white54, fontFamily: 'Inter'),
+                          border: InputBorder.none,
+                          contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          filled: false,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Text('Suggest Meals', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF16A34A))),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 10),
+
+            // ── Import from URL card ──
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF0D9488), Color(0xFF06B6D4)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(children: [
+                      Icon(Icons.link_rounded, size: 18, color: Colors.white),
+                      SizedBox(width: 8),
+                      Text('Import from URL', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white)),
+                    ]),
+                    const SizedBox(height: 8),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const TextField(
+                        style: TextStyle(color: Colors.white, fontFamily: 'Inter', fontSize: 14),
+                        decoration: InputDecoration(
+                          hintText: 'Paste recipe URL...',
+                          hintStyle: TextStyle(color: Colors.white54, fontFamily: 'Inter'),
+                          border: InputBorder.none,
+                          contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          filled: false,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Text('Import Recipe', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF0D9488))),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 10),
+
+            // ── AI Week Planner card ──
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF8B5CF6), Color(0xFF6366F1)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(children: [
+                      Icon(Icons.calendar_month_rounded, size: 18, color: Colors.white),
+                      SizedBox(width: 8),
+                      Text('AI Week Planner', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white)),
+                    ]),
+                    const SizedBox(height: 8),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const TextField(
+                        style: TextStyle(color: Colors.white, fontFamily: 'Inter', fontSize: 14),
+                        decoration: InputDecoration(
+                          hintText: 'e.g. Healthy meals, budget-friendly...',
+                          hintStyle: TextStyle(color: Colors.white54, fontFamily: 'Inter'),
+                          border: InputBorder.none,
+                          contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          filled: false,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Text('Plan My Week + Shopping List', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF8B5CF6))),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // ── Week of [Date] section ──
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Text(
+                'Week of $weekLabel',
+                style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 16, color: AppTheme.stone800),
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // ── Day-by-day meal plan (Sun-Sat) ──
+            ...List.generate(7, (i) {
+              final day = monday.add(Duration(days: i));
+              final dayName = DateFormat('EEEE').format(day);
+              final dayDate = DateFormat('MMM d').format(day);
+              final mealsForDay = provider.db.mealPlans
+                  .where((m) => m.familyId == familyId && m.date.year == day.year && m.date.month == day.month && m.date.day == day.day)
+                  .toList();
+
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: AppTheme.surface,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: AppTheme.stone100),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+                        child: Row(
+                          children: [
+                            Text(dayName, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone800)),
+                            const SizedBox(width: 8),
+                            Text(dayDate, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
+                          ],
+                        ),
+                      ),
+                      const Divider(height: 1, color: AppTheme.stone100),
+                      ...['breakfast', 'lunch', 'dinner'].map((type) {
+                        final meal = mealsForDay.cast<MealPlan?>().firstWhere((m) => m?.mealType == type, orElse: () => null);
+                        final label = type[0].toUpperCase() + type.substring(1);
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 80,
+                                child: Text(label.toUpperCase(), style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.stone400, letterSpacing: 0.8)),
+                              ),
+                              Expanded(
+                                child: meal != null
+                                    ? Text(meal.title, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w500, color: AppTheme.stone700))
+                                    : Text('+ Add', style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w500, color: AppTheme.primary.withOpacity(0.7))),
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                    ],
+                  ),
+                ),
+              );
+            }),
+
+            const SizedBox(height: 16),
+
+            // ── Tab content ──
+            SizedBox(
+              height: MediaQuery.of(context).size.height * 0.5,
+              child: TabBarView(
+                controller: _tabController,
+                children: const [
+                  _MealPlanTab(),
+                  _RecipesTab(),
+                ],
+              ),
+            ),
           ],
         ),
       ),
-      drawer: const AppDrawer(),
-      body: TabBarView(
-        controller: _tabController,
-        children: const [
-          _MealPlanTab(),
-          _RecipesTab(),
-        ],
-      ),
-      floatingActionButton: _tabController.index == 1
-          ? _RecipesFab(
-              isOpen: _fabOpen,
-              onToggle: () => setState(() => _fabOpen = !_fabOpen),
-            )
-          : null,
     );
   }
 }

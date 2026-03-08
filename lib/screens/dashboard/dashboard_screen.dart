@@ -10,6 +10,7 @@ import '../../config/theme.dart';
 import '../../config/module_config.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -99,179 +100,176 @@ class _DashboardScreenState extends State<DashboardScreen> {
             .fold<double>(0, (sum, e) => sum + e.amount);
 
         return Scaffold(
+          drawer: const AppDrawer(),
           backgroundColor: AppTheme.background,
+          appBar: AppBar(
+            backgroundColor: Colors.white,
+            elevation: 0,
+            scrolledUnderElevation: 0,
+            leading: Builder(
+              builder: (context) => IconButton(
+                icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
+                onPressed: () => Scaffold.of(context).openDrawer(),
+              ),
+            ),
+            title: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
+                const SizedBox(width: 6),
+                const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
+              ],
+            ),
+            centerTitle: false,
+            titleSpacing: 0,
+            actions: [
+              IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
+            ],
+          ),
           body: RefreshIndicator(
             onRefresh: _onRefresh,
             color: AppTheme.primary,
-            child: CustomScrollView(
-              slivers: [
-                // ─── White top nav ─────────────────────────────────────────
-                SliverToBoxAdapter(
-                  child: _buildTopNav(context),
-                ),
-
-                // ─── Hero section ──────────────────────────────────────────
-                SliverToBoxAdapter(
-                  child: _buildHeroSection(family),
-                ),
+            child: ListView(
+              padding: EdgeInsets.zero,
+              children: [
+                // ─── Page Header (replaces hero section) ─────────────────
+                _buildHeroSection(family),
 
                 // ─── Action buttons ────────────────────────────────────────
-                SliverToBoxAdapter(
-                  child: _buildActionButtons(context),
-                ),
+                _buildActionButtons(context),
 
                 // ─── Announcement section ──────────────────────────────────
-                SliverToBoxAdapter(
-                  child: _buildAnnouncementSection(context, provider, family),
-                ),
+                _buildAnnouncementSection(context, provider, family),
 
                 // ─── AI suggestions ────────────────────────────────────────
-                SliverToBoxAdapter(
-                  child: _buildAISuggestionsCard(),
-                ),
+                _buildAISuggestionsCard(),
 
                 // ─── 2×2 Stats grid ────────────────────────────────────────
-                SliverToBoxAdapter(
-                  child: _buildStatsGrid(
-                    tasksDueToday: tasksDueToday.length,
-                    tasksDone: db.tasks
-                        .where((t) =>
-                            t.familyId == familyId &&
-                            t.completed &&
-                            t.dueDate != null &&
-                            _isSameDay(t.dueDate!, today))
-                        .length,
-                    choresCompleted: choresToday,
-                    choresTotal: choresTotalToday,
-                    eventsThisMonth: eventsThisMonth,
-                    spentThisMonth: spentThisMonth,
-                  ),
+                _buildStatsGrid(
+                  tasksDueToday: tasksDueToday.length,
+                  tasksDone: db.tasks
+                      .where((t) =>
+                          t.familyId == familyId &&
+                          t.completed &&
+                          t.dueDate != null &&
+                          _isSameDay(t.dueDate!, today))
+                      .length,
+                  choresCompleted: choresToday,
+                  choresTotal: choresTotalToday,
+                  eventsThisMonth: eventsThisMonth,
+                  spentThisMonth: spentThisMonth,
                 ),
 
                 // ─── Today's tasks ─────────────────────────────────────────
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SectionHeader(title: 'Today'),
-                        const SizedBox(height: 8),
-                        if (tasksDueToday.isEmpty)
-                          SectionCard(
-                            child: Row(
-                              children: [
-                                const Text('🎉',
-                                    style: TextStyle(fontSize: 24)),
-                                const SizedBox(width: 12),
-                                const Expanded(
-                                  child: Text(
-                                    'All done! No tasks due today.',
-                                    style: TextStyle(
-                                      color: AppTheme.stone600,
-                                      fontFamily: 'Inter',
-                                      fontSize: 14,
-                                    ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SectionHeader(title: 'Today'),
+                      const SizedBox(height: 8),
+                      if (tasksDueToday.isEmpty)
+                        SectionCard(
+                          child: Row(
+                            children: [
+                              const Text('🎉',
+                                  style: TextStyle(fontSize: 24)),
+                              const SizedBox(width: 12),
+                              const Expanded(
+                                child: Text(
+                                  'All done! No tasks due today.',
+                                  style: TextStyle(
+                                    color: AppTheme.stone600,
+                                    fontFamily: 'Inter',
+                                    fontSize: 14,
                                   ),
                                 ),
-                              ],
-                            ),
-                          )
-                        else
-                          SectionCard(
-                            padding: EdgeInsets.zero,
-                            child: Column(
-                              children: [
-                                for (int i = 0;
-                                    i < tasksDueToday.length;
-                                    i++) ...[
-                                  if (i > 0)
-                                    const Divider(height: 1),
-                                  _TaskTile(
-                                    task: tasksDueToday[i],
-                                    provider: provider,
-                                  ),
-                                ],
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
-                      ],
-                    ),
+                        )
+                      else
+                        SectionCard(
+                          padding: EdgeInsets.zero,
+                          child: Column(
+                            children: [
+                              for (int i = 0;
+                                  i < tasksDueToday.length;
+                                  i++) ...[
+                                if (i > 0)
+                                  const Divider(height: 1),
+                                _TaskTile(
+                                  task: tasksDueToday[i],
+                                  provider: provider,
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                    ],
                   ),
                 ),
 
                 // ─── This week events ──────────────────────────────────────
                 if (eventsThisWeek.isNotEmpty)
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const SectionHeader(title: 'This Week'),
-                          const SizedBox(height: 8),
-                          SectionCard(
-                            padding: EdgeInsets.zero,
-                            child: Column(
-                              children: [
-                                for (int i = 0;
-                                    i < eventsThisWeek.length;
-                                    i++) ...[
-                                  if (i > 0)
-                                    const Divider(height: 1),
-                                  _EventTile(
-                                      event: eventsThisWeek[i]),
-                                ],
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SectionHeader(title: 'This Week'),
+                        const SizedBox(height: 8),
+                        SectionCard(
+                          padding: EdgeInsets.zero,
+                          child: Column(
+                            children: [
+                              for (int i = 0;
+                                  i < eventsThisWeek.length;
+                                  i++) ...[
+                                if (i > 0)
+                                  const Divider(height: 1),
+                                _EventTile(
+                                    event: eventsThisWeek[i]),
                               ],
-                            ),
+                            ],
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
 
                 // ─── Module grid ───────────────────────────────────────────
-                if (enabledModules.isNotEmpty)
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const SectionHeader(title: 'Modules'),
-                          const SizedBox(height: 8),
-                        ],
-                      ),
+                if (enabledModules.isNotEmpty) ...[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SectionHeader(title: 'Modules'),
+                        const SizedBox(height: 8),
+                      ],
                     ),
                   ),
-
-                if (enabledModules.isNotEmpty)
-                  SliverPadding(
+                  Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-                    sliver: SliverGrid(
-                      delegate: SliverChildBuilderDelegate(
-                        (ctx, i) {
-                          final mod = enabledModules[i];
-                          return ModuleCard(
-                            emoji: mod.emoji,
-                            name: mod.name,
-                            onTap: () => context.go(mod.path),
-                          );
-                        },
-                        childCount: enabledModules.length,
-                      ),
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3,
-                        crossAxisSpacing: 10,
-                        mainAxisSpacing: 10,
-                        childAspectRatio: 1.1,
-                      ),
+                    child: GridView.count(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      crossAxisCount: 3,
+                      crossAxisSpacing: 10,
+                      mainAxisSpacing: 10,
+                      childAspectRatio: 1.1,
+                      children: enabledModules.map((mod) => ModuleCard(
+                        emoji: mod.emoji,
+                        name: mod.name,
+                        onTap: () => context.go(mod.path),
+                      )).toList(),
                     ),
                   ),
+                ],
 
                 // ─── Bottom padding ────────────────────────────────────────
-                const SliverToBoxAdapter(child: SizedBox(height: 32)),
+                const SizedBox(height: 32),
               ],
             ),
           ),

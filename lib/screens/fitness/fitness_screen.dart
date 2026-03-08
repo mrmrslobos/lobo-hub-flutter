@@ -102,116 +102,310 @@ class _FitnessScreenState extends State<FitnessScreen> {
     shown.sort((a, b) => b.date.compareTo(a.date));
 
     final now = DateTime.now();
-    final todayLogs = shown.where((l) {
-      return l.date.year == now.year &&
-          l.date.month == now.month &&
-          l.date.day == now.day;
-    }).toList();
     final weekStart = now.subtract(Duration(days: now.weekday - 1));
     final weekLogs = shown
         .where((l) =>
             l.date.isAfter(weekStart.subtract(const Duration(days: 1))))
         .toList();
-    final totalWeekMinutes =
-        weekLogs.fold(0, (s, l) => s + l.durationMinutes);
+
+    // Calculate active streak (consecutive days with logs)
+    int streak = 0;
+    DateTime checkDate = DateTime(now.year, now.month, now.day);
+    while (true) {
+      final hasLog = shown.any((l) =>
+          l.date.year == checkDate.year &&
+          l.date.month == checkDate.month &&
+          l.date.day == checkDate.day);
+      if (!hasLog) break;
+      streak++;
+      checkDate = checkDate.subtract(const Duration(days: 1));
+    }
+
+    // Find AI plan logs
+    final aiPlanLogs = shown.where((l) => l.activity == 'AI Plan').toList();
+    final latestAiPlan = aiPlanLogs.isNotEmpty ? aiPlanLogs.first : null;
+
+    // Weight progress placeholder
+    const weightProgress = '+0.0 kg';
 
     return Scaffold(
       drawer: const AppDrawer(),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showAddSheet,
-        child: const Icon(Icons.add_rounded),
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
+            onPressed: () => Scaffold.of(context).openDrawer(),
+          ),
+        ),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
+            const SizedBox(width: 6),
+            const Text('FamilyHub',
+                style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontWeight: FontWeight.w800,
+                    fontSize: 18,
+                    color: AppTheme.primary)),
+          ],
+        ),
+        centerTitle: false,
+        titleSpacing: 0,
+        actions: [
+          IconButton(
+              icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500),
+              onPressed: () {}),
+        ],
       ),
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            title: const Text('Fitness'),
-            floating: true,
+      body: ListView(
+        padding: const EdgeInsets.only(bottom: 32),
+        children: [
+          // ── Page Header ──
+          PageHeader(
+            title: 'Fitness & Health',
+            subtitle: 'Track your vitals and stay active together.',
             actions: [
-              IconButton(
-                icon: const Icon(Icons.auto_awesome_rounded),
-                tooltip: 'AI Workout Plan',
-                onPressed: _showAiPlanSheet,
+              ActionChipButton(
+                icon: Icons.monitor_weight_outlined,
+                label: 'Metric Value...',
+                onTap: _showAddSheet,
+                backgroundColor: AppTheme.stone100,
+                foregroundColor: AppTheme.stone700,
+              ),
+              ActionChipButton(
+                icon: Icons.fitness_center_rounded,
+                label: 'Log Weight',
+                onTap: _showAddSheet,
+                isPrimary: true,
               ),
             ],
           ),
-          // AI Workout Plan banner
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-              child: _AiPlanBanner(onTap: _showAiPlanSheet),
-            ),
-          ),
-          // Quick stats
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-              child: Row(children: [
-                Expanded(
-                    child: StatCard(
-                        label: "Today's workouts",
-                        value: '${todayLogs.length}',
-                        emoji: '🔥',
-                        color: AppTheme.error)),
-                const SizedBox(width: 10),
-                Expanded(
-                    child: StatCard(
-                        label: 'Minutes this week',
-                        value: '$totalWeekMinutes',
-                        emoji: '⏱️',
-                        color: AppTheme.primary)),
-                const SizedBox(width: 10),
-                Expanded(
-                    child: StatCard(
-                        label: 'This week',
-                        value: '${weekLogs.length}',
-                        emoji: '📊',
-                        color: AppTheme.success)),
-              ]),
-            ),
-          ),
-          // Filter
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-              child: AppTabBar(
-                tabs: const ['My Logs', 'Family'],
-                selectedIndex: _filter.index,
-                onSelected: (i) =>
-                    setState(() => _filter = _FitnessFilter.values[i]),
+
+          // ── AI Health Coach Card ──
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.auto_awesome_rounded,
+                          color: Colors.white.withOpacity(0.9), size: 20),
+                      const SizedBox(width: 8),
+                      const Text('AI Health Coach',
+                          style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontWeight: FontWeight.w800,
+                              fontSize: 16,
+                              color: Colors.white)),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Click the button for a personalized motivation boost based on your recent activity.',
+                    style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 13,
+                        color: Colors.white.withOpacity(0.85),
+                        height: 1.5),
+                  ),
+                  const SizedBox(height: 14),
+                  GestureDetector(
+                    onTap: _showAiPlanSheet,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Text('Get Motivation',
+                          style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                              color: Color(0xFF6366F1))),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
-          shown.isEmpty
-              ? SliverFillRemaining(
-                  child: EmptyState(
-                    emoji: '💪',
-                    title: 'No fitness logs',
-                    subtitle: 'Track your workouts and activities.',
-                    actionLabel: 'Add Log',
-                    onAction: _showAddSheet,
-                  ),
-                )
-              : SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-                  sliver: SliverList(
-                    delegate: SliverChildBuilderDelegate(
-                      (ctx, i) {
-                        final log = shown[i];
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: _LogCard(
-                            log: log,
-                            emoji: _activityEmoji(log.activity),
-                            memberName:
-                                provider.userById(log.userId)?.name ?? 'Member',
-                            onDelete: () => _deleteLog(log.id),
-                          ),
-                        );
-                      },
-                      childCount: shown.length,
+
+          // ── Stats Row ──
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryLight,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('WEIGHT PROGRESS',
+                            style: TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.stone400,
+                                letterSpacing: 0.8)),
+                        const SizedBox(height: 6),
+                        const Text(weightProgress,
+                            style: TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 22,
+                                fontWeight: FontWeight.w900,
+                                color: AppTheme.primary)),
+                      ],
                     ),
                   ),
                 ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryLight,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('ACTIVE STREAK',
+                            style: TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.stone400,
+                                letterSpacing: 0.8)),
+                        const SizedBox(height: 6),
+                        Text('$streak days',
+                            style: const TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 22,
+                                fontWeight: FontWeight.w900,
+                                color: AppTheme.primary)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // ── AI Fitness Plan Section ──
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+            child: Row(
+              children: [
+                const Text('AI Fitness Plan',
+                    style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                        color: AppTheme.stone900)),
+                const SizedBox(width: 10),
+                GestureDetector(
+                  onTap: _showAiPlanSheet,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primary,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text('New Plan',
+                        style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+            child: latestAiPlan != null && latestAiPlan.notes != null
+                ? Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AppTheme.stone50,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: AppTheme.stone200),
+                    ),
+                    child: Text(latestAiPlan.notes!,
+                        style: const TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 13,
+                            color: AppTheme.stone700,
+                            height: 1.6)),
+                  )
+                : Text(
+                    'Generate a personalized workout plan tailored to your fitness goals and schedule.',
+                    style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 13,
+                        color: AppTheme.stone400,
+                        height: 1.5),
+                  ),
+          ),
+
+          // ── Filter Tabs ──
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+            child: AppTabBar(
+              tabs: const ['My Logs', 'Family'],
+              selectedIndex: _filter.index,
+              onSelected: (i) =>
+                  setState(() => _filter = _FitnessFilter.values[i]),
+            ),
+          ),
+
+          // ── Workout Logs ──
+          if (shown.isEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+              child: EmptyState(
+                emoji: '💪',
+                title: 'No fitness logs',
+                subtitle: 'Track your workouts and activities.',
+                actionLabel: 'Add Log',
+                onAction: _showAddSheet,
+              ),
+            )
+          else
+            ...shown.map((log) => Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                  child: _LogCard(
+                    log: log,
+                    emoji: _activityEmoji(log.activity),
+                    memberName:
+                        provider.userById(log.userId)?.name ?? 'Member',
+                    onDelete: () => _deleteLog(log.id),
+                  ),
+                )),
         ],
       ),
     );

@@ -175,6 +175,10 @@ class _BudgetScreenState extends State<BudgetScreen> {
         .where((g) => g.familyId == family.id)
         .toList();
 
+    final categories = provider.db.budgetCategories
+        .where((c) => c.familyId == family.id)
+        .toList();
+
     List<BudgetEntry> shown;
     switch (_filter) {
       case _BudgetFilter.all:
@@ -190,124 +194,364 @@ class _BudgetScreenState extends State<BudgetScreen> {
     shown.sort((a, b) => b.date.compareTo(a.date));
 
     return Scaffold(
+      backgroundColor: AppTheme.background,
       drawer: const AppDrawer(),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showAddSheet,
-        child: const Icon(Icons.add_rounded),
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
+            onPressed: () => Scaffold.of(context).openDrawer(),
+          ),
+        ),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
+            const SizedBox(width: 6),
+            const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
+          ],
+        ),
+        centerTitle: false,
+        titleSpacing: 0,
+        actions: [
+          IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
+        ],
       ),
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            title: const Text('Budget'),
-            floating: true,
+      body: ListView(
+        padding: const EdgeInsets.only(bottom: 100),
+        children: [
+          // ─── Page Header ───────────────────────────────────────────────
+          PageHeader(
+            title: 'Family Finance',
+            subtitle: 'Track spending, save together, stay balanced.',
             actions: [
-              IconButton(
-                icon: const Icon(Icons.auto_awesome),
-                tooltip: 'AI Budget Analysis',
-                onPressed: () => _showAiAnalysis(
-                  context,
-                  totalIncome: totalIncome,
-                  totalExpenses: totalExpenses,
-                  entries: monthEntries,
+              ActionChipButton(
+                icon: Icons.file_download_outlined,
+                label: 'Import',
+                onTap: () {},
+                backgroundColor: AppTheme.stone100,
+                foregroundColor: AppTheme.stone700,
+              ),
+              ActionChipButton(
+                icon: Icons.arrow_drop_down,
+                label: 'Export',
+                onTap: () {},
+                backgroundColor: AppTheme.stone100,
+                foregroundColor: AppTheme.stone700,
+              ),
+              if (categories.isEmpty)
+                ActionChipButton(
+                  icon: Icons.warning_amber_rounded,
+                  label: 'Add a category first',
+                  onTap: () {},
+                  backgroundColor: const Color(0xFFFFF7ED),
+                  foregroundColor: AppTheme.warning,
                 ),
+              ActionChipButton(
+                icon: Icons.add,
+                label: 'Add Transaction',
+                onTap: _showAddSheet,
+                isPrimary: true,
               ),
             ],
           ),
-          // Monthly summary
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-              child: Column(children: [
-                Row(children: [
-                  Expanded(
-                    child: StatCard(
-                      label: 'Income',
-                      value: _currencyFmt.format(totalIncome),
-                      emoji: '💰',
-                      color: AppTheme.success,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: StatCard(
-                      label: 'Expenses',
-                      value: _currencyFmt.format(totalExpenses),
-                      emoji: '💸',
-                      color: AppTheme.error,
-                    ),
-                  ),
-                ]),
-                const SizedBox(height: 10),
+
+          // ─── Summary Cards ─────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Column(
+              children: [
+                // Total Income
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: (net >= 0 ? AppTheme.success : AppTheme.error)
-                        .withOpacity(0.08),
+                    color: const Color(0xFFF0FDF4),
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                        color: (net >= 0 ? AppTheme.success : AppTheme.error)
-                            .withOpacity(0.2)),
                   ),
-                  child: Row(children: [
-                    Text(net >= 0 ? '📈' : '📉',
-                        style: const TextStyle(fontSize: 24)),
-                    const SizedBox(width: 12),
-                    Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _currencyFmt.format(net.abs()),
-                            style: TextStyle(
-                                fontFamily: 'Inter',
-                                fontSize: 22,
-                                fontWeight: FontWeight.w900,
-                                color: net >= 0
-                                    ? AppTheme.success
-                                    : AppTheme.error),
-                          ),
-                          Text(
-                              net >= 0
-                                  ? 'Net savings this month'
-                                  : 'Overspent this month',
-                              style: const TextStyle(
-                                  fontFamily: 'Inter',
-                                  fontSize: 12,
-                                  color: AppTheme.stone500)),
-                        ]),
-                  ]),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: AppTheme.success.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.trending_up_rounded, color: AppTheme.success, size: 20),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'TOTAL INCOME',
+                              style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.stone400, letterSpacing: 0.8),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _currencyFmt.format(totalIncome),
+                              style: const TextStyle(fontFamily: 'Inter', fontSize: 22, fontWeight: FontWeight.w900, color: AppTheme.success),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ]),
+                const SizedBox(height: 10),
+                // Total Expenses
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF7ED),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: AppTheme.error.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.trending_down_rounded, color: AppTheme.error, size: 20),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'TOTAL EXPENSES',
+                              style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.stone400, letterSpacing: 0.8),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _currencyFmt.format(totalExpenses),
+                              style: const TextStyle(fontFamily: 'Inter', fontSize: 22, fontWeight: FontWeight.w900, color: AppTheme.error),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                // Net Savings
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF0FDF4),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: AppTheme.success.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.attach_money_rounded, color: AppTheme.success, size: 20),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'NET SAVINGS',
+                              style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.stone400, letterSpacing: 0.8),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _currencyFmt.format(net),
+                              style: TextStyle(fontFamily: 'Inter', fontSize: 22, fontWeight: FontWeight.w900, color: net >= 0 ? AppTheme.success : AppTheme.error),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
 
-          // ─── Savings Goals section ─────────────────────────────────────
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
-              child: Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      'Savings Goals',
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
-                        color: AppTheme.stone900,
+          // ─── Monthly Targets ───────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
+            child: Row(
+              children: [
+                const Text(
+                  'Monthly Targets',
+                  style: TextStyle(fontFamily: 'Inter', fontSize: 17, fontWeight: FontWeight.w800, color: AppTheme.stone900),
+                ),
+                const Spacer(),
+                TextButton(
+                  onPressed: () {},
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    minimumSize: Size.zero,
+                  ),
+                  child: const Text('Manage Categories', style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600)),
+                ),
+              ],
+            ),
+          ),
+          if (categories.isEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+              child: Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: AppTheme.surface,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppTheme.stone100),
+                ),
+                child: const Center(
+                  child: Text(
+                    'No categories yet. Add one to set monthly spending targets.',
+                    style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+              child: Column(
+                children: categories.map((cat) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: AppTheme.surface,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: AppTheme.stone100),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              cat.name,
+                              style: const TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone800),
+                            ),
+                          ),
+                          Text(
+                            _currencyFmt.format(cat.limit),
+                            style: const TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.stone600),
+                          ),
+                        ],
                       ),
                     ),
+                  );
+                }).toList(),
+              ),
+            ),
+
+          // ─── Recent Activity ───────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 24, 20, 12),
+            child: const Text(
+              'Recent Activity',
+              style: TextStyle(fontFamily: 'Inter', fontSize: 17, fontWeight: FontWeight.w800, color: AppTheme.stone900),
+            ),
+          ),
+          if (shown.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: OnboardingCard(
+                emoji: '\u{1F4B0}',
+                title: 'Track every dollar as a family',
+                bullets: const [
+                  'Add transactions manually or import a CSV / PDF bank statement',
+                  'Set monthly spending limits per category to stay on budget',
+                  'The AI coach reviews your spending and suggests where to save',
+                  'Switch between months to compare spending trends over time',
+                ],
+                actionLabel: 'Add Entry',
+                onAction: _showAddSheet,
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Column(
+                children: shown.take(20).map((entry) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _EntryCard(
+                      entry: entry,
+                      currencyFmt: _currencyFmt,
+                      onDelete: () => _deleteEntry(entry.id),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+
+          // ─── AI Savings Coach Banner ───────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 24, 20, 16),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF7C3AED), Color(0xFF6366F1)],
+                ),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: const [
+                      Icon(Icons.auto_awesome, size: 20, color: Colors.white),
+                      SizedBox(width: 8),
+                      Text(
+                        'AI Savings Coach',
+                        style: TextStyle(fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w800, color: Colors.white),
+                      ),
+                    ],
                   ),
-                  TextButton.icon(
-                    onPressed: _showAddGoalSheet,
-                    icon: const Icon(Icons.add_rounded, size: 16),
-                    label: const Text('Add Goal'),
-                    style: TextButton.styleFrom(
-                      foregroundColor: AppTheme.primary,
-                      textStyle: const TextStyle(
-                        fontFamily: 'Inter',
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
+                  const SizedBox(height: 10),
+                  const Text(
+                    "I've looked at your category limits and spending. Want some tips on where to cut back?",
+                    style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: Colors.white70, height: 1.5),
+                  ),
+                  const SizedBox(height: 14),
+                  GestureDetector(
+                    onTap: () => _showAiAnalysis(
+                      context,
+                      totalIncome: totalIncome,
+                      totalExpenses: totalExpenses,
+                      entries: monthEntries,
+                    ),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white.withOpacity(0.3)),
+                      ),
+                      child: const Text(
+                        'Analyze Spending',
+                        style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white),
                       ),
                     ),
                   ),
@@ -315,114 +559,6 @@ class _BudgetScreenState extends State<BudgetScreen> {
               ),
             ),
           ),
-
-          if (savingsGoals.isEmpty)
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: AppTheme.stone50,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppTheme.stone200),
-                  ),
-                  child: Row(children: [
-                    const Text('🎯', style: TextStyle(fontSize: 28)),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'No savings goals yet',
-                            style: TextStyle(
-                              fontFamily: 'Inter',
-                              fontWeight: FontWeight.w700,
-                              fontSize: 14,
-                              color: AppTheme.stone800,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          const Text(
-                            'Set a goal to start tracking your savings.',
-                            style: TextStyle(
-                              fontFamily: 'Inter',
-                              fontSize: 12,
-                              color: AppTheme.stone500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ]),
-                ),
-              ),
-            )
-          else
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-              sliver: SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (ctx, i) {
-                    final goal = savingsGoals[i];
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: _SavingsGoalCard(
-                        goal: goal,
-                        formatCurrency: _formatCurrency,
-                        onTap: () => _showAddFundsDialog(context, goal),
-                        onDelete: () => _deleteGoal(goal.id),
-                      ),
-                    );
-                  },
-                  childCount: savingsGoals.length,
-                ),
-              ),
-            ),
-
-          // Filter tabs
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: AppTabBar(
-                tabs: const ['All', 'Income', 'Expenses'],
-                selectedIndex: _filter.index,
-                onSelected: (i) =>
-                    setState(() => _filter = _BudgetFilter.values[i]),
-              ),
-            ),
-          ),
-          // Entries list
-          shown.isEmpty
-              ? SliverFillRemaining(
-                  child: EmptyState(
-                    emoji: '💰',
-                    title: 'No entries yet',
-                    subtitle: 'Track income and expenses for your family.',
-                    actionLabel: 'Add Entry',
-                    onAction: _showAddSheet,
-                  ),
-                )
-              : SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
-                  sliver: SliverList(
-                    delegate: SliverChildBuilderDelegate(
-                      (ctx, i) {
-                        final entry = shown[i];
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: _EntryCard(
-                            entry: entry,
-                            currencyFmt: _currencyFmt,
-                            onDelete: () => _deleteEntry(entry.id),
-                          ),
-                        );
-                      },
-                      childCount: shown.length,
-                    ),
-                  ),
-                ),
         ],
       ),
     );

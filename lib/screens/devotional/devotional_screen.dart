@@ -118,42 +118,223 @@ class _DevotionalScreenState extends State<DevotionalScreen>
 
     return Scaffold(
       drawer: const AppDrawer(),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _tabController.index == 0
-            ? _showAddDevotionalSheet
-            : _showAddReadingPlanSheet,
-        child: const Icon(Icons.add_rounded),
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
+            onPressed: () => Scaffold.of(context).openDrawer(),
+          ),
+        ),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
+            const SizedBox(width: 6),
+            const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
+          ],
+        ),
+        centerTitle: false,
+        titleSpacing: 0,
+        actions: [
+          IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
+        ],
       ),
-      body: NestedScrollView(
-        headerSliverBuilder: (_, __) => [
-          SliverAppBar(
-            title: const Text('Devotional'),
-            floating: true,
-            forceElevated: true,
-            bottom: TabBar(
-              controller: _tabController,
-              tabs: const [
-                Tab(text: 'Devotionals'),
-                Tab(text: 'Reading Plans'),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.only(bottom: 32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Page Header ──
+            PageHeader(
+              title: 'Spiritual Growth',
+              subtitle: 'Reflect, pray, and grow as a family.',
+              actions: [
+                ActionChipButton(
+                  icon: Icons.add_rounded,
+                  label: 'New Devotional',
+                  onTap: _showAddDevotionalSheet,
+                  isPrimary: true,
+                ),
+                ActionChipButton(
+                  icon: Icons.menu_book_rounded,
+                  label: 'New Reading Plan',
+                  onTap: _showAddReadingPlanSheet,
+                ),
               ],
             ),
-          ),
-        ],
-        body: TabBarView(
-          controller: _tabController,
-          children: [
-            // ── Tab 1: Devotionals ──────────────────────────────────
-            _DevotionalsTab(
-              entries: entries,
-              provider: provider,
-              onTap: (e) => setState(() => _selectedEntry = e),
-              onAdd: _showAddDevotionalSheet,
+
+            // ── Tab chips ──
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => _tabController.animateTo(0),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: _tabController.index == 0 ? AppTheme.stone800 : Colors.transparent,
+                          borderRadius: BorderRadius.circular(10),
+                          border: _tabController.index == 0 ? null : Border.all(color: AppTheme.stone200),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          'Devotionals',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                            color: _tabController.index == 0 ? Colors.white : AppTheme.stone600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => _tabController.animateTo(1),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: _tabController.index == 1 ? AppTheme.stone800 : Colors.transparent,
+                          borderRadius: BorderRadius.circular(10),
+                          border: _tabController.index == 1 ? null : Border.all(color: AppTheme.stone200),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          'Reading Plans',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                            color: _tabController.index == 1 ? Colors.white : AppTheme.stone600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            // ── Tab 2: Reading Plans ────────────────────────────────
-            _ReadingPlansTab(
-              plans: plans,
-              provider: provider,
-              onAdd: _showAddReadingPlanSheet,
+
+            const SizedBox(height: 16),
+
+            // ── AI Faith Assistant card ──
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFD97706), Color(0xFFEA580C)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.auto_awesome, size: 18, color: Colors.white),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'AI Faith Assistant',
+                          style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Need inspiration? Tell me a topic (e.g., Patience, Hope, Forgiveness) and I\'ll draft a devotional.',
+                      style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: Colors.white70, height: 1.4),
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const TextField(
+                        style: TextStyle(color: Colors.white, fontFamily: 'Inter', fontSize: 14),
+                        decoration: InputDecoration(
+                          hintText: 'Enter a topic...',
+                          hintStyle: TextStyle(color: Colors.white54, fontFamily: 'Inter'),
+                          border: InputBorder.none,
+                          contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          filled: false,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Text('Shared', style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white)),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.white54),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Text('Private', style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white70)),
+                        ),
+                        const Spacer(),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Text(
+                            'Generate Now',
+                            style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFFD97706)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // ── Tab content ──
+            SizedBox(
+              height: MediaQuery.of(context).size.height * 0.5,
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  // ── Tab 1: Devotionals ──────────────────────────────────
+                  _DevotionalsTab(
+                    entries: entries,
+                    provider: provider,
+                    onTap: (e) => setState(() => _selectedEntry = e),
+                    onAdd: _showAddDevotionalSheet,
+                  ),
+                  // ── Tab 2: Reading Plans ────────────────────────────────
+                  _ReadingPlansTab(
+                    plans: plans,
+                    provider: provider,
+                    onAdd: _showAddReadingPlanSheet,
+                  ),
+                ],
+              ),
             ),
           ],
         ),

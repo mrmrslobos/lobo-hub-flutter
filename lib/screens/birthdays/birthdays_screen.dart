@@ -95,63 +95,160 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
     final later = occasions.where((o) => _daysUntil(o) > 30).toList();
 
     return Scaffold(
+      backgroundColor: AppTheme.background,
       drawer: const AppDrawer(),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showAddSheet,
-        child: const Icon(Icons.add_rounded),
-      ),
-      body: CustomScrollView(
-        slivers: [
-          const SliverAppBar(title: Text('Occasions'), floating: true),
-          occasions.isEmpty
-              ? SliverFillRemaining(
-                  child: EmptyState(
-                    emoji: '🎉',
-                    title: 'No occasions yet',
-                    subtitle: 'Add birthdays, anniversaries, and other special dates.',
-                    actionLabel: 'Add Occasion',
-                    onAction: _showAddSheet,
-                  ),
-                )
-              : SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
-                  sliver: SliverList(
-                    delegate: SliverChildListDelegate([
-                      if (upcoming.isNotEmpty) ...[
-                        const Text('COMING UP', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1)),
-                        const SizedBox(height: 8),
-                        ...upcoming.map((o) => Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: _OccasionCard(
-                                occasion: o,
-                                daysUntil: _daysUntil(o),
-                                age: _age(o),
-                                emoji: _typeEmoji(o.type.name.toLowerCase()),
-                                badgeColor: _badgeColor(_daysUntil(o)),
-                                onDelete: () => _deleteOccasion(o.id),
-                              ),
-                            )),
-                      ],
-                      if (later.isNotEmpty) ...[
-                        if (upcoming.isNotEmpty) const SizedBox(height: 12),
-                        const Text('UPCOMING', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1)),
-                        const SizedBox(height: 8),
-                        ...later.map((o) => Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: _OccasionCard(
-                                occasion: o,
-                                daysUntil: _daysUntil(o),
-                                age: _age(o),
-                                emoji: _typeEmoji(o.type.name.toLowerCase()),
-                                badgeColor: _badgeColor(_daysUntil(o)),
-                                onDelete: () => _deleteOccasion(o.id),
-                              ),
-                            )),
-                      ],
-                    ]),
-                  ),
-                ),
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
+            onPressed: () => Scaffold.of(context).openDrawer(),
+          ),
+        ),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
+            const SizedBox(width: 6),
+            const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
+          ],
+        ),
+        centerTitle: false,
+        titleSpacing: 0,
+        actions: [
+          IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
         ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.only(bottom: 32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Page Header ──
+            PageHeader(
+              title: '\u{1F389} Occasions',
+              subtitle: 'Birthdays, anniversaries & special dates',
+              actions: [
+                ActionChipButton(
+                  icon: Icons.add_rounded,
+                  label: 'Add Occasion',
+                  onTap: _showAddSheet,
+                  isPrimary: true,
+                ),
+              ],
+            ),
+
+            // ── Stats row ──
+            if (occasions.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: AppTheme.surface,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: AppTheme.stone100),
+                        ),
+                        child: Row(children: [
+                          Container(
+                            width: 36, height: 36,
+                            decoration: BoxDecoration(color: AppTheme.success.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+                            child: const Icon(Icons.upcoming_rounded, size: 18, color: AppTheme.success),
+                          ),
+                          const SizedBox(width: 10),
+                          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text('${upcoming.length}', style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.stone900)),
+                            const Text('Within 30 days', style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone500)),
+                          ]),
+                        ]),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: AppTheme.surface,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: AppTheme.stone100),
+                        ),
+                        child: Row(children: [
+                          Container(
+                            width: 36, height: 36,
+                            decoration: BoxDecoration(color: AppTheme.primaryLight, borderRadius: BorderRadius.circular(10)),
+                            child: const Icon(Icons.celebration_rounded, size: 18, color: AppTheme.primary),
+                          ),
+                          const SizedBox(width: 10),
+                          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text('${occasions.length}', style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.stone900)),
+                            const Text('Total', style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone500)),
+                          ]),
+                        ]),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+            // ── Content ──
+            if (occasions.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: OnboardingCard(
+                  emoji: '\u{1F389}',
+                  title: 'Track Special Dates',
+                  bullets: ['Never miss a birthday or anniversary', 'Get reminders for upcoming occasions', 'Keep all special dates in one place'],
+                  actionLabel: '+ Add Occasion',
+                  onAction: _showAddSheet,
+                ),
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (upcoming.isNotEmpty) ...[
+                      const Text('COMING UP', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1)),
+                      const SizedBox(height: 8),
+                      ...upcoming.map((o) => Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: _OccasionCard(
+                              occasion: o,
+                              daysUntil: _daysUntil(o),
+                              age: _age(o),
+                              emoji: _typeEmoji(o.type.name.toLowerCase()),
+                              badgeColor: _badgeColor(_daysUntil(o)),
+                              onDelete: () => _deleteOccasion(o.id),
+                            ),
+                          )),
+                    ],
+                    if (later.isNotEmpty) ...[
+                      if (upcoming.isNotEmpty) const SizedBox(height: 12),
+                      const Text('UPCOMING', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1)),
+                      const SizedBox(height: 8),
+                      ...later.map((o) => Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: _OccasionCard(
+                              occasion: o,
+                              daysUntil: _daysUntil(o),
+                              age: _age(o),
+                              emoji: _typeEmoji(o.type.name.toLowerCase()),
+                              badgeColor: _badgeColor(_daysUntil(o)),
+                              onDelete: () => _deleteOccasion(o.id),
+                            ),
+                          )),
+                    ],
+                  ],
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

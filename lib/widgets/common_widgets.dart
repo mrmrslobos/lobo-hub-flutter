@@ -577,3 +577,251 @@ class GradientHeader extends StatelessWidget {
     );
   }
 }
+
+// ─── Page Header (consistent across all screens) ─────────────────────────────
+class PageHeader extends StatelessWidget {
+  final String title;
+  final String? subtitle;
+  final List<Widget>? actions;
+
+  const PageHeader({
+    super.key,
+    required this.title,
+    this.subtitle,
+    this.actions,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 28,
+              fontWeight: FontWeight.w900,
+              color: AppTheme.stone900,
+              height: 1.2,
+            ),
+          ),
+          if (subtitle != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              subtitle!,
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 14,
+                fontWeight: FontWeight.w400,
+                color: AppTheme.stone500,
+                height: 1.4,
+              ),
+            ),
+          ],
+          if (actions != null && actions!.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 10,
+              runSpacing: 8,
+              children: actions!,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Action Chip Button (for page header actions) ────────────────────────────
+class ActionChipButton extends StatelessWidget {
+  final IconData? icon;
+  final String? emoji;
+  final String label;
+  final VoidCallback onTap;
+  final Color? backgroundColor;
+  final Color? foregroundColor;
+  final bool isPrimary;
+
+  const ActionChipButton({
+    super.key,
+    this.icon,
+    this.emoji,
+    required this.label,
+    required this.onTap,
+    this.backgroundColor,
+    this.foregroundColor,
+    this.isPrimary = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = backgroundColor ?? (isPrimary ? AppTheme.primary : AppTheme.stone800);
+    final fg = foregroundColor ?? Colors.white;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 16, color: fg),
+              const SizedBox(width: 6),
+            ],
+            if (emoji != null) ...[
+              Text(emoji!, style: const TextStyle(fontSize: 14)),
+              const SizedBox(width: 6),
+            ],
+            Text(
+              label,
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: fg,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Onboarding Card (empty state with bullet points) ────────────────────────
+class OnboardingCard extends StatelessWidget {
+  final String emoji;
+  final String title;
+  final List<String> bullets;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  const OnboardingCard({
+    super.key,
+    required this.emoji,
+    required this.title,
+    required this.bullets,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppTheme.stone100),
+      ),
+      child: Column(
+        children: [
+          Text(emoji, style: const TextStyle(fontSize: 40)),
+          const SizedBox(height: 14),
+          Text(
+            title,
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+              color: AppTheme.stone900,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 14),
+          ...bullets.map((b) => Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('› ', style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 14,
+                  color: AppTheme.stone400,
+                  fontWeight: FontWeight.w600,
+                )),
+                Expanded(
+                  child: Text(
+                    b,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 13,
+                      color: AppTheme.stone600,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          )),
+          if (actionLabel != null && onAction != null) ...[
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: onAction,
+              child: Text(actionLabel!),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Custom App Bar for FamilyHub ────────────────────────────────────────────
+class FamilyHubAppBar extends StatelessWidget implements PreferredSizeWidget {
+  final VoidCallback? onMenuTap;
+
+  const FamilyHubAppBar({super.key, this.onMenuTap});
+
+  @override
+  Size get preferredSize => const Size.fromHeight(56);
+
+  @override
+  Widget build(BuildContext context) {
+    return AppBar(
+      backgroundColor: AppTheme.surface,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      leading: IconButton(
+        icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
+        onPressed: onMenuTap ?? () => Scaffold.of(context).openDrawer(),
+      ),
+      title: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            String.fromCharCode(0x2728), // sparkle
+            style: const TextStyle(fontSize: 18),
+          ),
+          const SizedBox(width: 6),
+          const Text(
+            'FamilyHub',
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontWeight: FontWeight.w800,
+              fontSize: 18,
+              color: AppTheme.primary,
+            ),
+          ),
+        ],
+      ),
+      centerTitle: false,
+      titleSpacing: 0,
+      actions: [
+        Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500),
+            onPressed: () => Scaffold.of(context).openEndDrawer(),
+          ),
+        ),
+      ],
+    );
+  }
+}

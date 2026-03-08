@@ -10,6 +10,7 @@ import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
+import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 
 // ─── Filter enum ──────────────────────────────────────────────────────────────
@@ -132,97 +133,420 @@ class _TasksScreenState extends State<TasksScreen> {
     return Consumer<AppProvider>(
       builder: (context, provider, _) {
         final tasks = _filteredTasks(provider);
+        final familyId = provider.activeFamily?.id;
+        final userId = provider.activeUser?.id;
+        final members = provider.familyMembers;
+
+        // Counts for filters
+        final allTasks = provider.db.tasks.where((t) => t.familyId == familyId && !t.completed).toList();
+        final myTasks = allTasks.where((t) => t.assigneeIds.contains(userId) || t.createdBy == userId).toList();
+        final now = DateTime.now();
+        final today = DateTime(now.year, now.month, now.day);
+        final otherTasks = allTasks.where((t) => !t.assigneeIds.contains(userId) && t.createdBy != userId).toList();
+        final dueTodayTasks = allTasks.where((t) => t.dueDate != null && _isSameDay(t.dueDate!, today)).toList();
+        final highPriorityTasks = allTasks.where((t) => t.priority == Priority.HIGH).toList();
+        final doneTasks = provider.db.tasks.where((t) => t.familyId == familyId && t.completed).toList();
+
+        // Folder counts
+        final allCount = allTasks.length;
+
+        // Progress
+        final totalTasks = provider.db.tasks.where((t) => t.familyId == familyId).length;
+        final completedCount = doneTasks.length;
 
         return Scaffold(
+          drawer: const AppDrawer(),
           backgroundColor: AppTheme.background,
-          body: Column(
-            children: [
-              // ─── Header ───────────────────────────────────────────────
-              const GradientHeader(
-                title: 'Tasks',
-                subtitle: 'Manage your family to-dos',
-                startColor: AppTheme.primary,
-                endColor: Color(0xFF8B5CF6),
+          appBar: AppBar(
+            backgroundColor: Colors.white,
+            elevation: 0,
+            scrolledUnderElevation: 0,
+            leading: Builder(
+              builder: (context) => IconButton(
+                icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
+                onPressed: () => Scaffold.of(context).openDrawer(),
               ),
-              // ─── Filter tabs ──────────────────────────────────────────
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: AppTabBar(
-                  tabs: const ['All', 'Mine', 'Today', 'Done'],
-                  selectedIndex: _filter.index,
-                  onSelected: (i) =>
-                      setState(() => _filter = _TaskFilter.values[i]),
-                ),
-              ),
-              // ─── Task list ────────────────────────────────────────────
-              Expanded(
-                child: tasks.isEmpty
-                    ? EmptyState(
-                        emoji: '✅',
-                        title: _filter == _TaskFilter.done
-                            ? 'No completed tasks'
-                            : 'No tasks here',
-                        subtitle: _filter == _TaskFilter.done
-                            ? 'Complete a task to see it here'
-                            : 'Tap + to add a new task',
-                        actionLabel: _filter != _TaskFilter.done
-                            ? 'Add Task'
-                            : null,
-                        onAction: () =>
-                            _showAddTaskSheet(context),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.fromLTRB(
-                            16, 0, 16, 120),
-                        itemCount: tasks.length,
-                        itemBuilder: (ctx, i) {
-                          final task = tasks[i];
-                          return _TaskCard(
-                            task: task,
-                            provider: provider,
-                            onToggle: () => _toggleComplete(
-                                context, provider, task),
-                            onEdit: () => _showAddTaskSheet(
-                                context,
-                                editTask: task),
-                            onDelete: () =>
-                                _deleteTask(context, provider, task),
-                          );
-                        },
-                      ),
-              ),
+            ),
+            title: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
+                const SizedBox(width: 6),
+                const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
+              ],
+            ),
+            centerTitle: false,
+            titleSpacing: 0,
+            actions: [
+              IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
             ],
           ),
-          floatingActionButton: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.end,
+          body: ListView(
+            padding: EdgeInsets.zero,
             children: [
-              // ─── AI Breakdown FAB ──────────────────────────────────
-              FloatingActionButton.extended(
-                heroTag: 'ai_breakdown_fab',
-                onPressed: () => _showAiBreakdownSheet(context),
-                backgroundColor: const Color(0xFF8B5CF6),
-                icon: const Text('✨', style: TextStyle(fontSize: 16)),
-                label: const Text(
-                  'AI Breakdown',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
+              // Page Header
+              PageHeader(
+                title: 'Task Management',
+                subtitle: 'Collaborate on chores, projects, and reminders.',
+              ),
+
+              // Full-width Add New Task button
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: GestureDetector(
+                  onTap: () => _showAddTaskSheet(context),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    decoration: BoxDecoration(
+                      color: AppTheme.stone800,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.add, size: 18, color: Colors.white),
+                        SizedBox(width: 8),
+                        Text(
+                          'Add New Task',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // AI Project Planner card
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFF7C3AED), Color(0xFF6366F1)],
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 32,
+                            height: 32,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(Icons.auto_awesome, size: 18, color: Colors.white),
+                          ),
+                          const SizedBox(width: 10),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'AI Project Planner',
+                                  style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white),
+                                ),
+                                Text(
+                                  'Break down goals into actionable tasks',
+                                  style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white70),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      GestureDetector(
+                        onTap: () => _showAiBreakdownSheet(context),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.edit_outlined, size: 16, color: Colors.white.withOpacity(0.6)),
+                              const SizedBox(width: 10),
+                              Text(
+                                'Describe a project or goal...',
+                                style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: Colors.white.withOpacity(0.6)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: GestureDetector(
+                          onTap: () => _showAiBreakdownSheet(context),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Text(
+                              'Generate',
+                              style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF7C3AED)),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // FOLDERS section
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: const Text(
+                  'FOLDERS',
+                  style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppTheme.stone100),
+                  ),
+                  child: Column(
+                    children: [
+                      _buildFolderItem('All Tasks', Icons.folder_outlined, allCount, isSelected: true),
+                      const Divider(height: 1),
+                      _buildFolderItem('Home', Icons.folder_outlined, 0),
+                      const Divider(height: 1),
+                      _buildFolderItem('Work', Icons.folder_outlined, 0),
+                      const Divider(height: 1),
+                      _buildFolderItem('Personal', Icons.folder_outlined, 0),
+                      const Divider(height: 1),
+                      _buildFolderItem('Shopping', Icons.folder_outlined, 0),
+                      const Divider(height: 1),
+                      _buildFolderItem('AI Generated', Icons.folder_outlined, 0),
+                      const Divider(height: 1),
+                      _buildFolderItem('Event', Icons.folder_outlined, 0),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // TEAM section
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: const Text(
+                  'TEAM',
+                  style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppTheme.stone100),
+                  ),
+                  child: Column(
+                    children: [
+                      for (int i = 0; i < members.length; i++) ...[
+                        if (i > 0) const Divider(height: 1),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          child: Row(
+                            children: [
+                              AvatarInitials(name: members[i].name, size: 30),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  members[i].name,
+                                  style: const TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w500, color: AppTheme.stone800),
+                                ),
+                              ),
+                              Text(
+                                '${allTasks.where((t) => t.assigneeIds.contains(members[i].id)).length} tasks',
+                                style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Filter chips
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      IndigoChip(
+                        label: 'All',
+                        selected: _filter == _TaskFilter.all,
+                        onTap: () => setState(() => _filter = _TaskFilter.all),
+                      ),
+                      const SizedBox(width: 8),
+                      IndigoChip(
+                        label: 'My Tasks',
+                        selected: _filter == _TaskFilter.mine,
+                        onTap: () => setState(() => _filter = _TaskFilter.mine),
+                      ),
+                      const SizedBox(width: 8),
+                      IndigoChip(
+                        label: 'Others',
+                        selected: false,
+                        onTap: () {},
+                      ),
+                      const SizedBox(width: 8),
+                      IndigoChip(
+                        label: 'Due Today',
+                        selected: _filter == _TaskFilter.today,
+                        onTap: () => setState(() => _filter = _TaskFilter.today),
+                      ),
+                      const SizedBox(width: 8),
+                      IndigoChip(
+                        label: 'High Priority',
+                        selected: false,
+                        onTap: () {},
+                      ),
+                    ],
                   ),
                 ),
               ),
               const SizedBox(height: 12),
-              // ─── Add Task FAB ──────────────────────────────────────
-              FloatingActionButton(
-                heroTag: 'add_task_fab',
-                onPressed: () => _showAddTaskSheet(context),
-                child: const Icon(Icons.add),
+
+              // Progress indicator
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  children: [
+                    Text(
+                      '$completedCount/$totalTasks done',
+                      style: const TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.stone500),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: totalTasks > 0 ? completedCount / totalTasks : 0,
+                          minHeight: 6,
+                          backgroundColor: AppTheme.stone100,
+                          valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primary),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
+              const SizedBox(height: 16),
+
+              // Task cards list
+              if (tasks.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Center(
+                    child: Column(
+                      children: [
+                        const Text('✅', style: TextStyle(fontSize: 40)),
+                        const SizedBox(height: 12),
+                        Text(
+                          _filter == _TaskFilter.done ? 'No completed tasks' : 'No tasks here',
+                          style: const TextStyle(fontFamily: 'Inter', fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.stone500),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _filter == _TaskFilter.done ? 'Complete a task to see it here' : 'Add a task to get started',
+                          style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              else
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Column(
+                    children: tasks.map((task) => _TaskCard(
+                      task: task,
+                      provider: provider,
+                      onToggle: () => _toggleComplete(context, provider, task),
+                      onEdit: () => _showAddTaskSheet(context, editTask: task),
+                      onDelete: () => _deleteTask(context, provider, task),
+                    )).toList(),
+                  ),
+                ),
+
+              const SizedBox(height: 32),
             ],
           ),
         );
       },
+    );
+  }
+
+  Widget _buildFolderItem(String name, IconData icon, int count, {bool isSelected = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: isSelected ? AppTheme.primary : AppTheme.stone400),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              name,
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 14,
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                color: isSelected ? AppTheme.primary : AppTheme.stone700,
+              ),
+            ),
+          ),
+          if (count > 0)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: isSelected ? AppTheme.primary.withOpacity(0.1) : AppTheme.stone100,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                '$count',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: isSelected ? AppTheme.primary : AppTheme.stone500,
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

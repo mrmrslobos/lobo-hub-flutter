@@ -620,6 +620,90 @@ class CalendarEvent {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ExternalCalendar
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum ExternalCalendarType { google, icsUrl }
+
+ExternalCalendarType externalCalendarTypeFromString(String? s) {
+  switch (s) {
+    case 'google': return ExternalCalendarType.google;
+    case 'icsUrl': return ExternalCalendarType.icsUrl;
+    default: return ExternalCalendarType.icsUrl;
+  }
+}
+
+class ExternalCalendar {
+  final String id;
+  final String familyId;
+  final String userId;
+  final ExternalCalendarType type;
+  final String name;
+  final String? googleCalendarId;
+  final String? icsUrl;
+  final String? color;
+  final bool enabled;
+  final DateTime lastSyncedAt;
+  final DateTime createdAt;
+
+  ExternalCalendar({
+    required this.id,
+    required this.familyId,
+    required this.userId,
+    required this.type,
+    required this.name,
+    this.googleCalendarId,
+    this.icsUrl,
+    this.color,
+    this.enabled = true,
+    DateTime? lastSyncedAt,
+    DateTime? createdAt,
+  }) : lastSyncedAt = lastSyncedAt ?? DateTime.now(),
+       createdAt = createdAt ?? DateTime.now();
+
+  factory ExternalCalendar.fromJson(Map<String, dynamic> j) => ExternalCalendar(
+    id: j['id'] as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
+    userId: (j['user_id'] ?? j['userId']) as String? ?? '',
+    type: externalCalendarTypeFromString(j['type'] as String?),
+    name: j['name'] as String? ?? '',
+    googleCalendarId: (j['google_calendar_id'] ?? j['googleCalendarId']) as String?,
+    icsUrl: (j['ics_url'] ?? j['icsUrl']) as String?,
+    color: j['color'] as String?,
+    enabled: j['enabled'] as bool? ?? true,
+    lastSyncedAt: _parseDate(j['last_synced_at'] ?? j['lastSyncedAt']),
+    createdAt: _parseDate(j['created_at'] ?? j['createdAt']),
+  );
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'family_id': familyId,
+    'user_id': userId,
+    'type': type.name,
+    'name': name,
+    'google_calendar_id': googleCalendarId,
+    'ics_url': icsUrl,
+    'color': color,
+    'enabled': enabled,
+    'last_synced_at': lastSyncedAt.toIso8601String(),
+    'created_at': createdAt.toIso8601String(),
+  };
+
+  ExternalCalendar copyWith({
+    String? id, String? familyId, String? userId, ExternalCalendarType? type,
+    String? name, String? googleCalendarId, String? icsUrl, String? color,
+    bool? enabled, DateTime? lastSyncedAt, DateTime? createdAt,
+  }) => ExternalCalendar(
+    id: id ?? this.id, familyId: familyId ?? this.familyId,
+    userId: userId ?? this.userId, type: type ?? this.type,
+    name: name ?? this.name, googleCalendarId: googleCalendarId ?? this.googleCalendarId,
+    icsUrl: icsUrl ?? this.icsUrl, color: color ?? this.color,
+    enabled: enabled ?? this.enabled, lastSyncedAt: lastSyncedAt ?? this.lastSyncedAt,
+    createdAt: createdAt ?? this.createdAt,
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Recipe
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -2989,6 +3073,7 @@ class AppDB {
   final List<PeriodSymptomLog> periodSymptoms;
   final List<NotificationPrefs> notificationPrefs;
   final List<ReadingPlan> readingPlans;
+  final List<ExternalCalendar> externalCalendars;
 
   const AppDB({
     this.users = const [],
@@ -3029,6 +3114,7 @@ class AppDB {
     this.periodSymptoms = const [],
     this.notificationPrefs = const [],
     this.readingPlans = const [],
+    this.externalCalendars = const [],
   });
 
   factory AppDB.empty() => const AppDB();
@@ -3074,6 +3160,7 @@ class AppDB {
     periodSymptoms: _parseList(j['periodSymptoms'] ?? j['period_symptoms'], PeriodSymptomLog.fromJson),
     notificationPrefs: _parseList(j['notificationPrefs'] ?? j['notification_prefs'], NotificationPrefs.fromJson),
     readingPlans: _parseList(j['readingPlans'] ?? j['reading_plans'], ReadingPlan.fromJson),
+    externalCalendars: _parseList(j['externalCalendars'] ?? j['external_calendars'], ExternalCalendar.fromJson),
   );
 
   /// fromCloudJson handles Supabase snake_case table names -> AppDB fields
@@ -3116,6 +3203,7 @@ class AppDB {
     periodSymptoms: _parseList(cloud['period_symptoms'], PeriodSymptomLog.fromJson),
     notificationPrefs: const [],
     readingPlans: _parseList(cloud['reading_plans'], ReadingPlan.fromJson),
+    externalCalendars: _parseList(cloud['external_calendars'], ExternalCalendar.fromJson),
   );
 
   Map<String, dynamic> toJson() => {
@@ -3157,6 +3245,7 @@ class AppDB {
     'periodSymptoms': periodSymptoms.map((e) => e.toJson()).toList(),
     'notificationPrefs': notificationPrefs.map((e) => e.toJson()).toList(),
     'readingPlans': readingPlans.map((e) => e.toJson()).toList(),
+    'externalCalendars': externalCalendars.map((e) => e.toJson()).toList(),
   };
 
   AppDB copyWith({
@@ -3198,6 +3287,7 @@ class AppDB {
     List<PeriodSymptomLog>? periodSymptoms,
     List<NotificationPrefs>? notificationPrefs,
     List<ReadingPlan>? readingPlans,
+    List<ExternalCalendar>? externalCalendars,
     // Convenience alias params
     List<PrayerWallEntry>? prayerRequests,
     List<PeriodCycle>? periodEntries,
@@ -3246,6 +3336,7 @@ class AppDB {
     periodSymptoms: periodSymptoms ?? this.periodSymptoms,
     notificationPrefs: notificationPrefs ?? this.notificationPrefs,
     readingPlans: readingPlans ?? this.readingPlans,
+    externalCalendars: externalCalendars ?? this.externalCalendars,
   );
 
   // Convenience alias getters for screen compatibility
