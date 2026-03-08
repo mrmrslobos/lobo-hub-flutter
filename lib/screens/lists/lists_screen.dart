@@ -287,7 +287,7 @@ class _ListsScreenState extends State<ListsScreen> {
                           onTap: _showAiCategorization,
                           child: Container(
                             padding: const EdgeInsets.symmetric(vertical: 8),
-                            decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(8)),
+                            decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(8)),
                             alignment: Alignment.center,
                             child: const Text('Categorize', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12, color: Colors.white)),
                           ),
@@ -299,7 +299,7 @@ class _ListsScreenState extends State<ListsScreen> {
                           onTap: _showAiTextToChecklist,
                           child: Container(
                             padding: const EdgeInsets.symmetric(vertical: 8),
-                            decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(8)),
+                            decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(8)),
                             alignment: Alignment.center,
                             child: const Text('Text to List', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12, color: Colors.white)),
                           ),
@@ -901,7 +901,7 @@ class _ItemTile extends StatelessWidget {
       background: Container(
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 16),
-        decoration: BoxDecoration(color: AppTheme.error.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+        decoration: BoxDecoration(color: AppTheme.error.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
         child: const Icon(Icons.delete_outline_rounded, color: AppTheme.error, size: 20),
       ),
       onDismissed: (_) => onDelete(),

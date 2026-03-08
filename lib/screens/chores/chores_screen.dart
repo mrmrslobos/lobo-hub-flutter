@@ -207,7 +207,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
                                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
                                 decoration: isToday
                                     ? BoxDecoration(
-                                        color: AppTheme.primary.withOpacity(0.1),
+                                        color: AppTheme.primary.withValues(alpha: 0.1),
                                         borderRadius: BorderRadius.circular(8),
                                       )
                                     : null,
@@ -321,7 +321,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
                                       height: 24,
                                       decoration: BoxDecoration(
                                         color: checked
-                                            ? AppTheme.success.withOpacity(0.15)
+                                            ? AppTheme.success.withValues(alpha: 0.15)
                                             : Colors.transparent,
                                         borderRadius: BorderRadius.circular(6),
                                         border: Border.all(
@@ -385,9 +385,9 @@ class _PointsStrip extends StatelessWidget {
                 margin: const EdgeInsets.only(right: 8),
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
-                  color: idx == 0 ? AppTheme.primary.withOpacity(0.1) : AppTheme.stone50,
+                  color: idx == 0 ? AppTheme.primary.withValues(alpha: 0.1) : AppTheme.stone50,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: idx == 0 ? AppTheme.primary.withOpacity(0.3) : AppTheme.stone200),
+                  border: Border.all(color: idx == 0 ? AppTheme.primary.withValues(alpha: 0.3) : AppTheme.stone200),
                 ),
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
                   if (medal.isNotEmpty) Text(medal, style: const TextStyle(fontSize: 16)),
@@ -449,9 +449,9 @@ class _ChoreCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: doneToday ? AppTheme.success.withOpacity(0.05) : AppTheme.surface,
+          color: doneToday ? AppTheme.success.withValues(alpha: 0.05) : AppTheme.surface,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: doneToday ? AppTheme.success.withOpacity(0.3) : AppTheme.stone100),
+          border: Border.all(color: doneToday ? AppTheme.success.withValues(alpha: 0.3) : AppTheme.stone100),
         ),
         child: Row(children: [
           GestureDetector(
@@ -460,7 +460,7 @@ class _ChoreCard extends StatelessWidget {
               duration: const Duration(milliseconds: 200),
               width: 44, height: 44,
               decoration: BoxDecoration(
-                color: doneToday ? AppTheme.success.withOpacity(0.15) : AppTheme.stone50,
+                color: doneToday ? AppTheme.success.withValues(alpha: 0.15) : AppTheme.stone50,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: doneToday ? AppTheme.success : AppTheme.stone200),
               ),
@@ -510,7 +510,7 @@ class _Badge extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(6)),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         if (icon != null) ...[Icon(icon, size: 10, color: color), const SizedBox(width: 3)],
         Text(label, style: TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: color)),

@@ -25,7 +25,7 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final _textCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
-  Message? _replyTo;
+  ChatMessage? _replyTo;
   bool _sending = false;
 
   @override
@@ -59,7 +59,7 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() => _sending = true);
     try {
       const uuid = Uuid();
-      final msg = Message(
+      final msg = ChatMessage(
         id: uuid.v4(),
         familyId: provider.activeFamily!.id,
         userId: provider.activeUser!.id,
@@ -81,7 +81,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _addReaction(
-      AppProvider provider, Message msg, String emoji) async {
+      AppProvider provider, ChatMessage msg, String emoji) async {
     final userId = provider.activeUser!.id;
     final reactions = Map<String, List<String>>.from(
       msg.reactions.map((k, v) => MapEntry(k, List<String>.from(v))),
@@ -102,7 +102,7 @@ class _ChatScreenState extends State<ChatScreen> {
     await provider.saveAndSync(db.copyWith(messages: messages));
   }
 
-  void _showReactionPicker(AppProvider provider, Message msg) {
+  void _showReactionPicker(AppProvider provider, ChatMessage msg) {
     const emojis = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
     showModalBottomSheet(
       context: context,
@@ -163,7 +163,7 @@ class _ChatScreenState extends State<ChatScreen> {
         final myId = provider.activeUser?.id;
 
         final messages = familyId == null
-            ? <Message>[]
+            ? <ChatMessage>[]
             : (provider.db.messages
                 .where((m) => m.familyId == familyId)
                 .toList()
@@ -232,10 +232,10 @@ class _ChatScreenState extends State<ChatScreen> {
                                       msg.senderId);
 
                           // Reply reference
-                          Message? replyMsg;
+                          ChatMessage? replyMsg;
                           if (msg.replyToId != null) {
                             replyMsg = messages
-                                .cast<Message?>()
+                                .cast<ChatMessage?>()
                                 .firstWhere(
                                     (m) => m?.id == msg.replyToId,
                                     orElse: () => null);
@@ -393,11 +393,11 @@ class _ChatScreenState extends State<ChatScreen> {
 // ─── Message bubble ───────────────────────────────────────────────────────────
 
 class _MessageBubble extends StatelessWidget {
-  final Message msg;
+  final ChatMessage msg;
   final bool isMe;
   final User? sender;
   final bool showSenderInfo;
-  final Message? replyMsg;
+  final ChatMessage? replyMsg;
   final AppProvider provider;
   final VoidCallback onLongPress;
   final VoidCallback onReply;
@@ -487,7 +487,7 @@ class _MessageBubble extends StatelessWidget {
                           : Border.all(color: AppTheme.stone200),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.04),
+                          color: Colors.black.withValues(alpha: 0.04),
                           blurRadius: 4,
                           offset: const Offset(0, 2),
                         ),
@@ -607,7 +607,7 @@ class _MessageBubble extends StatelessWidget {
 // ─── Reply preview inside bubble ─────────────────────────────────────────────
 
 class _ReplyPreview extends StatelessWidget {
-  final Message replyMsg;
+  final ChatMessage replyMsg;
   final bool isMe;
   final AppProvider provider;
 
@@ -621,7 +621,7 @@ class _ReplyPreview extends StatelessWidget {
   Widget build(BuildContext context) {
     final replySender = provider.userById(replyMsg.senderId);
     final bgColor = isMe
-        ? Colors.white.withOpacity(0.15)
+        ? Colors.white.withValues(alpha: 0.15)
         : AppTheme.stone100;
     final textColor = isMe ? Colors.white70 : AppTheme.stone500;
     final nameColor = isMe ? Colors.white : AppTheme.primary;
@@ -692,7 +692,7 @@ class _ReactionChip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
         decoration: BoxDecoration(
           color: reacted
-              ? AppTheme.primary.withOpacity(0.12)
+              ? AppTheme.primary.withValues(alpha: 0.12)
               : AppTheme.stone100,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(

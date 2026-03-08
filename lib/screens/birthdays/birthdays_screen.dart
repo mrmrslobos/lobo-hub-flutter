@@ -157,7 +157,7 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
                         child: Row(children: [
                           Container(
                             width: 36, height: 36,
-                            decoration: BoxDecoration(color: AppTheme.success.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+                            decoration: BoxDecoration(color: AppTheme.success.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
                             child: const Icon(Icons.upcoming_rounded, size: 18, color: AppTheme.success),
                           ),
                           const SizedBox(width: 10),
@@ -299,12 +299,12 @@ class _OccasionCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: AppTheme.surface,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: daysUntil <= 7 ? AppTheme.success.withOpacity(0.3) : AppTheme.stone100),
+          border: Border.all(color: daysUntil <= 7 ? AppTheme.success.withValues(alpha: 0.3) : AppTheme.stone100),
         ),
         child: Row(children: [
           Container(
             width: 46, height: 46,
-            decoration: BoxDecoration(color: badgeColor.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+            decoration: BoxDecoration(color: badgeColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
             child: Center(child: Text(emoji, style: const TextStyle(fontSize: 22))),
           ),
           const SizedBox(width: 12),
@@ -326,7 +326,7 @@ class _OccasionCard extends StatelessWidget {
           Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(color: badgeColor.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+              decoration: BoxDecoration(color: badgeColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
               child: Text(
                 daysUntil == 0 ? 'TODAY! 🎉' : daysUntil == 1 ? 'Tomorrow' : 'in $daysUntil days',
                 style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w700, color: badgeColor),

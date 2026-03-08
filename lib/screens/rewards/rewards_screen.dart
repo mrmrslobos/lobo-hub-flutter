@@ -331,9 +331,9 @@ class _RewardCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: alreadyRedeemed ? AppTheme.success.withOpacity(0.05) : AppTheme.surface,
+        color: alreadyRedeemed ? AppTheme.success.withValues(alpha: 0.05) : AppTheme.surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: alreadyRedeemed ? AppTheme.success.withOpacity(0.3) : AppTheme.stone100),
+        border: Border.all(color: alreadyRedeemed ? AppTheme.success.withValues(alpha: 0.3) : AppTheme.stone100),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
@@ -349,7 +349,7 @@ class _RewardCard extends StatelessWidget {
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-            decoration: BoxDecoration(color: AppTheme.warning.withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
+            decoration: BoxDecoration(color: AppTheme.warning.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(6)),
             child: Text('${reward.pointCost} pts', style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.warning)),
           ),
           if (alreadyRedeemed)
@@ -462,7 +462,7 @@ class _RewardFormSheetState extends State<_RewardFormSheet> {
                     width: 44,
                     height: 44,
                     decoration: BoxDecoration(
-                      color: selected ? AppTheme.primary.withOpacity(0.1) : AppTheme.stone100,
+                      color: selected ? AppTheme.primary.withValues(alpha: 0.1) : AppTheme.stone100,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: selected ? AppTheme.primary : Colors.transparent, width: 2),
                     ),

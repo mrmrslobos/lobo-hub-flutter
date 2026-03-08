@@ -353,7 +353,7 @@ class _StatBox extends StatelessWidget {
                 fontWeight: FontWeight.w700,
                 fontSize: 10,
                 letterSpacing: 0.8,
-                color: textColor.withOpacity(0.7),
+                color: textColor.withValues(alpha: 0.7),
               ),
             ),
           ],
@@ -409,7 +409,7 @@ class _FilterChip extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                 decoration: BoxDecoration(
-                  color: selected ? Colors.white.withOpacity(0.25) : AppTheme.stone100,
+                  color: selected ? Colors.white.withValues(alpha: 0.25) : AppTheme.stone100,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
@@ -501,18 +501,18 @@ class _PrayerCard extends StatelessWidget {
             color: isGratitude
                 ? const Color(0xFFFFFBEB)
                 : isAnswered
-                    ? _warmGreen.withOpacity(0.05)
+                    ? _warmGreen.withValues(alpha: 0.05)
                     : Colors.white,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
                 color: isGratitude
                     ? const Color(0xFFFDE68A)
                     : isAnswered
-                        ? _warmGreen.withOpacity(0.25)
-                        : accentColor.withOpacity(0.2)),
+                        ? _warmGreen.withValues(alpha: 0.25)
+                        : accentColor.withValues(alpha: 0.2)),
             boxShadow: [
               BoxShadow(
-                color: accentColor.withOpacity(0.07),
+                color: accentColor.withValues(alpha: 0.07),
                 blurRadius: 10,
                 offset: const Offset(0, 3),
               ),
@@ -529,7 +529,7 @@ class _PrayerCard extends StatelessWidget {
                   color: isGratitude
                       ? const Color(0xFFFEF3C7)
                       : isAnswered
-                          ? _warmGreen.withOpacity(0.1)
+                          ? _warmGreen.withValues(alpha: 0.1)
                           : const Color(0xFFEEF2FF),
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -562,7 +562,7 @@ class _PrayerCard extends StatelessWidget {
                               color: isGratitude
                                   ? const Color(0xFFFEF3C7)
                                   : isAnswered
-                                      ? _warmGreen.withOpacity(0.1)
+                                      ? _warmGreen.withValues(alpha: 0.1)
                                       : const Color(0xFFEEF2FF),
                               borderRadius: BorderRadius.circular(6),
                             ),
@@ -659,7 +659,7 @@ class _PrayerCard extends StatelessWidget {
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
                     color: hasPrayed
-                        ? accentColor.withOpacity(0.12)
+                        ? accentColor.withValues(alpha: 0.12)
                         : AppTheme.stone100,
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
@@ -692,7 +692,7 @@ class _PrayerCard extends StatelessWidget {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
-                    color: _warmGreen.withOpacity(0.08),
+                    color: _warmGreen.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Text(
@@ -885,7 +885,7 @@ class _TypeChip extends StatelessWidget {
         duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.symmetric(vertical: 11),
         decoration: BoxDecoration(
-          color: selected ? color.withOpacity(0.1) : AppTheme.stone50,
+          color: selected ? color.withValues(alpha: 0.1) : AppTheme.stone50,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: selected ? color : AppTheme.stone200,

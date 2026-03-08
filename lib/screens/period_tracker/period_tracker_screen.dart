@@ -592,7 +592,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
-              color: const Color(0xFFFCE7F3).withOpacity(0.5),
+              color: const Color(0xFFFCE7F3).withValues(alpha: 0.5),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Row(children: const [
@@ -732,7 +732,7 @@ class _PeriodCalendar extends StatelessWidget {
                           height: 44,
                           margin: const EdgeInsets.all(1),
                           decoration: BoxDecoration(
-                            color: isPeriod ? const Color(0xFFDC2626).withOpacity(0.12) : null,
+                            color: isPeriod ? const Color(0xFFDC2626).withValues(alpha: 0.12) : null,
                             shape: BoxShape.circle,
                             border: isToday
                                 ? Border.all(color: const Color(0xFFE11D48), width: 2)
@@ -944,7 +944,7 @@ class _PeriodLogSheetState extends State<_PeriodLogSheet> {
                         duration: const Duration(milliseconds: 150),
                         height: 44,
                         decoration: BoxDecoration(
-                          color: isSelected ? const Color(0xFFEC4899).withOpacity(0.15) : AppTheme.stone50,
+                          color: isSelected ? const Color(0xFFEC4899).withValues(alpha: 0.15) : AppTheme.stone50,
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(color: isSelected ? const Color(0xFFEC4899) : AppTheme.stone200, width: isSelected ? 2 : 1),
                         ),
@@ -1004,7 +1004,7 @@ class _PeriodLogSheetState extends State<_PeriodLogSheet> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFCE7F3).withOpacity(0.5),
+                  color: const Color(0xFFFCE7F3).withValues(alpha: 0.5),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Row(children: [
@@ -1316,7 +1316,7 @@ class _SymptomsSheetState extends State<_SymptomsSheet> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFCE7F3).withOpacity(0.5),
+                  color: const Color(0xFFFCE7F3).withValues(alpha: 0.5),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Row(children: [

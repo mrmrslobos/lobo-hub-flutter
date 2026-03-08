@@ -149,7 +149,7 @@ class _LocationScreenState extends State<LocationScreen> {
                     value: isSharing,
                     onChanged: (v) => _toggleSharing(myShare, v),
                     activeColor: Colors.white,
-                    activeTrackColor: Colors.white.withOpacity(0.3),
+                    activeTrackColor: Colors.white.withValues(alpha: 0.3),
                   ),
                 ]),
               ),

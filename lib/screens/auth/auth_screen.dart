@@ -410,7 +410,7 @@ class _AuthScreenState extends State<AuthScreen> {
           ),
           if (_loading)
             Container(
-              color: Colors.black.withOpacity(0.25),
+              color: Colors.black.withValues(alpha: 0.25),
               child: const Center(
                 child: CircularProgressIndicator(
                   valueColor:
@@ -434,7 +434,7 @@ class _AuthScreenState extends State<AuthScreen> {
             borderRadius: BorderRadius.circular(20),
             boxShadow: [
               BoxShadow(
-                color: AppTheme.primary.withOpacity(0.4),
+                color: AppTheme.primary.withValues(alpha: 0.4),
                 blurRadius: 20,
                 offset: const Offset(0, 8),
               ),
@@ -467,7 +467,7 @@ class _AuthScreenState extends State<AuthScreen> {
         border: Border.all(color: AppTheme.stone100),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
+            color: Colors.black.withValues(alpha: 0.06),
             blurRadius: 24,
             offset: const Offset(0, 8),
           ),
@@ -762,9 +762,9 @@ class _AuthScreenState extends State<AuthScreen> {
       child: Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.06),
+          color: color.withValues(alpha: 0.06),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color.withOpacity(0.2)),
+          border: Border.all(color: color.withValues(alpha: 0.2)),
         ),
         child: Row(
           children: [
@@ -772,7 +772,7 @@ class _AuthScreenState extends State<AuthScreen> {
               width: 48,
               height: 48,
               decoration: BoxDecoration(
-                color: color.withOpacity(0.12),
+                color: color.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Icon(icon, color: color, size: 24),
@@ -926,7 +926,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
                     color: selected
-                        ? AppTheme.primary.withOpacity(0.1)
+                        ? AppTheme.primary.withValues(alpha: 0.1)
                         : AppTheme.stone100,
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
@@ -1027,7 +1027,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   duration: const Duration(milliseconds: 150),
                   decoration: BoxDecoration(
                     color: selected
-                        ? AppTheme.primary.withOpacity(0.08)
+                        ? AppTheme.primary.withValues(alpha: 0.08)
                         : AppTheme.stone50,
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
@@ -1244,9 +1244,9 @@ class _AuthScreenState extends State<AuthScreen> {
         padding:
             const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: AppTheme.error.withOpacity(0.08),
+          color: AppTheme.error.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppTheme.error.withOpacity(0.25)),
+          border: Border.all(color: AppTheme.error.withValues(alpha: 0.25)),
         ),
         child: Row(
           children: [

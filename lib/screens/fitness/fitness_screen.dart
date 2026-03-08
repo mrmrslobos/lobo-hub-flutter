@@ -253,7 +253,7 @@ class _FitnessScreenState extends State<FitnessScreen> {
                   Row(
                     children: [
                       Icon(Icons.auto_awesome_rounded,
-                          color: Colors.white.withOpacity(0.9), size: 20),
+                          color: Colors.white.withValues(alpha: 0.9), size: 20),
                       const SizedBox(width: 8),
                       const Text('AI Health Coach',
                           style: TextStyle(
@@ -268,7 +268,7 @@ class _FitnessScreenState extends State<FitnessScreen> {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.15),
+                        color: Colors.white.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Text('"$_motivation"',
@@ -276,7 +276,7 @@ class _FitnessScreenState extends State<FitnessScreen> {
                               fontFamily: 'Inter',
                               fontSize: 14,
                               fontStyle: FontStyle.italic,
-                              color: Colors.white.withOpacity(0.95),
+                              color: Colors.white.withValues(alpha: 0.95),
                               height: 1.5)),
                     ),
                     const SizedBox(height: 10),
@@ -286,7 +286,7 @@ class _FitnessScreenState extends State<FitnessScreen> {
                       style: TextStyle(
                           fontFamily: 'Inter',
                           fontSize: 13,
-                          color: Colors.white.withOpacity(0.85),
+                          color: Colors.white.withValues(alpha: 0.85),
                           height: 1.5),
                     ),
                   const SizedBox(height: 14),
@@ -318,7 +318,7 @@ class _FitnessScreenState extends State<FitnessScreen> {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 16, vertical: 10),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
+                            color: Colors.white.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: const Text('New Plan',
@@ -546,10 +546,10 @@ class _FitnessScreenState extends State<FitnessScreen> {
                   decoration: BoxDecoration(
                     color: AppTheme.primaryLight,
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: AppTheme.primary.withOpacity(0.2)),
+                    border: Border.all(color: AppTheme.primary.withValues(alpha: 0.2)),
                   ),
                   child: Column(children: [
-                    Icon(Icons.fitness_center_rounded, size: 32, color: AppTheme.primary.withOpacity(0.5)),
+                    Icon(Icons.fitness_center_rounded, size: 32, color: AppTheme.primary.withValues(alpha: 0.5)),
                     const SizedBox(height: 8),
                     const Text("Click 'New Plan' to get a personalised AI fitness plan based on your profile.",
                         textAlign: TextAlign.center,
@@ -741,7 +741,7 @@ Apply the requested change while keeping everything else sensible.
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: isExpanded ? AppTheme.primary.withOpacity(0.3) : AppTheme.stone100),
+                  border: Border.all(color: isExpanded ? AppTheme.primary.withValues(alpha: 0.3) : AppTheme.stone100),
                 ),
                 child: Column(children: [
                   Padding(
@@ -1388,7 +1388,7 @@ class _Chip extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
         decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
+            color: color.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(6)),
         child: Text(label,
             style: TextStyle(

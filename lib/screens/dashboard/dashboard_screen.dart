@@ -696,7 +696,7 @@ Return ONLY the JSON array, no markdown.''',
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -834,7 +834,7 @@ Return ONLY the JSON array, no markdown.''',
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: hasAnnouncement ? AppTheme.stone200 : AppTheme.primary.withOpacity(0.25)),
+          border: Border.all(color: hasAnnouncement ? AppTheme.stone200 : AppTheme.primary.withValues(alpha: 0.25)),
         ),
         child: Row(children: [
           Icon(Icons.campaign_outlined, color: hasAnnouncement ? AppTheme.stone500 : AppTheme.stone400, size: 20),
@@ -851,7 +851,7 @@ Return ONLY the JSON array, no markdown.''',
               child: const Icon(Icons.close, size: 16, color: AppTheme.stone400),
             )
           else
-            Icon(Icons.edit_outlined, size: 16, color: AppTheme.primary.withOpacity(0.5)),
+            Icon(Icons.edit_outlined, size: 16, color: AppTheme.primary.withValues(alpha: 0.5)),
         ]),
       ),
     );
@@ -900,9 +900,9 @@ Return ONLY the JSON array, no markdown.''',
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.refresh_rounded, size: 13, color: const Color(0xFFD97706).withOpacity(0.7)),
+                    Icon(Icons.refresh_rounded, size: 13, color: const Color(0xFFD97706).withValues(alpha: 0.7)),
                     const SizedBox(width: 4),
-                    Text('Refresh', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w600, color: const Color(0xFFD97706).withOpacity(0.8))),
+                    Text('Refresh', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w600, color: const Color(0xFFD97706).withValues(alpha: 0.8))),
                   ]),
                 ),
               ),
@@ -914,7 +914,7 @@ Return ONLY the JSON array, no markdown.''',
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 child: Row(children: [
-                  SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 1.5, valueColor: AlwaysStoppedAnimation<Color>(const Color(0xFFD97706).withOpacity(0.5)))),
+                  SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 1.5, valueColor: AlwaysStoppedAnimation<Color>(const Color(0xFFD97706).withValues(alpha: 0.5)))),
                   const SizedBox(width: 10),
                   const Text('Gemini is analysing your family data...', style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: Color(0xFFB45309))),
                 ]),
@@ -940,7 +940,7 @@ Return ONLY the JSON array, no markdown.''',
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFFDE68A).withOpacity(0.5)),
+        border: Border.all(color: const Color(0xFFFDE68A).withValues(alpha: 0.5)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1010,7 +1010,7 @@ Return ONLY the JSON array, no markdown.''',
                   onTap: _monthlySummaryLoading ? null : _loadMonthlySummary,
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(10)),
+                    decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(10)),
                     child: _monthlySummaryLoading
                         ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                         : const Text('Generate', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12, color: Colors.white)),
@@ -1037,7 +1037,7 @@ Return ONLY the JSON array, no markdown.''',
                 const SizedBox(height: 8),
                 Container(
                   padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: Colors.white.withOpacity(0.15), borderRadius: BorderRadius.circular(12)),
+                  decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(12)),
                   child: Text(_monthlySummary!['encouragement'].toString(), style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: Colors.white, fontStyle: FontStyle.italic)),
                 ),
               ],
@@ -1140,7 +1140,7 @@ Return ONLY the JSON array, no markdown.''',
         child: Row(children: [
           Container(
             width: 40, height: 40,
-            decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(10)),
+            decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(10)),
             child: const Icon(Icons.bar_chart_rounded, color: Colors.white, size: 22),
           ),
           const SizedBox(width: 14),
@@ -1153,7 +1153,7 @@ Return ONLY the JSON array, no markdown.''',
           )),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(8)),
+            decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(8)),
             child: const Text('Generate\nRecap', textAlign: TextAlign.center, style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 11, color: Colors.white)),
           ),
         ]),
@@ -1219,7 +1219,7 @@ Return ONLY the JSON array, no markdown.''',
           ]),
           const SizedBox(height: 12),
           if (events.isEmpty)
-            Text('No events on the horizon.', style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontStyle: FontStyle.italic, color: Colors.white.withOpacity(0.7)))
+            Text('No events on the horizon.', style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontStyle: FontStyle.italic, color: Colors.white.withValues(alpha: 0.7)))
           else
             ...events.take(3).map((e) => Padding(
               padding: const EdgeInsets.only(bottom: 8),
