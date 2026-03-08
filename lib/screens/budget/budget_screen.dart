@@ -201,7 +201,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
     final lines = <String>['Date,Description,Category,Type,Amount'];
     for (final e in sorted) {
       final date = DateFormat('yyyy-MM-dd').format(e.date);
-      final desc = e.description.replaceAll(',', ' ');
+      final desc = e.title.replaceAll(',', ' ');
       final cat = e.category.name;
       final type = e.isIncome ? 'INCOME' : 'EXPENSE';
       final amt = e.amount.toStringAsFixed(2);
@@ -227,7 +227,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
     }
     final catLimits = <String, double>{};
     for (final c in categories) {
-      catLimits[c.name] = c.monthlyLimit;
+      catLimits[c.name] = c.limit;
     }
 
     showDialog(
@@ -279,7 +279,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
                 padding: const EdgeInsets.symmetric(vertical: 3),
                 child: Row(children: [
                   SizedBox(width: 80, child: Text(DateFormat('MMM d').format(e.date), style: const TextStyle(fontSize: 12, color: AppTheme.stone500))),
-                  Expanded(child: Text(e.description, style: const TextStyle(fontSize: 13, fontFamily: 'Inter'), overflow: TextOverflow.ellipsis)),
+                  Expanded(child: Text(e.title, style: const TextStyle(fontSize: 13, fontFamily: 'Inter'), overflow: TextOverflow.ellipsis)),
                   Text(
                     '${e.isIncome ? '+' : '-'}${_formatCurrency(e.amount)}',
                     style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: e.isIncome ? const Color(0xFF166534) : const Color(0xFF9F1239)),

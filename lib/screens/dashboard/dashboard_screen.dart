@@ -82,8 +82,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final monthName = DateFormat('MMMM yyyy').format(now);
 
     // Gather monthly stats
-    final tasksCreated = db.tasks.where((t) => t.familyId == familyId && t.date.isAfter(monthStart)).length;
-    final tasksCompleted = db.tasks.where((t) => t.familyId == familyId && t.date.isAfter(monthStart) && t.completed).length;
+    final tasksCreated = db.tasks.where((t) => t.familyId == familyId && t.dueDate != null && t.dueDate!.isAfter(monthStart)).length;
+    final tasksCompleted = db.tasks.where((t) => t.familyId == familyId && t.dueDate != null && t.dueDate!.isAfter(monthStart) && t.completed).length;
     final mealsPlanned = db.mealPlans.where((m) => m.familyId == familyId && m.date.isAfter(monthStart)).length;
     final devotionals = db.devotionalEntries.where((d) => d.familyId == familyId && d.date.isAfter(monthStart)).length;
     final workouts = db.fitnessLogs.where((f) => f.familyId == familyId && f.date.isAfter(monthStart)).length;
