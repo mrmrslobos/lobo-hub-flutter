@@ -169,7 +169,7 @@ class _AuthScreenState extends State<AuthScreen> {
       if (membership != null) {
         family = provider.db.families
             .cast<Family?>()
-            .firstWhere((f) => f?.id == membership.familyId,
+            .firstWhere((f) => f?.id == membership!.familyId,
                 orElse: () => null);
       }
 
