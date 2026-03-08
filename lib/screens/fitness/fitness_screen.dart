@@ -28,6 +28,37 @@ enum _FitnessFilter { all, mine }
 
 class _FitnessScreenState extends State<FitnessScreen> {
   _FitnessFilter _filter = _FitnessFilter.mine;
+  String? _motivation;
+  bool _motivationLoading = false;
+
+  Future<void> _getMotivation() async {
+    setState(() => _motivationLoading = true);
+
+    final provider = context.read<AppProvider>();
+    final user = provider.activeUser;
+    final db = provider.db;
+    final family = provider.activeFamily;
+    final familyId = family?.id ?? '';
+
+    final logsCount = db.fitnessLogs.where((l) => l.familyId == familyId).length;
+    final habitsCount = db.dailyHabits.where((h) => h.familyId == familyId).length;
+
+    const systemPrompt = 'You are a supportive fitness coach. Keep it short and punchy.';
+    final prompt = 'Provide a short, highly motivating message for a family with ${user?.name ?? 'someone'} '
+        'who has logged $logsCount workouts and has $habitsCount daily habits. '
+        'Keep it to 1-2 sentences, encouraging and personal.';
+
+    try {
+      final raw = await AiService.ask(prompt: prompt, module: 'fitness', systemPrompt: systemPrompt);
+      if (mounted && raw != null) {
+        setState(() { _motivation = raw.trim(); _motivationLoading = false; });
+      } else {
+        if (mounted) setState(() => _motivationLoading = false);
+      }
+    } catch (e) {
+      if (mounted) setState(() => _motivationLoading = false);
+    }
+  }
 
   void _showAddSheet() {
     showModalBottomSheet(
@@ -218,31 +249,72 @@ class _FitnessScreenState extends State<FitnessScreen> {
                     ],
                   ),
                   const SizedBox(height: 10),
-                  Text(
-                    'Click the button for a personalized motivation boost based on your recent activity.',
-                    style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 13,
-                        color: Colors.white.withOpacity(0.85),
-                        height: 1.5),
-                  ),
-                  const SizedBox(height: 14),
-                  GestureDetector(
-                    onTap: _showAiPlanSheet,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 20, vertical: 10),
+                  if (_motivation != null) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: Colors.white.withOpacity(0.15),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: const Text('Get Motivation',
+                      child: Text('"$_motivation"',
                           style: TextStyle(
                               fontFamily: 'Inter',
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
-                              color: Color(0xFF6366F1))),
+                              fontSize: 14,
+                              fontStyle: FontStyle.italic,
+                              color: Colors.white.withOpacity(0.95),
+                              height: 1.5)),
                     ),
+                    const SizedBox(height: 10),
+                  ] else
+                    Text(
+                      'Get a motivation boost or generate a personalized fitness plan.',
+                      style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 13,
+                          color: Colors.white.withOpacity(0.85),
+                          height: 1.5),
+                    ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      GestureDetector(
+                        onTap: _motivationLoading ? null : _getMotivation,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: _motivationLoading
+                              ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF6366F1)))
+                              : const Text('Motivate Me',
+                                  style: TextStyle(
+                                      fontFamily: 'Inter',
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 13,
+                                      color: Color(0xFF6366F1))),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: _showAiPlanSheet,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Text('New Plan',
+                              style: TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13,
+                                  color: Colors.white)),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -420,6 +492,78 @@ class _StoredPlanView extends StatefulWidget {
 
 class _StoredPlanViewState extends State<_StoredPlanView> {
   int _expandedDay = 0;
+  final _refineController = TextEditingController();
+  bool _refining = false;
+
+  @override
+  void dispose() {
+    _refineController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _refinePlan() async {
+    final request = _refineController.text.trim();
+    if (request.isEmpty) return;
+    setState(() => _refining = true);
+
+    final currentPlanJson = jsonEncode(widget.plan);
+    final profile = widget.plan['profile'] as Map? ?? {};
+
+    const systemPrompt =
+        'You are updating an existing weekly fitness plan based on a user\'s refinement request. Always respond with valid JSON only, no markdown fences.';
+    final prompt = '''
+Current plan (JSON):
+$currentPlanJson
+
+User's profile:
+${profile.entries.map((e) => '- ${e.key}: ${e.value}').join('\n')}
+
+The user wants to make this change:
+"$request"
+
+Return the COMPLETE updated plan in the same JSON format:
+{"summary": "...", "weeklyPlan": [...], "tips": [...]}
+
+Apply the requested change while keeping everything else sensible.
+''';
+
+    try {
+      final raw = await AiService.ask(prompt: prompt, module: 'fitness', systemPrompt: systemPrompt);
+      if (raw == null || !mounted) {
+        if (mounted) setState(() => _refining = false);
+        return;
+      }
+      var cleaned = raw.trim();
+      if (cleaned.startsWith('```')) cleaned = cleaned.substring(cleaned.indexOf('\n') + 1);
+      if (cleaned.endsWith('```')) cleaned = cleaned.substring(0, cleaned.lastIndexOf('```'));
+      cleaned = cleaned.trim();
+
+      final decoded = jsonDecode(cleaned);
+      if (decoded is Map<String, dynamic>) {
+        // Save the refined plan
+        final provider = context.read<AppProvider>();
+        final db = provider.db;
+        final userId = provider.activeUser?.id ?? '';
+        final plans = db.fitnessPlans.toList();
+        plans.removeWhere((p) => p is Map && p['userId'] == userId);
+        plans.add({...decoded, 'profile': profile, 'userId': userId, 'createdAt': DateTime.now().toIso8601String()});
+        await provider.saveAndSync(db.copyWith(fitnessPlans: plans));
+
+        if (mounted) {
+          _refineController.clear();
+          setState(() => _refining = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Plan refined successfully!'), behavior: SnackBarBehavior.floating),
+          );
+        }
+      } else {
+        if (mounted) setState(() => _refining = false);
+      }
+    } catch (e) {
+      debugPrint('[Fitness] refine error: $e');
+      if (mounted) setState(() => _refining = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -563,6 +707,57 @@ class _StoredPlanViewState extends State<_StoredPlanView> {
             ]),
           ),
         ],
+
+        // AI Refine section
+        const SizedBox(height: 12),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFFEEF2FF),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFC7D2FE)),
+          ),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Row(children: [
+              Icon(Icons.edit_note_rounded, size: 18, color: Color(0xFF6366F1)),
+              SizedBox(width: 6),
+              Text('Refine Plan', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: Color(0xFF6366F1))),
+            ]),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _refineController,
+              maxLines: 2,
+              decoration: InputDecoration(
+                hintText: 'e.g. "Replace squats with lunges" or "Add more cardio"',
+                hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFC7D2FE))),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFC7D2FE))),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF6366F1), width: 1.5)),
+                contentPadding: const EdgeInsets.all(10),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: GestureDetector(
+                onTap: _refining ? null : _refinePlan,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF6366F1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: _refining
+                      ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Text('Refine', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12, color: Colors.white)),
+                ),
+              ),
+            ),
+          ]),
+        ),
       ]),
     );
   }

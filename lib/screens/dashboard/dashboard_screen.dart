@@ -52,6 +52,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _suggestionsLoading = true;
   bool _suggestionsLoaded = false;
 
+  // Monthly Summary
+  Map<String, dynamic>? _monthlySummary;
+  bool _monthlySummaryLoading = false;
+
   @override
   void initState() {
     super.initState();
@@ -62,6 +66,75 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final provider = context.read<AppProvider>();
     await provider.saveAndSync(provider.db);
     await _loadAISuggestions();
+  }
+
+  Future<void> _loadMonthlySummary() async {
+    if (_monthlySummaryLoading) return;
+    setState(() => _monthlySummaryLoading = true);
+
+    final provider = context.read<AppProvider>();
+    final db = provider.db;
+    final familyId = provider.activeFamily?.id ?? '';
+    final familyName = provider.activeFamily?.name ?? 'Family';
+    final now = DateTime.now();
+    final monthStart = DateTime(now.year, now.month, 1);
+    final monthName = DateFormat('MMMM yyyy').format(now);
+
+    // Gather monthly stats
+    final tasksCreated = db.tasks.where((t) => t.familyId == familyId && t.date.isAfter(monthStart)).length;
+    final tasksCompleted = db.tasks.where((t) => t.familyId == familyId && t.date.isAfter(monthStart) && t.completed).length;
+    final mealsPlanned = db.mealPlans.where((m) => m.familyId == familyId && m.date.isAfter(monthStart)).length;
+    final devotionals = db.devotionalEntries.where((d) => d.familyId == familyId && d.date.isAfter(monthStart)).length;
+    final workouts = db.fitnessLogs.where((f) => f.familyId == familyId && f.date.isAfter(monthStart)).length;
+
+    final budgetEntries = db.budgetEntries.where((e) => e.familyId == familyId && e.date.isAfter(monthStart)).toList();
+    final income = budgetEntries.where((e) => e.isIncome).fold<double>(0, (s, e) => s + e.amount);
+    final expenses = budgetEntries.where((e) => !e.isIncome).fold<double>(0, (s, e) => s + e.amount);
+
+    const systemPrompt =
+        'You are a warm, encouraging family assistant for a Christian family app. Always respond with valid JSON only, no markdown fences.';
+    final prompt = '''
+Generate a monthly recap for the $familyName family for $monthName.
+
+Data:
+- Tasks: $tasksCompleted completed out of $tasksCreated created
+- Meals Planned: $mealsPlanned
+- Devotionals Shared: $devotionals
+- Workouts Logged: $workouts
+- Budget: \$${income.toStringAsFixed(0)} income / \$${expenses.toStringAsFixed(0)} expenses
+
+Return a JSON object:
+{
+  "headline": "string (catchy summary)",
+  "highlights": [{"icon": "emoji", "text": "string"}],
+  "encouragement": "string (celebrating progress)",
+  "faithNote": "string (scripture or prayer)",
+  "topAchievement": "string",
+  "areasToFocus": ["string", "string"]
+}
+''';
+
+    try {
+      final raw = await AiService.ask(prompt: prompt, module: 'dashboard', systemPrompt: systemPrompt);
+      if (raw == null || !mounted) {
+        if (mounted) setState(() => _monthlySummaryLoading = false);
+        return;
+      }
+      var cleaned = raw.trim();
+      if (cleaned.startsWith('```')) cleaned = cleaned.substring(cleaned.indexOf('\n') + 1);
+      if (cleaned.endsWith('```')) cleaned = cleaned.substring(0, cleaned.lastIndexOf('```'));
+      cleaned = cleaned.trim();
+
+      final decoded = jsonDecode(cleaned);
+      if (decoded is Map<String, dynamic>) {
+        setState(() { _monthlySummary = decoded; _monthlySummaryLoading = false; });
+      } else {
+        setState(() => _monthlySummaryLoading = false);
+      }
+    } catch (e) {
+      debugPrint('[Dashboard] monthly summary error: $e');
+      if (mounted) setState(() => _monthlySummaryLoading = false);
+    }
   }
 
   Future<void> _loadAISuggestions() async {
@@ -378,6 +451,7 @@ Return ONLY the JSON array, no markdown.''',
                 _buildActionButtons(context),
                 _buildAnnouncementSection(context, provider, family),
                 _buildAISuggestionsSection(),
+                _buildMonthlySummarySection(),
                 _buildStatsGrid(
                   tasksDue: tasksDueToday.length,
                   choresCompleted: choresCompletedToday,
@@ -640,6 +714,90 @@ Return ONLY the JSON array, no markdown.''',
             Text(s.reasoning!, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontStyle: FontStyle.italic, color: Color(0xFFB45309))),
           ],
         ],
+      ),
+    );
+  }
+
+  // ── Monthly Summary Section ─────────────────────────────────────────────────
+
+  Widget _buildMonthlySummarySection() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)]),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              const Icon(Icons.insights_rounded, size: 20, color: Colors.white),
+              const SizedBox(width: 8),
+              const Expanded(child: Text('Monthly Summary', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 15, color: Colors.white))),
+              if (_monthlySummary == null)
+                GestureDetector(
+                  onTap: _monthlySummaryLoading ? null : _loadMonthlySummary,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(10)),
+                    child: _monthlySummaryLoading
+                        ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : const Text('Generate', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12, color: Colors.white)),
+                  ),
+                ),
+            ]),
+            if (_monthlySummary != null) ...[
+              const SizedBox(height: 12),
+              Text(_monthlySummary!['headline']?.toString() ?? '', style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: Colors.white)),
+              const SizedBox(height: 10),
+              if (_monthlySummary!['highlights'] is List)
+                ...(_monthlySummary!['highlights'] as List).map((h) {
+                  final icon = h is Map ? (h['icon']?.toString() ?? '') : '';
+                  final text = h is Map ? (h['text']?.toString() ?? '') : h.toString();
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text('$icon ', style: const TextStyle(fontSize: 14)),
+                      Expanded(child: Text(text, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: Colors.white70))),
+                    ]),
+                  );
+                }),
+              if (_monthlySummary!['encouragement'] != null) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(color: Colors.white.withOpacity(0.15), borderRadius: BorderRadius.circular(12)),
+                  child: Text(_monthlySummary!['encouragement'].toString(), style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: Colors.white, fontStyle: FontStyle.italic)),
+                ),
+              ],
+              if (_monthlySummary!['faithNote'] != null) ...[
+                const SizedBox(height: 8),
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('\u{1F4D6} ', style: TextStyle(fontSize: 14)),
+                  Expanded(child: Text(_monthlySummary!['faithNote'].toString(), style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white60))),
+                ]),
+              ],
+              if (_monthlySummary!['areasToFocus'] is List) ...[
+                const SizedBox(height: 8),
+                const Text('Focus Areas', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12, color: Colors.white54)),
+                const SizedBox(height: 4),
+                ...(_monthlySummary!['areasToFocus'] as List).map((a) => Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Row(children: [
+                    Container(width: 5, height: 5, margin: const EdgeInsets.only(right: 8), decoration: const BoxDecoration(color: Colors.white54, shape: BoxShape.circle)),
+                    Expanded(child: Text(a.toString(), style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white70))),
+                  ]),
+                )),
+              ],
+            ] else if (!_monthlySummaryLoading)
+              const Padding(
+                padding: EdgeInsets.only(top: 6),
+                child: Text('Tap Generate for an AI-powered recap of your family\'s month.', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white60)),
+              ),
+          ],
+        ),
       ),
     );
   }
