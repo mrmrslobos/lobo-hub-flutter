@@ -1,5 +1,7 @@
 // lib/screens/budget/budget_screen.dart
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
@@ -118,6 +120,179 @@ class _BudgetScreenState extends State<BudgetScreen> {
     );
   }
 
+  void _showImportSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _AiBankStatementImportSheet(),
+    );
+  }
+
+  void _showExportMenu({
+    required List<BudgetEntry> entries,
+    required List<BudgetCategoryRecord> categories,
+    required double totalIncome,
+    required double totalExpenses,
+    required String familyName,
+  }) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: AppTheme.surface,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Center(
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(color: AppTheme.stone200, borderRadius: BorderRadius.circular(2)),
+                ),
+              ),
+              const Text('Export Finance Report', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 18, color: AppTheme.stone900)),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.table_chart_rounded, color: AppTheme.primary),
+                title: const Text('Copy as CSV', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+                subtitle: const Text('Copy transaction data to clipboard', style: TextStyle(fontSize: 12)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                tileColor: AppTheme.stone50,
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _exportCsv(entries);
+                },
+              ),
+              const SizedBox(height: 8),
+              ListTile(
+                leading: const Icon(Icons.summarize_rounded, color: AppTheme.primary),
+                title: const Text('View Report', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+                subtitle: const Text('View formatted finance summary', style: TextStyle(fontSize: 12)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                tileColor: AppTheme.stone50,
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showReportView(
+                    entries: entries,
+                    categories: categories,
+                    totalIncome: totalIncome,
+                    totalExpenses: totalExpenses,
+                    familyName: familyName,
+                  );
+                },
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _exportCsv(List<BudgetEntry> entries) {
+    final sorted = List<BudgetEntry>.from(entries)
+      ..sort((a, b) => b.date.compareTo(a.date));
+    final lines = <String>['Date,Description,Category,Type,Amount'];
+    for (final e in sorted) {
+      final date = DateFormat('yyyy-MM-dd').format(e.date);
+      final desc = e.description.replaceAll(',', ' ');
+      final cat = e.category.name;
+      final type = e.isIncome ? 'INCOME' : 'EXPENSE';
+      final amt = e.amount.toStringAsFixed(2);
+      lines.add('$date,$desc,$cat,$type,$amt');
+    }
+    Clipboard.setData(ClipboardData(text: lines.join('\n')));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('CSV copied to clipboard!')),
+    );
+  }
+
+  void _showReportView({
+    required List<BudgetEntry> entries,
+    required List<BudgetCategoryRecord> categories,
+    required double totalIncome,
+    required double totalExpenses,
+    required String familyName,
+  }) {
+    final net = totalIncome - totalExpenses;
+    final byCategory = <String, double>{};
+    for (final e in entries.where((e) => !e.isIncome)) {
+      byCategory[e.category.name] = (byCategory[e.category.name] ?? 0) + e.amount;
+    }
+    final catLimits = <String, double>{};
+    for (final c in categories) {
+      catLimits[c.name] = c.monthlyLimit;
+    }
+
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog.fullscreen(
+        child: Scaffold(
+          appBar: AppBar(
+            title: const Text('Finance Report', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700)),
+            leading: IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+          ),
+          body: ListView(
+            padding: const EdgeInsets.all(20),
+            children: [
+              Text('Family Finance Report', style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 22, color: AppTheme.stone900)),
+              const SizedBox(height: 4),
+              Text('Generated ${DateFormat('MMMM d, yyyy').format(DateTime.now())} · $familyName',
+                style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500)),
+              const SizedBox(height: 20),
+              // Summary cards
+              Row(children: [
+                _ReportSummaryBox(label: 'Income', value: _formatCurrency(totalIncome), color: const Color(0xFF166534), bgColor: const Color(0xFFF0FDF4)),
+                const SizedBox(width: 8),
+                _ReportSummaryBox(label: 'Expenses', value: _formatCurrency(totalExpenses), color: const Color(0xFF9F1239), bgColor: const Color(0xFFFFF1F2)),
+                const SizedBox(width: 8),
+                _ReportSummaryBox(label: 'Net', value: _formatCurrency(net), color: net >= 0 ? const Color(0xFF166534) : const Color(0xFF9F1239), bgColor: net >= 0 ? const Color(0xFFF0FDF4) : const Color(0xFFFFF1F2)),
+              ]),
+              const SizedBox(height: 24),
+              // Category breakdown
+              const Text('BUDGET CATEGORIES', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 11, letterSpacing: 1.0, color: AppTheme.stone400)),
+              const SizedBox(height: 8),
+              ...byCategory.entries.map((e) {
+                final limit = catLimits[e.key] ?? 0;
+                final pct = limit > 0 ? (e.value / limit * 100).toStringAsFixed(0) : '—';
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(children: [
+                    Expanded(flex: 3, child: Text(e.key, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13))),
+                    Expanded(flex: 2, child: Text('Limit: ${_formatCurrency(limit)}', style: const TextStyle(fontSize: 12, color: AppTheme.stone500))),
+                    Expanded(flex: 2, child: Text('Spent: ${_formatCurrency(e.value)}', style: const TextStyle(fontSize: 12, color: AppTheme.stone700, fontWeight: FontWeight.w600))),
+                    SizedBox(width: 50, child: Text('$pct%', textAlign: TextAlign.right, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.primary))),
+                  ]),
+                );
+              }),
+              const SizedBox(height: 24),
+              // Transactions table
+              const Text('TRANSACTIONS', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 11, letterSpacing: 1.0, color: AppTheme.stone400)),
+              const SizedBox(height: 8),
+              ...(List<BudgetEntry>.from(entries)..sort((a, b) => b.date.compareTo(a.date))).map((e) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3),
+                child: Row(children: [
+                  SizedBox(width: 80, child: Text(DateFormat('MMM d').format(e.date), style: const TextStyle(fontSize: 12, color: AppTheme.stone500))),
+                  Expanded(child: Text(e.description, style: const TextStyle(fontSize: 13, fontFamily: 'Inter'), overflow: TextOverflow.ellipsis)),
+                  Text(
+                    '${e.isIncome ? '+' : '-'}${_formatCurrency(e.amount)}',
+                    style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: e.isIncome ? const Color(0xFF166534) : const Color(0xFF9F1239)),
+                  ),
+                ]),
+              )),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _showAiAnalysis(
     BuildContext context, {
     required double totalIncome,
@@ -231,14 +406,20 @@ class _BudgetScreenState extends State<BudgetScreen> {
               ActionChipButton(
                 icon: Icons.file_download_outlined,
                 label: 'Import',
-                onTap: () {},
+                onTap: _showImportSheet,
                 backgroundColor: AppTheme.stone100,
                 foregroundColor: AppTheme.stone700,
               ),
               ActionChipButton(
                 icon: Icons.arrow_drop_down,
                 label: 'Export',
-                onTap: () {},
+                onTap: () => _showExportMenu(
+                  entries: allEntries,
+                  categories: categories,
+                  totalIncome: totalIncome,
+                  totalExpenses: totalExpenses,
+                  familyName: family.name as String? ?? 'My Family',
+                ),
                 backgroundColor: AppTheme.stone100,
                 foregroundColor: AppTheme.stone700,
               ),
@@ -1527,6 +1708,297 @@ class _BudgetEntrySheetState extends State<_BudgetEntrySheet> {
                 ]),
           ),
         ]),
+      ),
+    );
+  }
+}
+
+// ─── AI Bank Statement Import Sheet ───────────────────────────────────────────
+
+class _AiBankStatementImportSheet extends StatefulWidget {
+  const _AiBankStatementImportSheet();
+
+  @override
+  State<_AiBankStatementImportSheet> createState() => _AiBankStatementImportSheetState();
+}
+
+class _AiBankStatementImportSheetState extends State<_AiBankStatementImportSheet> {
+  final _textController = TextEditingController();
+  bool _loading = false;
+  List<Map<String, dynamic>>? _parsedTransactions;
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _parseStatement() async {
+    final text = _textController.text.trim();
+    if (text.isEmpty) return;
+    setState(() { _loading = true; _parsedTransactions = null; });
+
+    final provider = context.read<AppProvider>();
+    final existingCategories = BudgetCategory.values.map((c) => c.name).join(', ');
+
+    const systemPrompt =
+        'You are a bank statement parser for a personal finance app. Always respond with valid JSON only, no markdown fences.';
+    final prompt = '''
+Extract every transaction from this bank statement text. Assign each to one of these categories: $existingCategories.
+For each transaction set type to INCOME for credits/deposits and EXPENSE for debits/charges.
+amount must always be a positive number. date must be ISO format YYYY-MM-DD.
+
+Return a JSON object:
+{
+  "transactions": [
+    {"date": "YYYY-MM-DD", "description": "string", "amount": number, "type": "INCOME" or "EXPENSE", "category": "string"}
+  ]
+}
+
+Statement:
+$text
+''';
+
+    try {
+      final raw = await AiService.ask(prompt: prompt, module: 'budget', systemPrompt: systemPrompt);
+      if (raw == null || !mounted) {
+        if (mounted) setState(() => _loading = false);
+        return;
+      }
+
+      var cleaned = raw.trim();
+      if (cleaned.startsWith('```')) cleaned = cleaned.substring(cleaned.indexOf('\n') + 1);
+      if (cleaned.endsWith('```')) cleaned = cleaned.substring(0, cleaned.lastIndexOf('```'));
+      cleaned = cleaned.trim();
+
+      final decoded = jsonDecode(cleaned);
+      if (decoded is Map<String, dynamic> && decoded['transactions'] is List) {
+        setState(() {
+          _parsedTransactions = (decoded['transactions'] as List).cast<Map<String, dynamic>>();
+          _loading = false;
+        });
+      } else {
+        setState(() => _loading = false);
+      }
+    } catch (e) {
+      debugPrint('[Budget] parse statement error: $e');
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _importTransactions() async {
+    if (_parsedTransactions == null || _parsedTransactions!.isEmpty) return;
+
+    final provider = context.read<AppProvider>();
+    final db = provider.db;
+    final userId = provider.activeUser?.id ?? '';
+    final familyId = provider.activeFamily?.id ?? '';
+
+    final newEntries = _parsedTransactions!.map((tx) {
+      final category = BudgetCategory.values.firstWhere(
+        (c) => c.name == tx['category'],
+        orElse: () => BudgetCategory.other,
+      );
+      final isIncome = (tx['type'] as String?)?.toUpperCase() == 'INCOME';
+      DateTime date;
+      try {
+        date = DateTime.parse(tx['date'] as String);
+      } catch (_) {
+        date = DateTime.now();
+      }
+
+      return BudgetEntry(
+        id: const Uuid().v4(),
+        familyId: familyId,
+        creatorId: userId,
+        title: tx['description']?.toString() ?? 'Imported',
+        amount: ((tx['amount'] as num?) ?? 0).toDouble().abs(),
+        type: isIncome ? TransactionType.INCOME : TransactionType.EXPENSE,
+        category: category,
+        date: date,
+        notes: 'Imported from bank statement',
+      );
+    }).toList();
+
+    await provider.saveAndSync(db.copyWith(
+      budgetEntries: [...db.budgetEntries, ...newEntries],
+    ));
+
+    if (mounted) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Imported ${newEntries.length} transactions!'), behavior: SnackBarBehavior.floating),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final padding = MediaQuery.of(context).viewInsets.bottom + 32;
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.85),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Center(
+            child: Container(
+              margin: const EdgeInsets.symmetric(vertical: 12),
+              width: 40, height: 4,
+              decoration: BoxDecoration(color: AppTheme.stone200, borderRadius: BorderRadius.circular(2)),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(children: [
+              const Icon(Icons.auto_awesome, color: AppTheme.primary, size: 20),
+              const SizedBox(width: 8),
+              const Text('AI Bank Statement Import', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 18, color: AppTheme.stone900)),
+            ]),
+          ),
+          const SizedBox(height: 8),
+          if (_parsedTransactions == null) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Paste your bank statement or CSV data below and AI will extract the transactions.',
+                    style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone500),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _textController,
+                    maxLines: 8,
+                    decoration: InputDecoration(
+                      hintText: 'Paste bank statement text here...',
+                      filled: true,
+                      fillColor: AppTheme.stone50,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primary, width: 1.5)),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: _loading ? null : _parseStatement,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppTheme.primary,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      child: _loading
+                          ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Text('Parse Statement', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ] else ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Text(
+                'Found ${_parsedTransactions!.length} transactions:',
+                style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 14, color: AppTheme.stone700),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Flexible(
+              child: ListView.separated(
+                shrinkWrap: true,
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                itemCount: _parsedTransactions!.length,
+                separatorBuilder: (_, __) => const Divider(height: 1, color: AppTheme.stone100),
+                itemBuilder: (_, i) {
+                  final tx = _parsedTransactions![i];
+                  final isIncome = (tx['type'] as String?)?.toUpperCase() == 'INCOME';
+                  final amount = ((tx['amount'] as num?) ?? 0).toDouble();
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(children: [
+                      Icon(
+                        isIncome ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
+                        size: 18,
+                        color: isIncome ? AppTheme.success : AppTheme.error,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(tx['description']?.toString() ?? '', style: const TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.stone800)),
+                          Text('${tx['date']} \u00B7 ${tx['category']}', style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
+                        ]),
+                      ),
+                      Text(
+                        '${isIncome ? '+' : '-'}\$${amount.toStringAsFixed(2)}',
+                        style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: isIncome ? AppTheme.success : AppTheme.error),
+                      ),
+                    ]),
+                  );
+                },
+              ),
+            ),
+            Padding(
+              padding: EdgeInsets.fromLTRB(20, 16, 20, padding),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: _importTransactions,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppTheme.primary,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: Text('Import ${_parsedTransactions!.length} Transactions', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                ),
+              ),
+            ),
+          ],
+          if (_parsedTransactions == null) SizedBox(height: padding),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Report Summary Box ──────────────────────────────────────────────────────
+
+class _ReportSummaryBox extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+  final Color bgColor;
+
+  const _ReportSummaryBox({
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.bgColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 11, color: color.withValues(alpha: 0.75))),
+            const SizedBox(height: 4),
+            Text(value, style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 16, color: color)),
+          ],
+        ),
       ),
     );
   }

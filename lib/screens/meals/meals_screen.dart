@@ -1,6 +1,7 @@
 // lib/screens/meals/meals_screen.dart
 // Meal planning + recipe library screen for FamilyHub
 
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
@@ -80,6 +81,19 @@ class _MealsScreenState extends State<MealsScreen>
   late TabController _tabController;
   bool _fabOpen = false;
 
+  // AI Chef Suggestion
+  final _chefController = TextEditingController();
+  bool _chefLoading = false;
+  List<Map<String, dynamic>>? _chefSuggestions;
+
+  // AI Week Planner
+  final _weekPlannerController = TextEditingController();
+  bool _weekPlannerLoading = false;
+
+  // Import from URL
+  final _importUrlController = TextEditingController();
+  bool _importLoading = false;
+
   @override
   void initState() {
     super.initState();
@@ -90,7 +104,360 @@ class _MealsScreenState extends State<MealsScreen>
   @override
   void dispose() {
     _tabController.dispose();
+    _chefController.dispose();
+    _weekPlannerController.dispose();
+    _importUrlController.dispose();
     super.dispose();
+  }
+
+  /// Strip markdown code fences from AI response
+  String _stripFences(String raw) {
+    var s = raw.trim();
+    if (s.startsWith('```')) {
+      s = s.substring(s.indexOf('\n') + 1);
+    }
+    if (s.endsWith('```')) {
+      s = s.substring(0, s.lastIndexOf('```'));
+    }
+    return s.trim();
+  }
+
+  // ── AI Chef Suggestion ──
+  Future<void> _generateChefSuggestion() async {
+    final prefs = _chefController.text.trim();
+    if (prefs.isEmpty) return;
+    setState(() { _chefLoading = true; _chefSuggestions = null; });
+
+    const systemPrompt =
+        'You are a creative family chef AI. Always respond with valid JSON only, no markdown fences.';
+    final prompt = '''
+Suggest 3 meal recipes based on the following preferences:
+"$prefs"
+
+Return a JSON array of exactly 3 objects, each with these fields:
+- "title" (string): recipe name
+- "summary" (string): 1-2 sentence description
+- "ingredients" (array of objects with "name", "quantity", "unit")
+- "steps" (array of strings)
+- "servings" (integer)
+- "tags" (array of strings like "vegetarian", "quick", etc.)
+''';
+
+    try {
+      final raw = await AiService.ask(prompt: prompt, module: 'meals', systemPrompt: systemPrompt);
+      if (raw == null) {
+        if (mounted) setState(() => _chefLoading = false);
+        return;
+      }
+      final cleaned = _stripFences(raw);
+      final decoded = jsonDecode(cleaned);
+      if (decoded is List) {
+        setState(() {
+          _chefSuggestions = decoded.cast<Map<String, dynamic>>();
+          _chefLoading = false;
+        });
+      } else {
+        setState(() => _chefLoading = false);
+      }
+    } catch (e) {
+      debugPrint('[Meals] chef suggestion error: $e');
+      if (mounted) setState(() => _chefLoading = false);
+    }
+  }
+
+  void _saveChefRecipe(Map<String, dynamic> suggestion) {
+    final provider = context.read<AppProvider>();
+    final db = provider.db;
+    final userId = provider.activeUser?.id ?? '';
+    final familyId = provider.activeFamily?.id ?? '';
+
+    final ingredients = <RecipeIngredient>[];
+    if (suggestion['ingredients'] is List) {
+      for (final ing in suggestion['ingredients'] as List) {
+        if (ing is Map<String, dynamic>) {
+          ingredients.add(RecipeIngredient(
+            name: ing['name']?.toString() ?? '',
+            quantity: ing['quantity']?.toString(),
+            unit: ing['unit']?.toString(),
+          ));
+        }
+      }
+    }
+    final steps = <String>[];
+    if (suggestion['steps'] is List) {
+      for (final s in suggestion['steps'] as List) {
+        steps.add(s.toString());
+      }
+    }
+    final tags = <String>[];
+    if (suggestion['tags'] is List) {
+      for (final t in suggestion['tags'] as List) {
+        tags.add(t.toString());
+      }
+    }
+
+    final newRecipe = Recipe(
+      id: const Uuid().v4(),
+      familyId: familyId,
+      title: suggestion['title']?.toString() ?? 'AI Recipe',
+      ingredients: ingredients,
+      steps: steps,
+      servings: (suggestion['servings'] is int) ? suggestion['servings'] as int : 4,
+      tags: tags,
+      createdBy: userId,
+    );
+
+    provider.saveAndSync(db.copyWith(recipes: [...db.recipes, newRecipe]));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Saved "${newRecipe.title}" to Recipe Box'), behavior: SnackBarBehavior.floating),
+    );
+  }
+
+  // ── AI Week Planner ──
+  Future<void> _generateWeekPlan() async {
+    final prefs = _weekPlannerController.text.trim();
+    if (prefs.isEmpty) return;
+    setState(() => _weekPlannerLoading = true);
+
+    const systemPrompt =
+        'You are a weekly meal planning AI for families. Always respond with valid JSON only, no markdown fences.';
+    final prompt = '''
+Create a 7-day meal plan (Monday through Sunday) based on these preferences:
+"$prefs"
+
+Return a JSON array of 7 objects, each with:
+- "dayName" (string): "Monday", "Tuesday", etc.
+- "meals" (array of objects, each with):
+  - "type" (string): "breakfast", "lunch", or "dinner"
+  - "name" (string): meal name
+  - "ingredients" (array of objects with "name", "quantity", "unit")
+  - "steps" (array of strings)
+  - "servings" (integer)
+''';
+
+    try {
+      final raw = await AiService.ask(prompt: prompt, module: 'meals', systemPrompt: systemPrompt);
+      if (raw == null) {
+        if (mounted) setState(() => _weekPlannerLoading = false);
+        return;
+      }
+      final cleaned = _stripFences(raw);
+      final decoded = jsonDecode(cleaned);
+      if (decoded is! List) {
+        if (mounted) setState(() => _weekPlannerLoading = false);
+        return;
+      }
+
+      final provider = context.read<AppProvider>();
+      var db = provider.db;
+      final userId = provider.activeUser?.id ?? '';
+      final familyId = provider.activeFamily?.id ?? '';
+
+      final now = DateTime.now();
+      final monday = now.subtract(Duration(days: now.weekday - 1));
+      final dayNameToOffset = {
+        'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
+        'friday': 4, 'saturday': 5, 'sunday': 6,
+      };
+
+      final newRecipes = <Recipe>[];
+      final newMealPlans = <MealPlanEntry>[];
+      final allIngredients = <String>[];
+
+      for (final dayData in decoded) {
+        if (dayData is! Map<String, dynamic>) continue;
+        final dayName = (dayData['dayName'] as String?)?.toLowerCase() ?? '';
+        final offset = dayNameToOffset[dayName] ?? 0;
+        final date = DateTime(monday.year, monday.month, monday.day + offset);
+
+        final meals = dayData['meals'];
+        if (meals is! List) continue;
+
+        for (final meal in meals) {
+          if (meal is! Map<String, dynamic>) continue;
+          final mealType = (meal['type'] as String?)?.toLowerCase() ?? 'dinner';
+          final mealName = meal['name']?.toString() ?? 'Untitled';
+
+          // Build ingredients
+          final ingredients = <RecipeIngredient>[];
+          if (meal['ingredients'] is List) {
+            for (final ing in meal['ingredients'] as List) {
+              if (ing is Map<String, dynamic>) {
+                final name = ing['name']?.toString() ?? '';
+                final qty = ing['quantity']?.toString();
+                final unit = ing['unit']?.toString();
+                ingredients.add(RecipeIngredient(name: name, quantity: qty, unit: unit));
+                allIngredients.add(qty != null ? '$qty${unit != null ? ' $unit' : ''} $name' : name);
+              }
+            }
+          }
+
+          // Build steps
+          final steps = <String>[];
+          if (meal['steps'] is List) {
+            for (final s in meal['steps'] as List) {
+              steps.add(s.toString());
+            }
+          }
+
+          // Create recipe
+          final recipeId = const Uuid().v4();
+          newRecipes.add(Recipe(
+            id: recipeId,
+            familyId: familyId,
+            title: mealName,
+            ingredients: ingredients,
+            steps: steps,
+            servings: (meal['servings'] is int) ? meal['servings'] as int : 4,
+            tags: const ['meal-plan'],
+            createdBy: userId,
+          ));
+
+          // Create meal plan entry
+          newMealPlans.add(MealPlanEntry(
+            id: const Uuid().v4(),
+            familyId: familyId,
+            date: date,
+            mealType: mealType,
+            recipeId: recipeId,
+            customMeal: mealName,
+          ));
+        }
+      }
+
+      // Save recipes and meal plans
+      db = db.copyWith(
+        recipes: [...db.recipes, ...newRecipes],
+        mealPlans: [...db.mealPlans, ...newMealPlans],
+      );
+
+      // Create shopping list from consolidated ingredients
+      if (allIngredients.isNotEmpty) {
+        final listItems = allIngredients.map((ing) => ListItem(
+          id: const Uuid().v4(),
+          text: ing,
+        )).toList();
+
+        // Try AI categorization
+        try {
+          final categories = await AiService.categorizeItems(
+            allIngredients.map((i) => i.split(' ').last).toList(),
+          );
+          for (var i = 0; i < listItems.length; i++) {
+            final itemName = allIngredients[i].split(' ').last;
+            final cat = categories[itemName];
+            if (cat != null) {
+              listItems[i] = listItems[i].copyWith(aiCategory: cat);
+            }
+          }
+        } catch (_) {}
+
+        final shoppingList = ShoppingList(
+          id: const Uuid().v4(),
+          familyId: familyId,
+          creatorId: userId,
+          title: 'Meal Plan Shopping - ${DateFormat('MMM d').format(monday)}',
+          items: listItems,
+          category: ListCategory.GROCERY,
+        );
+        db = db.copyWith(lists: [...db.lists, shoppingList]);
+      }
+
+      await provider.saveAndSync(db);
+
+      if (mounted) {
+        setState(() => _weekPlannerLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Created ${newRecipes.length} recipes, ${newMealPlans.length} meal slots & shopping list!'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('[Meals] week planner error: $e');
+      if (mounted) setState(() => _weekPlannerLoading = false);
+    }
+  }
+
+  // ── Import from URL (inline) ──
+  Future<void> _importFromUrl() async {
+    final url = _importUrlController.text.trim();
+    if (url.isEmpty) return;
+    setState(() => _importLoading = true);
+
+    try {
+      final result = await AiService.scrapeRecipe(url);
+      if (result == null) {
+        if (mounted) {
+          setState(() => _importLoading = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Could not extract recipe. Try a different URL.'), behavior: SnackBarBehavior.floating),
+          );
+        }
+        return;
+      }
+
+      final provider = context.read<AppProvider>();
+      final db = provider.db;
+      final userId = provider.activeUser?.id ?? '';
+      final familyId = provider.activeFamily?.id ?? '';
+
+      final ingredients = <RecipeIngredient>[];
+      if (result['ingredients'] is List) {
+        for (final ing in result['ingredients'] as List) {
+          if (ing is Map<String, dynamic>) {
+            ingredients.add(RecipeIngredient(
+              name: ing['name']?.toString() ?? '',
+              quantity: ing['amount']?.toString(),
+              unit: ing['unit']?.toString(),
+            ));
+          } else if (ing is String) {
+            ingredients.add(RecipeIngredient(name: ing));
+          }
+        }
+      }
+      final steps = <String>[];
+      if (result['steps'] is List) {
+        for (final s in result['steps'] as List) {
+          steps.add(s.toString());
+        }
+      }
+
+      final newRecipe = Recipe(
+        id: const Uuid().v4(),
+        familyId: familyId,
+        title: result['title']?.toString() ?? 'Imported Recipe',
+        ingredients: ingredients,
+        steps: steps,
+        servings: _parseInt(result['servings']),
+        tags: const [],
+        createdBy: userId,
+      );
+
+      await provider.saveAndSync(db.copyWith(recipes: [...db.recipes, newRecipe]));
+
+      if (mounted) {
+        setState(() { _importLoading = false; _importUrlController.clear(); });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Imported "${newRecipe.title}"!'), behavior: SnackBarBehavior.floating),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _importLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Something went wrong. Please try again.'), behavior: SnackBarBehavior.floating),
+        );
+      }
+    }
+  }
+
+  int? _parseInt(dynamic v) {
+    if (v == null) return null;
+    if (v is int) return v;
+    if (v is double) return v.toInt();
+    return int.tryParse(v.toString());
   }
 
   @override
@@ -226,9 +593,10 @@ class _MealsScreenState extends State<MealsScreen>
                         color: Colors.white.withOpacity(0.2),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const TextField(
-                        style: TextStyle(color: Colors.white, fontFamily: 'Inter', fontSize: 14),
-                        decoration: InputDecoration(
+                      child: TextField(
+                        controller: _chefController,
+                        style: const TextStyle(color: Colors.white, fontFamily: 'Inter', fontSize: 14),
+                        decoration: const InputDecoration(
                           hintText: 'e.g. Quick dinner for 4, vegetarian...',
                           hintStyle: TextStyle(color: Colors.white54, fontFamily: 'Inter'),
                           border: InputBorder.none,
@@ -240,19 +608,77 @@ class _MealsScreenState extends State<MealsScreen>
                     const SizedBox(height: 10),
                     Align(
                       alignment: Alignment.centerRight,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(10),
+                      child: GestureDetector(
+                        onTap: _chefLoading ? null : _generateChefSuggestion,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: _chefLoading
+                              ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF16A34A)))
+                              : const Text('Suggest Meals', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF16A34A))),
                         ),
-                        child: const Text('Suggest Meals', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF16A34A))),
                       ),
                     ),
                   ],
                 ),
               ),
             ),
+
+            // ── Chef Suggestion Results ──
+            if (_chefSuggestions != null && _chefSuggestions!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: _chefSuggestions!.map((s) {
+                    final title = s['title']?.toString() ?? 'Recipe';
+                    final summary = s['summary']?.toString() ?? '';
+                    final ings = s['ingredients'] is List ? (s['ingredients'] as List).length : 0;
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      decoration: BoxDecoration(
+                        color: AppTheme.surface,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: AppTheme.stone100),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(title, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone900)),
+                            if (summary.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text(summary, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500), maxLines: 2, overflow: TextOverflow.ellipsis),
+                            ],
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Text('$ings ingredients', style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
+                                const Spacer(),
+                                GestureDetector(
+                                  onTap: () => _saveChefRecipe(s),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: AppTheme.primary,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const Text('Save to Recipes', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 11, color: Colors.white)),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
 
             const SizedBox(height: 10),
 
@@ -284,9 +710,11 @@ class _MealsScreenState extends State<MealsScreen>
                         color: Colors.white.withOpacity(0.2),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const TextField(
-                        style: TextStyle(color: Colors.white, fontFamily: 'Inter', fontSize: 14),
-                        decoration: InputDecoration(
+                      child: TextField(
+                        controller: _importUrlController,
+                        style: const TextStyle(color: Colors.white, fontFamily: 'Inter', fontSize: 14),
+                        keyboardType: TextInputType.url,
+                        decoration: const InputDecoration(
                           hintText: 'Paste recipe URL...',
                           hintStyle: TextStyle(color: Colors.white54, fontFamily: 'Inter'),
                           border: InputBorder.none,
@@ -298,13 +726,18 @@ class _MealsScreenState extends State<MealsScreen>
                     const SizedBox(height: 10),
                     Align(
                       alignment: Alignment.centerRight,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(10),
+                      child: GestureDetector(
+                        onTap: _importLoading ? null : _importFromUrl,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: _importLoading
+                              ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0D9488)))
+                              : const Text('Import Recipe', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF0D9488))),
                         ),
-                        child: const Text('Import Recipe', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF0D9488))),
                       ),
                     ),
                   ],
@@ -342,9 +775,10 @@ class _MealsScreenState extends State<MealsScreen>
                         color: Colors.white.withOpacity(0.2),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const TextField(
-                        style: TextStyle(color: Colors.white, fontFamily: 'Inter', fontSize: 14),
-                        decoration: InputDecoration(
+                      child: TextField(
+                        controller: _weekPlannerController,
+                        style: const TextStyle(color: Colors.white, fontFamily: 'Inter', fontSize: 14),
+                        decoration: const InputDecoration(
                           hintText: 'e.g. Healthy meals, budget-friendly...',
                           hintStyle: TextStyle(color: Colors.white54, fontFamily: 'Inter'),
                           border: InputBorder.none,
@@ -356,13 +790,18 @@ class _MealsScreenState extends State<MealsScreen>
                     const SizedBox(height: 10),
                     Align(
                       alignment: Alignment.centerRight,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(10),
+                      child: GestureDetector(
+                        onTap: _weekPlannerLoading ? null : _generateWeekPlan,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: _weekPlannerLoading
+                              ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF8B5CF6)))
+                              : const Text('Plan My Week + Shopping List', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF8B5CF6))),
                         ),
-                        child: const Text('Plan My Week + Shopping List', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF8B5CF6))),
                       ),
                     ),
                   ],
@@ -753,6 +1192,14 @@ class _MealSlotCard extends StatelessWidget {
                 },
               ),
               ListTile(
+                leading: const Icon(Icons.swap_horiz_rounded, color: Color(0xFF8B5CF6)),
+                title: const Text('AI Swap Meal'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _aiSwapMeal(context);
+                },
+              ),
+              ListTile(
                 leading: const Icon(Icons.delete_outline, color: AppTheme.error),
                 title: const Text('Delete meal',
                     style: TextStyle(color: AppTheme.error)),
@@ -774,6 +1221,124 @@ class _MealSlotCard extends StatelessWidget {
     final updated =
         db.mealPlans.where((m) => m.id != meal!.id).toList();
     provider.saveAndSync(db.copyWith(mealPlans: updated));
+  }
+
+  Future<void> _aiSwapMeal(BuildContext context) async {
+    final currentMealName = meal!.title;
+    final label = _mealTypeLabels[mealType] ?? mealType;
+
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            Text('Finding a swap for "$currentMealName"...', textAlign: TextAlign.center, style: const TextStyle(fontFamily: 'Inter', fontSize: 14)),
+          ],
+        ),
+      ),
+    );
+
+    const systemPrompt =
+        'You are a meal swap AI. Always respond with valid JSON only, no markdown fences.';
+    final prompt = '''
+Suggest a replacement for this ${label.toLowerCase()} meal: "$currentMealName"
+
+Return a JSON object with:
+- "name" (string): new meal name
+- "ingredients" (array of objects with "name", "quantity", "unit")
+- "steps" (array of strings)
+- "servings" (integer)
+
+The replacement should be similar in style but different. Keep it healthy and family-friendly.
+''';
+
+    try {
+      final raw = await AiService.ask(prompt: prompt, module: 'meals', systemPrompt: systemPrompt);
+      if (!context.mounted) return;
+      Navigator.pop(context); // dismiss loading
+
+      if (raw == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not generate swap. Try again.'), behavior: SnackBarBehavior.floating),
+        );
+        return;
+      }
+
+      var cleaned = raw.trim();
+      if (cleaned.startsWith('```')) cleaned = cleaned.substring(cleaned.indexOf('\n') + 1);
+      if (cleaned.endsWith('```')) cleaned = cleaned.substring(0, cleaned.lastIndexOf('```'));
+      cleaned = cleaned.trim();
+
+      final decoded = jsonDecode(cleaned);
+      if (decoded is! Map<String, dynamic>) return;
+
+      final newName = decoded['name']?.toString() ?? 'Swapped Meal';
+
+      // Update the meal plan entry
+      final provider = context.read<AppProvider>();
+      final db = provider.db;
+      final updated = db.mealPlans.map((m) {
+        if (m.id == meal!.id) {
+          return m.copyWith(customMeal: newName);
+        }
+        return m;
+      }).toList();
+
+      // Optionally create a recipe from the swap
+      final userId = provider.activeUser?.id ?? '';
+      final familyId = provider.activeFamily?.id ?? '';
+      final ingredients = <RecipeIngredient>[];
+      if (decoded['ingredients'] is List) {
+        for (final ing in decoded['ingredients'] as List) {
+          if (ing is Map<String, dynamic>) {
+            ingredients.add(RecipeIngredient(
+              name: ing['name']?.toString() ?? '',
+              quantity: ing['quantity']?.toString(),
+              unit: ing['unit']?.toString(),
+            ));
+          }
+        }
+      }
+      final steps = <String>[];
+      if (decoded['steps'] is List) {
+        for (final s in decoded['steps'] as List) steps.add(s.toString());
+      }
+
+      final newRecipe = Recipe(
+        id: const Uuid().v4(),
+        familyId: familyId,
+        title: newName,
+        ingredients: ingredients,
+        steps: steps,
+        servings: (decoded['servings'] is int) ? decoded['servings'] as int : 4,
+        tags: const ['ai-swap'],
+        createdBy: userId,
+      );
+
+      await provider.saveAndSync(db.copyWith(
+        mealPlans: updated,
+        recipes: [...db.recipes, newRecipe],
+      ));
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Swapped to "$newName"!'), behavior: SnackBarBehavior.floating),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.pop(context); // dismiss loading if still showing
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Swap failed. Please try again.'), behavior: SnackBarBehavior.floating),
+        );
+      }
+    }
   }
 
   void _openAddMealSheet(BuildContext context, String type, DateTime day,

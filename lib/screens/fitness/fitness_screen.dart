@@ -1,4 +1,10 @@
 // lib/screens/fitness/fitness_screen.dart
+
+// ignore_for_file: avoid_catches_without_on_clauses
+
+import 'dart:convert';
+
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -23,6 +29,37 @@ enum _FitnessFilter { all, mine }
 
 class _FitnessScreenState extends State<FitnessScreen> {
   _FitnessFilter _filter = _FitnessFilter.mine;
+  String? _motivation;
+  bool _motivationLoading = false;
+
+  Future<void> _getMotivation() async {
+    setState(() => _motivationLoading = true);
+
+    final provider = context.read<AppProvider>();
+    final user = provider.activeUser;
+    final db = provider.db;
+    final family = provider.activeFamily;
+    final familyId = family?.id ?? '';
+
+    final logsCount = db.fitnessLogs.where((l) => l.familyId == familyId).length;
+    final habitsCount = db.dailyHabits.where((h) => h.familyId == familyId).length;
+
+    const systemPrompt = 'You are a supportive fitness coach. Keep it short and punchy.';
+    final prompt = 'Provide a short, highly motivating message for a family with ${user?.name ?? 'someone'} '
+        'who has logged $logsCount workouts and has $habitsCount daily habits. '
+        'Keep it to 1-2 sentences, encouraging and personal.';
+
+    try {
+      final raw = await AiService.ask(prompt: prompt, module: 'fitness', systemPrompt: systemPrompt);
+      if (mounted && raw != null) {
+        setState(() { _motivation = raw.trim(); _motivationLoading = false; });
+      } else {
+        if (mounted) setState(() => _motivationLoading = false);
+      }
+    } catch (e) {
+      if (mounted) setState(() => _motivationLoading = false);
+    }
+  }
 
   void _showAddSheet() {
     showModalBottomSheet(
@@ -45,21 +82,16 @@ class _FitnessScreenState extends State<FitnessScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _AiWorkoutPlanSheet(
-        onSaveAsNote: (planText) async {
+      builder: (_) => _AiFitnessPlanSheet(
+        onSavePlan: (planMap) async {
           final provider = context.read<AppProvider>();
           final db = provider.db;
-          final log = FitnessLog(
-            id: const Uuid().v4(),
-            familyId: provider.activeFamily!.id,
-            userId: provider.activeUser!.id,
-            activity: 'AI Plan',
-            durationMinutes: 0,
-            notes: planText,
-            date: DateTime.now(),
-          );
-          await provider
-              .saveAndSync(db.copyWith(fitnessLogs: [...db.fitnessLogs, log]));
+          final userId = provider.activeUser!.id;
+          // Replace existing plan for this user, or add new
+          final plans = db.fitnessPlans.toList();
+          plans.removeWhere((p) => p is Map && p['userId'] == userId);
+          plans.add({...planMap, 'userId': userId, 'createdAt': DateTime.now().toIso8601String()});
+          await provider.saveAndSync(db.copyWith(fitnessPlans: plans));
         },
       ),
     );
@@ -121,12 +153,29 @@ class _FitnessScreenState extends State<FitnessScreen> {
       checkDate = checkDate.subtract(const Duration(days: 1));
     }
 
-    // Find AI plan logs
-    final aiPlanLogs = shown.where((l) => l.activity == 'AI Plan').toList();
-    final latestAiPlan = aiPlanLogs.isNotEmpty ? aiPlanLogs.first : null;
+    // Find stored AI fitness plan for current user
+    final storedPlan = provider.db.fitnessPlans
+        .whereType<Map>()
+        .where((p) => p['userId'] == user.id)
+        .toList();
+    final latestPlan = storedPlan.isNotEmpty ? storedPlan.last : null;
 
-    // Weight progress placeholder
-    const weightProgress = '+0.0 kg';
+    // Weight data from FitnessMetric records
+    final weightMetrics = provider.db.fitness
+        .where((m) => m.type == 'WEIGHT' && m.userId == user.id)
+        .toList()
+      ..sort((a, b) => a.date.compareTo(b.date));
+
+    String weightProgress;
+    if (weightMetrics.length >= 2) {
+      final diff = weightMetrics.last.value - weightMetrics.first.value;
+      final sign = diff >= 0 ? '+' : '';
+      weightProgress = '$sign${diff.toStringAsFixed(1)} kg';
+    } else if (weightMetrics.length == 1) {
+      weightProgress = '${weightMetrics.first.value.toStringAsFixed(1)} kg';
+    } else {
+      weightProgress = 'No data';
+    }
 
     return Scaffold(
       drawer: const AppDrawer(),
@@ -215,31 +264,72 @@ class _FitnessScreenState extends State<FitnessScreen> {
                     ],
                   ),
                   const SizedBox(height: 10),
-                  Text(
-                    'Click the button for a personalized motivation boost based on your recent activity.',
-                    style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 13,
-                        color: Colors.white.withOpacity(0.85),
-                        height: 1.5),
-                  ),
-                  const SizedBox(height: 14),
-                  GestureDetector(
-                    onTap: _showAiPlanSheet,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 20, vertical: 10),
+                  if (_motivation != null) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: Colors.white.withOpacity(0.15),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: const Text('Get Motivation',
+                      child: Text('"$_motivation"',
                           style: TextStyle(
                               fontFamily: 'Inter',
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
-                              color: Color(0xFF6366F1))),
+                              fontSize: 14,
+                              fontStyle: FontStyle.italic,
+                              color: Colors.white.withOpacity(0.95),
+                              height: 1.5)),
                     ),
+                    const SizedBox(height: 10),
+                  ] else
+                    Text(
+                      'Get a motivation boost or generate a personalized fitness plan.',
+                      style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 13,
+                          color: Colors.white.withOpacity(0.85),
+                          height: 1.5),
+                    ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      GestureDetector(
+                        onTap: _motivationLoading ? null : _getMotivation,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: _motivationLoading
+                              ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF6366F1)))
+                              : const Text('Motivate Me',
+                                  style: TextStyle(
+                                      fontFamily: 'Inter',
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 13,
+                                      color: Color(0xFF6366F1))),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: _showAiPlanSheet,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Text('New Plan',
+                              style: TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13,
+                                  color: Colors.white)),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -269,8 +359,8 @@ class _FitnessScreenState extends State<FitnessScreen> {
                                 color: AppTheme.stone400,
                                 letterSpacing: 0.8)),
                         const SizedBox(height: 6),
-                        const Text(weightProgress,
-                            style: TextStyle(
+                        Text(weightProgress,
+                            style: const TextStyle(
                                 fontFamily: 'Inter',
                                 fontSize: 22,
                                 fontWeight: FontWeight.w900,
@@ -312,65 +402,162 @@ class _FitnessScreenState extends State<FitnessScreen> {
             ),
           ),
 
+          // ── Weight Trend Chart ──
+          if (weightMetrics.length >= 2)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppTheme.stone200),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.monitor_weight_outlined, size: 18, color: AppTheme.stone400),
+                        const SizedBox(width: 6),
+                        const Text('Weight Trends',
+                            style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 16, color: AppTheme.stone800)),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      height: 200,
+                      child: LineChart(
+                        LineChartData(
+                          gridData: FlGridData(
+                            show: true,
+                            drawVerticalLine: false,
+                            horizontalInterval: 5,
+                            getDrawingHorizontalLine: (value) => FlLine(
+                              color: AppTheme.stone100,
+                              strokeWidth: 1,
+                            ),
+                          ),
+                          titlesData: FlTitlesData(
+                            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                            bottomTitles: AxisTitles(
+                              sideTitles: SideTitles(
+                                showTitles: true,
+                                interval: (weightMetrics.length / 4).ceilToDouble().clamp(1, double.infinity),
+                                getTitlesWidget: (value, meta) {
+                                  final idx = value.toInt();
+                                  if (idx < 0 || idx >= weightMetrics.length) return const SizedBox();
+                                  return Padding(
+                                    padding: const EdgeInsets.only(top: 6),
+                                    child: Text(
+                                      DateFormat('MMM d').format(weightMetrics[idx].date),
+                                      style: const TextStyle(fontSize: 9, color: AppTheme.stone400),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                            leftTitles: AxisTitles(
+                              sideTitles: SideTitles(
+                                showTitles: true,
+                                reservedSize: 40,
+                                getTitlesWidget: (value, meta) => Text(
+                                  value.toStringAsFixed(0),
+                                  style: const TextStyle(fontSize: 10, color: AppTheme.stone400),
+                                ),
+                              ),
+                            ),
+                          ),
+                          borderData: FlBorderData(show: false),
+                          lineBarsData: [
+                            LineChartBarData(
+                              spots: List.generate(
+                                weightMetrics.length,
+                                (i) => FlSpot(i.toDouble(), weightMetrics[i].value),
+                              ),
+                              isCurved: true,
+                              color: AppTheme.primary,
+                              barWidth: 3,
+                              dotData: FlDotData(
+                                show: true,
+                                getDotPainter: (spot, percent, barData, index) =>
+                                    FlDotCirclePainter(radius: 3, color: AppTheme.primary, strokeWidth: 0),
+                              ),
+                              belowBarData: BarAreaData(
+                                show: true,
+                                color: AppTheme.primary.withValues(alpha: 0.08),
+                              ),
+                            ),
+                          ],
+                          lineTouchData: LineTouchData(
+                            touchTooltipData: LineTouchTooltipData(
+                              getTooltipItems: (spots) => spots.map((s) =>
+                                LineTooltipItem(
+                                  '${s.y.toStringAsFixed(1)} kg',
+                                  const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12, color: Colors.white),
+                                ),
+                              ).toList(),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
           // ── AI Fitness Plan Section ──
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
             child: Row(
               children: [
+                const Icon(Icons.auto_awesome_rounded, size: 18, color: AppTheme.primary),
+                const SizedBox(width: 6),
                 const Text('AI Fitness Plan',
-                    style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontWeight: FontWeight.w800,
-                        fontSize: 16,
-                        color: AppTheme.stone900)),
-                const SizedBox(width: 10),
+                    style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 16, color: AppTheme.stone900)),
+                const Spacer(),
                 GestureDetector(
                   onTap: _showAiPlanSheet,
                   child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: AppTheme.primary,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Text('New Plan',
-                        style: TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white)),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(color: AppTheme.primary, borderRadius: BorderRadius.circular(10)),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: const [
+                      Icon(Icons.auto_awesome_rounded, size: 14, color: Colors.white),
+                      SizedBox(width: 4),
+                      Text('New Plan', style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white)),
+                    ]),
                   ),
                 ),
               ],
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-            child: latestAiPlan != null && latestAiPlan.notes != null
-                ? Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: AppTheme.stone50,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: AppTheme.stone200),
-                    ),
-                    child: Text(latestAiPlan.notes!,
-                        style: const TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 13,
-                            color: AppTheme.stone700,
-                            height: 1.6)),
-                  )
-                : Text(
-                    'Generate a personalized workout plan tailored to your fitness goals and schedule.',
-                    style: const TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 13,
-                        color: AppTheme.stone400,
-                        height: 1.5),
+          if (latestPlan != null)
+            _StoredPlanView(plan: latestPlan)
+          else
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+              child: GestureDetector(
+                onTap: _showAiPlanSheet,
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryLight,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: AppTheme.primary.withOpacity(0.2)),
                   ),
-          ),
+                  child: Column(children: [
+                    Icon(Icons.fitness_center_rounded, size: 32, color: AppTheme.primary.withOpacity(0.5)),
+                    const SizedBox(height: 8),
+                    const Text("Click 'New Plan' to get a personalised AI fitness plan based on your profile.",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400, height: 1.5)),
+                  ]),
+                ),
+              ),
+            ),
 
           // ── Filter Tabs ──
           Padding(
@@ -413,336 +600,666 @@ class _FitnessScreenState extends State<FitnessScreen> {
 }
 
 // ─────────────────────────────────────────────
-// AI Workout Plan Banner
+// Stored Plan View (inline on fitness page)
 // ─────────────────────────────────────────────
 
-class _AiPlanBanner extends StatelessWidget {
-  final VoidCallback onTap;
-  const _AiPlanBanner({required this.onTap});
+class _StoredPlanView extends StatefulWidget {
+  final Map plan;
+  const _StoredPlanView({required this.plan});
 
   @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Row(children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Center(
-              child: Icon(Icons.auto_awesome_rounded,
-                  color: Colors.white, size: 22),
-            ),
-          ),
-          const SizedBox(width: 12),
-          const Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('✨ AI Workout Plan',
-                  style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontWeight: FontWeight.w800,
-                      fontSize: 15,
-                      color: Colors.white)),
-              SizedBox(height: 2),
-              Text('Generate a personalized plan based on your goals',
-                  style: TextStyle(
-                      fontFamily: 'Inter', fontSize: 12, color: Colors.white70)),
-            ]),
-          ),
-          const Icon(Icons.arrow_forward_ios_rounded,
-              size: 16, color: Colors.white70),
-        ]),
-      ),
-    );
-  }
+  State<_StoredPlanView> createState() => _StoredPlanViewState();
 }
 
-// ─────────────────────────────────────────────
-// AI Workout Plan Sheet
-// ─────────────────────────────────────────────
-
-class _AiWorkoutPlanSheet extends StatefulWidget {
-  final Future<void> Function(String planText) onSaveAsNote;
-  const _AiWorkoutPlanSheet({required this.onSaveAsNote});
-
-  @override
-  State<_AiWorkoutPlanSheet> createState() => _AiWorkoutPlanSheetState();
-}
-
-class _AiWorkoutPlanSheetState extends State<_AiWorkoutPlanSheet> {
-  final _goalsCtrl = TextEditingController();
-  double _daysPerWeek = 3;
-  String _fitnessLevel = 'Beginner';
-  bool _isGenerating = false;
-  String? _plan;
-  String? _error;
-  bool _isSaving = false;
-
-  static const _levels = ['Beginner', 'Intermediate', 'Advanced'];
+class _StoredPlanViewState extends State<_StoredPlanView> {
+  int _expandedDay = 0;
+  final _refineController = TextEditingController();
+  bool _refining = false;
 
   @override
   void dispose() {
-    _goalsCtrl.dispose();
+    _refineController.dispose();
     super.dispose();
   }
 
+  Future<void> _refinePlan() async {
+    final request = _refineController.text.trim();
+    if (request.isEmpty) return;
+    setState(() => _refining = true);
+
+    final currentPlanJson = jsonEncode(widget.plan);
+    final profile = widget.plan['profile'] as Map? ?? {};
+
+    const systemPrompt =
+        'You are updating an existing weekly fitness plan based on a user\'s refinement request. Always respond with valid JSON only, no markdown fences.';
+    final prompt = '''
+Current plan (JSON):
+$currentPlanJson
+
+User's profile:
+${profile.entries.map((e) => '- ${e.key}: ${e.value}').join('\n')}
+
+The user wants to make this change:
+"$request"
+
+Return the COMPLETE updated plan in the same JSON format:
+{"summary": "...", "weeklyPlan": [...], "tips": [...]}
+
+Apply the requested change while keeping everything else sensible.
+''';
+
+    try {
+      final raw = await AiService.ask(prompt: prompt, module: 'fitness', systemPrompt: systemPrompt);
+      if (raw == null || !mounted) {
+        if (mounted) setState(() => _refining = false);
+        return;
+      }
+      var cleaned = raw.trim();
+      if (cleaned.startsWith('```')) cleaned = cleaned.substring(cleaned.indexOf('\n') + 1);
+      if (cleaned.endsWith('```')) cleaned = cleaned.substring(0, cleaned.lastIndexOf('```'));
+      cleaned = cleaned.trim();
+
+      final decoded = jsonDecode(cleaned);
+      if (decoded is Map<String, dynamic>) {
+        // Save the refined plan
+        final provider = context.read<AppProvider>();
+        final db = provider.db;
+        final userId = provider.activeUser?.id ?? '';
+        final plans = db.fitnessPlans.toList();
+        plans.removeWhere((p) => p is Map && p['userId'] == userId);
+        plans.add({...decoded, 'profile': profile, 'userId': userId, 'createdAt': DateTime.now().toIso8601String()});
+        await provider.saveAndSync(db.copyWith(fitnessPlans: plans));
+
+        if (mounted) {
+          _refineController.clear();
+          setState(() => _refining = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Plan refined successfully!'), behavior: SnackBarBehavior.floating),
+          );
+        }
+      } else {
+        if (mounted) setState(() => _refining = false);
+      }
+    } catch (e) {
+      debugPrint('[Fitness] refine error: $e');
+      if (mounted) setState(() => _refining = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final summary = widget.plan['summary'] as String? ?? '';
+    final weeklyPlan = (widget.plan['weeklyPlan'] as List?)?.cast<Map>() ?? [];
+    final tips = (widget.plan['tips'] as List?)?.cast<String>() ?? [];
+    final profile = widget.plan['profile'] as Map? ?? {};
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // Summary
+        if (summary.isNotEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(colors: [const Color(0xFFEEF2FF), const Color(0xFFF5F3FF)]),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFC7D2FE)),
+            ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(summary, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone700, height: 1.5)),
+              if (profile.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Wrap(spacing: 6, runSpacing: 6, children: [
+                  if (profile['location'] != null)
+                    _planChip(profile['location'] as String, true),
+                  if (profile['equipment'] is List)
+                    ...(profile['equipment'] as List).map((e) => _planChip(e.toString(), false)),
+                ]),
+              ],
+            ]),
+          ),
+        const SizedBox(height: 12),
+
+        // Weekly Plan
+        ...weeklyPlan.asMap().entries.map((entry) {
+          final i = entry.key;
+          final day = entry.value;
+          final dayName = day['day'] as String? ?? 'Day ${i + 1}';
+          final focus = day['focus'] as String? ?? '';
+          final duration = day['duration'] as String? ?? '';
+          final exercises = (day['exercises'] as List?)?.cast<Map>() ?? [];
+          final isRest = focus.toLowerCase().contains('rest') || focus.toLowerCase().contains('recovery');
+          final isExpanded = _expandedDay == i;
+
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: GestureDetector(
+              onTap: () => setState(() => _expandedDay = isExpanded ? -1 : i),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: isExpanded ? AppTheme.primary.withOpacity(0.3) : AppTheme.stone100),
+                ),
+                child: Column(children: [
+                  Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(children: [
+                      Container(
+                        width: 40, height: 40,
+                        decoration: BoxDecoration(
+                          color: isRest ? const Color(0xFFDCFCE7) : AppTheme.primaryLight,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Center(child: Text(
+                          dayName.length >= 3 ? dayName.substring(0, 3) : dayName,
+                          style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 11, color: isRest ? const Color(0xFF16A34A) : AppTheme.primary),
+                        )),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(focus, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone900)),
+                        if (duration.isNotEmpty) Row(children: [
+                          const Icon(Icons.schedule_rounded, size: 12, color: AppTheme.stone400),
+                          const SizedBox(width: 3),
+                          Text(duration, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
+                        ]),
+                      ])),
+                      Icon(isExpanded ? Icons.expand_less_rounded : Icons.expand_more_rounded, color: AppTheme.stone400),
+                    ]),
+                  ),
+                  if (isExpanded && exercises.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                      child: Column(children: exercises.asMap().entries.map((ex) {
+                        final idx = ex.key;
+                        final exercise = ex.value;
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Container(
+                              width: 24, height: 24,
+                              decoration: BoxDecoration(color: const Color(0xFFEEF2FF), borderRadius: BorderRadius.circular(6)),
+                              child: Center(child: Text('${idx + 1}', style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 11, color: AppTheme.primary))),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              Text(exercise['name'] as String? ?? '', style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13, color: AppTheme.stone800)),
+                              if (exercise['detail'] != null)
+                                Text(exercise['detail'] as String, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
+                            ])),
+                          ]),
+                        );
+                      }).toList()),
+                    ),
+                ]),
+              ),
+            ),
+          );
+        }),
+
+        // Pro Tips
+        if (tips.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFFBEB),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFFDE68A)),
+            ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: const [
+                Icon(Icons.auto_awesome_rounded, size: 16, color: Color(0xFFD97706)),
+                SizedBox(width: 6),
+                Text('Pro Tips', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: Color(0xFF92400E))),
+              ]),
+              const SizedBox(height: 8),
+              ...tips.map((t) => Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('- ', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFFB45309))),
+                  Expanded(child: Text(t, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFF92400E), height: 1.4))),
+                ]),
+              )),
+            ]),
+          ),
+        ],
+
+        // AI Refine section
+        const SizedBox(height: 12),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFFEEF2FF),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFC7D2FE)),
+          ),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Row(children: [
+              Icon(Icons.edit_note_rounded, size: 18, color: Color(0xFF6366F1)),
+              SizedBox(width: 6),
+              Text('Refine Plan', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: Color(0xFF6366F1))),
+            ]),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _refineController,
+              maxLines: 2,
+              decoration: InputDecoration(
+                hintText: 'e.g. "Replace squats with lunges" or "Add more cardio"',
+                hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFC7D2FE))),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFC7D2FE))),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF6366F1), width: 1.5)),
+                contentPadding: const EdgeInsets.all(10),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: GestureDetector(
+                onTap: _refining ? null : _refinePlan,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF6366F1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: _refining
+                      ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Text('Refine', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12, color: Colors.white)),
+                ),
+              ),
+            ),
+          ]),
+        ),
+      ]),
+    );
+  }
+
+  Widget _planChip(String label, bool primary) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: BoxDecoration(
+      color: primary ? const Color(0xFFEEF2FF) : Colors.white,
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: primary ? const Color(0xFFC7D2FE) : AppTheme.stone200),
+    ),
+    child: Text(label, style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w600, color: primary ? AppTheme.primary : AppTheme.stone600)),
+  );
+}
+
+// ─────────────────────────────────────────────
+// AI Fitness Plan Sheet (Vite-style form)
+// ─────────────────────────────────────────────
+
+class _AiFitnessPlanSheet extends StatefulWidget {
+  final Future<void> Function(Map<String, dynamic>) onSavePlan;
+  const _AiFitnessPlanSheet({required this.onSavePlan});
+
+  @override
+  State<_AiFitnessPlanSheet> createState() => _AiFitnessPlanSheetState();
+}
+
+class _AiFitnessPlanSheetState extends State<_AiFitnessPlanSheet> {
+  String _gender = '';
+  String _level = '';
+  final _heightCtrl = TextEditingController();
+  final _weightCtrl = TextEditingController();
+  String _location = '';
+  final List<String> _equipment = [];
+  int _daysPerWeek = 5;
+  bool _isGenerating = false;
+  String? _error;
+
+  static const _levels = ['Beginner', 'Intermediate', 'Advanced'];
+  static const _homeEquipment = [
+    'Dumbbells', 'Resistance Bands', 'Barbell & Plates', 'Pull-up Bar',
+    'Kettlebell', 'Bench', 'Jump Rope', 'Bodyweight Only',
+  ];
+
+  @override
+  void dispose() {
+    _heightCtrl.dispose();
+    _weightCtrl.dispose();
+    super.dispose();
+  }
+
+  void _toggleEquipment(String item) {
+    setState(() {
+      if (item == 'Bodyweight Only') {
+        _equipment.clear();
+        _equipment.add(item);
+      } else {
+        _equipment.remove('Bodyweight Only');
+        if (_equipment.contains(item)) {
+          _equipment.remove(item);
+        } else {
+          _equipment.add(item);
+        }
+      }
+    });
+  }
+
   Future<void> _generate() async {
-    final goals = _goalsCtrl.text.trim();
-    if (goals.isEmpty) {
-      setState(() => _error = 'Please describe your fitness goals.');
+    if (_gender.isEmpty || _level.isEmpty || _heightCtrl.text.trim().isEmpty || _weightCtrl.text.trim().isEmpty) {
+      setState(() => _error = 'Please fill in all fields before generating.');
       return;
     }
-    setState(() {
-      _isGenerating = true;
-      _error = null;
-      _plan = null;
-    });
+    setState(() { _isGenerating = true; _error = null; });
 
-    final result = await AiService.generateFitnessPlan(
-      goals: goals,
-      daysPerWeek: _daysPerWeek.round(),
-      fitnessLevel: _fitnessLevel,
-    );
+    final workoutDays = _daysPerWeek;
+    final restDays = 7 - workoutDays;
+    final height = _heightCtrl.text.trim();
+    final weight = _weightCtrl.text.trim();
+
+    String locationLine = '';
+    String equipmentLine = '';
+    String homeNote = '';
+
+    if (_location == 'Gym') {
+      locationLine = '- Training location: Gym (full equipment available — machines, cables, free weights, etc.)';
+    } else if (_location == 'Home') {
+      locationLine = '- Training location: Home';
+      if (_equipment.isNotEmpty) {
+        equipmentLine = '- Available equipment: ${_equipment.join(", ")}\n  IMPORTANT: Only prescribe exercises that use this exact equipment. Do not suggest machines, cables, or gear not listed.';
+      }
+      homeNote = 'All exercises must be doable at home with only the listed equipment.';
+    }
+
+    final prompt = '''Create a detailed weekly fitness plan for someone with this profile:
+- Gender: $_gender
+- Height: $height cm
+- Weight: $weight kg
+- Fitness Level: $_level
+- Available workout days per week: $workoutDays ($restDays rest/recovery day(s))
+$locationLine
+$equipmentLine
+
+Provide a structured 7-day workout plan. The person can only train $workoutDays days per week — the remaining $restDays day(s) must be rest or light active recovery (stretching, walking). Spread the workout days sensibly throughout the week with adequate recovery between muscle groups. Each workout day should have a focus area, a list of exercises with sets/reps, and an estimated duration. Tailor the intensity to their fitness level ($_level). $homeNote
+
+Return ONLY valid JSON (no markdown) with this structure:
+{
+  "summary": "brief overview of the plan",
+  "weeklyPlan": [
+    { "day": "Monday", "focus": "...", "duration": "45 minutes", "exercises": [{ "name": "...", "detail": "4 sets x 8 reps" }] }
+  ],
+  "tips": ["tip 1", "tip 2", "tip 3"]
+}''';
+
+    try {
+      final raw = await AiService.ask(
+        prompt: prompt,
+        module: 'fitness',
+        systemPrompt: 'You are a certified personal trainer. Respond with valid JSON only, no markdown or code fences.',
+      );
+
+      if (raw != null && mounted) {
+        // Try to parse as JSON
+        try {
+          // Strip markdown code fences if present
+          String cleaned = raw.trim();
+          if (cleaned.startsWith('```')) {
+            cleaned = cleaned.replaceFirst(RegExp(r'^```\w*\n?'), '').replaceFirst(RegExp(r'\n?```$'), '');
+          }
+          final parsed = jsonDecode(cleaned) as Map<String, dynamic>;
+          // Save the plan with profile info
+          parsed['profile'] = {
+            'gender': _gender,
+            'height': height,
+            'weight': weight,
+            'level': _level,
+            'location': _location.isEmpty ? null : _location,
+            'equipment': _equipment.isEmpty ? null : List<String>.from(_equipment),
+            'daysPerWeek': _daysPerWeek,
+          };
+          await widget.onSavePlan(parsed);
+          if (mounted) Navigator.pop(context);
+          return;
+        } catch (_) {
+          // If JSON parse fails, save as plain text summary
+          await widget.onSavePlan({
+            'summary': raw,
+            'weeklyPlan': <Map>[],
+            'tips': <String>[],
+            'profile': {'gender': _gender, 'level': _level, 'location': _location},
+          });
+          if (mounted) Navigator.pop(context);
+          return;
+        }
+      }
+    } catch (_) {}
 
     if (mounted) {
       setState(() {
         _isGenerating = false;
-        if (result != null) {
-          _plan = result;
-        } else {
-          _error = 'Failed to generate plan. Please try again.';
-        }
+        _error = 'Failed to generate plan. Please try again.';
       });
     }
-  }
-
-  Future<void> _saveAsNote() async {
-    if (_plan == null) return;
-    setState(() => _isSaving = true);
-    await widget.onSaveAsNote(_plan!);
-    if (mounted) {
-      setState(() => _isSaving = false);
-      Navigator.pop(context);
-    }
-  }
-
-  void _copyToClipboard() {
-    if (_plan == null) return;
-    Clipboard.setData(ClipboardData(text: _plan!));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Plan copied to clipboard!')),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     return DraggableScrollableSheet(
-      initialChildSize: 0.9,
-      maxChildSize: 0.97,
-      minChildSize: 0.5,
-      expand: false,
+      initialChildSize: 0.92, maxChildSize: 0.97, minChildSize: 0.5, expand: false,
       builder: (_, controller) => Container(
-        decoration: const BoxDecoration(
-            color: AppTheme.surface,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+        decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
         child: Column(children: [
           const SheetHandle(),
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
             child: Row(children: [
-              const Icon(Icons.auto_awesome_rounded,
-                  color: AppTheme.primary, size: 22),
+              const Icon(Icons.auto_awesome_rounded, color: AppTheme.primary, size: 22),
               const SizedBox(width: 8),
-              const Text('AI Workout Plan',
-                  style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontWeight: FontWeight.w700,
-                      fontSize: 20,
-                      color: AppTheme.stone900)),
+              const Expanded(child: Text('AI Fitness Plan', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 20, color: AppTheme.stone900))),
+              GestureDetector(
+                onTap: () => Navigator.pop(context),
+                child: const Icon(Icons.close, size: 22, color: AppTheme.stone400),
+              ),
             ]),
           ),
           Expanded(
-            child: ListView(
-                controller: controller,
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
-                children: [
-                  // Goals field
+            child: ListView(controller: controller, padding: const EdgeInsets.fromLTRB(20, 8, 20, 40), children: [
+              // Intro
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(color: AppTheme.stone50, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.stone100)),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('Tell us about yourself to generate a personalised fitness plan:', style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone600, height: 1.4)),
+                  const SizedBox(height: 20),
+
+                  // Gender
+                  _sectionLabel('GENDER'),
+                  const SizedBox(height: 8),
+                  Row(children: [
+                    Expanded(child: _toggleButton('\u{1F6B9}  Male', _gender == 'Male', () => setState(() => _gender = 'Male'))),
+                    const SizedBox(width: 10),
+                    Expanded(child: _toggleButton('\u{1F6BA}  Female', _gender == 'Female', () => setState(() => _gender = 'Female'))),
+                  ]),
+                  const SizedBox(height: 20),
+
+                  // Fitness Level
+                  _sectionLabel('FITNESS LEVEL'),
+                  const SizedBox(height: 8),
+                  Row(children: _levels.map((l) => Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.only(right: l != _levels.last ? 8 : 0),
+                      child: _toggleButton(l, _level == l, () => setState(() => _level = l)),
+                    ),
+                  )).toList()),
+                  const SizedBox(height: 20),
+
+                  // Height
+                  _sectionLabel('HEIGHT (CM)'),
+                  const SizedBox(height: 8),
                   TextField(
-                    controller: _goalsCtrl,
-                    maxLines: 3,
-                    textCapitalization: TextCapitalization.sentences,
-                    decoration: const InputDecoration(
-                      labelText: 'Your Goals',
-                      hintText: 'e.g. Lose 10 lbs, build muscle, improve endurance',
-                      alignLabelWithHint: true,
-                      prefixIcon: Padding(
-                        padding: EdgeInsets.only(bottom: 40),
-                        child: Icon(Icons.flag_rounded),
-                      ),
+                    controller: _heightCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      hintText: 'e.g. 175',
+                      filled: true,
+                      fillColor: Colors.white,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppTheme.stone200)),
+                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppTheme.stone200)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  // Days per week slider
-                  Text(
-                    'Days per week: ${_daysPerWeek.round()}',
-                    style: const TextStyle(
-                        fontFamily: 'Inter',
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                        color: AppTheme.stone700),
-                  ),
-                  Slider(
-                    value: _daysPerWeek,
-                    min: 2,
-                    max: 6,
-                    divisions: 4,
-                    activeColor: AppTheme.primary,
-                    label: '${_daysPerWeek.round()} days',
-                    onChanged: (v) => setState(() => _daysPerWeek = v),
-                  ),
+                  const SizedBox(height: 20),
+
+                  // Weight
+                  _sectionLabel('WEIGHT (KG)'),
                   const SizedBox(height: 8),
-                  // Fitness level chips
-                  const Text('Fitness Level',
-                      style: TextStyle(
-                          fontFamily: 'Inter',
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                          color: AppTheme.stone700)),
+                  TextField(
+                    controller: _weightCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      hintText: 'e.g. 80',
+                      filled: true,
+                      fillColor: Colors.white,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppTheme.stone200)),
+                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppTheme.stone200)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Workout Location
+                  _sectionLabel('WHERE WILL YOU WORK OUT?'),
                   const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    children: _levels.map((level) {
-                      final selected = _fitnessLevel == level;
-                      return ChoiceChip(
-                        label: Text(level),
-                        selected: selected,
-                        onSelected: (_) =>
-                            setState(() => _fitnessLevel = level),
-                        selectedColor: AppTheme.primaryLight,
-                        labelStyle: TextStyle(
-                          fontFamily: 'Inter',
-                          fontWeight: FontWeight.w600,
-                          color: selected
-                              ? AppTheme.primary
-                              : AppTheme.stone600,
+                  Row(children: [
+                    Expanded(child: _locationButton('\u{1F3CB}\u{FE0F}', 'Gym', 'Full equipment\navailable', _location == 'Gym', () => setState(() { _location = 'Gym'; _equipment.clear(); }))),
+                    const SizedBox(width: 10),
+                    Expanded(child: _locationButton('\u{1F3E0}', 'Home', 'Choose your\nequipment', _location == 'Home', () => setState(() { _location = 'Home'; _equipment.clear(); }))),
+                  ]),
+
+                  // Equipment (if Home)
+                  if (_location == 'Home') ...[
+                    const SizedBox(height: 20),
+                    _sectionLabel('EQUIPMENT YOU HAVE AT HOME'),
+                    const SizedBox(height: 8),
+                    Wrap(spacing: 8, runSpacing: 8, children: _homeEquipment.map((e) {
+                      final selected = _equipment.contains(e);
+                      return GestureDetector(
+                        onTap: () => _toggleEquipment(e),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: selected ? AppTheme.primary : Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: selected ? AppTheme.primary : AppTheme.stone200),
+                          ),
+                          child: Text(e, style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600, color: selected ? Colors.white : AppTheme.stone600)),
                         ),
                       );
-                    }).toList(),
-                  ),
-                  const SizedBox(height: 16),
-                  // Error message
-                  if (_error != null) ...[
-                    Text(_error!,
-                        style: const TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 13,
-                            color: AppTheme.error)),
-                    const SizedBox(height: 8),
+                    }).toList()),
+                    const SizedBox(height: 4),
+                    const Text('Select all equipment you have. The plan will only use what you pick.', style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
                   ],
-                  // Generate button
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: _isGenerating ? null : _generate,
-                      icon: _isGenerating
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white))
-                          : const Icon(Icons.auto_awesome_rounded, size: 18),
-                      label: Text(
-                          _isGenerating ? 'Generating Plan...' : 'Generate Plan'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.primary,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                      ),
-                    ),
-                  ),
-                  // Plan result
-                  if (_plan != null) ...[
-                    const SizedBox(height: 20),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: AppTheme.stone50,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: AppTheme.stone200),
-                      ),
-                      child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                        Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                          const Text('Your Plan',
-                              style: TextStyle(
-                                  fontFamily: 'Inter',
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 14,
-                                  color: AppTheme.stone800)),
-                          TextButton.icon(
-                            onPressed: _copyToClipboard,
-                            icon: const Icon(Icons.copy_rounded, size: 15),
-                            label: const Text('Copy'),
-                            style: TextButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 4)),
+                  const SizedBox(height: 20),
+
+                  // Days per week
+                  _sectionLabel('DAYS AVAILABLE TO WORK OUT'),
+                  const SizedBox(height: 8),
+                  Row(children: [2, 3, 4, 5, 6, 7].map((d) {
+                    final selected = _daysPerWeek == d;
+                    return Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 3),
+                        child: GestureDetector(
+                          onTap: () => setState(() => _daysPerWeek = d),
+                          child: Container(
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: selected ? AppTheme.primary : Colors.white,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: selected ? AppTheme.primary : AppTheme.stone200, width: selected ? 2 : 1),
+                            ),
+                            child: Center(child: Text('$d', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: selected ? Colors.white : AppTheme.stone600))),
                           ),
-                        ]),
-                        const SizedBox(height: 8),
-                        Text(
-                          _plan!,
-                          style: const TextStyle(
-                              fontFamily: 'Inter',
-                              fontSize: 13,
-                              color: AppTheme.stone700,
-                              height: 1.6),
-                        ),
-                      ]),
-                    ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: _isSaving ? null : _saveAsNote,
-                        icon: _isSaving
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2))
-                            : const Icon(Icons.save_alt_rounded, size: 18),
-                        label: Text(_isSaving
-                            ? 'Saving...'
-                            : 'Save as Note'),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12)),
                         ),
                       ),
-                    ),
-                  ],
+                    );
+                  }).toList()),
+                  const SizedBox(height: 4),
+                  const Text('Remaining days will be rest or active recovery', style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
                 ]),
+              ),
+              const SizedBox(height: 16),
+
+              // Error
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(_error!, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.error)),
+                ),
+
+              // Generate button
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _isGenerating ? null : _generate,
+                  icon: _isGenerating
+                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Icon(Icons.auto_awesome_rounded, size: 18),
+                  label: Text(_isGenerating ? 'Generating Your Plan...' : 'Generate My Fitness Plan',
+                      style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primary,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                ),
+              ),
+            ]),
           ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _sectionLabel(String text) => Text(
+    text,
+    style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.8, color: AppTheme.stone400),
+  );
+
+  Widget _toggleButton(String label, bool selected, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: selected ? AppTheme.primary : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: selected ? AppTheme.primary : AppTheme.stone200),
+        ),
+        child: Center(child: Text(label, style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 14, color: selected ? Colors.white : AppTheme.stone600))),
+      ),
+    );
+  }
+
+  Widget _locationButton(String emoji, String title, String subtitle, bool selected, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+        decoration: BoxDecoration(
+          color: selected ? AppTheme.primary : Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: selected ? AppTheme.primary : AppTheme.stone200, width: selected ? 2 : 1),
+        ),
+        child: Column(children: [
+          Text(emoji, style: const TextStyle(fontSize: 24)),
+          const SizedBox(height: 4),
+          Text(title, style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: selected ? Colors.white : AppTheme.stone800)),
+          const SizedBox(height: 2),
+          Text(subtitle, textAlign: TextAlign.center, style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: selected ? Colors.white70 : AppTheme.stone400)),
         ]),
       ),
     );

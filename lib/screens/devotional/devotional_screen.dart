@@ -803,8 +803,12 @@ class _DevotionalFormSheetState extends State<_DevotionalFormSheet> {
   final _titleCtrl = TextEditingController();
   final _scriptureCtrl = TextEditingController();
   final _contentCtrl = TextEditingController();
+  final _topicCtrl = TextEditingController();
   DateTime _date = DateTime.now();
   bool _isSaving = false;
+  bool _isAiGenerating = false;
+  List<String> _reflectionPrompts = [];
+  String? _prayer;
   final _uuid = const Uuid();
 
   @override
@@ -812,7 +816,56 @@ class _DevotionalFormSheetState extends State<_DevotionalFormSheet> {
     _titleCtrl.dispose();
     _scriptureCtrl.dispose();
     _contentCtrl.dispose();
+    _topicCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _aiGenerate() async {
+    final topic = _topicCtrl.text.trim();
+    if (topic.isEmpty) return;
+    setState(() => _isAiGenerating = true);
+
+    const systemPrompt =
+        'You are a family devotional writer for a Christian family app. Always respond with valid JSON only, no markdown fences.';
+    final prompt = '''
+Create a family devotional about "$topic". Return a JSON object with:
+- "title" (string)
+- "scripture" (string, e.g. "John 3:16")
+- "content" (string, encouraging message 2-3 paragraphs)
+- "reflectionPrompts" (array of 3 strings, questions for family discussion)
+- "prayer" (string, a closing prayer)
+''';
+
+    try {
+      final raw = await AiService.ask(prompt: prompt, module: 'devotional', systemPrompt: systemPrompt);
+      if (raw == null || !mounted) {
+        if (mounted) setState(() => _isAiGenerating = false);
+        return;
+      }
+      var cleaned = raw.trim();
+      if (cleaned.startsWith('```')) cleaned = cleaned.substring(cleaned.indexOf('\n') + 1);
+      if (cleaned.endsWith('```')) cleaned = cleaned.substring(0, cleaned.lastIndexOf('```'));
+      cleaned = cleaned.trim();
+
+      final decoded = jsonDecode(cleaned);
+      if (decoded is Map<String, dynamic>) {
+        setState(() {
+          _titleCtrl.text = decoded['title']?.toString() ?? topic;
+          _scriptureCtrl.text = decoded['scripture']?.toString() ?? '';
+          _contentCtrl.text = decoded['content']?.toString() ?? '';
+          if (decoded['reflectionPrompts'] is List) {
+            _reflectionPrompts = (decoded['reflectionPrompts'] as List).map((e) => e.toString()).toList();
+          }
+          _prayer = decoded['prayer']?.toString();
+          _isAiGenerating = false;
+        });
+      } else {
+        setState(() => _isAiGenerating = false);
+      }
+    } catch (e) {
+      debugPrint('[Devotional] AI generate error: $e');
+      if (mounted) setState(() => _isAiGenerating = false);
+    }
   }
 
   Future<void> _pickDate() async {
@@ -839,6 +892,9 @@ class _DevotionalFormSheetState extends State<_DevotionalFormSheet> {
       scripture: _scriptureCtrl.text.trim().isEmpty
           ? null
           : _scriptureCtrl.text.trim(),
+      reflectionPrompts: _reflectionPrompts,
+      prayer: _prayer,
+      tags: _topicCtrl.text.trim().isNotEmpty ? [_topicCtrl.text.trim()] : [],
       date: _date,
     );
     await widget.onSave(entry);
@@ -887,6 +943,56 @@ class _DevotionalFormSheetState extends State<_DevotionalFormSheet> {
                 controller: controller,
                 padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
                 children: [
+                  // AI Generation section
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(colors: [Color(0xFF8B5CF6), Color(0xFF6366F1)]),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(children: [
+                          Icon(Icons.auto_awesome, size: 16, color: Colors.white),
+                          SizedBox(width: 8),
+                          Text('AI Devotional Generator', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: Colors.white)),
+                        ]),
+                        const SizedBox(height: 8),
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: TextField(
+                            controller: _topicCtrl,
+                            style: const TextStyle(color: Colors.white, fontFamily: 'Inter', fontSize: 14),
+                            decoration: const InputDecoration(
+                              hintText: 'e.g. Gratitude, Faith in Hard Times...',
+                              hintStyle: TextStyle(color: Colors.white54, fontFamily: 'Inter'),
+                              border: InputBorder.none,
+                              contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: GestureDetector(
+                            onTap: _isAiGenerating ? null : _aiGenerate,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
+                              child: _isAiGenerating
+                                  ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF8B5CF6)))
+                                  : const Text('Generate', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12, color: Color(0xFF8B5CF6))),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
                   TextField(
                       controller: _titleCtrl,
                       autofocus: true,
@@ -910,6 +1016,24 @@ class _DevotionalFormSheetState extends State<_DevotionalFormSheet> {
                         labelText: 'Content / Reflection *',
                         alignLabelWithHint: true),
                   ),
+                  if (_reflectionPrompts.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    const Text('Reflection Questions', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone900)),
+                    const SizedBox(height: 6),
+                    ...List.generate(_reflectionPrompts.length, (i) => Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('${i + 1}. ', style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13, color: AppTheme.primary)),
+                        Expanded(child: Text(_reflectionPrompts[i], style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone700))),
+                      ]),
+                    )),
+                  ],
+                  if (_prayer != null && _prayer!.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    const Text('Prayer', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone900)),
+                    const SizedBox(height: 6),
+                    Text(_prayer!, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, fontStyle: FontStyle.italic, color: AppTheme.stone600)),
+                  ],
                   const SizedBox(height: 12),
                   GestureDetector(
                     onTap: _pickDate,

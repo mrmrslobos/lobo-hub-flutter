@@ -1,4 +1,5 @@
 // lib/screens/lists/lists_screen.dart
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
@@ -138,6 +139,19 @@ class _ListsScreenState extends State<ListsScreen> {
     );
   }
 
+  void _showAiTextToChecklist() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _AiTextToChecklistSheet(
+        onListCreated: (list) {
+          setState(() => _selectedList = list);
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
@@ -223,22 +237,45 @@ class _ListsScreenState extends State<ListsScreen> {
                   gradient: const LinearGradient(colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)]),
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: Row(children: [
-                  const Text('\u{1F9D9}', style: TextStyle(fontSize: 28)),
-                  const SizedBox(width: 12),
-                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    const Text('AI Checklist Wizard', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white)),
-                    const Text('Smart categorization & suggestions', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white70)),
-                  ])),
-                  GestureDetector(
-                    onTap: _showAiCategorization,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(8)),
-                      child: const Text('Try It', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12, color: Colors.white)),
-                    ),
-                  ),
-                ]),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      const Text('\u{1F9D9}', style: TextStyle(fontSize: 28)),
+                      const SizedBox(width: 12),
+                      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        const Text('AI Checklist Wizard', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white)),
+                        const Text('Smart categorization & text-to-list', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white70)),
+                      ])),
+                    ]),
+                    const SizedBox(height: 12),
+                    Row(children: [
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: _showAiCategorization,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(8)),
+                            alignment: Alignment.center,
+                            child: const Text('Categorize', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12, color: Colors.white)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: _showAiTextToChecklist,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(8)),
+                            alignment: Alignment.center,
+                            child: const Text('Text to List', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12, color: Colors.white)),
+                          ),
+                        ),
+                      ),
+                    ]),
+                  ],
+                ),
               ),
             ),
 
@@ -653,6 +690,165 @@ class _ListDetailViewState extends State<_ListDetailView> {
           ]),
         ),
       ]),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// AI Text-to-Checklist Bottom Sheet
+// ─────────────────────────────────────────────
+
+class _AiTextToChecklistSheet extends StatefulWidget {
+  final void Function(ShoppingList) onListCreated;
+  const _AiTextToChecklistSheet({required this.onListCreated});
+
+  @override
+  State<_AiTextToChecklistSheet> createState() => _AiTextToChecklistSheetState();
+}
+
+class _AiTextToChecklistSheetState extends State<_AiTextToChecklistSheet> {
+  final _textController = TextEditingController();
+  bool _loading = false;
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _convert() async {
+    final text = _textController.text.trim();
+    if (text.isEmpty) return;
+    setState(() => _loading = true);
+
+    const systemPrompt =
+        'You are a checklist assistant. Always respond with valid JSON only, no markdown fences.';
+    final prompt =
+        'Turn this text into a structured checklist: "$text". Return a JSON array of objects with "text" and "quantity".';
+
+    try {
+      final raw = await AiService.ask(prompt: prompt, module: 'lists', systemPrompt: systemPrompt);
+      if (raw == null || !mounted) {
+        if (mounted) setState(() => _loading = false);
+        return;
+      }
+
+      var cleaned = raw.trim();
+      if (cleaned.startsWith('```')) cleaned = cleaned.substring(cleaned.indexOf('\n') + 1);
+      if (cleaned.endsWith('```')) cleaned = cleaned.substring(0, cleaned.lastIndexOf('```'));
+      cleaned = cleaned.trim();
+
+      final decoded = jsonDecode(cleaned);
+      if (decoded is! List) {
+        if (mounted) setState(() => _loading = false);
+        return;
+      }
+
+      final provider = context.read<AppProvider>();
+      final db = provider.db;
+      final userId = provider.activeUser?.id ?? '';
+      final familyId = provider.activeFamily?.id ?? '';
+
+      final items = decoded.map((item) {
+        final itemText = item is Map ? (item['text']?.toString() ?? '') : item.toString();
+        final qty = item is Map ? item['quantity']?.toString() : null;
+        return ListItem(
+          id: const Uuid().v4(),
+          text: itemText,
+          quantity: qty,
+          checked: false,
+        );
+      }).where((i) => i.text.isNotEmpty).toList();
+
+      final listTitle = 'AI: ${text.length > 20 ? '${text.substring(0, 20)}...' : text}';
+      final newList = ShoppingList(
+        id: const Uuid().v4(),
+        familyId: familyId,
+        creatorId: userId,
+        title: listTitle,
+        items: items,
+      );
+
+      await provider.saveAndSync(db.copyWith(shoppingLists: [...db.shoppingLists, newList]));
+
+      if (mounted) {
+        Navigator.pop(context);
+        widget.onListCreated(newList);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Created "$listTitle" with ${items.length} items'), behavior: SnackBarBehavior.floating),
+        );
+      }
+    } catch (e) {
+      debugPrint('[Lists] text-to-checklist error: $e');
+      if (mounted) {
+        setState(() => _loading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not convert text. Try again.'), behavior: SnackBarBehavior.floating),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final padding = MediaQuery.of(context).viewInsets.bottom + 32;
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: EdgeInsets.fromLTRB(20, 0, 20, padding),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              margin: const EdgeInsets.symmetric(vertical: 12),
+              width: 40, height: 4,
+              decoration: BoxDecoration(color: AppTheme.stone200, borderRadius: BorderRadius.circular(2)),
+            ),
+          ),
+          const Row(children: [
+            Icon(Icons.auto_awesome, color: Color(0xFF8B5CF6), size: 20),
+            SizedBox(width: 8),
+            Text('AI Text to Checklist', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 18, color: AppTheme.stone900)),
+          ]),
+          const SizedBox(height: 8),
+          const Text(
+            'Paste any text and AI will convert it into a structured checklist.',
+            style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone500),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _textController,
+            maxLines: 5,
+            decoration: InputDecoration(
+              hintText: 'e.g. "2 lbs chicken breast, 1 bag rice, salad mix, olive oil, garlic..."',
+              filled: true,
+              fillColor: AppTheme.stone50,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF8B5CF6), width: 1.5)),
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: _loading ? null : _convert,
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF8B5CF6),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+              child: _loading
+                  ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Text('Convert to Checklist', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
