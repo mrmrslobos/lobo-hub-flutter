@@ -2396,7 +2396,6 @@ class _ImportUrlDialogState extends State<_ImportUrlDialog> {
       final provider = context.read<AppProvider>();
       final db = provider.db;
       final userId = provider.activeUser?.id ?? '';
-      final familyId = provider.activeFamily?.id ?? '';
 
       final ingredients = <RecipeIngredient>[];
       if (result['ingredients'] is List) {
