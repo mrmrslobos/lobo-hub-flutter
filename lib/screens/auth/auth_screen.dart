@@ -12,6 +12,7 @@ import '../../config/module_config.dart';
 import '../../config/app_config.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../services/database_service.dart';
 
 // ─── Auth view enum ───────────────────────────────────────────────────────────
 
@@ -161,8 +162,8 @@ class _AuthScreenState extends State<AuthScreen> {
         return;
       }
 
-      // Resolve family membership
-      final membership = provider.db.familyMembers
+      // Resolve family membership — try local first
+      var membership = provider.db.familyMembers
           .cast<FamilyMember?>()
           .firstWhere((m) => m?.userId == user!.id, orElse: () => null);
       if (membership != null) {
@@ -170,6 +171,39 @@ class _AuthScreenState extends State<AuthScreen> {
             .cast<Family?>()
             .firstWhere((f) => f?.id == membership.familyId,
                 orElse: () => null);
+      }
+
+      // If no family found locally, try fetching from Supabase cloud
+      if (family == null && _supabaseConfigured) {
+        try {
+          // Look up the user's family membership from cloud
+          final memberships = await Supabase.instance.client
+              .from('family_members')
+              .select()
+              .eq('userId', user.id);
+          if (memberships is List && memberships.isNotEmpty) {
+            final cloudMembership = memberships.first as Map<String, dynamic>;
+            final familyId = (cloudMembership['familyId'] ?? cloudMembership['family_id']) as String?;
+            if (familyId != null) {
+              // Fetch all cloud data for this family and merge
+              final db = await DatabaseService.reconcileCloud(provider.db, familyId);
+              provider.setDb(db);
+
+              // Now resolve from the merged DB
+              membership = db.familyMembers
+                  .cast<FamilyMember?>()
+                  .firstWhere((m) => m?.userId == user!.id, orElse: () => null);
+              if (membership != null) {
+                family = db.families
+                    .cast<Family?>()
+                    .firstWhere((f) => f?.id == membership!.familyId,
+                        orElse: () => null);
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint('[Auth] Cloud family lookup failed: $e');
+        }
       }
 
       if (family == null) {

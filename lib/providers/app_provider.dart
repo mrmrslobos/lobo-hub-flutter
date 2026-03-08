@@ -65,7 +65,22 @@ class AppProvider extends ChangeNotifier {
 
     if (user == null) {
       // Try to get the current active family from local state and reconcile
-      final knownFamilyId = _activeFamily?.id;
+      var knownFamilyId = _activeFamily?.id;
+
+      // If no local family known, try looking up membership from cloud
+      if (knownFamilyId == null && SupabaseService.isConfigured) {
+        try {
+          final memberships = await SupabaseService.client
+              .from('family_members')
+              .select()
+              .eq('userId', userId);
+          if (memberships is List && memberships.isNotEmpty) {
+            knownFamilyId = (memberships.first['familyId'] ??
+                memberships.first['family_id']) as String?;
+          }
+        } catch (_) {}
+      }
+
       if (knownFamilyId != null) {
         _db = await DatabaseService.reconcileCloud(_db, knownFamilyId);
         user = _db.users.firstWhereOrNull((u) => u.id == userId);
@@ -94,6 +109,12 @@ class AppProvider extends ChangeNotifier {
     _activeUser = user;
     _activeFamily = family;
     _db = DatabaseService.db;
+    notifyListeners();
+  }
+
+  /// Update the in-memory DB (e.g. after cloud reconciliation).
+  void setDb(AppDB db) {
+    _db = db;
     notifyListeners();
   }
 
@@ -169,10 +190,17 @@ class AppProvider extends ChangeNotifier {
   bool canAccess(String path) {
     if (_activeUser == null || _activeFamily == null) return true;
 
+    // Normalize: strip leading '/' for comparison since enabledModules
+    // and moduleAccess store paths without the leading slash.
+    final normalized = path.startsWith('/') ? path.substring(1) : path;
+
     final family = currentFamily;
     final enabled = family?.enabledModules;
-    if (enabled != null && enabled.isNotEmpty && !enabled.contains(path)) {
-      return false;
+    if (enabled != null && enabled.isNotEmpty) {
+      // Check both with and without leading slash for compatibility
+      if (!enabled.contains(normalized) && !enabled.contains(path)) {
+        return false;
+      }
     }
 
     final membership = _db.familyMembers.firstWhereOrNull(
@@ -182,7 +210,7 @@ class AppProvider extends ChangeNotifier {
 
     final access = membership?.moduleAccess;
     if (access == null || access.isEmpty) return true;
-    return access.contains(path);
+    return access.contains(normalized) || access.contains(path);
   }
 
   // ── Family helpers ────────────────────────────────────────────────────────
