@@ -487,7 +487,7 @@ class _MessageBubble extends StatelessWidget {
                           : Border.all(color: AppTheme.stone200),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.04),
+                          color: Colors.black.withValues(alpha: 0.04),
                           blurRadius: 4,
                           offset: const Offset(0, 2),
                         ),
@@ -621,7 +621,7 @@ class _ReplyPreview extends StatelessWidget {
   Widget build(BuildContext context) {
     final replySender = provider.userById(replyMsg.senderId);
     final bgColor = isMe
-        ? Colors.white.withOpacity(0.15)
+        ? Colors.white.withValues(alpha: 0.15)
         : AppTheme.stone100;
     final textColor = isMe ? Colors.white70 : AppTheme.stone500;
     final nameColor = isMe ? Colors.white : AppTheme.primary;
@@ -692,7 +692,7 @@ class _ReactionChip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
         decoration: BoxDecoration(
           color: reacted
-              ? AppTheme.primary.withOpacity(0.12)
+              ? AppTheme.primary.withValues(alpha: 0.12)
               : AppTheme.stone100,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(

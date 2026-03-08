@@ -135,7 +135,7 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
                         ));
                       }
                     },
-                    backgroundColor: AppTheme.error.withOpacity(0.1),
+                    backgroundColor: AppTheme.error.withValues(alpha: 0.1),
                     foregroundColor: AppTheme.error,
                   ),
               ],
@@ -241,7 +241,7 @@ class _HistoryCard extends StatelessWidget {
           child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Container(
               width: 38, height: 38,
-              decoration: BoxDecoration(color: moduleColor.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+              decoration: BoxDecoration(color: moduleColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
               child: const Center(child: Text('🤖', style: TextStyle(fontSize: 18))),
             ),
             const SizedBox(width: 10),
@@ -249,7 +249,7 @@ class _HistoryCard extends StatelessWidget {
               Row(children: [
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                  decoration: BoxDecoration(color: moduleColor.withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
+                  decoration: BoxDecoration(color: moduleColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(6)),
                   child: Text(entry.module, style: TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: moduleColor)),
                 ),
                 const Spacer(),
@@ -310,7 +310,7 @@ class _EntryDetailSheet extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
-                  color: moduleColor.withOpacity(0.1),
+                  color: moduleColor.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
@@ -431,7 +431,7 @@ class _EntryDetailSheet extends StatelessWidget {
                                   padding: const EdgeInsets.symmetric(
                                       horizontal: 8, vertical: 4),
                                   decoration: BoxDecoration(
-                                    color: moduleColor.withOpacity(0.1),
+                                    color: moduleColor.withValues(alpha: 0.1),
                                     borderRadius:
                                         BorderRadius.circular(8),
                                   ),

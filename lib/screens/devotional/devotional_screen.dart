@@ -259,7 +259,7 @@ class _DevotionalScreenState extends State<DevotionalScreen>
                     const SizedBox(height: 12),
                     Container(
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
+                        color: Colors.white.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: const TextField(
@@ -279,7 +279,7 @@ class _DevotionalScreenState extends State<DevotionalScreen>
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
+                            color: Colors.white.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: const Text('Shared', style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white)),
@@ -616,7 +616,7 @@ class _ReadingPlanEntryTile extends StatelessWidget {
             margin: const EdgeInsets.only(top: 2),
             decoration: BoxDecoration(
               color: entry.completed
-                  ? AppTheme.primary.withOpacity(0.12)
+                  ? AppTheme.primary.withValues(alpha: 0.12)
                   : AppTheme.stone50,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
@@ -729,7 +729,7 @@ class _EntryDetailView extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: AppTheme.primary.withOpacity(0.06),
+                color: AppTheme.primary.withValues(alpha: 0.06),
                 borderRadius: BorderRadius.circular(16),
                 border: Border(
                     left: BorderSide(color: AppTheme.primary, width: 4)),
@@ -962,7 +962,7 @@ Create a family devotional about "$topic". Return a JSON object with:
                         const SizedBox(height: 8),
                         Container(
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
+                            color: Colors.white.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: TextField(
@@ -1250,10 +1250,10 @@ class _AddReadingPlanSheetState extends State<_AddReadingPlanSheet> {
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: AppTheme.primary.withOpacity(0.05),
+                      color: AppTheme.primary.withValues(alpha: 0.05),
                       borderRadius: BorderRadius.circular(14),
                       border:
-                          Border.all(color: AppTheme.primary.withOpacity(0.2)),
+                          Border.all(color: AppTheme.primary.withValues(alpha: 0.2)),
                     ),
                     child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1427,7 +1427,7 @@ class _ManualEntryRowState extends State<_ManualEntryRow> {
             width: 26,
             height: 26,
             decoration: BoxDecoration(
-              color: AppTheme.primary.withOpacity(0.12),
+              color: AppTheme.primary.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(6),
             ),
             child: Center(

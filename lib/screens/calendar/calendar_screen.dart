@@ -463,7 +463,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                             width: 32,
                             height: 32,
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.2),
+                              color: Colors.white.withValues(alpha: 0.2),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: const Icon(Icons.auto_awesome, size: 18, color: Colors.white),
@@ -490,16 +490,16 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.15),
+                          color: Colors.white.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: Row(
                           children: [
-                            Icon(Icons.edit_outlined, size: 16, color: Colors.white.withOpacity(0.6)),
+                            Icon(Icons.edit_outlined, size: 16, color: Colors.white.withValues(alpha: 0.6)),
                             const SizedBox(width: 10),
                             Text(
                               'Describe an event to plan...',
-                              style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: Colors.white.withOpacity(0.6)),
+                              style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: Colors.white.withValues(alpha: 0.6)),
                             ),
                           ],
                         ),
@@ -565,7 +565,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                           shape: BoxShape.circle,
                         ),
                         todayDecoration: BoxDecoration(
-                          color: AppTheme.primary.withOpacity(0.15),
+                          color: AppTheme.primary.withValues(alpha: 0.15),
                           shape: BoxShape.circle,
                         ),
                         todayTextStyle: const TextStyle(
@@ -806,8 +806,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
             height: 36,
             decoration: BoxDecoration(
               color: cal.type == ExternalCalendarType.google
-                  ? const Color(0xFF4285F4).withOpacity(0.1)
-                  : AppTheme.primary.withOpacity(0.1),
+                  ? const Color(0xFF4285F4).withValues(alpha: 0.1)
+                  : AppTheme.primary.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(
@@ -946,7 +946,7 @@ class _EventCard extends StatelessWidget {
           padding: const EdgeInsets.only(right: 20),
           margin: const EdgeInsets.only(bottom: 10),
           decoration: BoxDecoration(
-            color: AppTheme.error.withOpacity(0.1),
+            color: AppTheme.error.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(20),
           ),
           child:
@@ -999,7 +999,7 @@ class _EventCard extends StatelessWidget {
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 8, vertical: 3),
                             decoration: BoxDecoration(
-                              color: color.withOpacity(0.1),
+                              color: color.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
@@ -1495,7 +1495,7 @@ class _GoogleCalendarPickerState extends State<_GoogleCalendarPicker> {
                     margin: const EdgeInsets.only(bottom: 8),
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: isSelected ? AppTheme.primary.withOpacity(0.05) : Colors.white,
+                      color: isSelected ? AppTheme.primary.withValues(alpha: 0.05) : Colors.white,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
                         color: isSelected ? AppTheme.primary : AppTheme.stone100,
@@ -1507,7 +1507,7 @@ class _GoogleCalendarPickerState extends State<_GoogleCalendarPicker> {
                         width: 32,
                         height: 32,
                         decoration: BoxDecoration(
-                          color: const Color(0xFF4285F4).withOpacity(0.1),
+                          color: const Color(0xFF4285F4).withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: const Icon(Icons.calendar_today_rounded, size: 16, color: Color(0xFF4285F4)),
@@ -1719,16 +1719,16 @@ class _MyCalendarsSheet extends StatelessWidget {
                   margin: const EdgeInsets.only(bottom: 8),
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: AppTheme.primary.withOpacity(0.05),
+                    color: AppTheme.primary.withValues(alpha: 0.05),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppTheme.primary.withOpacity(0.2)),
+                    border: Border.all(color: AppTheme.primary.withValues(alpha: 0.2)),
                   ),
                   child: Row(children: [
                     Container(
                       width: 36,
                       height: 36,
                       decoration: BoxDecoration(
-                        color: AppTheme.primary.withOpacity(0.1),
+                        color: AppTheme.primary.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Icon(Icons.calendar_today_rounded, size: 18, color: AppTheme.primary),
@@ -1760,8 +1760,8 @@ class _MyCalendarsSheet extends StatelessWidget {
                       height: 36,
                       decoration: BoxDecoration(
                         color: cal.type == ExternalCalendarType.google
-                            ? const Color(0xFF4285F4).withOpacity(0.1)
-                            : AppTheme.primary.withOpacity(0.1),
+                            ? const Color(0xFF4285F4).withValues(alpha: 0.1)
+                            : AppTheme.primary.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Icon(
@@ -1832,7 +1832,7 @@ class _MyCalendarsSheet extends StatelessWidget {
                         width: 36,
                         height: 36,
                         decoration: BoxDecoration(
-                          color: const Color(0xFF4285F4).withOpacity(0.1),
+                          color: const Color(0xFF4285F4).withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: const Icon(Icons.account_circle_rounded, size: 18, color: Color(0xFF4285F4)),
@@ -1866,7 +1866,7 @@ class _MyCalendarsSheet extends StatelessWidget {
                         width: 36,
                         height: 36,
                         decoration: BoxDecoration(
-                          color: AppTheme.primary.withOpacity(0.1),
+                          color: AppTheme.primary.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Icon(Icons.link_rounded, size: 18, color: AppTheme.primary),

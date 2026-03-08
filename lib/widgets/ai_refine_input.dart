@@ -129,7 +129,7 @@ class _AiRefineInputState extends State<AiRefineInput> {
         border: Border.all(color: AppTheme.stone200),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
+            color: Colors.black.withValues(alpha: 0.06),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -144,7 +144,7 @@ class _AiRefineInputState extends State<AiRefineInput> {
             child: Icon(
               Icons.auto_awesome,
               size: 20,
-              color: AppTheme.primary.withOpacity(0.6),
+              color: AppTheme.primary.withValues(alpha: 0.6),
             ),
           ),
           // Text field

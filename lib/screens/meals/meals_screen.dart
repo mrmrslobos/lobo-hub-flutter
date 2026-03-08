@@ -592,7 +592,7 @@ Return a JSON array of 7 objects, each with:
                     const SizedBox(height: 8),
                     Container(
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
+                        color: Colors.white.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: TextField(
@@ -709,7 +709,7 @@ Return a JSON array of 7 objects, each with:
                     const SizedBox(height: 8),
                     Container(
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
+                        color: Colors.white.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: TextField(
@@ -774,7 +774,7 @@ Return a JSON array of 7 objects, each with:
                     const SizedBox(height: 8),
                     Container(
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
+                        color: Colors.white.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: TextField(
@@ -868,7 +868,7 @@ Return a JSON array of 7 objects, each with:
                               Expanded(
                                 child: meal != null
                                     ? Text(meal.title, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w500, color: AppTheme.stone700))
-                                    : Text('+ Add', style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w500, color: AppTheme.primary.withOpacity(0.7))),
+                                    : Text('+ Add', style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w500, color: AppTheme.primary.withValues(alpha: 0.7))),
                               ),
                             ],
                           ),
@@ -1011,7 +1011,7 @@ class _MealPlanTabState extends State<_MealPlanTab> {
                       color: isSelected
                           ? AppTheme.primary
                           : isToday
-                              ? AppTheme.primary.withOpacity(0.4)
+                              ? AppTheme.primary.withValues(alpha: 0.4)
                               : AppTheme.stone200,
                     ),
                   ),
@@ -1150,7 +1150,7 @@ class _MealSlotCard extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
-                        color: AppTheme.primary.withOpacity(0.7),
+                        color: AppTheme.primary.withValues(alpha: 0.7),
                       ),
                     ),
                 ],
@@ -2319,7 +2319,7 @@ class _FabOption extends StatelessWidget {
           border: Border.all(color: AppTheme.stone200),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.06),
+              color: Colors.black.withValues(alpha: 0.06),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),

@@ -120,9 +120,9 @@ class PriorityBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
       child: Text(
         label,
@@ -260,7 +260,7 @@ class LoadingOverlay extends StatelessWidget {
         child,
         if (isLoading)
           Container(
-            color: Colors.black.withOpacity(0.3),
+            color: Colors.black.withValues(alpha: 0.3),
             alignment: Alignment.center,
             child: Container(
               width: 64,
@@ -314,7 +314,7 @@ class AppTabBar extends StatelessWidget {
                   color: active ? Colors.white : Colors.transparent,
                   borderRadius: BorderRadius.circular(9),
                   boxShadow: active
-                      ? [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 4, offset: const Offset(0, 1))]
+                      ? [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 4, offset: const Offset(0, 1))]
                       : null,
                 ),
                 alignment: Alignment.center,
@@ -415,9 +415,9 @@ class ModuleCard extends StatelessWidget {
       onTap: onTap,
       child: Container(
         decoration: BoxDecoration(
-          color: color?.withOpacity(0.08) ?? AppTheme.stone50,
+          color: color?.withValues(alpha: 0.08) ?? AppTheme.stone50,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color?.withOpacity(0.15) ?? AppTheme.stone100),
+          border: Border.all(color: color?.withValues(alpha: 0.15) ?? AppTheme.stone100),
         ),
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -478,9 +478,9 @@ class StatCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: (color ?? AppTheme.primary).withOpacity(0.06),
+        color: (color ?? AppTheme.primary).withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: (color ?? AppTheme.primary).withOpacity(0.12)),
+        border: Border.all(color: (color ?? AppTheme.primary).withValues(alpha: 0.12)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

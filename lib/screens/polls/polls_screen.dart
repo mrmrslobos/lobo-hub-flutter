@@ -352,7 +352,7 @@ class _PollCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: AppTheme.surface,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: _isOpen ? AppTheme.primary.withOpacity(0.2) : AppTheme.stone100),
+          border: Border.all(color: _isOpen ? AppTheme.primary.withValues(alpha: 0.2) : AppTheme.stone100),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           // Header

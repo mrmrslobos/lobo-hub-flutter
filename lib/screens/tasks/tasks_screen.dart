@@ -258,7 +258,7 @@ class _TasksScreenState extends State<TasksScreen> {
                             width: 32,
                             height: 32,
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.2),
+                              color: Colors.white.withValues(alpha: 0.2),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: const Icon(Icons.auto_awesome, size: 18, color: Colors.white),
@@ -287,16 +287,16 @@ class _TasksScreenState extends State<TasksScreen> {
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.15),
+                            color: Colors.white.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Row(
                             children: [
-                              Icon(Icons.edit_outlined, size: 16, color: Colors.white.withOpacity(0.6)),
+                              Icon(Icons.edit_outlined, size: 16, color: Colors.white.withValues(alpha: 0.6)),
                               const SizedBox(width: 10),
                               Text(
                                 'Describe a project or goal...',
-                                style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: Colors.white.withOpacity(0.6)),
+                                style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: Colors.white.withValues(alpha: 0.6)),
                               ),
                             ],
                           ),
@@ -545,7 +545,7 @@ class _TasksScreenState extends State<TasksScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
-                color: isSelected ? AppTheme.primary.withOpacity(0.1) : AppTheme.stone100,
+                color: isSelected ? AppTheme.primary.withValues(alpha: 0.1) : AppTheme.stone100,
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Text(
@@ -786,12 +786,12 @@ class _AiBreakdownSheetState extends State<_AiBreakdownSheet> {
                           margin: const EdgeInsets.only(bottom: 8),
                           decoration: BoxDecoration(
                             color: _selected[i]
-                                ? const Color(0xFF8B5CF6).withOpacity(0.06)
+                                ? const Color(0xFF8B5CF6).withValues(alpha: 0.06)
                                 : AppTheme.stone50,
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
                               color: _selected[i]
-                                  ? const Color(0xFF8B5CF6).withOpacity(0.3)
+                                  ? const Color(0xFF8B5CF6).withValues(alpha: 0.3)
                                   : AppTheme.stone200,
                             ),
                           ),
@@ -886,7 +886,7 @@ class _TaskCard extends StatelessWidget {
         padding: const EdgeInsets.only(right: 20),
         margin: const EdgeInsets.only(bottom: 10),
         decoration: BoxDecoration(
-          color: AppTheme.error.withOpacity(0.1),
+          color: AppTheme.error.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(20),
         ),
         child: const Icon(Icons.delete_outline, color: AppTheme.error),
@@ -904,7 +904,7 @@ class _TaskCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
               color: task.isOverdue
-                  ? AppTheme.error.withOpacity(0.3)
+                  ? AppTheme.error.withValues(alpha: 0.3)
                   : AppTheme.stone100,
             ),
           ),
@@ -1041,9 +1041,9 @@ class _DueDateChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
+        color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1079,9 +1079,9 @@ class _RecurrenceChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: AppTheme.primary.withOpacity(0.08),
+        color: AppTheme.primary.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppTheme.primary.withOpacity(0.2)),
+        border: Border.all(color: AppTheme.primary.withValues(alpha: 0.2)),
       ),
       child: Text(
         '↻ ${labels[recurrence] ?? ''}',
@@ -1493,7 +1493,7 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
                                       decoration: BoxDecoration(
                                         color: _priority == p
                                             ? _priorityColor(p)
-                                                .withOpacity(0.12)
+                                                .withValues(alpha: 0.12)
                                             : AppTheme.stone50,
                                         borderRadius:
                                             BorderRadius.circular(12),
@@ -1574,7 +1574,7 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
                                   horizontal: 10, vertical: 6),
                               decoration: BoxDecoration(
                                 color: selected
-                                    ? AppTheme.primary.withOpacity(0.1)
+                                    ? AppTheme.primary.withValues(alpha: 0.1)
                                     : AppTheme.stone100,
                                 borderRadius:
                                     BorderRadius.circular(20),

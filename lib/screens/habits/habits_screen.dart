@@ -352,7 +352,7 @@ class _ProgressCard extends StatelessWidget {
               Text(
                 '$completed / $total',
                 style: TextStyle(
-                  color: Colors.white.withOpacity(0.9),
+                  color: Colors.white.withValues(alpha: 0.9),
                   fontWeight: FontWeight.bold,
                   fontSize: 16,
                 ),
@@ -365,7 +365,7 @@ class _ProgressCard extends StatelessWidget {
             child: LinearProgressIndicator(
               value: progress,
               minHeight: 8,
-              backgroundColor: Colors.white.withOpacity(0.25),
+              backgroundColor: Colors.white.withValues(alpha: 0.25),
               valueColor: const AlwaysStoppedAnimation(Colors.white),
             ),
           ),
@@ -377,7 +377,7 @@ class _ProgressCard extends StatelessWidget {
                     ? '🎉 All habits complete!'
                     : '${total - completed} habit${total - completed == 1 ? '' : 's'} remaining',
             style: TextStyle(
-              color: Colors.white.withOpacity(0.8),
+              color: Colors.white.withValues(alpha: 0.8),
               fontSize: 13,
             ),
           ),
@@ -421,7 +421,7 @@ class _HabitCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
                 color: isDone
-                    ? AppTheme.primary.withOpacity(0.3)
+                    ? AppTheme.primary.withValues(alpha: 0.3)
                     : AppTheme.stone200,
               ),
             ),
@@ -956,7 +956,7 @@ class _EmojiPicker extends StatelessWidget {
           child: Container(
             decoration: BoxDecoration(
               color: isSelected
-                  ? AppTheme.primary.withOpacity(0.15)
+                  ? AppTheme.primary.withValues(alpha: 0.15)
                   : AppTheme.stone100,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(

@@ -459,7 +459,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
                         width: 40,
                         height: 40,
                         decoration: BoxDecoration(
-                          color: AppTheme.success.withOpacity(0.15),
+                          color: AppTheme.success.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: const Icon(Icons.trending_up_rounded, color: AppTheme.success, size: 20),
@@ -499,7 +499,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
                         width: 40,
                         height: 40,
                         decoration: BoxDecoration(
-                          color: AppTheme.error.withOpacity(0.12),
+                          color: AppTheme.error.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: const Icon(Icons.trending_down_rounded, color: AppTheme.error, size: 20),
@@ -539,7 +539,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
                         width: 40,
                         height: 40,
                         decoration: BoxDecoration(
-                          color: AppTheme.success.withOpacity(0.15),
+                          color: AppTheme.success.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: const Icon(Icons.attach_money_rounded, color: AppTheme.success, size: 20),
@@ -726,9 +726,9 @@ class _BudgetScreenState extends State<BudgetScreen> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
+                        color: Colors.white.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.white.withOpacity(0.3)),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
                       ),
                       child: const Text(
                         'Analyze Spending',
@@ -792,12 +792,12 @@ class _SavingsGoalCard extends StatelessWidget {
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: goal.isComplete
-              ? AppTheme.success.withOpacity(0.06)
+              ? AppTheme.success.withValues(alpha: 0.06)
               : AppTheme.surface,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: goal.isComplete
-                ? AppTheme.success.withOpacity(0.3)
+                ? AppTheme.success.withValues(alpha: 0.3)
                 : AppTheme.stone100,
           ),
         ),
@@ -826,10 +826,10 @@ class _SavingsGoalCard extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: AppTheme.success.withOpacity(0.1),
+                      color: AppTheme.success.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
-                          color: AppTheme.success.withOpacity(0.3)),
+                          color: AppTheme.success.withValues(alpha: 0.3)),
                     ),
                     child: const Row(
                       mainAxisSize: MainAxisSize.min,
@@ -851,7 +851,7 @@ class _SavingsGoalCard extends StatelessWidget {
                   )
                 else
                   Icon(Icons.add_circle_outline_rounded,
-                      color: AppTheme.primary.withOpacity(0.6), size: 20),
+                      color: AppTheme.primary.withValues(alpha: 0.6), size: 20),
               ],
             ),
             const SizedBox(height: 10),
@@ -1051,7 +1051,7 @@ class _AddGoalSheetState extends State<_AddGoalSheet> {
                             height: 44,
                             decoration: BoxDecoration(
                               color: selected
-                                  ? AppTheme.primary.withOpacity(0.12)
+                                  ? AppTheme.primary.withValues(alpha: 0.12)
                                   : AppTheme.stone50,
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
@@ -1312,11 +1312,11 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet> {
                             Container(
                               padding: const EdgeInsets.all(16),
                               decoration: BoxDecoration(
-                                color: AppTheme.primary.withOpacity(0.05),
+                                color: AppTheme.primary.withValues(alpha: 0.05),
                                 borderRadius: BorderRadius.circular(16),
                                 border: Border.all(
                                     color:
-                                        AppTheme.primary.withOpacity(0.15)),
+                                        AppTheme.primary.withValues(alpha: 0.15)),
                               ),
                               child: Text(
                                 _analysis ?? '',
@@ -1394,7 +1394,7 @@ class _EntryCard extends StatelessWidget {
             width: 42,
             height: 42,
             decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
+                color: color.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(12)),
             child: Icon(
                 isIncome
@@ -1449,7 +1449,7 @@ class _EntryCard extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
+                  color: color.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(5)),
               child: Text(isIncome ? 'Income' : 'Expense',
                   style: TextStyle(
@@ -1578,7 +1578,7 @@ class _BudgetEntrySheetState extends State<_BudgetEntrySheet> {
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           decoration: BoxDecoration(
                             color: _isIncome
-                                ? AppTheme.success.withOpacity(0.1)
+                                ? AppTheme.success.withValues(alpha: 0.1)
                                 : AppTheme.stone50,
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
@@ -1617,7 +1617,7 @@ class _BudgetEntrySheetState extends State<_BudgetEntrySheet> {
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           decoration: BoxDecoration(
                             color: !_isIncome
-                                ? AppTheme.error.withOpacity(0.1)
+                                ? AppTheme.error.withValues(alpha: 0.1)
                                 : AppTheme.stone50,
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
