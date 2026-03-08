@@ -544,6 +544,7 @@ class CalendarEvent {
   final DateTime start;
   final DateTime end;
   final Visibility visibility;
+  final List<String> sharedWith;
   final List<String> checklist;
   final double? budgetEstimate;
   final String? externalCalendarId;
@@ -564,6 +565,7 @@ class CalendarEvent {
     bool? allDay,
     DateTime? createdAt,
     this.visibility = Visibility.FAMILY,
+    this.sharedWith = const [],
     this.checklist = const [],
     this.budgetEstimate,
     this.externalCalendarId,
@@ -582,6 +584,7 @@ class CalendarEvent {
     start: _parseDate(j['start']),
     end: _parseDate(j['end']),
     visibility: visibilityFromString(j['visibility'] as String?),
+    sharedWith: _strList(j['shared_with'] ?? j['sharedWith']),
     checklist: _strList(j['checklist']),
     budgetEstimate: (j['budget_estimate'] ?? j['budgetEstimate']) != null
         ? (j['budget_estimate'] ?? j['budgetEstimate'] as num).toDouble()
@@ -600,6 +603,7 @@ class CalendarEvent {
     'start': start.toIso8601String(),
     'end': end.toIso8601String(),
     'visibility': visibility.name,
+    'shared_with': sharedWith,
     'checklist': checklist,
     'budget_estimate': budgetEstimate,
     'external_calendar_id': externalCalendarId,
@@ -616,14 +620,15 @@ class CalendarEvent {
   CalendarEvent copyWith({
     String? id, String? familyId, String? creatorId, String? title,
     String? description, String? location, DateTime? start, DateTime? end,
-    Visibility? visibility, List<String>? checklist, double? budgetEstimate,
-    String? externalCalendarId, Recurrence? recurrence,
+    Visibility? visibility, List<String>? sharedWith, List<String>? checklist,
+    double? budgetEstimate, String? externalCalendarId, Recurrence? recurrence,
   }) => CalendarEvent(
     id: id ?? this.id, familyId: familyId ?? this.familyId,
     creatorId: creatorId ?? this.creatorId, title: title ?? this.title,
     description: description ?? this.description, location: location ?? this.location,
     start: start ?? this.start, end: end ?? this.end,
-    visibility: visibility ?? this.visibility, checklist: checklist ?? this.checklist,
+    visibility: visibility ?? this.visibility, sharedWith: sharedWith ?? this.sharedWith,
+    checklist: checklist ?? this.checklist,
     budgetEstimate: budgetEstimate ?? this.budgetEstimate,
     externalCalendarId: externalCalendarId ?? this.externalCalendarId,
     recurrence: recurrence ?? this.recurrence,
@@ -950,6 +955,7 @@ class ShoppingList {
   final List<ListItem> items;
   final ListCategory category;
   final Visibility visibility;
+  final List<String> sharedWith;
 
   ShoppingList({
     required this.id,
@@ -961,6 +967,7 @@ class ShoppingList {
     this.items = const [],
     this.category = ListCategory.GROCERY,
     this.visibility = Visibility.FAMILY,
+    this.sharedWith = const [],
     DateTime? createdAt,
   }) : creatorId = creatorId ?? createdBy ?? '',
        title = title ?? name ?? '';
@@ -973,6 +980,7 @@ class ShoppingList {
     items: _parseList(j['items'], ListItem.fromJson),
     category: listCategoryFromString(j['category'] as String?),
     visibility: visibilityFromString(j['visibility'] as String?),
+    sharedWith: _strList(j['shared_with'] ?? j['sharedWith']),
   );
 
   Map<String, dynamic> toJson() => {
@@ -983,6 +991,7 @@ class ShoppingList {
     'items': items.map((e) => e.toJson()).toList(),
     'category': category.name,
     'visibility': visibility.name,
+    'shared_with': sharedWith,
   };
 
   // Convenience getters
@@ -991,11 +1000,13 @@ class ShoppingList {
   ShoppingList copyWith({
     String? id, String? familyId, String? creatorId, String? title,
     List<ListItem>? items, ListCategory? category, Visibility? visibility,
+    List<String>? sharedWith,
   }) => ShoppingList(
     id: id ?? this.id, familyId: familyId ?? this.familyId,
     creatorId: creatorId ?? this.creatorId, title: title ?? this.title,
     items: items ?? this.items, category: category ?? this.category,
     visibility: visibility ?? this.visibility,
+    sharedWith: sharedWith ?? this.sharedWith,
   );
 }
 
