@@ -312,14 +312,59 @@ class _AuthScreenState extends State<AuthScreen> {
     try {
       final code = _joinCodeCtrl.text.trim().toUpperCase();
       final provider = context.read<AppProvider>();
-      final family = provider.db.families
+      final user = _pendingUser!;
+
+      // Try local first
+      Family? family = provider.db.families
           .cast<Family?>()
           .firstWhere((f) => f?.joinCode == code, orElse: () => null);
+
+      // If not found locally, try cloud lookup
+      if (family == null && _supabaseConfigured) {
+        try {
+          final result =
+              await Supabase.instance.client.rpc(
+            'find_family_by_join_code',
+            params: {'code': code},
+          );
+          if (result != null && (result as List).isNotEmpty) {
+            final data = result[0] as Map<String, dynamic>;
+            final familyId = data['id'] as String;
+            // Reconcile cloud data for this family
+            final db =
+                await DatabaseService.reconcileCloud(provider.db, familyId);
+            provider.setDb(db);
+            family = db.families
+                .cast<Family?>()
+                .firstWhere((f) => f?.id == familyId, orElse: () => null);
+          }
+        } catch (e) {
+          debugPrint('[Auth] Cloud join code lookup failed: $e');
+        }
+      }
+
       if (family == null) {
         _setError('No home found with that code. Check and try again.');
         return;
       }
-      provider.authenticate(_pendingUser!, family);
+
+      // Create membership linking user to family
+      final membership = FamilyMember(
+        userId: user.id,
+        familyId: family.id,
+        role: Role.MEMBER,
+        displayName: user.name,
+      );
+
+      // Add user and membership to DB, then persist + sync
+      final db = provider.db.copyWith(
+        users: [...provider.db.users, user],
+        familyMembers: [...provider.db.familyMembers, membership],
+      );
+      provider.setDb(db);
+      provider.authenticate(user, family);
+      await DatabaseService.saveAndSync(db, family.id);
+
       if (mounted) context.go('/');
     } catch (e) {
       _setError(e.toString());
@@ -333,10 +378,29 @@ class _AuthScreenState extends State<AuthScreen> {
     _setError(null);
     try {
       final provider = context.read<AppProvider>();
+      final user = _pendingUser!;
       final family = _pendingFamily!.copyWith(
         enabledModules: _selectedModules.toList(),
       );
-      provider.authenticate(_pendingUser!, family);
+
+      // Create the membership linking user to family
+      final membership = FamilyMember(
+        userId: user.id,
+        familyId: family.id,
+        role: Role.OWNER,
+        displayName: user.name,
+      );
+
+      // Build DB with the new records and persist + sync
+      final db = provider.db.copyWith(
+        users: [...provider.db.users, user],
+        families: [...provider.db.families, family],
+        familyMembers: [...provider.db.familyMembers, membership],
+      );
+      provider.setDb(db);
+      provider.authenticate(user, family);
+      await DatabaseService.saveAndSync(db, family.id);
+
       if (mounted) context.go('/');
     } catch (e) {
       _setError(e.toString());

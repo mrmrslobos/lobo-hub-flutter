@@ -188,13 +188,14 @@ class SupabaseService {
     return result;
   }
 
-  /// Upsert rows into a table, using 'id' as the conflict column.
+  /// Upsert rows into a table, using the given conflict column(s).
   static Future<void> upsertTable(
     String table,
-    List<Map<String, dynamic>> rows,
-  ) async {
+    List<Map<String, dynamic>> rows, {
+    String onConflict = 'id',
+  }) async {
     if (rows.isEmpty) return;
-    await client.from(table).upsert(rows, onConflict: 'id');
+    await client.from(table).upsert(rows, onConflict: onConflict);
   }
 
   /// Call a Supabase RPC function.
