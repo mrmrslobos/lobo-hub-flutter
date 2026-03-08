@@ -49,6 +49,11 @@ dependencies:
   # Calendar widget
   table_calendar: ^3.1.2
 
+  # Google Sign-In & Calendar API
+  google_sign_in: ^6.2.2
+  googleapis: ^13.2.0
+  extension_google_sign_in_as_googleapis_auth: ^2.0.12
+
   # URL launcher
   url_launcher: ^6.3.1
 

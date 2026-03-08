@@ -129,6 +129,8 @@ class DatabaseService {
         db.periodCycles.map((c) => c.toJson()).toList());
     await up('period_symptoms',
         db.periodSymptoms.map((s) => s.toJson()).toList());
+    await up('external_calendars',
+        db.externalCalendars.map((c) => {...c.toJson(), 'family_id': fid}).toList());
   }
 
   // ── Cloud reconcile ───────────────────────────────────────────────────────
