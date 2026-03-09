@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AiService {
@@ -17,11 +16,6 @@ class AiService {
     Map<String, dynamic>? responseSchema,
   }) async {
     try {
-      final restUrl = Supabase.instance.client.rest.url;
-      final supabaseUrl = restUrl.replaceAll('/rest/v1', '');
-      final anonKey = Supabase.instance.client.rest.headers['apikey'] ?? '';
-      final uri = Uri.parse('$supabaseUrl/functions/v1/ai-proxy');
-
       final body = <String, dynamic>{
         'familyId': familyId,
         'feature': feature,
@@ -34,34 +28,18 @@ class AiService {
         body['responseSchema'] = responseSchema;
       }
 
-      // Edge functions require the user's JWT for auth, with apikey header
-      final accessToken =
-          Supabase.instance.client.auth.currentSession?.accessToken ?? anonKey;
-      final response = await http.post(
-        uri,
-        headers: {
-          'Authorization': 'Bearer $accessToken',
-          'apikey': anonKey,
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode(body),
+      // Use the SDK's functions.invoke which handles auth headers automatically
+      final response = await Supabase.instance.client.functions.invoke(
+        'ai-proxy',
+        body: body,
       );
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data is Map<String, dynamic> && data.containsKey('text')) {
-          return data['text'] as String?;
-        }
-        // Fallback: return raw body if it's not the expected JSON wrapper
-        return response.body;
-      } else if (response.statusCode == 402) {
-        debugPrint('[AiService] Subscription required: ${response.body}');
-        return null;
-      } else {
-        debugPrint(
-            '[AiService] Non-200 response: ${response.statusCode} ${response.body}');
-        return null;
+      final data = response.data;
+      if (data is Map<String, dynamic> && data.containsKey('text')) {
+        return data['text'] as String?;
       }
+      if (data is String) return data;
+      return jsonEncode(data);
     } catch (e, st) {
       debugPrint('[AiService] ask() error: $e\n$st');
       return null;
