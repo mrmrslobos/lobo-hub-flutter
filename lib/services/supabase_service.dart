@@ -72,7 +72,6 @@ class SupabaseService {
   /// Fetch all relevant tables for a family from Supabase (full DB sync).
   static Future<Map<String, dynamic>> fetchAllTables(String familyId) async {
     const familyScopedTables = [
-      'families',
       'tasks',
       'events',
       'recipes',
@@ -114,6 +113,16 @@ class SupabaseService {
     ];
 
     final result = <String, dynamic>{};
+
+    // Fetch the family itself (queried by its own id, not familyId)
+    try {
+      result['families'] = await client
+          .from('families')
+          .select()
+          .eq('id', familyId);
+    } catch (_) {
+      result['families'] = [];
+    }
 
     // Family-scoped tables
     for (final table in familyScopedTables) {
