@@ -39,7 +39,11 @@ class _FitnessScreenState extends State<FitnessScreen> {
     final user = provider.activeUser;
     final db = provider.db;
     final family = provider.activeFamily;
-    final familyId = family?.id ?? '';
+    if (family == null) {
+      if (mounted) setState(() => _motivationLoading = false);
+      return;
+    }
+    final familyId = family.id;
 
     final logsCount = db.fitnessLogs.where((l) => l.familyId == familyId).length;
     final habitsCount = db.dailyHabits.where((h) => h.familyId == familyId).length;
@@ -630,7 +634,11 @@ class _StoredPlanViewState extends State<_StoredPlanView> {
     final currentPlanJson = jsonEncode(widget.plan);
     final profile = widget.plan['profile'] as Map? ?? {};
 
-    final familyId = context.read<AppProvider>().activeFamily?.id ?? '';
+    final familyId = context.read<AppProvider>().activeFamily?.id;
+    if (familyId == null) {
+      if (mounted) setState(() => _refining = false);
+      return;
+    }
     final prompt = '''You are updating an existing weekly fitness plan based on a user's refinement request. Always respond with valid JSON only, no markdown fences.
 
 Current plan (JSON):
@@ -993,7 +1001,11 @@ Return ONLY valid JSON (no markdown) with this structure:
 }''';
 
     try {
-      final familyId = context.read<AppProvider>().activeFamily?.id ?? '';
+      final familyId = context.read<AppProvider>().activeFamily?.id;
+      if (familyId == null) {
+        if (mounted) setState(() { _isGenerating = false; _error = 'No active family'; });
+        return;
+      }
       final raw = await AiService.ask(
         prompt: 'You are a certified personal trainer. Respond with valid JSON only, no markdown or code fences.\n\n$prompt',
         feature: 'ai_fitness',
