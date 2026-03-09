@@ -174,6 +174,7 @@ class _AuthScreenState extends State<AuthScreen> {
       }
 
       // If no family found locally, try fetching from Supabase cloud
+      String _debugInfo = 'UserID: ${user.id}\n';
       if (family == null && _supabaseConfigured) {
         try {
           // Look up the user's family membership from cloud
@@ -181,13 +182,16 @@ class _AuthScreenState extends State<AuthScreen> {
               .from('family_members')
               .select()
               .eq('userId', user.id);
+          _debugInfo += 'family_members query returned: $memberships\n';
           if (memberships is List && memberships.isNotEmpty) {
             final cloudMembership = memberships.first as Map<String, dynamic>;
             final familyId = (cloudMembership['familyId'] ?? cloudMembership['family_id']) as String?;
+            _debugInfo += 'familyId: $familyId\n';
             if (familyId != null) {
               // Fetch all cloud data for this family and merge
               final db = await DatabaseService.reconcileCloud(provider.db, familyId);
               provider.setDb(db);
+              _debugInfo += 'reconcileCloud done. families: ${db.families.length}, members: ${db.familyMembers.length}\n';
 
               // Now resolve from the merged DB
               membership = db.familyMembers
@@ -199,18 +203,38 @@ class _AuthScreenState extends State<AuthScreen> {
                     .firstWhere((f) => f?.id == membership!.familyId,
                         orElse: () => null);
               }
+              _debugInfo += 'membership: ${membership?.familyId}, family: ${family?.name}\n';
             }
+          } else {
+            _debugInfo += 'No memberships found in cloud\n';
           }
         } catch (e) {
+          _debugInfo += 'Cloud lookup ERROR: $e\n';
           debugPrint('[Auth] Cloud family lookup failed: $e');
         }
       }
 
-      if (family == null) {
+      // DEBUG: show what happened during login
+      if (family == null && mounted) {
+        await showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('DEBUG: Login Info'),
+            content: SingleChildScrollView(
+              child: Text(_debugInfo, style: const TextStyle(fontSize: 11)),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
         _pendingUser = user;
         _setView(_AuthView.onboarding);
       } else {
-        provider.authenticate(user, family);
+        provider.authenticate(user, family!);
         if (mounted) context.go('/');
       }
     } catch (e) {
