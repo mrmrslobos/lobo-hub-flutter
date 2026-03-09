@@ -332,6 +332,7 @@ class _LocationScreenState extends State<LocationScreen> {
                     final member = members[i];
                     final share = shareMap[member.id];
                     final isMe = member.id == user.id;
+                    final memberName = provider.memberDisplayName(member);
                     return Container(
                       margin: const EdgeInsets.only(bottom: 8),
                       padding: const EdgeInsets.all(14),
@@ -342,7 +343,7 @@ class _LocationScreenState extends State<LocationScreen> {
                       ),
                       child: Row(children: [
                         Stack(children: [
-                          UserAvatarWidget(name: member.name, radius: 22),
+                          UserAvatarWidget(name: memberName, radius: 22),
                           Positioned(
                             bottom: 0, right: 0,
                             child: Container(
@@ -358,7 +359,7 @@ class _LocationScreenState extends State<LocationScreen> {
                         const SizedBox(width: 12),
                         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                           Text(
-                            '${member.name}${isMe ? ' (You)' : ''}',
+                            '${memberName}${isMe ? ' (You)' : ''}',
                             style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone900),
                           ),
                           if (share?.isSharing == true) ...[

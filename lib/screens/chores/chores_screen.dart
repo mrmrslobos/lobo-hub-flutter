@@ -519,6 +519,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
                         _isDoneOnDay(c.id, member.id, today, completions)).length;
                     final progress = memberTotal > 0 ? memberDone / memberTotal : 0.0;
 
+                    final memberName = provider.memberDisplayName(member);
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 16),
                       child: Column(
@@ -526,10 +527,10 @@ class _ChoresScreenState extends State<ChoresScreen> {
                         children: [
                           Row(
                             children: [
-                              UserAvatarWidget(name: member.name, radius: 16),
+                              UserAvatarWidget(name: memberName, radius: 16),
                               const SizedBox(width: 10),
                               Expanded(
-                                child: Text(member.id == user.id ? 'You' : member.name.split(' ').first,
+                                child: Text(member.id == user.id ? 'You' : memberName.split(' ').first,
                                   style: const TextStyle(
                                     fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone800,
                                   ),
