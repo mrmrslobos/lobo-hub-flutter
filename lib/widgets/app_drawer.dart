@@ -17,13 +17,13 @@ import 'biometric_lock.dart';
 // ─────────────────────────────────────────────
 
 class _NavItem {
-  final String emoji;
+  final IconData icon;
   final String label;
   final String route;
   final int unreadCount;
 
   const _NavItem({
-    required this.emoji,
+    required this.icon,
     required this.label,
     required this.route,
     this.unreadCount = 0,
@@ -46,28 +46,28 @@ class AppDrawer extends StatelessWidget {
 
   static const List<_NavSection> _sections = [
     _NavSection(title: 'Family', items: [
-      _NavItem(emoji: '💬', label: 'Chat', route: '/chat'),
-      _NavItem(emoji: '✅', label: 'Tasks', route: '/tasks'),
-      _NavItem(emoji: '📅', label: 'Calendar', route: '/calendar'),
-      _NavItem(emoji: '🧹', label: 'Chores', route: '/chores'),
-      _NavItem(emoji: '📋', label: 'Lists', route: '/lists'),
-      _NavItem(emoji: '🗳️', label: 'Polls', route: '/polls'),
-      _NavItem(emoji: '🎉', label: 'Occasions', route: '/birthdays'),
-      _NavItem(emoji: '📸', label: 'Photos', route: '/photos'),
-      _NavItem(emoji: '📍', label: 'Location', route: '/location'),
-      _NavItem(emoji: '❤️', label: 'Health', route: '/health'),
+      _NavItem(icon: Icons.chat_bubble_outline_rounded, label: 'Chat', route: '/chat'),
+      _NavItem(icon: Icons.check_circle_outline_rounded, label: 'Tasks', route: '/tasks'),
+      _NavItem(icon: Icons.calendar_month_rounded, label: 'Calendar', route: '/calendar'),
+      _NavItem(icon: Icons.assignment_turned_in_outlined, label: 'Chores', route: '/chores'),
+      _NavItem(icon: Icons.checklist_rounded, label: 'Lists', route: '/lists'),
+      _NavItem(icon: Icons.how_to_vote_outlined, label: 'Polls', route: '/polls'),
+      _NavItem(icon: Icons.cake_outlined, label: 'Occasions', route: '/birthdays'),
+      _NavItem(icon: Icons.photo_library_outlined, label: 'Photos', route: '/photos'),
+      _NavItem(icon: Icons.location_on_outlined, label: 'Location', route: '/location'),
+      _NavItem(icon: Icons.favorite_outline_rounded, label: 'Health', route: '/health'),
     ]),
     _NavSection(title: 'Lifestyle', items: [
-      _NavItem(emoji: '🎯', label: 'Habits', route: '/habits'),
-      _NavItem(emoji: '🍽️', label: 'Meals', route: '/meals'),
-      _NavItem(emoji: '💪', label: 'Fitness', route: '/fitness'),
-      _NavItem(emoji: '🌸', label: 'Period Tracker', route: '/period-tracker'),
-      _NavItem(emoji: '📖', label: 'Devotional', route: '/devotional'),
-      _NavItem(emoji: '🙏', label: 'Prayer Wall', route: '/prayer-wall'),
+      _NavItem(icon: Icons.track_changes_rounded, label: 'Habits', route: '/habits'),
+      _NavItem(icon: Icons.restaurant_menu_rounded, label: 'Meals', route: '/meals'),
+      _NavItem(icon: Icons.fitness_center_rounded, label: 'Fitness', route: '/fitness'),
+      _NavItem(icon: Icons.spa_outlined, label: 'Period Tracker', route: '/period-tracker'),
+      _NavItem(icon: Icons.menu_book_rounded, label: 'Devotional', route: '/devotional'),
+      _NavItem(icon: Icons.volunteer_activism_outlined, label: 'Prayer Wall', route: '/prayer-wall'),
     ]),
     _NavSection(title: 'Money', items: [
-      _NavItem(emoji: '💰', label: 'Budget', route: '/budget'),
-      _NavItem(emoji: '🎁', label: 'Rewards', route: '/rewards'),
+      _NavItem(icon: Icons.account_balance_wallet_outlined, label: 'Budget', route: '/budget'),
+      _NavItem(icon: Icons.card_giftcard_rounded, label: 'Rewards', route: '/rewards'),
     ]),
   ];
 
@@ -113,7 +113,7 @@ class AppDrawer extends StatelessWidget {
                 children: [
                   // Dashboard
                   _NavTile(
-                    emoji: '🏠',
+                    icon: Icons.home_outlined,
                     label: 'Dashboard',
                     route: '/',
                     isActive: currentRoute == '/',
@@ -126,7 +126,7 @@ class AppDrawer extends StatelessWidget {
                     _SectionHeader(title: section.title),
                     for (final item in section.items)
                       _NavTile(
-                        emoji: item.emoji,
+                        icon: item.icon,
                         label: item.label,
                         route: item.route,
                         isActive: currentRoute == item.route,
@@ -140,7 +140,7 @@ class AppDrawer extends StatelessWidget {
                   const Divider(height: 1),
                   const SizedBox(height: 4),
                   _NavTile(
-                    emoji: '🤖',
+                    icon: Icons.psychology_outlined,
                     label: 'AI History',
                     route: '/ai-history',
                     isActive: currentRoute == '/ai-history',
@@ -164,7 +164,7 @@ class AppDrawer extends StatelessWidget {
                             padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                             child: Row(
                               children: [
-                                Text('👨‍👩‍👧‍👦', style: TextStyle(fontSize: 18)),
+                                Icon(Icons.group_outlined, size: 20, color: AppTheme.stone600),
                                 SizedBox(width: 12),
                                 Expanded(
                                   child: Text(
@@ -195,7 +195,7 @@ class AppDrawer extends StatelessWidget {
                           padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                           child: Row(
                             children: [
-                              Text('⚙️', style: TextStyle(fontSize: 18)),
+                              Icon(Icons.settings_outlined, size: 20, color: AppTheme.stone600),
                               SizedBox(width: 12),
                               Expanded(
                                 child: Text(
@@ -635,7 +635,7 @@ class _SectionHeader extends StatelessWidget {
 // ─────────────────────────────────────────────
 
 class _NavTile extends StatelessWidget {
-  final String emoji;
+  final IconData icon;
   final String label;
   final String route;
   final bool isActive;
@@ -643,7 +643,7 @@ class _NavTile extends StatelessWidget {
   final int unreadCount;
 
   const _NavTile({
-    required this.emoji,
+    required this.icon,
     required this.label,
     required this.route,
     required this.isActive,
@@ -674,13 +674,10 @@ class _NavTile extends StatelessWidget {
                 const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             child: Row(
               children: [
-                Text(
-                  emoji,
-                  style: TextStyle(
-                    fontSize: 18,
-                    color:
-                        canAccess ? null : const Color(0x66000000),
-                  ),
+                Icon(
+                  icon,
+                  size: 20,
+                  color: isActive ? AppTheme.primary : (canAccess ? AppTheme.stone500 : AppTheme.stone300),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
