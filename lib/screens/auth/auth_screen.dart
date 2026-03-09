@@ -598,12 +598,14 @@ class _AuthScreenState extends State<AuthScreen> {
                   ),
                 ),
                 const SizedBox(height: 4),
-                const Text(
-                  'Welcome back.',
-                  style: TextStyle(
+                Text(
+                  'URL: "${const String.fromEnvironment('SUPABASE_URL')}"\nConfigured: $_supabaseConfigured',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
                     fontFamily: 'Inter',
-                    fontSize: 14,
-                    color: AppTheme.stone500,
+                    fontSize: 12,
+                    color: Colors.red,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
               ],
