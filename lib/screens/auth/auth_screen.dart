@@ -191,7 +191,10 @@ class _AuthScreenState extends State<AuthScreen> {
               // Fetch all cloud data for this family and merge
               final db = await DatabaseService.reconcileCloud(provider.db, familyId);
               provider.setDb(db);
-              _debugInfo += 'reconcileCloud done. families: ${db.families.length}, members: ${db.familyMembers.length}\n';
+              _debugInfo += 'reconcileCloud done. families: ${db.families.length}, members: ${db.familyMembers.length}, users: ${db.users.length}\n';
+              if (DatabaseService.lastError != null) {
+                _debugInfo += 'PARSE ERRORS:\n${DatabaseService.lastError}\n';
+              }
 
               // Now resolve from the merged DB
               membership = db.familyMembers

@@ -160,7 +160,11 @@ class DatabaseService {
   // ── Cloud reconcile ───────────────────────────────────────────────────────
 
   /// Fetch cloud data, merge with local DB, and persist the result.
+  /// [lastError] is set if a non-fatal parse error occurred (for debugging).
+  static String? lastError;
+
   static Future<AppDB> reconcileCloud(AppDB local, String familyId) async {
+    lastError = null;
     if (!SupabaseService.isConfigured) return local;
     try {
       final cloudData = await SupabaseService.fetchAllTables(familyId);
@@ -169,7 +173,8 @@ class DatabaseService {
       _cache = merged;
       await saveLocal(merged);
       return merged;
-    } catch (_) {
+    } catch (e, st) {
+      lastError = '$e\n$st';
       return local;
     }
   }
@@ -178,13 +183,59 @@ class DatabaseService {
     AppDB local,
     Map<String, dynamic> cloud,
   ) {
-    try {
-      // Cloud data takes precedence; any local-only items not yet on cloud
-      // are presumed to be handled on next sync.
-      return AppDB.fromCloudJson(cloud);
-    } catch (_) {
-      return local;
+    // Parse each table individually so one bad table doesn't kill everything
+    return AppDB(
+      users: _safeParse(cloud['users'], User.fromJson),
+      families: _safeParse(cloud['families'], Family.fromJson),
+      familyMembers: _safeParse(cloud['family_members'], FamilyMember.fromJson),
+      tasks: _safeParse(cloud['tasks'], Task.fromJson),
+      events: _safeParse(cloud['events'], CalendarEvent.fromJson),
+      recipes: _safeParse(cloud['recipes'], Recipe.fromJson),
+      mealPlans: _safeParse(cloud['meal_plans'], MealPlanEntry.fromJson),
+      lists: _safeParse(cloud['lists'], ShoppingList.fromJson),
+      devotionals: _safeParse(cloud['devotionals'], DevotionalEntry.fromJson),
+      fitness: _safeParse(cloud['fitness_metrics'], FitnessMetric.fromJson),
+      budgetCategories: _safeParse(cloud['budget_categories'], BudgetCategoryRecord.fromJson),
+      transactions: _safeParse(cloud['transactions'], Transaction.fromJson),
+      aiHistory: _safeParse(cloud['ai_history'], AIHistory.fromJson),
+      dailyHabits: _safeParse(cloud['daily_habits'], DailyHabit.fromJson),
+      dailyHabitCompletions: _safeParse(cloud['daily_habit_completions'], DailyHabitCompletion.fromJson),
+      chores: _safeParse(cloud['chores'], Chore.fromJson),
+      choreCompletions: _safeParse(cloud['chore_completions'], ChoreCompletion.fromJson),
+      polls: _safeParse(cloud['polls'], Poll.fromJson),
+      pollVotes: _safeParse(cloud['poll_votes'], PollVote.fromJson),
+      rewardItems: _safeParse(cloud['reward_items'], RewardItem.fromJson),
+      rewardRedemptions: _safeParse(cloud['reward_redemptions'], RewardRedemption.fromJson),
+      savingsGoals: _safeParse(cloud['savings_goals'], SavingsGoal.fromJson),
+      prayerWall: _safeParse(cloud['prayer_wall'], PrayerWallEntry.fromJson),
+      specialDates: _safeParse(cloud['special_dates'], SpecialDate.fromJson),
+      familyPhotos: _safeParse(cloud['family_photos'], FamilyPhoto.fromJson),
+      milestones: _safeParse(cloud['milestones'], Milestone.fromJson),
+      savedPlaces: _safeParse(cloud['saved_places'], SavedPlace.fromJson),
+      userLocations: _safeParse(cloud['user_locations'], UserLocation.fromJson),
+      messages: _safeParse(cloud['messages'], ChatMessage.fromJson),
+      healthRecords: _safeParse(cloud['health_records'], HealthRecord.fromJson),
+      periodCycles: _safeParse(cloud['period_cycles'], PeriodCycle.fromJson),
+      periodSymptoms: _safeParse(cloud['period_symptoms'], PeriodSymptomLog.fromJson),
+      readingPlans: _safeParse(cloud['reading_plans'], ReadingPlan.fromJson),
+      externalCalendars: _safeParse(cloud['external_calendars'], ExternalCalendar.fromJson),
+    );
+  }
+
+  /// Parse a list from cloud data, skipping individual items that fail.
+  static List<T> _safeParse<T>(dynamic raw, T Function(Map<String, dynamic>) fromJson) {
+    if (raw == null || raw is! List) return [];
+    final results = <T>[];
+    for (final item in raw) {
+      if (item is Map<String, dynamic>) {
+        try {
+          results.add(fromJson(item));
+        } catch (e) {
+          lastError = (lastError ?? '') + 'Parse error in ${T.toString()}: $e\n';
+        }
+      }
     }
+    return results;
   }
 
   // ── Join code ─────────────────────────────────────────────────────────────
