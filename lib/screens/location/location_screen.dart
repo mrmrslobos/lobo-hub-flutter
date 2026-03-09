@@ -1,5 +1,9 @@
 // lib/screens/location/location_screen.dart
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:geocoding/geocoding.dart' as geo;
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
@@ -17,21 +21,168 @@ class LocationScreen extends StatefulWidget {
 }
 
 class _LocationScreenState extends State<LocationScreen> {
+  Timer? _locationTimer;
+  bool _permissionDenied = false;
+
+  @override
+  void dispose() {
+    _locationTimer?.cancel();
+    super.dispose();
+  }
+
+  /// Request location permission and return true if granted.
+  Future<bool> _ensureLocationPermission() async {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please enable location services')),
+        );
+      }
+      return false;
+    }
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Location permission denied')),
+          );
+        }
+        setState(() => _permissionDenied = true);
+        return false;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Location permission permanently denied. Please enable in Settings.')),
+        );
+      }
+      setState(() => _permissionDenied = true);
+      return false;
+    }
+
+    setState(() => _permissionDenied = false);
+    return true;
+  }
+
+  /// Get current position and reverse-geocode it, then save to DB.
+  Future<void> _updateLocation() async {
+    final provider = context.read<AppProvider>();
+    final user = provider.activeUser;
+    final family = provider.activeFamily;
+    if (user == null || family == null) return;
+
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+      );
+
+      String? placeName;
+      String? nearPlace;
+      try {
+        final placemarks = await geo.placemarkFromCoordinates(
+          position.latitude, position.longitude,
+        );
+        if (placemarks.isNotEmpty) {
+          final p = placemarks.first;
+          placeName = [p.street, p.locality].where((s) => s != null && s.isNotEmpty).join(', ');
+          nearPlace = [p.subLocality, p.administrativeArea].where((s) => s != null && s.isNotEmpty).join(', ');
+        }
+      } catch (_) {
+        // Geocoding is best-effort
+      }
+
+      final db = provider.db;
+      final existing = db.locationShares.cast<LocationShare?>().firstWhere(
+        (l) => l?.userId == user.id && l?.familyId == family.id,
+        orElse: () => null,
+      );
+
+      if (existing != null && existing.isSharing) {
+        final updated = db.locationShares.map((l) {
+          if (l.id == existing.id) {
+            return LocationShare(
+              id: l.id,
+              familyId: l.familyId,
+              userId: l.userId,
+              latitude: position.latitude,
+              longitude: position.longitude,
+              accuracy: position.accuracy,
+              placeName: placeName,
+              nearPlace: nearPlace,
+              isSharing: true,
+              updatedAt: DateTime.now(),
+            );
+          }
+          return l;
+        }).toList();
+        await provider.saveAndSync(db.copyWith(locationShares: updated.cast<UserLocation>()));
+      }
+    } catch (e) {
+      debugPrint('Location update error: $e');
+    }
+  }
+
+  void _startLocationUpdates() {
+    _locationTimer?.cancel();
+    // Update immediately, then every 60 seconds
+    _updateLocation();
+    _locationTimer = Timer.periodic(const Duration(seconds: 60), (_) => _updateLocation());
+  }
+
+  void _stopLocationUpdates() {
+    _locationTimer?.cancel();
+    _locationTimer = null;
+  }
+
   Future<void> _toggleSharing(LocationShare? current, bool sharing) async {
     final provider = context.read<AppProvider>();
     final user = provider.activeUser;
     final family = provider.activeFamily;
     if (user == null || family == null) return;
+
+    if (sharing) {
+      final granted = await _ensureLocationPermission();
+      if (!granted) return;
+    }
+
     final db = provider.db;
 
     if (current == null) {
-      // Create new share entry
+      double lat = 0.0, lng = 0.0;
+      String? placeName, nearPlace;
+
+      if (sharing) {
+        try {
+          final position = await Geolocator.getCurrentPosition(
+            locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+          );
+          lat = position.latitude;
+          lng = position.longitude;
+          try {
+            final placemarks = await geo.placemarkFromCoordinates(lat, lng);
+            if (placemarks.isNotEmpty) {
+              final p = placemarks.first;
+              placeName = [p.street, p.locality].where((s) => s != null && s.isNotEmpty).join(', ');
+              nearPlace = [p.subLocality, p.administrativeArea].where((s) => s != null && s.isNotEmpty).join(', ');
+            }
+          } catch (_) {}
+        } catch (_) {}
+      }
+
       final newShare = LocationShare(
         id: const Uuid().v4(),
         familyId: family.id,
         userId: user.id,
-        latitude: 0.0,
-        longitude: 0.0,
+        latitude: lat,
+        longitude: lng,
+        placeName: placeName,
+        nearPlace: nearPlace,
         isSharing: sharing,
         updatedAt: DateTime.now(),
       );
@@ -54,6 +205,12 @@ class _LocationScreenState extends State<LocationScreen> {
         return l;
       }).toList();
       await provider.saveAndSync(db.copyWith(locationShares: updated.cast<UserLocation>()));
+    }
+
+    if (sharing) {
+      _startLocationUpdates();
+    } else {
+      _stopLocationUpdates();
     }
   }
 
