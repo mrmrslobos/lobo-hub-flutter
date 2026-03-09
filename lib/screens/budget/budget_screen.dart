@@ -1199,19 +1199,28 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet> {
   }
 
   Future<void> _fetchAnalysis() async {
-    final familyId = context.read<AppProvider>().activeFamily?.id ?? '';
-    final result = await AiService.analyzeBudget(
-      totalIncome: widget.totalIncome,
-      totalExpenses: widget.totalExpenses,
-      byCategory: widget.byCategory,
-      familyId: familyId,
-    );
-    if (mounted) {
-      setState(() {
-        _loading = false;
-        _analysis = result;
-        _error = result == null ? 'Could not generate analysis. Please try again.' : null;
-      });
+    try {
+      final familyId = context.read<AppProvider>().activeFamily?.id;
+      if (familyId == null) {
+        if (mounted) setState(() { _loading = false; _error = 'No active family'; });
+        return;
+      }
+      final result = await AiService.analyzeBudget(
+        totalIncome: widget.totalIncome,
+        totalExpenses: widget.totalExpenses,
+        byCategory: widget.byCategory,
+        familyId: familyId,
+      );
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _analysis = result;
+          _error = result == null ? 'Could not generate analysis. Please try again.' : null;
+        });
+      }
+    } catch (e) {
+      debugPrint('[Budget] AI analysis error: $e');
+      if (mounted) setState(() { _loading = false; _error = 'Something went wrong. Please try again.'; });
     }
   }
 
@@ -1762,7 +1771,11 @@ $text
 ''';
 
     try {
-      final familyId = provider.activeFamily?.id ?? '';
+      final familyId = provider.activeFamily?.id;
+      if (familyId == null) {
+        if (mounted) setState(() => _loading = false);
+        return;
+      }
       final raw = await AiService.ask(prompt: '$systemPrompt\n\n$prompt', feature: 'ai_budget', familyId: familyId);
       if (raw == null || !mounted) {
         if (mounted) setState(() => _loading = false);

@@ -75,8 +75,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    final familyId = provider.activeFamily?.id ?? '';
-    final familyName = provider.activeFamily?.name ?? 'Family';
+    final family = provider.activeFamily;
+    if (family == null) {
+      if (mounted) setState(() => _monthlySummaryLoading = false);
+      return;
+    }
+    final familyId = family.id;
+    final familyName = family.name ?? 'Family';
     final now = DateTime.now();
     final monthStart = DateTime(now.year, now.month, 1);
     final monthName = DateFormat('MMMM yyyy').format(now);
@@ -1151,10 +1156,15 @@ Return ONLY the JSON array, no markdown.''',
               const Text('See how your month is going', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white70)),
             ],
           )),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(8)),
-            child: const Text('Generate\nRecap', textAlign: TextAlign.center, style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 11, color: Colors.white)),
+          GestureDetector(
+            onTap: _monthlySummaryLoading ? null : _loadMonthlySummary,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(8)),
+              child: _monthlySummaryLoading
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Text('Generate\nRecap', textAlign: TextAlign.center, style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 11, color: Colors.white)),
+            ),
           ),
         ]),
       ),

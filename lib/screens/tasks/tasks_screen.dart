@@ -591,14 +591,23 @@ class _AiBreakdownSheetState extends State<_AiBreakdownSheet> {
       _loading = true;
       _subTasks = null;
     });
-    final familyId = context.read<AppProvider>().activeFamily?.id ?? '';
-    final result = await AiService.breakdownTask(goal, familyId: familyId);
-    if (mounted) {
-      setState(() {
-        _loading = false;
-        _subTasks = result;
-        _selected = List.filled(result.length, true);
-      });
+    try {
+      final familyId = context.read<AppProvider>().activeFamily?.id;
+      if (familyId == null) {
+        if (mounted) setState(() => _loading = false);
+        return;
+      }
+      final result = await AiService.breakdownTask(goal, familyId: familyId);
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _subTasks = result;
+          _selected = List.filled(result.length, true);
+        });
+      }
+    } catch (e) {
+      debugPrint('[Tasks] AI breakdown error: $e');
+      if (mounted) setState(() => _loading = false);
     }
   }
 
