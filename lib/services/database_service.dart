@@ -80,7 +80,7 @@ class DatabaseService {
 
   static Future<void> _syncToCloud(AppDB db, String familyId) async {
     Future<void> up(String table, List<Map<String, dynamic>> rows,
-        {String? onConflict}) async {
+        {String onConflict = 'id'}) async {
       if (rows.isNotEmpty) {
         await SupabaseService.upsertTable(table, _camelRows(rows),
             onConflict: onConflict);
