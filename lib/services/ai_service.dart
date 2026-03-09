@@ -34,10 +34,14 @@ class AiService {
         body['responseSchema'] = responseSchema;
       }
 
+      // Edge functions require the user's JWT for auth, with apikey header
+      final accessToken =
+          Supabase.instance.client.auth.currentSession?.accessToken ?? anonKey;
       final response = await http.post(
         uri,
         headers: {
-          'Authorization': 'Bearer $anonKey',
+          'Authorization': 'Bearer $accessToken',
+          'apikey': anonKey,
           'Content-Type': 'application/json',
         },
         body: jsonEncode(body),
