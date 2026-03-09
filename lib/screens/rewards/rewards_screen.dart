@@ -174,6 +174,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
             ),
             ...members.map((member) {
               final pts = provider.chorePointsForUser(member.id);
+              final displayName = provider.memberDisplayName(member);
               return Padding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
                 child: Container(
@@ -185,14 +186,14 @@ class _RewardsScreenState extends State<RewardsScreen> {
                   ),
                   child: Row(
                     children: [
-                      AvatarInitials(name: member.name, size: 44),
+                      AvatarInitials(name: displayName, size: 44),
                       const SizedBox(width: 14),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              member.name,
+                              displayName,
                               style: const TextStyle(
                                 fontFamily: 'Inter',
                                 fontSize: 15,

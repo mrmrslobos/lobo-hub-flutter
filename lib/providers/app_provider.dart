@@ -259,6 +259,10 @@ class AppProvider extends ChangeNotifier {
   User? userById(String id) =>
       db.users.firstWhereOrNull((u) => u.id == id);
 
+  /// Resolve a display name for a family member, preferring the User record name
+  String memberDisplayName(FamilyMember member) =>
+      userById(member.id)?.name ?? member.name;
+
   /// Returns total approved chore points for a given user in the active family
   int chorePointsForUser(String userId) {
     if (_activeFamily == null) return 0;
