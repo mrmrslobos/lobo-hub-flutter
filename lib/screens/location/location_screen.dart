@@ -1,10 +1,12 @@
 // lib/screens/location/location_screen.dart
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart' as geo;
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../config/theme.dart';
@@ -12,6 +14,39 @@ import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+
+/// Haversine distance in metres between two lat/lng pairs.
+double _haversine(double lat1, double lon1, double lat2, double lon2) {
+  const r = 6371000.0;
+  final phi1 = lat1 * pi / 180;
+  final phi2 = lat2 * pi / 180;
+  final dPhi = (lat2 - lat1) * pi / 180;
+  final dLam = (lon2 - lon1) * pi / 180;
+  final a = sin(dPhi / 2) * sin(dPhi / 2) +
+      cos(phi1) * cos(phi2) * sin(dLam / 2) * sin(dLam / 2);
+  return r * 2 * atan2(sqrt(a), sqrt(1 - a));
+}
+
+/// Format distance for display.
+String _formatDistance(double metres) {
+  if (metres < 1000) return '${metres.round()} m away';
+  return '${(metres / 1000).toStringAsFixed(1)} km away';
+}
+
+/// Find the nearest saved place within its radius.
+String? _nearestPlace(double lat, double lon, List<SavedPlace> places) {
+  SavedPlace? best;
+  double bestDist = double.infinity;
+  for (final p in places) {
+    final d = _haversine(lat, lon, p.latitude, p.longitude);
+    if (d <= p.radiusMetres && d < bestDist) {
+      best = p;
+      bestDist = d;
+    }
+  }
+  if (best == null) return null;
+  return '${best.emoji ?? ''} ${best.name}'.trim();
+}
 
 class LocationScreen extends StatefulWidget {
   const LocationScreen({super.key});
@@ -23,6 +58,7 @@ class LocationScreen extends StatefulWidget {
 class _LocationScreenState extends State<LocationScreen> {
   Timer? _locationTimer;
   bool _permissionDenied = false;
+  Position? _lastPosition;
 
   @override
   void dispose() {
@@ -30,7 +66,6 @@ class _LocationScreenState extends State<LocationScreen> {
     super.dispose();
   }
 
-  /// Request location permission and return true if granted.
   Future<bool> _ensureLocationPermission() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
@@ -70,7 +105,6 @@ class _LocationScreenState extends State<LocationScreen> {
     return true;
   }
 
-  /// Get current position and reverse-geocode it, then save to DB.
   Future<void> _updateLocation() async {
     final provider = context.read<AppProvider>();
     final user = provider.activeUser;
@@ -81,6 +115,7 @@ class _LocationScreenState extends State<LocationScreen> {
       final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
       );
+      if (mounted) setState(() => _lastPosition = position);
 
       String? placeName;
       String? nearPlace;
@@ -93,9 +128,14 @@ class _LocationScreenState extends State<LocationScreen> {
           placeName = [p.street, p.locality].where((s) => s != null && s.isNotEmpty).join(', ');
           nearPlace = [p.subLocality, p.administrativeArea].where((s) => s != null && s.isNotEmpty).join(', ');
         }
-      } catch (_) {
-        // Geocoding is best-effort
-      }
+      } catch (_) {}
+
+      // Check if near a saved place
+      final savedPlaces = provider.db.savedPlaces
+          .where((p) => p.familyId == family.id)
+          .toList();
+      final nearSaved = _nearestPlace(position.latitude, position.longitude, savedPlaces);
+      if (nearSaved != null) nearPlace = nearSaved;
 
       final db = provider.db;
       final existing = db.locationShares.cast<LocationShare?>().firstWhere(
@@ -130,7 +170,6 @@ class _LocationScreenState extends State<LocationScreen> {
 
   void _startLocationUpdates() {
     _locationTimer?.cancel();
-    // Update immediately, then every 60 seconds
     _updateLocation();
     _locationTimer = Timer.periodic(const Duration(seconds: 60), (_) => _updateLocation());
   }
@@ -164,6 +203,7 @@ class _LocationScreenState extends State<LocationScreen> {
           );
           lat = position.latitude;
           lng = position.longitude;
+          if (mounted) setState(() => _lastPosition = position);
           try {
             final placemarks = await geo.placemarkFromCoordinates(lat, lng);
             if (placemarks.isNotEmpty) {
@@ -214,6 +254,40 @@ class _LocationScreenState extends State<LocationScreen> {
     }
   }
 
+  Future<void> _openInMaps(double lat, double lng) async {
+    final uri = Uri.parse('https://maps.google.com/?q=$lat,$lng');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  Future<void> _deletePlace(String placeId) async {
+    final provider = context.read<AppProvider>();
+    final db = provider.db;
+    await provider.saveAndSync(db.copyWith(
+      savedPlaces: db.savedPlaces.where((p) => p.id != placeId).toList(),
+    ));
+  }
+
+  void _showAddPlaceSheet() {
+    final pos = _lastPosition;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _AddPlaceSheet(
+        currentPosition: pos != null ? (lat: pos.latitude, lng: pos.longitude) : null,
+        onSave: (place) async {
+          final provider = context.read<AppProvider>();
+          final db = provider.db;
+          await provider.saveAndSync(db.copyWith(
+            savedPlaces: [...db.savedPlaces, place],
+          ));
+        },
+      ),
+    );
+  }
+
   String _timeAgo(DateTime dt) {
     final diff = DateTime.now().difference(dt);
     if (diff.inMinutes < 1) return 'just now';
@@ -240,9 +314,11 @@ class _LocationScreenState extends State<LocationScreen> {
       (l) => l?.userId == user.id, orElse: () => null,
     );
     final isSharing = myShare?.isSharing ?? false;
-
-    // Build map: userId -> LocationShare
     final shareMap = {for (final l in locationShares) l.userId: l};
+
+    final savedPlaces = provider.db.savedPlaces
+        .where((p) => p.familyId == family.id)
+        .toList();
 
     return Scaffold(
       backgroundColor: AppTheme.background,
@@ -276,42 +352,93 @@ class _LocationScreenState extends State<LocationScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const PageHeader(
-              title: '\u{1F4CD} Family Location',
-              subtitle: 'See where everyone is',
+            PageHeader(
+              title: 'Family Location',
+              subtitle: 'See where everyone is, safely and privately.',
+              actions: [
+                ActionChipButton(
+                  icon: Icons.add_location_alt_outlined,
+                  label: 'Add Place',
+                  onTap: _showAddPlaceSheet,
+                  backgroundColor: AppTheme.stone100,
+                  foregroundColor: AppTheme.stone700,
+                ),
+              ],
             ),
-            // My sharing toggle
+
+            // ── Sharing Toggle ──
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: isSharing
-                        ? [AppTheme.success, const Color(0xFF059669)]
-                        : [AppTheme.stone600, AppTheme.stone500],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
+                  color: isSharing ? const Color(0xFFF0FDF4) : Colors.white,
                   borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: isSharing ? const Color(0xFF86EFAC) : AppTheme.stone200,
+                    width: 2,
+                  ),
                 ),
                 child: Row(children: [
-                  Text(isSharing ? '\u{1F4CD}' : '\u{1F4F5}', style: const TextStyle(fontSize: 28)),
-                  const SizedBox(width: 12),
+                  Container(
+                    width: 50, height: 50,
+                    decoration: BoxDecoration(
+                      color: isSharing ? AppTheme.success : AppTheme.stone200,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Icon(
+                      Icons.navigation_rounded,
+                      color: isSharing ? Colors.white : AppTheme.stone400,
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
                   Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(isSharing ? 'Sharing Location' : 'Location Hidden', style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: Colors.white)),
-                    Text(isSharing ? 'Family can see your location' : 'Tap to start sharing', style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white70)),
+                    Text(
+                      isSharing ? 'Sharing your location' : 'Location sharing is off',
+                      style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: AppTheme.stone800),
+                    ),
+                    const SizedBox(height: 2),
+                    if (isSharing && myShare != null)
+                      Text(
+                        myShare.nearPlace != null
+                            ? '\u{1F4CD} ${myShare.nearPlace}'
+                            : myShare.placeName != null
+                                ? '\u{1F4CD} ${myShare.placeName}'
+                                : 'Getting your location...',
+                        style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
+                        maxLines: 1, overflow: TextOverflow.ellipsis,
+                      )
+                    else
+                      const Text('Only you can see your location when off', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
                   ])),
-                  Switch(
-                    value: isSharing,
-                    onChanged: (v) => _toggleSharing(myShare, v),
-                    activeColor: Colors.white,
-                    activeTrackColor: Colors.white.withValues(alpha: 0.3),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: () => _toggleSharing(myShare, !isSharing),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: isSharing ? AppTheme.stone200 : AppTheme.success,
+                        borderRadius: BorderRadius.circular(14),
+                        boxShadow: isSharing ? null : [
+                          BoxShadow(color: AppTheme.success.withValues(alpha: 0.3), blurRadius: 8, offset: const Offset(0, 2)),
+                        ],
+                      ),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(Icons.power_settings_new_rounded, size: 16, color: isSharing ? AppTheme.stone700 : Colors.white),
+                        const SizedBox(width: 4),
+                        Text(
+                          isSharing ? 'Stop' : 'Share',
+                          style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: isSharing ? AppTheme.stone700 : Colors.white),
+                        ),
+                      ]),
+                    ),
                   ),
                 ]),
               ),
             ),
-            // Family members
+
+            // ── Family Members ──
             const Padding(
               padding: EdgeInsets.fromLTRB(20, 20, 20, 8),
               child: Text('FAMILY', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1)),
@@ -324,15 +451,22 @@ class _LocationScreenState extends State<LocationScreen> {
             else
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: members.length,
-                  itemBuilder: (ctx, i) {
-                    final member = members[i];
+                child: Column(
+                  children: members.map((member) {
                     final share = shareMap[member.id];
                     final isMe = member.id == user.id;
                     final memberName = provider.memberDisplayName(member);
+
+                    // Distance calculation
+                    String? distLabel;
+                    if (!isMe && share?.isSharing == true && _lastPosition != null) {
+                      final dist = _haversine(
+                        _lastPosition!.latitude, _lastPosition!.longitude,
+                        share!.latitude, share.longitude,
+                      );
+                      distLabel = _formatDistance(dist);
+                    }
+
                     return Container(
                       margin: const EdgeInsets.only(bottom: 8),
                       padding: const EdgeInsets.all(14),
@@ -358,47 +492,353 @@ class _LocationScreenState extends State<LocationScreen> {
                         ]),
                         const SizedBox(width: 12),
                         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text(
-                            '${memberName}${isMe ? ' (You)' : ''}',
-                            style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone900),
-                          ),
+                          Row(children: [
+                            Text(
+                              memberName,
+                              style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone900),
+                            ),
+                            if (isMe)
+                              const Text(' (You)', style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400)),
+                          ]),
                           if (share?.isSharing == true) ...[
                             const SizedBox(height: 2),
                             Text(
-                              share?.address ?? 'Location shared',
+                              share?.nearPlace != null
+                                  ? '\u{1F4CD} ${share!.nearPlace}'
+                                  : share?.placeName != null
+                                      ? '\u{1F4CD} ${share!.placeName}'
+                                      : 'Location shared',
                               style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
                               maxLines: 1, overflow: TextOverflow.ellipsis,
                             ),
+                            if (distLabel != null || share != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: Row(children: [
+                                  const Icon(Icons.schedule_rounded, size: 11, color: AppTheme.stone400),
+                                  const SizedBox(width: 3),
+                                  Text(_timeAgo(share!.updatedAt), style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
+                                  if (distLabel != null) ...[
+                                    const Text(' \u00B7 ', style: TextStyle(fontSize: 11, color: AppTheme.stone400)),
+                                    Text(distLabel, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
+                                  ],
+                                ]),
+                              ),
                           ] else
-                            const Text('Location hidden', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
+                            const Text('Not sharing location', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
                         ])),
-                        if (share != null)
-                          Text(_timeAgo(share.updatedAt), style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
+                        // Google Maps navigation button
+                        if (share?.isSharing == true && !isMe)
+                          GestureDetector(
+                            onTap: () => _openInMaps(share!.latitude, share.longitude),
+                            child: Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: AppTheme.primaryLight,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Icon(Icons.navigation_rounded, size: 18, color: AppTheme.primary),
+                            ),
+                          ),
                       ]),
                     );
-                  },
+                  }).toList(),
                 ),
               ),
-            // Map placeholder
+
+            // ── Saved Places ──
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+              child: Row(children: [
+                const Text('SAVED PLACES', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1)),
+                const Spacer(),
+                GestureDetector(
+                  onTap: _showAddPlaceSheet,
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.add_rounded, size: 14, color: AppTheme.primary),
+                    const SizedBox(width: 2),
+                    Text('Add', style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.primary)),
+                  ]),
+                ),
+              ]),
+            ),
+            if (savedPlaces.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 24),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppTheme.stone200, style: BorderStyle.solid),
+                  ),
+                  child: Column(children: [
+                    Icon(Icons.location_on_outlined, size: 28, color: AppTheme.stone200),
+                    const SizedBox(height: 8),
+                    const Text('No saved places yet.', style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.stone400)),
+                    const SizedBox(height: 2),
+                    const Text('Add Home, School or Work to see when family arrives.', style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
+                  ]),
+                ),
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: savedPlaces.map((p) => Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: AppTheme.stone100),
+                    ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Text(p.emoji ?? '\u{1F4CD}', style: const TextStyle(fontSize: 20)),
+                      const SizedBox(width: 8),
+                      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(p.name, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: AppTheme.stone800)),
+                        Text('${p.radiusMetres.round()} m radius', style: const TextStyle(fontFamily: 'Inter', fontSize: 10, color: AppTheme.stone400)),
+                      ]),
+                      if (p.creatorId == user.id) ...[
+                        const SizedBox(width: 8),
+                        GestureDetector(
+                          onTap: () => _deletePlace(p.id),
+                          child: const Icon(Icons.close_rounded, size: 16, color: AppTheme.stone300),
+                        ),
+                      ],
+                    ]),
+                  )).toList(),
+                ),
+              ),
+
+            // ── Privacy Notice ──
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
               child: Container(
-                height: 200,
+                padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: AppTheme.stone100,
-                  borderRadius: BorderRadius.circular(20),
+                  color: AppTheme.stone50,
+                  borderRadius: BorderRadius.circular(14),
                   border: Border.all(color: AppTheme.stone200),
                 ),
-                child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  const Icon(Icons.map_rounded, size: 48, color: AppTheme.stone300),
-                  const SizedBox(height: 8),
-                  const Text('Map view', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone400)),
-                  const Text('Integrate maps package for live view', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone300)),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Icon(Icons.visibility_outlined, size: 16, color: AppTheme.stone400),
+                  const SizedBox(width: 10),
+                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: const [
+                    Text('Privacy', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12, color: AppTheme.stone600)),
+                    SizedBox(height: 2),
+                    Text(
+                      'Location is only visible to your family circle. You can stop sharing at any time. Locations update every 60 seconds while sharing is active.',
+                      style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone500, height: 1.4),
+                    ),
+                  ])),
                 ]),
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// Add Place Bottom Sheet
+// ─────────────────────────────────────────────
+
+class _AddPlaceSheet extends StatefulWidget {
+  final ({double lat, double lng})? currentPosition;
+  final Future<void> Function(SavedPlace place) onSave;
+
+  const _AddPlaceSheet({required this.currentPosition, required this.onSave});
+
+  @override
+  State<_AddPlaceSheet> createState() => _AddPlaceSheetState();
+}
+
+class _AddPlaceSheetState extends State<_AddPlaceSheet> {
+  final _nameCtrl = TextEditingController();
+  String _emoji = '\u{1F3E0}';
+  double _radius = 200;
+
+  static const _emojis = [
+    '\u{1F3E0}', '\u{1F3EB}', '\u{1F4BC}', '\u{1F3E5}', '\u{1F6D2}',
+    '\u{26EA}', '\u{1F3CB}\u{FE0F}', '\u{1F333}', '\u{1F355}', '\u{2B50}',
+  ];
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    if (_nameCtrl.text.trim().isEmpty || widget.currentPosition == null) return;
+    final provider = context.read<AppProvider>();
+    final place = SavedPlace(
+      id: const Uuid().v4(),
+      familyId: provider.activeFamily!.id,
+      creatorId: provider.activeUser!.id,
+      name: _nameCtrl.text.trim(),
+      emoji: _emoji,
+      latitude: widget.currentPosition!.lat,
+      longitude: widget.currentPosition!.lng,
+      radiusMetres: _radius,
+      createdAt: DateTime.now(),
+    );
+    widget.onSave(place);
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.7,
+      maxChildSize: 0.9,
+      minChildSize: 0.4,
+      expand: false,
+      builder: (_, controller) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(children: [
+          const SheetHandle(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+            child: Row(children: [
+              const Icon(Icons.add_location_alt_rounded, color: AppTheme.stone700, size: 22),
+              const SizedBox(width: 8),
+              const Expanded(child: Text('Save a Place', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 20, color: AppTheme.stone900))),
+              GestureDetector(
+                onTap: () => Navigator.pop(context),
+                child: const Icon(Icons.close, size: 22, color: AppTheme.stone400),
+              ),
+            ]),
+          ),
+          Expanded(
+            child: ListView(controller: controller, padding: const EdgeInsets.fromLTRB(20, 8, 20, 40), children: [
+              // Emoji picker
+              const Text('Icon', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone700)),
+              const SizedBox(height: 8),
+              Wrap(spacing: 8, runSpacing: 8, children: _emojis.map((e) => GestureDetector(
+                onTap: () => setState(() => _emoji = e),
+                child: Container(
+                  width: 44, height: 44,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: _emoji == e ? AppTheme.primary : AppTheme.stone200,
+                      width: _emoji == e ? 2 : 1,
+                    ),
+                    color: _emoji == e ? AppTheme.primaryLight : Colors.white,
+                  ),
+                  child: Center(child: Text(e, style: const TextStyle(fontSize: 20))),
+                ),
+              )).toList()),
+              const SizedBox(height: 20),
+
+              // Name
+              const Text('Place Name', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone700)),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _nameCtrl,
+                decoration: InputDecoration(
+                  hintText: 'e.g. Home, School, Work',
+                  filled: true,
+                  fillColor: AppTheme.stone50,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppTheme.stone200)),
+                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppTheme.stone200)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Location status
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppTheme.stone50,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: widget.currentPosition != null
+                    ? Row(children: [
+                        const Icon(Icons.check_circle_rounded, size: 16, color: AppTheme.success),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Using your current location (${widget.currentPosition!.lat.toStringAsFixed(4)}, ${widget.currentPosition!.lng.toStringAsFixed(4)})',
+                          style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.success),
+                        ),
+                      ])
+                    : Row(children: const [
+                        Icon(Icons.warning_amber_rounded, size: 16, color: Color(0xFFD97706)),
+                        SizedBox(width: 8),
+                        Expanded(child: Text(
+                          'Start sharing your location first, then add a place while you\'re there.',
+                          style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFFD97706)),
+                        )),
+                      ]),
+              ),
+              const SizedBox(height: 20),
+
+              // Radius slider
+              Row(children: [
+                const Text('Detection Radius: ', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone700)),
+                Text('${_radius.round()} m', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.primary)),
+              ]),
+              const SizedBox(height: 8),
+              Slider(
+                value: _radius,
+                min: 50,
+                max: 1000,
+                divisions: 19,
+                activeColor: AppTheme.primary,
+                onChanged: (v) => setState(() => _radius = v),
+              ),
+              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: const [
+                Text('50 m (precise)', style: TextStyle(fontFamily: 'Inter', fontSize: 10, color: AppTheme.stone400)),
+                Text('1 km (loose)', style: TextStyle(fontFamily: 'Inter', fontSize: 10, color: AppTheme.stone400)),
+              ]),
+              const SizedBox(height: 24),
+
+              // Buttons
+              Row(children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => Navigator.pop(context),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      decoration: BoxDecoration(
+                        color: AppTheme.stone100,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Center(child: Text('Cancel', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone700))),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: _save,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      decoration: BoxDecoration(
+                        color: widget.currentPosition != null && _nameCtrl.text.trim().isNotEmpty
+                            ? AppTheme.primary
+                            : AppTheme.primary.withValues(alpha: 0.4),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Center(child: Text('Save Place', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: Colors.white))),
+                    ),
+                  ),
+                ),
+              ]),
+            ]),
+          ),
+        ]),
       ),
     );
   }
