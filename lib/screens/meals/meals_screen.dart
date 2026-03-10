@@ -90,6 +90,12 @@ class _MealsScreenState extends State<MealsScreen>
   final _weekPlannerController = TextEditingController();
   bool _weekPlannerLoading = false;
 
+  // Refinement input
+  final _refineController = TextEditingController();
+  bool _refineLoading = false;
+  String? _lastPlanJson; // Stores raw plan JSON for refinement
+  final List<Map<String, dynamic>> _refineHistory = []; // {request, status, error?}
+
   // Import from URL
   final _importUrlController = TextEditingController();
   bool _importLoading = false;
@@ -106,6 +112,7 @@ class _MealsScreenState extends State<MealsScreen>
     _tabController.dispose();
     _chefController.dispose();
     _weekPlannerController.dispose();
+    _refineController.dispose();
     _importUrlController.dispose();
     super.dispose();
   }
@@ -258,6 +265,10 @@ Return a JSON array of 7 objects, each with:
         return;
       }
 
+      // Store for refinement
+      _lastPlanJson = cleaned;
+      _refineHistory.clear();
+
       final provider = context.read<AppProvider>();
       var db = provider.db;
       final userId = provider.activeUser?.id ?? '';
@@ -387,6 +398,165 @@ Return a JSON array of 7 objects, each with:
     } catch (e) {
       debugPrint('[Meals] week planner error: $e');
       if (mounted) setState(() => _weekPlannerLoading = false);
+    }
+  }
+
+  // ── Refine Meal Plan ──
+  Future<void> _refineMealPlan() async {
+    final request = _refineController.text.trim();
+    if (request.isEmpty || _lastPlanJson == null) return;
+
+    setState(() {
+      _refineLoading = true;
+      _refineHistory.add({'request': request, 'status': 'pending'});
+    });
+    _refineController.clear();
+
+    try {
+      final familyId = context.read<AppProvider>().activeFamily?.id;
+      if (familyId == null) {
+        if (mounted) setState(() {
+          _refineLoading = false;
+          _refineHistory.last['status'] = 'error';
+          _refineHistory.last['error'] = 'No active family';
+        });
+        return;
+      }
+
+      final raw = await AiService.refineWeeklyMealPlan(
+        currentPlanJson: _lastPlanJson!,
+        refinementRequest: request,
+        familyId: familyId,
+      );
+
+      if (raw == null || !mounted) {
+        if (mounted) setState(() {
+          _refineLoading = false;
+          _refineHistory.last['status'] = 'error';
+          _refineHistory.last['error'] = 'AI failed to refine. Try again.';
+        });
+        return;
+      }
+
+      final cleaned = _stripFences(raw);
+      final decoded = jsonDecode(cleaned);
+      if (decoded is! List) {
+        if (mounted) setState(() {
+          _refineLoading = false;
+          _refineHistory.last['status'] = 'error';
+          _refineHistory.last['error'] = 'Invalid response from AI.';
+        });
+        return;
+      }
+
+      // Update stored plan
+      _lastPlanJson = cleaned;
+
+      // Re-process the refined plan (same logic as _generateWeekPlan)
+      final provider = context.read<AppProvider>();
+      var db = provider.db;
+      final userId = provider.activeUser?.id ?? '';
+
+      final now = DateTime.now();
+      final monday = now.subtract(Duration(days: now.weekday - 1));
+      final dayNameToOffset = {
+        'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
+        'friday': 4, 'saturday': 5, 'sunday': 6,
+      };
+
+      // Remove old meal-plan tagged recipes and entries for this week
+      final weekStart = DateTime(monday.year, monday.month, monday.day);
+      final weekEnd = weekStart.add(const Duration(days: 7));
+      final oldPlanEntries = db.mealPlans.where((e) =>
+        e.familyId == familyId &&
+        e.date.isAfter(weekStart.subtract(const Duration(days: 1))) &&
+        e.date.isBefore(weekEnd),
+      ).toList();
+      final oldRecipeIds = oldPlanEntries.map((e) => e.recipeId).whereType<String>().toSet();
+
+      db = db.copyWith(
+        mealPlans: db.mealPlans.where((e) => !oldPlanEntries.contains(e)).toList(),
+        recipes: db.recipes.where((r) => !oldRecipeIds.contains(r.id) || !r.tags.contains('meal-plan')).toList(),
+      );
+
+      final newRecipes = <Recipe>[];
+      final newMealPlans = <MealPlanEntry>[];
+
+      for (final dayData in decoded) {
+        if (dayData is! Map<String, dynamic>) continue;
+        final dayName = (dayData['dayName'] as String?)?.toLowerCase() ?? '';
+        final offset = dayNameToOffset[dayName] ?? 0;
+        final date = DateTime(monday.year, monday.month, monday.day + offset);
+
+        final meals = dayData['meals'];
+        if (meals is! List) continue;
+
+        for (final meal in meals) {
+          if (meal is! Map<String, dynamic>) continue;
+          final mealType = (meal['type'] as String?)?.toLowerCase() ?? 'dinner';
+          final mealName = meal['name']?.toString() ?? 'Untitled';
+
+          final ingredients = <RecipeIngredient>[];
+          if (meal['ingredients'] is List) {
+            for (final ing in meal['ingredients'] as List) {
+              if (ing is Map<String, dynamic>) {
+                ingredients.add(RecipeIngredient(
+                  name: ing['name']?.toString() ?? '',
+                  quantity: ing['quantity']?.toString(),
+                  unit: ing['unit']?.toString(),
+                ));
+              }
+            }
+          }
+
+          final steps = <String>[];
+          if (meal['steps'] is List) {
+            for (final s in meal['steps'] as List) {
+              steps.add(s.toString());
+            }
+          }
+
+          final recipeId = const Uuid().v4();
+          newRecipes.add(Recipe(
+            id: recipeId,
+            familyId: familyId,
+            title: mealName,
+            ingredients: ingredients,
+            steps: steps,
+            servings: (meal['servings'] is int) ? meal['servings'] as int : 4,
+            tags: const ['meal-plan'],
+            createdBy: userId,
+          ));
+
+          newMealPlans.add(MealPlanEntry(
+            id: const Uuid().v4(),
+            familyId: familyId,
+            date: date,
+            mealType: mealType,
+            recipeId: recipeId,
+            customMeal: mealName,
+          ));
+        }
+      }
+
+      db = db.copyWith(
+        recipes: [...db.recipes, ...newRecipes],
+        mealPlans: [...db.mealPlans, ...newMealPlans],
+      );
+
+      await provider.saveAndSync(db);
+
+      if (mounted) setState(() {
+        _refineLoading = false;
+        _refineHistory.last['status'] = 'done';
+      });
+    } catch (e) {
+      debugPrint('[Meals] refine error: $e');
+      if (mounted) setState(() {
+        _refineLoading = false;
+        _refineHistory.last['status'] = 'error';
+        _refineHistory.last['error'] = 'Refinement failed. Try again.';
+      });
     }
   }
 
@@ -822,6 +992,129 @@ Return a JSON array of 7 objects, each with:
                 ),
               ),
             ),
+
+            // ── Refinement Input ──
+            if (_lastPlanJson != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [const Color(0xFF6366F1).withValues(alpha: 0.08), const Color(0xFF8B5CF6).withValues(alpha: 0.08)],
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.2)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(children: [
+                        Icon(Icons.auto_awesome, size: 14, color: Color(0xFF6366F1)),
+                        SizedBox(width: 6),
+                        Text('Refine your meal plan', style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF4338CA))),
+                      ]),
+                      const SizedBox(height: 8),
+                      // History thread
+                      if (_refineHistory.isNotEmpty) ...[
+                        ..._refineHistory.map((entry) {
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 6),
+                            child: Column(children: [
+                              // User message
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF6366F1),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(entry['request'] as String, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white)),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              // AI response
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: entry['status'] == 'done'
+                                        ? const Color(0xFFD1FAE5)
+                                        : entry['status'] == 'error'
+                                            ? const Color(0xFFFEE2E2)
+                                            : Colors.white,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: entry['status'] == 'done'
+                                          ? const Color(0xFF86EFAC)
+                                          : entry['status'] == 'error'
+                                              ? const Color(0xFFFCA5A5)
+                                              : AppTheme.stone200,
+                                    ),
+                                  ),
+                                  child: entry['status'] == 'pending'
+                                      ? const Row(mainAxisSize: MainAxisSize.min, children: [
+                                          SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 1.5, color: Color(0xFF6366F1))),
+                                          SizedBox(width: 6),
+                                          Text('Updating plan...', style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: Color(0xFF6366F1))),
+                                        ])
+                                      : entry['status'] == 'done'
+                                          ? const Text('Plan updated', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF166534)))
+                                          : Text(entry['error'] as String? ?? 'Error', style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: Color(0xFFDC2626))),
+                                ),
+                              ),
+                            ]),
+                          );
+                        }),
+                        const SizedBox(height: 4),
+                      ],
+                      // Input row
+                      Row(children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _refineController,
+                            enabled: !_refineLoading,
+                            style: const TextStyle(fontFamily: 'Inter', fontSize: 13),
+                            decoration: InputDecoration(
+                              hintText: 'e.g. "Make Mondays vegetarian"',
+                              hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400),
+                              filled: true,
+                              fillColor: Colors.white,
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: const Color(0xFF6366F1).withValues(alpha: 0.3))),
+                              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: const Color(0xFF6366F1).withValues(alpha: 0.3))),
+                              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF6366F1), width: 1.5)),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              isDense: true,
+                            ),
+                            onSubmitted: (_) => _refineMealPlan(),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        GestureDetector(
+                          onTap: _refineLoading ? null : _refineMealPlan,
+                          child: Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF6366F1),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: _refineLoading
+                                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                : const Icon(Icons.send_rounded, size: 16, color: Colors.white),
+                          ),
+                        ),
+                      ]),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Change cuisine, swap ingredients, adjust dietary needs, and more.',
+                        style: TextStyle(fontFamily: 'Inter', fontSize: 10, color: const Color(0xFF6366F1).withValues(alpha: 0.6)),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
 
             const SizedBox(height: 20),
 

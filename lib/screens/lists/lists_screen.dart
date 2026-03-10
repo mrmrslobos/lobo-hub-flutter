@@ -608,6 +608,7 @@ class _ListDetailView extends StatefulWidget {
 class _ListDetailViewState extends State<_ListDetailView> {
   final _addCtrl = TextEditingController();
   final _focusNode = FocusNode();
+  bool _groupedView = false;
 
   @override
   void dispose() {
@@ -624,10 +625,79 @@ class _ListDetailViewState extends State<_ListDetailView> {
     }
   }
 
+  Future<void> _editItem(ListItem item) async {
+    final textCtrl = TextEditingController(text: item.text);
+    final qtyCtrl = TextEditingController(text: item.quantity ?? '');
+
+    final result = await showModalBottomSheet<Map<String, String>>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const SheetHandle(),
+            const Text('Edit Item', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 18, color: AppTheme.stone900)),
+            const SizedBox(height: 16),
+            TextField(
+              controller: textCtrl,
+              autofocus: true,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(labelText: 'Item name', prefixIcon: Icon(Icons.edit_rounded)),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: qtyCtrl,
+              decoration: const InputDecoration(labelText: 'Quantity (optional)', hintText: 'e.g. 2 lbs', prefixIcon: Icon(Icons.scale_rounded)),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, {'text': textCtrl.text.trim(), 'quantity': qtyCtrl.text.trim()}),
+                child: const Text('Save'),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+
+    if (result == null || result['text']!.isEmpty) return;
+
+    final provider = context.read<AppProvider>();
+    final db = provider.db;
+    final updatedItems = widget.list.items.map((i) {
+      if (i.id != item.id) return i;
+      return i.copyWith(
+        text: result['text'],
+        quantity: result['quantity']!.isEmpty ? null : result['quantity'],
+      );
+    }).toList();
+    final updatedList = widget.list.copyWith(items: updatedItems);
+    final updatedLists = db.shoppingLists.map((l) => l.id == widget.list.id ? updatedList : l).toList();
+    await provider.saveAndSync(db.copyWith(shoppingLists: updatedLists));
+  }
+
   @override
   Widget build(BuildContext context) {
     final unchecked = widget.list.items.where((i) => !i.checked).toList();
     final checked = widget.list.items.where((i) => i.checked).toList();
+
+    // Grouped view: group unchecked items by aiCategory
+    final hasCategories = unchecked.any((i) => i.aiCategory != null && i.aiCategory!.isNotEmpty);
+    Map<String, List<ListItem>>? grouped;
+    if (_groupedView && hasCategories) {
+      grouped = {};
+      for (final item in unchecked) {
+        final cat = item.aiCategory ?? 'Other';
+        grouped.putIfAbsent(cat, () => []).add(item);
+      }
+    }
 
     return Scaffold(
       backgroundColor: AppTheme.background,
@@ -640,17 +710,16 @@ class _ListDetailViewState extends State<_ListDetailView> {
           icon: const Icon(Icons.arrow_back_rounded, color: AppTheme.stone700),
           onPressed: widget.onBack,
         ),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
-            const SizedBox(width: 6),
-            const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
-          ],
-        ),
+        title: Text(widget.list.name, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: AppTheme.stone900)),
         centerTitle: false,
         titleSpacing: 0,
         actions: [
+          if (hasCategories)
+            IconButton(
+              icon: Icon(_groupedView ? Icons.view_list_rounded : Icons.category_rounded, color: _groupedView ? AppTheme.primary : AppTheme.stone500),
+              tooltip: _groupedView ? 'List view' : 'Grouped view',
+              onPressed: () => setState(() => _groupedView = !_groupedView),
+            ),
           IconButton(
             icon: const Icon(Icons.auto_awesome, color: AppTheme.stone500),
             tooltip: 'AI Categorize',
@@ -677,27 +746,69 @@ class _ListDetailViewState extends State<_ListDetailView> {
         ],
       ),
       body: Column(children: [
+        // Progress bar
+        if (widget.list.items.isNotEmpty)
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: Row(children: [
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: widget.list.items.isEmpty ? 0 : checked.length / widget.list.items.length,
+                    backgroundColor: AppTheme.stone100,
+                    valueColor: const AlwaysStoppedAnimation(AppTheme.success),
+                    minHeight: 6,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                '${checked.length}/${widget.list.items.length}',
+                style: const TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.stone500),
+              ),
+            ]),
+          ),
         Expanded(
           child: widget.list.items.isEmpty
               ? const EmptyState(emoji: '🛒', title: 'Empty list', subtitle: 'Add items below.')
               : ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
                   children: [
-                    ...unchecked.map((item) => _ItemTile(
+                    if (grouped != null)
+                      ...grouped.entries.expand((entry) => [
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8, bottom: 6),
+                          child: Text(
+                            entry.key.toUpperCase(),
+                            style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.primary, letterSpacing: 0.8),
+                          ),
+                        ),
+                        ...entry.value.map((item) => _ItemTile(
                           item: item,
                           onToggle: () => widget.onToggleItem(item),
                           onDelete: () => widget.onDeleteItem(item.id),
+                          onEdit: () => _editItem(item),
                         )),
+                      ])
+                    else
+                      ...unchecked.map((item) => _ItemTile(
+                        item: item,
+                        onToggle: () => widget.onToggleItem(item),
+                        onDelete: () => widget.onDeleteItem(item.id),
+                        onEdit: () => _editItem(item),
+                      )),
                     if (checked.isNotEmpty) ...[
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 8),
                         child: Text('Checked (${checked.length})', style: const TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.stone400)),
                       ),
                       ...checked.map((item) => _ItemTile(
-                            item: item,
-                            onToggle: () => widget.onToggleItem(item),
-                            onDelete: () => widget.onDeleteItem(item.id),
-                          )),
+                        item: item,
+                        onToggle: () => widget.onToggleItem(item),
+                        onDelete: () => widget.onDeleteItem(item.id),
+                        onEdit: () => _editItem(item),
+                      )),
                     ],
                   ],
                 ),
@@ -898,8 +1009,9 @@ class _ItemTile extends StatelessWidget {
   final ListItem item;
   final VoidCallback onToggle;
   final VoidCallback onDelete;
+  final VoidCallback? onEdit;
 
-  const _ItemTile({required this.item, required this.onToggle, required this.onDelete});
+  const _ItemTile({required this.item, required this.onToggle, required this.onDelete, this.onEdit});
 
   @override
   Widget build(BuildContext context) {
@@ -917,6 +1029,7 @@ class _ItemTile extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 2),
         child: InkWell(
           onTap: onToggle,
+          onLongPress: onEdit,
           borderRadius: BorderRadius.circular(12),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
@@ -945,7 +1058,24 @@ class _ItemTile extends StatelessWidget {
                 ),
               ),
               if (item.quantity != null && item.quantity!.isNotEmpty && item.quantity != '1')
-                Text('×${item.quantity}', style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppTheme.stone100,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text('×${item.quantity}', style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.stone500)),
+                ),
+              if (onEdit != null) ...[
+                const SizedBox(width: 4),
+                GestureDetector(
+                  onTap: onEdit,
+                  child: const Padding(
+                    padding: EdgeInsets.all(4),
+                    child: Icon(Icons.edit_outlined, size: 14, color: AppTheme.stone300),
+                  ),
+                ),
+              ],
             ]),
           ),
         ),

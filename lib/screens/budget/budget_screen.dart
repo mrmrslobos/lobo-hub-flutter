@@ -1,5 +1,7 @@
 // lib/screens/budget/budget_screen.dart
 import 'dart:convert';
+import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -29,6 +31,20 @@ class _BudgetScreenState extends State<BudgetScreen> {
   final _currencyFmt = NumberFormat.currency(symbol: '\$', decimalDigits: 2);
 
   String _formatCurrency(double amount) => '\$${amount.toStringAsFixed(2)}';
+
+  static const _categoryColors = <String, Color>{
+    'amber': Color(0xFFF59E0B), 'blue': Color(0xFF3B82F6), 'pink': Color(0xFFEC4899),
+    'emerald': Color(0xFF10B981), 'purple': Color(0xFF8B5CF6), 'red': Color(0xFFEF4444),
+    'cyan': Color(0xFF06B6D4), 'orange': Color(0xFFF97316), 'teal': Color(0xFF14B8A6),
+    'indigo': Color(0xFF6366F1), 'lime': Color(0xFF84CC16), 'rose': Color(0xFFF43F5E),
+    'sky': Color(0xFF0EA5E9), 'violet': Color(0xFF7C3AED), 'green': Color(0xFF22C55E),
+    // Also map by category name for fallback
+    'housing': Color(0xFF6366F1), 'food': Color(0xFFF59E0B), 'transport': Color(0xFF3B82F6),
+    'entertainment': Color(0xFFEC4899), 'utilities': Color(0xFF14B8A6), 'healthcare': Color(0xFFEF4444),
+    'education': Color(0xFF8B5CF6), 'savings': Color(0xFF22C55E), 'other': Color(0xFF78716C),
+  };
+
+  static Color _categoryColor(String key) => _categoryColors[key.toLowerCase()] ?? const Color(0xFF78716C);
 
   Future<void> _deleteEntry(String id) async {
     final provider = context.read<AppProvider>();
@@ -116,6 +132,33 @@ class _BudgetScreenState extends State<BudgetScreen> {
             child: const Text('Add'),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showManageCategories() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _ManageCategoriesSheet(),
+    );
+  }
+
+  void _showEditEntry(BudgetEntry entry) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _BudgetEntrySheet(
+        existingEntry: entry,
+        onSave: (updated) async {
+          final provider = context.read<AppProvider>();
+          final db = provider.db;
+          await provider.saveAndSync(db.copyWith(
+            budgetEntries: db.budgetEntries.map((e) => e.id == updated.id ? updated : e).toList(),
+          ));
+        },
       ),
     );
   }
@@ -316,6 +359,78 @@ class _BudgetScreenState extends State<BudgetScreen> {
         totalIncome: totalIncome,
         totalExpenses: totalExpenses,
         byCategory: byCategory,
+      ),
+    );
+  }
+
+  Widget _buildSpendingByCategory(List<BudgetEntry> monthEntries, double totalExpenses) {
+    final byCategory = <String, double>{};
+    for (final e in monthEntries.where((e) => !e.isIncome)) {
+      byCategory[e.category.name] = (byCategory[e.category.name] ?? 0) + e.amount;
+    }
+    final sortedCats = byCategory.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppTheme.stone100),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Spending by Category', style: TextStyle(fontFamily: 'Inter', fontSize: 17, fontWeight: FontWeight.w800, color: AppTheme.stone900)),
+            const SizedBox(height: 16),
+            // Visual bar chart
+            ...sortedCats.map((entry) {
+              final pct = totalExpenses > 0 ? entry.value / totalExpenses : 0.0;
+              final color = _categoryColor(entry.key);
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      Container(width: 10, height: 10, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(3))),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(entry.key, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.stone700))),
+                      Text(_currencyFmt.format(entry.value), style: const TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.stone800)),
+                      const SizedBox(width: 6),
+                      Text('${(pct * 100).toStringAsFixed(0)}%', style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.stone400)),
+                    ]),
+                    const SizedBox(height: 4),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: pct,
+                        minHeight: 8,
+                        backgroundColor: AppTheme.stone100,
+                        valueColor: AlwaysStoppedAnimation(color),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+            // Legend
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 12,
+              runSpacing: 6,
+              children: sortedCats.map((entry) {
+                final color = _categoryColor(entry.key);
+                return Row(mainAxisSize: MainAxisSize.min, children: [
+                  Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+                  const SizedBox(width: 4),
+                  Text(entry.key, style: const TextStyle(fontFamily: 'Inter', fontSize: 10, color: AppTheme.stone500)),
+                ]);
+              }).toList(),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -579,7 +694,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
                 ),
                 const Spacer(),
                 TextButton(
-                  onPressed: () {},
+                  onPressed: () => _showManageCategories(),
                   style: TextButton.styleFrom(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     minimumSize: Size.zero,
@@ -613,6 +728,14 @@ class _BudgetScreenState extends State<BudgetScreen> {
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
               child: Column(
                 children: categories.map((cat) {
+                  // Calculate spending for this category in current month
+                  final spent = monthEntries
+                      .where((e) => !e.isIncome && e.category.name == cat.name)
+                      .fold<double>(0, (s, e) => s + e.amount);
+                  final pct = cat.limit > 0 ? (spent / cat.limit).clamp(0.0, 1.5) : 0.0;
+                  final overBudget = pct > 1.0;
+                  final catColor = _categoryColor(cat.color ?? cat.name);
+
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 8),
                     child: Container(
@@ -620,19 +743,37 @@ class _BudgetScreenState extends State<BudgetScreen> {
                       decoration: BoxDecoration(
                         color: AppTheme.surface,
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: AppTheme.stone100),
+                        border: Border.all(color: overBudget ? AppTheme.error.withValues(alpha: 0.3) : AppTheme.stone100),
                       ),
-                      child: Row(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(
-                            child: Text(
-                              cat.name,
-                              style: const TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone800),
+                          Row(children: [
+                            Container(width: 8, height: 8, decoration: BoxDecoration(color: catColor, shape: BoxShape.circle)),
+                            const SizedBox(width: 8),
+                            Expanded(child: Text(cat.name, style: const TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone800))),
+                            Text(
+                              '${_formatCurrency(spent)} / ${_formatCurrency(cat.limit)}',
+                              style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: overBudget ? AppTheme.error : AppTheme.stone500),
+                            ),
+                          ]),
+                          const SizedBox(height: 8),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: LinearProgressIndicator(
+                              value: pct.clamp(0.0, 1.0),
+                              minHeight: 6,
+                              backgroundColor: AppTheme.stone100,
+                              valueColor: AlwaysStoppedAnimation(overBudget ? AppTheme.error : catColor),
                             ),
                           ),
-                          Text(
-                            _currencyFmt.format(cat.limit),
-                            style: const TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.stone600),
+                          const SizedBox(height: 4),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: Text(
+                              cat.limit > 0 ? '${(pct * 100).toStringAsFixed(0)}%' : 'No limit set',
+                              style: TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: overBudget ? AppTheme.error : AppTheme.stone400),
+                            ),
                           ),
                         ],
                       ),
@@ -677,11 +818,16 @@ class _BudgetScreenState extends State<BudgetScreen> {
                       entry: entry,
                       currencyFmt: _currencyFmt,
                       onDelete: () => _deleteEntry(entry.id),
+                      onEdit: () => _showEditEntry(entry),
                     ),
                   );
                 }).toList(),
               ),
             ),
+
+          // ─── Spending by Category ──────────────────────────────────────
+          if (monthEntries.where((e) => !e.isIncome).isNotEmpty)
+            _buildSpendingByCategory(monthEntries, totalExpenses),
 
           // ─── AI Savings Coach Banner ───────────────────────────────────
           Padding(
@@ -1353,11 +1499,13 @@ class _EntryCard extends StatelessWidget {
   final BudgetEntry entry;
   final NumberFormat currencyFmt;
   final VoidCallback onDelete;
+  final VoidCallback? onEdit;
 
   const _EntryCard(
       {required this.entry,
       required this.currencyFmt,
-      required this.onDelete});
+      required this.onDelete,
+      this.onEdit});
 
   @override
   Widget build(BuildContext context) {
@@ -1455,18 +1603,28 @@ class _EntryCard extends StatelessWidget {
                   fontSize: 15,
                   color: color),
             ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(5)),
-              child: Text(isIncome ? 'Income' : 'Expense',
-                  style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color: color)),
-            ),
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              if (onEdit != null)
+                GestureDetector(
+                  onTap: onEdit,
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: Icon(Icons.edit_outlined, size: 14, color: AppTheme.stone400),
+                  ),
+                ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(5)),
+                child: Text(isIncome ? 'Income' : 'Expense',
+                    style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: color)),
+              ),
+            ]),
           ]),
         ]),
       ),
@@ -1478,7 +1636,8 @@ class _EntryCard extends StatelessWidget {
 
 class _BudgetEntrySheet extends StatefulWidget {
   final Future<void> Function(BudgetEntry) onSave;
-  const _BudgetEntrySheet({required this.onSave});
+  final BudgetEntry? existingEntry;
+  const _BudgetEntrySheet({required this.onSave, this.existingEntry});
 
   @override
   State<_BudgetEntrySheet> createState() => _BudgetEntrySheetState();
@@ -1493,6 +1652,20 @@ class _BudgetEntrySheetState extends State<_BudgetEntrySheet> {
   DateTime _date = DateTime.now();
   bool _isSaving = false;
   final _uuid = const Uuid();
+
+  @override
+  void initState() {
+    super.initState();
+    final e = widget.existingEntry;
+    if (e != null) {
+      _titleCtrl.text = e.title;
+      _amountCtrl.text = e.amount.toStringAsFixed(2);
+      _notesCtrl.text = e.notes ?? '';
+      _isIncome = e.isIncome;
+      _category = e.category;
+      _date = e.date;
+    }
+  }
 
   @override
   void dispose() {
@@ -1519,10 +1692,11 @@ class _BudgetEntrySheetState extends State<_BudgetEntrySheet> {
     if (amount == null || amount <= 0) return;
     setState(() => _isSaving = true);
     final provider = context.read<AppProvider>();
+    final existing = widget.existingEntry;
     final entry = BudgetEntry(
-      id: _uuid.v4(),
-      familyId: provider.activeFamily!.id,
-      creatorId: provider.activeUser!.id,
+      id: existing?.id ?? _uuid.v4(),
+      familyId: existing?.familyId ?? provider.activeFamily!.id,
+      creatorId: existing?.creatorId ?? provider.activeUser!.id,
       title: _titleCtrl.text.trim(),
       amount: amount,
       category: _category,
@@ -1552,8 +1726,8 @@ class _BudgetEntrySheetState extends State<_BudgetEntrySheet> {
             child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('New Entry',
-                      style: TextStyle(
+                  Text(widget.existingEntry != null ? 'Edit Entry' : 'New Entry',
+                      style: const TextStyle(
                           fontFamily: 'Inter',
                           fontWeight: FontWeight.w700,
                           fontSize: 20,
@@ -1736,7 +1910,11 @@ class _AiBankStatementImportSheet extends StatefulWidget {
 class _AiBankStatementImportSheetState extends State<_AiBankStatementImportSheet> {
   final _textController = TextEditingController();
   bool _loading = false;
+  String? _fileName;
+  String? _error;
   List<Map<String, dynamic>>? _parsedTransactions;
+  // Track which transactions are selected for import
+  late List<bool> _selected;
 
   @override
   void dispose() {
@@ -1744,10 +1922,48 @@ class _AiBankStatementImportSheetState extends State<_AiBankStatementImportSheet
     super.dispose();
   }
 
+  Future<void> _pickFile() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['csv', 'pdf', 'txt'],
+      );
+      if (result == null || result.files.isEmpty) return;
+      final file = result.files.first;
+      setState(() { _fileName = file.name; _error = null; });
+
+      String content;
+      if (file.path != null) {
+        final f = File(file.path!);
+        if (file.extension?.toLowerCase() == 'pdf') {
+          // For PDF, read bytes and send base64 to AI
+          final bytes = await f.readAsBytes();
+          content = '[PDF FILE - base64 encoded]\n${base64Encode(bytes)}';
+        } else {
+          content = await f.readAsString();
+        }
+      } else if (file.bytes != null) {
+        if (file.extension?.toLowerCase() == 'pdf') {
+          content = '[PDF FILE - base64 encoded]\n${base64Encode(file.bytes!)}';
+        } else {
+          content = String.fromCharCodes(file.bytes!);
+        }
+      } else {
+        setState(() => _error = 'Could not read file.');
+        return;
+      }
+
+      _textController.text = content;
+    } catch (e) {
+      debugPrint('[Budget] file pick error: $e');
+      setState(() => _error = 'Could not open file: $e');
+    }
+  }
+
   Future<void> _parseStatement() async {
     final text = _textController.text.trim();
     if (text.isEmpty) return;
-    setState(() { _loading = true; _parsedTransactions = null; });
+    setState(() { _loading = true; _parsedTransactions = null; _error = null; });
 
     final provider = context.read<AppProvider>();
     final existingCategories = BudgetCategory.values.map((c) => c.name).join(', ');
@@ -1755,7 +1971,7 @@ class _AiBankStatementImportSheetState extends State<_AiBankStatementImportSheet
     const systemPrompt =
         'You are a bank statement parser for a personal finance app. Always respond with valid JSON only, no markdown fences.';
     final prompt = '''
-Extract every transaction from this bank statement text. Assign each to one of these categories: $existingCategories.
+Extract every transaction from this bank statement / CSV data. Assign each to one of these categories: $existingCategories.
 For each transaction set type to INCOME for credits/deposits and EXPENSE for debits/charges.
 amount must always be a positive number. date must be ISO format YYYY-MM-DD.
 
@@ -1773,12 +1989,12 @@ $text
     try {
       final familyId = provider.activeFamily?.id;
       if (familyId == null) {
-        if (mounted) setState(() => _loading = false);
+        if (mounted) setState(() { _loading = false; _error = 'No active family'; });
         return;
       }
       final raw = await AiService.ask(prompt: '$systemPrompt\n\n$prompt', feature: 'ai_budget', familyId: familyId);
       if (raw == null || !mounted) {
-        if (mounted) setState(() => _loading = false);
+        if (mounted) setState(() { _loading = false; _error = 'AI could not parse the statement. Try again.'; });
         return;
       }
 
@@ -1789,16 +2005,18 @@ $text
 
       final decoded = jsonDecode(cleaned);
       if (decoded is Map<String, dynamic> && decoded['transactions'] is List) {
+        final txs = (decoded['transactions'] as List).cast<Map<String, dynamic>>();
         setState(() {
-          _parsedTransactions = (decoded['transactions'] as List).cast<Map<String, dynamic>>();
+          _parsedTransactions = txs;
+          _selected = List.filled(txs.length, true);
           _loading = false;
         });
       } else {
-        setState(() => _loading = false);
+        setState(() { _loading = false; _error = 'Unexpected response format. Try again.'; });
       }
     } catch (e) {
       debugPrint('[Budget] parse statement error: $e');
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() { _loading = false; _error = 'Parse error: $e'; });
     }
   }
 
@@ -1810,7 +2028,13 @@ $text
     final userId = provider.activeUser?.id ?? '';
     final familyId = provider.activeFamily?.id ?? '';
 
-    final newEntries = _parsedTransactions!.map((tx) {
+    final selectedTxs = <Map<String, dynamic>>[];
+    for (var i = 0; i < _parsedTransactions!.length; i++) {
+      if (_selected[i]) selectedTxs.add(_parsedTransactions![i]);
+    }
+    if (selectedTxs.isEmpty) return;
+
+    final newEntries = selectedTxs.map((tx) {
       final category = BudgetCategory.values.firstWhere(
         (c) => c.name == tx['category'],
         orElse: () => BudgetCategory.other,
@@ -1851,6 +2075,8 @@ $text
   @override
   Widget build(BuildContext context) {
     final padding = MediaQuery.of(context).viewInsets.bottom + 32;
+    final selectedCount = _parsedTransactions != null ? _selected.where((s) => s).length : 0;
+
     return Container(
       decoration: const BoxDecoration(
         color: AppTheme.surface,
@@ -1876,20 +2102,73 @@ $text
             ]),
           ),
           const SizedBox(height: 8),
-          if (_parsedTransactions == null) ...[
+
+          // Loading overlay
+          if (_loading)
+            Padding(
+              padding: const EdgeInsets.all(40),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Container(
+                  width: 56, height: 56,
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.auto_awesome, color: AppTheme.primary, size: 28),
+                ),
+                const SizedBox(height: 16),
+                const Text('Analysing your statement', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: AppTheme.stone800)),
+                const SizedBox(height: 6),
+                const Text('AI is reading and categorising your transactions...', style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone500)),
+                const SizedBox(height: 16),
+                const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)),
+              ]),
+            )
+
+          // Input state (no parsed transactions yet)
+          else if (_parsedTransactions == null) ...[
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Paste your bank statement or CSV data below and AI will extract the transactions.',
+                    'Upload a CSV or PDF bank statement, or paste data below.',
                     style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone500),
                   ),
                   const SizedBox(height: 12),
+                  // File picker button
+                  GestureDetector(
+                    onTap: _pickFile,
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 20),
+                      decoration: BoxDecoration(
+                        color: AppTheme.stone50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppTheme.stone200, style: BorderStyle.solid),
+                      ),
+                      child: Column(children: [
+                        Icon(Icons.upload_file_rounded, size: 32, color: AppTheme.primary.withValues(alpha: 0.6)),
+                        const SizedBox(height: 8),
+                        Text(
+                          _fileName ?? 'Tap to select CSV or PDF file',
+                          style: TextStyle(
+                            fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600,
+                            color: _fileName != null ? AppTheme.stone800 : AppTheme.stone400,
+                          ),
+                        ),
+                        const Text('Supports .csv, .pdf, .txt', style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
+                      ]),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  // Or paste text
+                  const Text('Or paste data:', style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.stone500)),
+                  const SizedBox(height: 6),
                   TextField(
                     controller: _textController,
-                    maxLines: 8,
+                    maxLines: 6,
                     decoration: InputDecoration(
                       hintText: 'Paste bank statement text here...',
                       filled: true,
@@ -1899,33 +2178,50 @@ $text
                       focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primary, width: 1.5)),
                     ),
                   ),
+                  if (_error != null) ...[
+                    const SizedBox(height: 8),
+                    Text(_error!, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.error)),
+                  ],
                   const SizedBox(height: 16),
                   SizedBox(
                     width: double.infinity,
-                    child: FilledButton(
-                      onPressed: _loading ? null : _parseStatement,
+                    child: FilledButton.icon(
+                      onPressed: _parseStatement,
+                      icon: const Icon(Icons.auto_awesome, size: 18),
+                      label: const Text('Parse Statement', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
                       style: FilledButton.styleFrom(
                         backgroundColor: AppTheme.primary,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         padding: const EdgeInsets.symmetric(vertical: 14),
                       ),
-                      child: _loading
-                          ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                          : const Text('Parse Statement', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
                     ),
                   ),
                 ],
               ),
             ),
-          ] else ...[
+          ]
+
+          // Parsed transactions preview with checkboxes
+          else ...[
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Text(
-                'Found ${_parsedTransactions!.length} transactions:',
-                style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 14, color: AppTheme.stone700),
-              ),
+              child: Row(children: [
+                Text(
+                  'Found ${_parsedTransactions!.length} transactions',
+                  style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 14, color: AppTheme.stone700),
+                ),
+                const Spacer(),
+                TextButton(
+                  onPressed: () => setState(() => _selected = List.filled(_parsedTransactions!.length, true)),
+                  child: const Text('Select all', style: TextStyle(fontSize: 12)),
+                ),
+                TextButton(
+                  onPressed: () => setState(() => _selected = List.filled(_parsedTransactions!.length, false)),
+                  child: const Text('Deselect', style: TextStyle(fontSize: 12)),
+                ),
+              ]),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
             Flexible(
               child: ListView.separated(
                 shrinkWrap: true,
@@ -1936,48 +2232,323 @@ $text
                   final tx = _parsedTransactions![i];
                   final isIncome = (tx['type'] as String?)?.toUpperCase() == 'INCOME';
                   final amount = ((tx['amount'] as num?) ?? 0).toDouble();
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Row(children: [
-                      Icon(
-                        isIncome ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
-                        size: 18,
-                        color: isIncome ? AppTheme.success : AppTheme.error,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text(tx['description']?.toString() ?? '', style: const TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.stone800)),
-                          Text('${tx['date']} \u00B7 ${tx['category']}', style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
-                        ]),
-                      ),
-                      Text(
-                        '${isIncome ? '+' : '-'}\$${amount.toStringAsFixed(2)}',
-                        style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: isIncome ? AppTheme.success : AppTheme.error),
-                      ),
-                    ]),
+                  final isSelected = _selected[i];
+                  return Opacity(
+                    opacity: isSelected ? 1.0 : 0.4,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Row(children: [
+                        SizedBox(
+                          width: 24, height: 24,
+                          child: Checkbox(
+                            value: isSelected,
+                            onChanged: (v) => setState(() => _selected[i] = v ?? false),
+                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Icon(
+                          isIncome ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
+                          size: 16, color: isIncome ? AppTheme.success : AppTheme.error,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text(tx['description']?.toString() ?? '', style: const TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.stone800), maxLines: 1, overflow: TextOverflow.ellipsis),
+                            Text('${tx['date']} \u00B7 ${tx['category']}', style: const TextStyle(fontFamily: 'Inter', fontSize: 10, color: AppTheme.stone400)),
+                          ]),
+                        ),
+                        Text(
+                          '${isIncome ? '+' : '-'}\$${amount.toStringAsFixed(2)}',
+                          style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: isIncome ? AppTheme.success : AppTheme.error),
+                        ),
+                      ]),
+                    ),
                   );
                 },
               ),
             ),
             Padding(
-              padding: EdgeInsets.fromLTRB(20, 16, 20, padding),
+              padding: EdgeInsets.fromLTRB(20, 12, 20, padding),
               child: SizedBox(
                 width: double.infinity,
                 child: FilledButton(
-                  onPressed: _importTransactions,
+                  onPressed: selectedCount > 0 ? _importTransactions : null,
                   style: FilledButton.styleFrom(
                     backgroundColor: AppTheme.primary,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     padding: const EdgeInsets.symmetric(vertical: 14),
                   ),
-                  child: Text('Import ${_parsedTransactions!.length} Transactions', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                  child: Text('Import $selectedCount Transaction${selectedCount == 1 ? '' : 's'}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
                 ),
               ),
             ),
           ],
-          if (_parsedTransactions == null) SizedBox(height: padding),
+          if (_parsedTransactions == null && !_loading) SizedBox(height: padding),
         ],
+      ),
+    );
+  }
+}
+
+// ─── Manage Categories Sheet ──────────────────────────────────────────────
+
+class _ManageCategoriesSheet extends StatefulWidget {
+  const _ManageCategoriesSheet();
+
+  @override
+  State<_ManageCategoriesSheet> createState() => _ManageCategoriesSheetState();
+}
+
+class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
+  final _nameCtrl = TextEditingController();
+  final _limitCtrl = TextEditingController();
+  String _selectedColor = 'blue';
+  String? _editingId;
+  bool _isSaving = false;
+
+  static const _colorPresets = [
+    'amber', 'blue', 'pink', 'emerald', 'purple', 'red', 'cyan',
+    'orange', 'teal', 'indigo', 'lime', 'rose', 'sky', 'violet', 'green',
+  ];
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _limitCtrl.dispose();
+    super.dispose();
+  }
+
+  Color _colorForName(String name) => _BudgetScreenState._categoryColors[name.toLowerCase()] ?? const Color(0xFF78716C);
+
+  Future<void> _addCategory() async {
+    final name = _nameCtrl.text.trim();
+    final limit = double.tryParse(_limitCtrl.text.trim()) ?? 0;
+    if (name.isEmpty) return;
+
+    setState(() => _isSaving = true);
+    final provider = context.read<AppProvider>();
+    final db = provider.db;
+    final cat = BudgetCategoryRecord(
+      id: const Uuid().v4(),
+      familyId: provider.activeFamily!.id,
+      creatorId: provider.activeUser!.id,
+      name: name,
+      limit: limit,
+      color: _selectedColor,
+    );
+    await provider.saveAndSync(db.copyWith(
+      budgetCategories: [...db.budgetCategories, cat],
+    ));
+    _nameCtrl.clear();
+    _limitCtrl.clear();
+    if (mounted) setState(() => _isSaving = false);
+  }
+
+  Future<void> _saveEdit(BudgetCategoryRecord cat) async {
+    final name = _nameCtrl.text.trim();
+    final limit = double.tryParse(_limitCtrl.text.trim()) ?? 0;
+    if (name.isEmpty) return;
+
+    setState(() => _isSaving = true);
+    final provider = context.read<AppProvider>();
+    final db = provider.db;
+    final updated = BudgetCategoryRecord(
+      id: cat.id,
+      familyId: cat.familyId,
+      creatorId: cat.creatorId,
+      name: name,
+      limit: limit,
+      color: _selectedColor,
+      visibility: cat.visibility,
+    );
+    await provider.saveAndSync(db.copyWith(
+      budgetCategories: db.budgetCategories.map((c) => c.id == cat.id ? updated : c).toList(),
+    ));
+    _nameCtrl.clear();
+    _limitCtrl.clear();
+    if (mounted) setState(() { _editingId = null; _isSaving = false; });
+  }
+
+  Future<void> _deleteCategory(BudgetCategoryRecord cat) async {
+    final provider = context.read<AppProvider>();
+    final db = provider.db;
+    final txCount = db.budgetEntries.where((e) => e.category.name == cat.name).length;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Category'),
+        content: Text('Delete "${cat.name}"${txCount > 0 ? ' and $txCount associated transactions' : ''}?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    await provider.saveAndSync(db.copyWith(
+      budgetCategories: db.budgetCategories.where((c) => c.id != cat.id).toList(),
+    ));
+  }
+
+  void _startEdit(BudgetCategoryRecord cat) {
+    setState(() {
+      _editingId = cat.id;
+      _nameCtrl.text = cat.name;
+      _limitCtrl.text = cat.limit.toStringAsFixed(0);
+      _selectedColor = cat.color ?? 'blue';
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.watch<AppProvider>();
+    final categories = provider.db.budgetCategories
+        .where((c) => c.familyId == (provider.activeFamily?.id ?? ''))
+        .toList();
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      maxChildSize: 0.95,
+      minChildSize: 0.5,
+      expand: false,
+      builder: (_, controller) => Container(
+        decoration: const BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(children: [
+          const SheetHandle(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+            child: Row(children: [
+              const Icon(Icons.category_rounded, color: AppTheme.primary, size: 22),
+              const SizedBox(width: 10),
+              const Expanded(child: Text('Manage Categories', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 20, color: AppTheme.stone900))),
+              IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+            ]),
+          ),
+          Expanded(
+            child: ListView(
+              controller: controller,
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
+              children: [
+                // Add new category form
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppTheme.primary.withValues(alpha: 0.15)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(_editingId != null ? 'Edit Category' : 'Add New Category',
+                        style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone800)),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _nameCtrl,
+                        decoration: const InputDecoration(labelText: 'Category name', prefixIcon: Icon(Icons.label_outlined)),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: _limitCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: const InputDecoration(labelText: 'Monthly budget limit', prefixIcon: Icon(Icons.attach_money_rounded)),
+                      ),
+                      const SizedBox(height: 10),
+                      const Text('Color', style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.stone500)),
+                      const SizedBox(height: 6),
+                      Wrap(spacing: 6, runSpacing: 6, children: _colorPresets.map((c) {
+                        final color = _colorForName(c);
+                        final selected = c == _selectedColor;
+                        return GestureDetector(
+                          onTap: () => setState(() => _selectedColor = c),
+                          child: Container(
+                            width: 28, height: 28,
+                            decoration: BoxDecoration(
+                              color: color,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: selected ? AppTheme.stone900 : Colors.transparent, width: selected ? 2.5 : 0),
+                            ),
+                            child: selected ? const Icon(Icons.check, size: 14, color: Colors.white) : null,
+                          ),
+                        );
+                      }).toList()),
+                      const SizedBox(height: 12),
+                      Row(children: [
+                        if (_editingId != null) ...[
+                          TextButton(
+                            onPressed: () => setState(() { _editingId = null; _nameCtrl.clear(); _limitCtrl.clear(); }),
+                            child: const Text('Cancel'),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: _isSaving ? null : () {
+                              if (_editingId != null) {
+                                final cat = categories.firstWhere((c) => c.id == _editingId);
+                                _saveEdit(cat);
+                              } else {
+                                _addCategory();
+                              }
+                            },
+                            child: _isSaving
+                                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                : Text(_editingId != null ? 'Save' : 'Add'),
+                          ),
+                        ),
+                      ]),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                const Text('CURRENT CATEGORIES', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.0, color: AppTheme.stone400)),
+                const SizedBox(height: 8),
+                if (categories.isEmpty)
+                  const Center(child: Text('No categories yet.', style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400)))
+                else
+                  ...categories.map((cat) {
+                    final color = _colorForName(cat.color ?? cat.name);
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppTheme.stone100),
+                      ),
+                      child: Row(children: [
+                        Container(width: 12, height: 12, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+                        const SizedBox(width: 10),
+                        Expanded(child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(cat.name, style: const TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone800)),
+                            Text('\$${cat.limit.toStringAsFixed(0)} / month', style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
+                          ],
+                        )),
+                        IconButton(
+                          icon: const Icon(Icons.edit_outlined, size: 18),
+                          color: AppTheme.stone400,
+                          onPressed: () => _startEdit(cat),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                          color: AppTheme.error,
+                          onPressed: () => _deleteCategory(cat),
+                        ),
+                      ]),
+                    );
+                  }),
+              ],
+            ),
+          ),
+        ]),
       ),
     );
   }

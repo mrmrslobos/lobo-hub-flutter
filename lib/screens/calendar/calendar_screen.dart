@@ -12,6 +12,7 @@ import 'package:uuid/uuid.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../services/ai_service.dart';
 import '../../services/calendar_sync_service.dart';
 import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
@@ -31,6 +32,94 @@ class _CalendarScreenState extends State<CalendarScreen> {
   DateTime _selectedDay = DateTime.now();
   CalendarFormat _calFormat = CalendarFormat.month;
   bool _isSyncing = false;
+
+  // AI Event Strategist
+  final _aiController = TextEditingController();
+  bool _isAiLoading = false;
+  String? _aiError;
+
+  @override
+  void dispose() {
+    _aiController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleAiQuickPlan() async {
+    final input = _aiController.text.trim();
+    if (input.isEmpty) return;
+
+    final provider = context.read<AppProvider>();
+    final family = provider.activeFamily;
+    final user = provider.activeUser;
+    if (family == null || user == null) return;
+
+    setState(() {
+      _isAiLoading = true;
+      _aiError = null;
+    });
+
+    try {
+      final result = await AiService.generateEventItinerary(
+        input,
+        familyId: family.id,
+      );
+
+      if (result == null || !mounted) {
+        setState(() {
+          _isAiLoading = false;
+          _aiError = 'AI failed to create itinerary. Please try again.';
+        });
+        return;
+      }
+
+      final itinerary = result['itinerary'] as String? ?? '';
+      final checklist = (result['checklist'] as List<dynamic>?)
+          ?.map((e) => e.toString())
+          .toList() ?? [];
+
+      final now = DateTime.now();
+      final event = CalendarEvent(
+        id: const Uuid().v4(),
+        familyId: family.id,
+        creatorId: user.id,
+        title: input,
+        description: itinerary,
+        start: now,
+        end: now.add(const Duration(days: 1)),
+        visibility: Visibility.FAMILY,
+        checklist: checklist,
+      );
+
+      final db = provider.db;
+      await provider.saveAndSync(db.copyWith(
+        events: [...db.events, event],
+      ));
+
+      _aiController.clear();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Created AI itinerary for "$input"')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _aiError = 'AI failed: $e');
+      }
+    } finally {
+      if (mounted) setState(() => _isAiLoading = false);
+    }
+  }
+
+  void _showEventPlannerWizard() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => const _EventPlannerWizard(),
+    );
+  }
 
   // ── Google Calendar ──────────────────────────────────────────────────────
 
@@ -433,6 +522,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     isPrimary: true,
                   ),
                   ActionChipButton(
+                    icon: Icons.auto_awesome,
+                    label: 'Plan Event',
+                    onTap: _showEventPlannerWizard,
+                    backgroundColor: const Color(0xFF7C3AED),
+                  ),
+                  ActionChipButton(
                     icon: Icons.add,
                     label: 'Add Event',
                     onTap: () => _showAddEventSheet(context),
@@ -450,7 +545,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     gradient: const LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
-                      colors: [Color(0xFF7C3AED), Color(0xFF6366F1)],
+                      colors: [Color(0xFF7C3AED), Color(0xFFC026D3)],
                     ),
                     borderRadius: BorderRadius.circular(16),
                   ),
@@ -469,17 +564,32 @@ class _CalendarScreenState extends State<CalendarScreen> {
                             child: const Icon(Icons.auto_awesome, size: 18, color: Colors.white),
                           ),
                           const SizedBox(width: 10),
-                          const Expanded(
+                          Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
+                                const Text(
                                   'AI Event Strategist',
                                   style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white),
                                 ),
-                                Text(
-                                  'Quick event planning with smart suggestions',
-                                  style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white70),
+                                Row(
+                                  children: [
+                                    Text(
+                                      'Quick event or use ',
+                                      style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white.withValues(alpha: 0.7)),
+                                    ),
+                                    GestureDetector(
+                                      onTap: _showEventPlannerWizard,
+                                      child: const Text(
+                                        'Plan Event',
+                                        style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white, decoration: TextDecoration.underline, decorationColor: Colors.white),
+                                      ),
+                                    ),
+                                    Text(
+                                      ' for full wizard',
+                                      style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white.withValues(alpha: 0.7)),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
@@ -487,38 +597,75 @@ class _CalendarScreenState extends State<CalendarScreen> {
                         ],
                       ),
                       const SizedBox(height: 14),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.edit_outlined, size: 16, color: Colors.white.withValues(alpha: 0.6)),
-                            const SizedBox(width: 10),
-                            Text(
-                              'Describe an event to plan...',
-                              style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: Colors.white.withValues(alpha: 0.6)),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _aiController,
+                              style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: Colors.white),
+                              decoration: InputDecoration(
+                                hintText: 'e.g., Birthday party for Alex next Saturday...',
+                                hintStyle: TextStyle(fontFamily: 'Inter', fontSize: 13, color: Colors.white.withValues(alpha: 0.5)),
+                                filled: true,
+                                fillColor: Colors.white.withValues(alpha: 0.15),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.2)),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.2)),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.5)),
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                prefixIcon: Icon(Icons.edit_outlined, size: 16, color: Colors.white.withValues(alpha: 0.6)),
+                              ),
+                              onSubmitted: (_) => _handleAiQuickPlan(),
                             ),
-                          ],
-                        ),
+                          ),
+                          const SizedBox(width: 10),
+                          GestureDetector(
+                            onTap: _isAiLoading ? null : _handleAiQuickPlan,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: _isAiLoading
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor: AlwaysStoppedAnimation(Color(0xFF7C3AED)),
+                                      ),
+                                    )
+                                  : const Text(
+                                      'Quick Plan',
+                                      style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF7C3AED)),
+                                    ),
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 10),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      if (_aiError != null) ...[
+                        const SizedBox(height: 10),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                           decoration: BoxDecoration(
-                            color: Colors.white,
+                            color: Colors.red.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          child: const Text(
-                            'Quick Plan',
-                            style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF7C3AED)),
+                          child: Text(
+                            _aiError!,
+                            style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white),
                           ),
                         ),
-                      ),
+                      ],
                     ],
                   ),
                 ),
@@ -1887,6 +2034,513 @@ class _MyCalendarsSheet extends StatelessWidget {
             ),
           ),
         ]),
+      ),
+    );
+  }
+}
+
+// ─── Event Planner Wizard ────────────────────────────────────────────────────
+
+class _EventPlannerWizard extends StatefulWidget {
+  const _EventPlannerWizard();
+
+  @override
+  State<_EventPlannerWizard> createState() => _EventPlannerWizardState();
+}
+
+const _eventTemplates = [
+  {'id': 'birthday', 'label': 'Birthday Party', 'icon': Icons.cake_rounded, 'color': Color(0xFFFCE7F3), 'iconColor': Color(0xFFDB2777)},
+  {'id': 'bbq', 'label': 'BBQ / Cookout', 'icon': Icons.outdoor_grill_rounded, 'color': Color(0xFFFFF7ED), 'iconColor': Color(0xFFEA580C)},
+  {'id': 'game-night', 'label': 'Game Night', 'icon': Icons.sports_esports_rounded, 'color': Color(0xFFF3E8FF), 'iconColor': Color(0xFF9333EA)},
+  {'id': 'holiday', 'label': 'Holiday Gathering', 'icon': Icons.park_rounded, 'color': Color(0xFFF0FDF4), 'iconColor': Color(0xFF16A34A)},
+  {'id': 'baby-shower', 'label': 'Baby Shower', 'icon': Icons.child_care_rounded, 'color': Color(0xFFF0F9FF), 'iconColor': Color(0xFF0284C7)},
+  {'id': 'graduation', 'label': 'Graduation', 'icon': Icons.school_rounded, 'color': Color(0xFFFFFBEB), 'iconColor': Color(0xFFD97706)},
+  {'id': 'anniversary', 'label': 'Anniversary', 'icon': Icons.favorite_rounded, 'color': Color(0xFFFEF2F2), 'iconColor': Color(0xFFDC2626)},
+  {'id': 'other', 'label': 'Other Event', 'icon': Icons.people_rounded, 'color': Color(0xFFF5F5F4), 'iconColor': Color(0xFF57534E)},
+];
+
+class _EventPlannerWizardState extends State<_EventPlannerWizard> {
+  int _step = 0; // 0 = template, 1 = details, 2 = results
+  String _selectedTemplate = '';
+
+  final _nameCtrl = TextEditingController();
+  final _guestCtrl = TextEditingController();
+  final _budgetCtrl = TextEditingController();
+  final _notesCtrl = TextEditingController();
+  DateTime _eventDate = DateTime.now().add(const Duration(days: 7));
+
+  bool _isLoading = false;
+  String? _error;
+  Map<String, dynamic>? _planResult;
+  int _createdTaskCount = 0;
+  int _createdListCount = 0;
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _guestCtrl.dispose();
+    _budgetCtrl.dispose();
+    _notesCtrl.dispose();
+    super.dispose();
+  }
+
+  void _selectTemplate(Map<String, Object> template) {
+    setState(() {
+      _selectedTemplate = template['id'] as String;
+      if (_nameCtrl.text.isEmpty && _selectedTemplate != 'other') {
+        _nameCtrl.text = template['label'] as String;
+      }
+      _step = 1;
+    });
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _eventDate,
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (picked != null) setState(() => _eventDate = picked);
+  }
+
+  Future<void> _generatePlan() async {
+    if (_nameCtrl.text.trim().isEmpty) return;
+
+    final provider = context.read<AppProvider>();
+    final family = provider.activeFamily;
+    final user = provider.activeUser;
+    if (family == null || user == null) return;
+
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final result = await AiService.planFullEvent(
+        template: _selectedTemplate,
+        eventName: _nameCtrl.text.trim(),
+        date: DateFormat('yyyy-MM-dd').format(_eventDate),
+        guestCount: _guestCtrl.text.trim(),
+        budget: _budgetCtrl.text.trim(),
+        notes: _notesCtrl.text.trim(),
+        familyId: family.id,
+      );
+
+      if (result == null || !mounted) {
+        setState(() {
+          _isLoading = false;
+          _error = 'AI event planning failed. Please try again.';
+        });
+        return;
+      }
+
+      // Create calendar event
+      final eventDate = DateTime(_eventDate.year, _eventDate.month, _eventDate.day, 12);
+      final event = CalendarEvent(
+        id: const Uuid().v4(),
+        familyId: family.id,
+        creatorId: user.id,
+        title: _nameCtrl.text.trim(),
+        description: result['description'] as String? ?? '',
+        location: result['location_suggestion'] as String?,
+        start: eventDate,
+        end: eventDate.add(const Duration(hours: 4)),
+        visibility: Visibility.FAMILY,
+      );
+
+      // Create tasks from AI result
+      final aiTasks = (result['tasks'] as List<dynamic>?) ?? [];
+      final eventTag = _nameCtrl.text.trim();
+      final newTasks = aiTasks.map((t) {
+        final taskMap = t as Map<String, dynamic>;
+        final daysBefore = (taskMap['daysBefore'] as num?)?.toInt() ?? 0;
+        final priorityStr = (taskMap['priority'] as String?)?.toUpperCase() ?? 'MEDIUM';
+        return Task(
+          id: const Uuid().v4(),
+          familyId: family.id,
+          creatorId: user.id,
+          title: taskMap['title'] as String? ?? '',
+          dueDate: eventDate.subtract(Duration(days: daysBefore)),
+          priority: priorityStr == 'HIGH' ? Priority.HIGH : priorityStr == 'LOW' ? Priority.LOW : Priority.MEDIUM,
+          completed: false,
+          visibility: Visibility.FAMILY,
+          assignees: [user.id],
+          tags: [eventTag, 'Event'],
+        );
+      }).toList();
+
+      // Create lists from AI result
+      final aiLists = (result['lists'] as List<dynamic>?) ?? [];
+      final newLists = aiLists.map((l) {
+        final listMap = l as Map<String, dynamic>;
+        final aiItems = (listMap['items'] as List<dynamic>?) ?? [];
+        return ShoppingList(
+          id: const Uuid().v4(),
+          familyId: family.id,
+          creatorId: user.id,
+          title: '${_nameCtrl.text.trim()}: ${listMap['title'] ?? 'List'}',
+          category: (listMap['category'] as String?)?.toUpperCase() == 'GROCERY'
+              ? ListCategory.GROCERY
+              : ListCategory.OTHER,
+          visibility: Visibility.FAMILY,
+          items: aiItems.map((item) {
+            final itemMap = item as Map<String, dynamic>;
+            return ListItem(
+              id: const Uuid().v4(),
+              text: itemMap['text'] as String? ?? '',
+              quantity: itemMap['quantity'] as String?,
+            );
+          }).toList(),
+        );
+      }).toList();
+
+      final db = provider.db;
+      await provider.saveAndSync(db.copyWith(
+        events: [...db.events, event],
+        tasks: [...db.tasks, ...newTasks],
+        lists: [...db.lists, ...newLists],
+      ));
+
+      setState(() {
+        _planResult = result;
+        _createdTaskCount = newTasks.length;
+        _createdListCount = newLists.length;
+        _step = 2;
+      });
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Planning failed: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SheetHandle(),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Header
+                  Row(
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF7C3AED), Color(0xFFC026D3)],
+                          ),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.auto_awesome, size: 18, color: Colors.white),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Event Planner Wizard',
+                              style: TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.stone900),
+                            ),
+                            Text(
+                              _step == 0 ? 'Choose an event type' : _step == 1 ? 'Fill in the details' : 'Your plan is ready!',
+                              style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone500),
+                            ),
+                          ],
+                        ),
+                      ),
+                      // Step indicator
+                      Row(
+                        children: List.generate(3, (i) => Container(
+                          width: 8,
+                          height: 8,
+                          margin: const EdgeInsets.only(left: 4),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: i <= _step ? const Color(0xFF7C3AED) : AppTheme.stone200,
+                          ),
+                        )),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  if (_step == 0) _buildTemplateStep(),
+                  if (_step == 1) _buildDetailsStep(),
+                  if (_step == 2) _buildResultsStep(),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTemplateStep() {
+    return Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      children: _eventTemplates.map((t) {
+        return GestureDetector(
+          onTap: () => _selectTemplate(t),
+          child: Container(
+            width: (MediaQuery.of(context).size.width - 60) / 2,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: t['color'] as Color,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: (t['iconColor'] as Color).withValues(alpha: 0.2)),
+            ),
+            child: Row(
+              children: [
+                Icon(t['icon'] as IconData, size: 22, color: t['iconColor'] as Color),
+                const SizedBox(width: 10),
+                Flexible(
+                  child: Text(
+                    t['label'] as String,
+                    style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: t['iconColor'] as Color),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildDetailsStep() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextFormField(
+          controller: _nameCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Event Name *',
+            hintText: "What's the occasion?",
+            prefixIcon: Icon(Icons.celebration_rounded),
+          ),
+        ),
+        const SizedBox(height: 12),
+        GestureDetector(
+          onTap: _pickDate,
+          behavior: HitTestBehavior.opaque,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              color: AppTheme.stone50,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppTheme.stone200),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.calendar_today_rounded, size: 18, color: AppTheme.stone500),
+                const SizedBox(width: 12),
+                Text(
+                  DateFormat('EEEE, MMMM d, yyyy').format(_eventDate),
+                  style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone800),
+                ),
+                const Spacer(),
+                const Icon(Icons.edit_outlined, size: 16, color: AppTheme.stone400),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: TextFormField(
+                controller: _guestCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Guests',
+                  hintText: '20',
+                  prefixIcon: Icon(Icons.people_rounded),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: TextFormField(
+                controller: _budgetCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Budget',
+                  hintText: '\$200',
+                  prefixIcon: Icon(Icons.attach_money_rounded),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _notesCtrl,
+          maxLines: 2,
+          decoration: const InputDecoration(
+            labelText: 'Additional Notes',
+            hintText: 'Dietary restrictions, theme ideas...',
+            alignLabelWithHint: true,
+          ),
+        ),
+        if (_error != null) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppTheme.error.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(_error!, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.error)),
+          ),
+        ],
+        const SizedBox(height: 20),
+        Row(
+          children: [
+            TextButton(
+              onPressed: () => setState(() => _step = 0),
+              child: const Text('Back'),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: _isLoading ? null : _generatePlan,
+                icon: _isLoading
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(Colors.white)),
+                      )
+                    : const Icon(Icons.auto_awesome),
+                label: Text(_isLoading ? 'AI is planning...' : 'Generate Plan'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF7C3AED),
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildResultsStep() {
+    final tips = (_planResult?['tips'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
+    final description = _planResult?['description'] as String? ?? '';
+    final locationSuggestion = _planResult?['location_suggestion'] as String? ?? '';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Success header
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF0FDF4),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFF86EFAC)),
+          ),
+          child: Column(
+            children: [
+              const Icon(Icons.check_circle_rounded, size: 32, color: Color(0xFF16A34A)),
+              const SizedBox(height: 8),
+              Text(
+                '"${_nameCtrl.text.trim()}" is planned!',
+                style: const TextStyle(fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF166534)),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _statChip(Icons.event_rounded, '1 Event'),
+                  const SizedBox(width: 8),
+                  _statChip(Icons.task_alt_rounded, '$_createdTaskCount Tasks'),
+                  const SizedBox(width: 8),
+                  _statChip(Icons.checklist_rounded, '$_createdListCount Lists'),
+                ],
+              ),
+            ],
+          ),
+        ),
+
+        if (description.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          const Text('DESCRIPTION', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1)),
+          const SizedBox(height: 6),
+          Text(description, style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone700)),
+        ],
+
+        if (locationSuggestion.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              const Icon(Icons.location_on_outlined, size: 16, color: AppTheme.stone500),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(locationSuggestion, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone600)),
+              ),
+            ],
+          ),
+        ],
+
+        if (tips.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          const Text('TIPS', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1)),
+          const SizedBox(height: 6),
+          ...tips.map((tip) => Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.lightbulb_outline_rounded, size: 16, color: Color(0xFFD97706)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(tip, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone600)),
+                ),
+              ],
+            ),
+          )),
+        ],
+
+        const SizedBox(height: 20),
+        ElevatedButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Done'),
+        ),
+      ],
+    );
+  }
+
+  Widget _statChip(IconData icon, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF86EFAC)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: const Color(0xFF16A34A)),
+          const SizedBox(width: 4),
+          Text(label, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF166534))),
+        ],
       ),
     );
   }
