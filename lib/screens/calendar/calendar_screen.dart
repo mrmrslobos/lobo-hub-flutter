@@ -2143,8 +2143,8 @@ class _EventPlannerWizardState extends State<_EventPlannerWizard> {
         familyId: family.id,
         creatorId: user.id,
         title: _nameCtrl.text.trim(),
-        description: result['description'] as String? ?? '',
-        location: result['location_suggestion'] as String?,
+        description: result['description']?.toString() ?? '',
+        location: result['location_suggestion']?.toString(),
         start: eventDate,
         end: eventDate.add(const Duration(hours: 4)),
         visibility: Visibility.FAMILY,
@@ -2156,12 +2156,12 @@ class _EventPlannerWizardState extends State<_EventPlannerWizard> {
       final newTasks = aiTasks.map((t) {
         final taskMap = t as Map<String, dynamic>;
         final daysBefore = (taskMap['daysBefore'] as num?)?.toInt() ?? 0;
-        final priorityStr = (taskMap['priority'] as String?)?.toUpperCase() ?? 'MEDIUM';
+        final priorityStr = taskMap['priority']?.toString().toUpperCase() ?? 'MEDIUM';
         return Task(
           id: const Uuid().v4(),
           familyId: family.id,
           creatorId: user.id,
-          title: taskMap['title'] as String? ?? '',
+          title: taskMap['title']?.toString() ?? '',
           dueDate: eventDate.subtract(Duration(days: daysBefore)),
           priority: priorityStr == 'HIGH' ? Priority.HIGH : priorityStr == 'LOW' ? Priority.LOW : Priority.MEDIUM,
           completed: false,
@@ -2181,7 +2181,7 @@ class _EventPlannerWizardState extends State<_EventPlannerWizard> {
           familyId: family.id,
           creatorId: user.id,
           title: '${_nameCtrl.text.trim()}: ${listMap['title'] ?? 'List'}',
-          category: (listMap['category'] as String?)?.toUpperCase() == 'GROCERY'
+          category: listMap['category']?.toString().toUpperCase() == 'GROCERY'
               ? ListCategory.GROCERY
               : ListCategory.OTHER,
           visibility: Visibility.FAMILY,
@@ -2189,8 +2189,8 @@ class _EventPlannerWizardState extends State<_EventPlannerWizard> {
             final itemMap = item as Map<String, dynamic>;
             return ListItem(
               id: const Uuid().v4(),
-              text: itemMap['text'] as String? ?? '',
-              quantity: itemMap['quantity'] as String?,
+              text: itemMap['text']?.toString() ?? '',
+              quantity: itemMap['quantity']?.toString(),
             );
           }).toList(),
         );
