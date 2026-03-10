@@ -1,9 +1,11 @@
 // lib/app.dart
 // App entry point with go_router navigation and MaterialApp.router setup
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 
 import 'config/theme.dart';
 import 'config/app_config.dart';
@@ -43,8 +45,10 @@ class FamilyHubApp extends StatefulWidget {
 class _FamilyHubAppState extends State<FamilyHubApp> {
   late final GoRouter _router;
   late final AppProvider _provider;
+  StreamSubscription<AuthState>? _authSub;
 
   bool _isRouterInitialized = false;
+  bool _isPasswordRecovery = false;
 
   @override
   void didChangeDependencies() {
@@ -54,7 +58,28 @@ class _FamilyHubAppState extends State<FamilyHubApp> {
       _provider = context.read<AppProvider>();
       _router = _buildRouter(_provider);
       _isRouterInitialized = true;
+      _listenToAuthState();
     }
+  }
+
+  void _listenToAuthState() {
+    try {
+      _authSub = Supabase.instance.client.auth.onAuthStateChange
+          .listen((data) {
+        if (data.event == AuthChangeEvent.passwordRecovery) {
+          _isPasswordRecovery = true;
+          _router.go('/auth?resetPassword=true');
+        }
+      });
+    } catch (_) {
+      // Supabase not configured — skip
+    }
+  }
+
+  @override
+  void dispose() {
+    _authSub?.cancel();
+    super.dispose();
   }
 
   GoRouter _buildRouter(AppProvider provider) {
@@ -77,7 +102,14 @@ class _FamilyHubAppState extends State<FamilyHubApp> {
         };
 
         if (!isAuthenticated && !isOnAuth) return '/auth';
-        if (isAuthenticated && isOnAuth) return '/';
+        // Don't redirect away from auth during password recovery
+        final isResetFlow =
+            _isPasswordRecovery &&
+            state.uri.queryParameters['resetPassword'] == 'true';
+        if (isAuthenticated && isOnAuth && !isResetFlow) {
+          _isPasswordRecovery = false;
+          return '/';
+        }
 
         return null;
       },
@@ -86,7 +118,14 @@ class _FamilyHubAppState extends State<FamilyHubApp> {
         GoRoute(
           path: '/auth',
           name: 'auth',
-          builder: (context, state) => const AuthScreen(),
+          builder: (context, state) {
+            final resetPassword =
+                state.uri.queryParameters['resetPassword'] == 'true';
+            return AuthScreen(
+              key: ValueKey(resetPassword),
+              showResetPassword: resetPassword,
+            );
+          },
         ),
         GoRoute(
           path: '/',
