@@ -239,52 +239,53 @@ class _TasksScreenState extends State<TasksScreen> {
               // AI Project Planner card
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [Color(0xFF7C3AED), Color(0xFF6366F1)],
-                    ),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 32,
-                            height: 32,
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: const Icon(Icons.auto_awesome, size: 18, color: Colors.white),
-                          ),
-                          const SizedBox(width: 10),
-                          const Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'AI Project Planner',
-                                  style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white),
-                                ),
-                                Text(
-                                  'Break down goals into actionable tasks',
-                                  style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white70),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => _showAiBreakdownSheet(context),
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [Color(0xFF7C3AED), Color(0xFF6366F1)],
                       ),
-                      const SizedBox(height: 14),
-                      GestureDetector(
-                        onTap: () => _showAiBreakdownSheet(context),
-                        child: Container(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 32,
+                              height: 32,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Icon(Icons.auto_awesome, size: 18, color: Colors.white),
+                            ),
+                            const SizedBox(width: 10),
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'AI Project Planner',
+                                    style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white),
+                                  ),
+                                  Text(
+                                    'Break down goals into actionable tasks',
+                                    style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white70),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        Container(
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                           decoration: BoxDecoration(
                             color: Colors.white.withValues(alpha: 0.15),
@@ -301,12 +302,9 @@ class _TasksScreenState extends State<TasksScreen> {
                             ],
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: GestureDetector(
-                          onTap: () => _showAiBreakdownSheet(context),
+                        const SizedBox(height: 10),
+                        Align(
+                          alignment: Alignment.centerRight,
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                             decoration: BoxDecoration(
@@ -319,8 +317,8 @@ class _TasksScreenState extends State<TasksScreen> {
                             ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -389,11 +387,11 @@ class _TasksScreenState extends State<TasksScreen> {
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                           child: Row(
                             children: [
-                              AvatarInitials(name: members[i].name, size: 30),
+                              AvatarInitials(name: provider.memberDisplayName(members[i]), size: 30),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Text(
-                                  members[i].name,
+                                  provider.memberDisplayName(members[i]),
                                   style: const TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w500, color: AppTheme.stone800),
                                 ),
                               ),
@@ -1598,10 +1596,10 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   AvatarInitials(
-                                      name: m.name, size: 22),
+                                      name: provider.memberDisplayName(m), size: 22),
                                   const SizedBox(width: 6),
                                   Text(
-                                    m.name.split(' ').first,
+                                    provider.memberDisplayName(m).split(' ').first,
                                     style: TextStyle(
                                       fontFamily: 'Inter',
                                       fontSize: 13,
