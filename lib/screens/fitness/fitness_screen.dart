@@ -15,6 +15,7 @@ import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
+import '../../services/locale_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 
@@ -76,6 +77,21 @@ class _FitnessScreenState extends State<FitnessScreen> {
           final db = provider.db;
           await provider
               .saveAndSync(db.copyWith(fitnessLogs: [...db.fitnessLogs, log]));
+        },
+      ),
+    );
+  }
+
+  void _showLogWeightSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _LogWeightSheet(
+        onSave: (metric) async {
+          final provider = context.read<AppProvider>();
+          final db = provider.db;
+          await provider.saveAndSync(db.copyWith(fitness: [...db.fitness, metric]));
         },
       ),
     );
@@ -223,16 +239,16 @@ class _FitnessScreenState extends State<FitnessScreen> {
             subtitle: 'Track your vitals and stay active together.',
             actions: [
               ActionChipButton(
-                icon: Icons.monitor_weight_outlined,
-                label: 'Metric Value...',
+                icon: Icons.fitness_center_rounded,
+                label: 'Log Exercise',
                 onTap: _showAddSheet,
                 backgroundColor: AppTheme.stone100,
                 foregroundColor: AppTheme.stone700,
               ),
               ActionChipButton(
-                icon: Icons.fitness_center_rounded,
+                icon: Icons.monitor_weight_outlined,
                 label: 'Log Weight',
-                onTap: _showAddSheet,
+                onTap: _showLogWeightSheet,
                 isPrimary: true,
               ),
             ],
@@ -1619,6 +1635,180 @@ class _FitnessLogSheetState extends State<_FitnessLogSheet> {
                 ]),
           ),
         ]),
+      ),
+    );
+  }
+}
+
+// ─── Log Weight Sheet ─────────────────────────────────────────────────────────
+
+class _LogWeightSheet extends StatefulWidget {
+  final Future<void> Function(FitnessMetric) onSave;
+  const _LogWeightSheet({required this.onSave});
+
+  @override
+  State<_LogWeightSheet> createState() => _LogWeightSheetState();
+}
+
+class _LogWeightSheetState extends State<_LogWeightSheet> {
+  final _weightCtrl = TextEditingController();
+  final _notesCtrl = TextEditingController();
+  DateTime _date = DateTime.now();
+  bool _isSaving = false;
+
+  @override
+  void dispose() {
+    _weightCtrl.dispose();
+    _notesCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final weight = double.tryParse(_weightCtrl.text.trim());
+    if (weight == null || weight <= 0) return;
+
+    setState(() => _isSaving = true);
+    final provider = context.read<AppProvider>();
+    final metric = FitnessMetric(
+      id: const Uuid().v4(),
+      userId: provider.activeUser!.id,
+      type: 'WEIGHT',
+      value: weight,
+      date: _date,
+      notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+    );
+    await widget.onSave(metric);
+    if (mounted) Navigator.pop(context);
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _date,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+    );
+    if (picked != null) setState(() => _date = picked);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final locale = context.read<LocaleService>().config;
+    final unit = locale.useMetric ? 'kg' : 'lbs';
+
+    // Get last recorded weight for reference
+    final provider = context.read<AppProvider>();
+    final userId = provider.activeUser?.id;
+    final weightMetrics = provider.db.fitness
+        .where((m) => m.type == 'WEIGHT' && m.userId == userId)
+        .toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
+    final lastWeight = weightMetrics.isNotEmpty ? weightMetrics.first : null;
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: EdgeInsets.only(
+        left: 20, right: 20, top: 0,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 32,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              margin: const EdgeInsets.symmetric(vertical: 12),
+              width: 40, height: 4,
+              decoration: BoxDecoration(color: AppTheme.stone200, borderRadius: BorderRadius.circular(2)),
+            ),
+          ),
+          Row(children: [
+            const Icon(Icons.monitor_weight_outlined, color: AppTheme.primary, size: 20),
+            const SizedBox(width: 8),
+            const Text('Log Weight', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 18, color: AppTheme.stone900)),
+          ]),
+          const SizedBox(height: 6),
+          if (lastWeight != null)
+            Text(
+              'Last: ${lastWeight.value.toStringAsFixed(1)} $unit on ${DateFormat('MMM d').format(lastWeight.date)}',
+              style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400),
+            ),
+          const SizedBox(height: 20),
+
+          // Weight input
+          TextField(
+            controller: _weightCtrl,
+            autofocus: true,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.]'))],
+            style: const TextStyle(fontFamily: 'Inter', fontSize: 32, fontWeight: FontWeight.w800, color: AppTheme.stone900),
+            textAlign: TextAlign.center,
+            decoration: InputDecoration(
+              hintText: '0.0',
+              hintStyle: TextStyle(fontFamily: 'Inter', fontSize: 32, fontWeight: FontWeight.w800, color: AppTheme.stone200),
+              suffixText: unit,
+              suffixStyle: const TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w600, color: AppTheme.stone400),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: AppTheme.stone200)),
+              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: AppTheme.stone200)),
+              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: AppTheme.primary, width: 2)),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Notes
+          TextField(
+            controller: _notesCtrl,
+            maxLines: 1,
+            decoration: InputDecoration(
+              labelText: 'Notes (optional)',
+              labelStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Date picker
+          GestureDetector(
+            onTap: _pickDate,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                color: AppTheme.stone50,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppTheme.stone200),
+              ),
+              child: Row(children: [
+                const Icon(Icons.calendar_today_outlined, size: 18, color: AppTheme.stone500),
+                const SizedBox(width: 10),
+                Text(DateFormat('EEE, MMM d, y').format(_date),
+                    style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone800)),
+              ]),
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Save button
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _isSaving ? null : _save,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              ),
+              child: _isSaving
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Text('Save Weight', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16)),
+            ),
+          ),
+        ],
       ),
     );
   }
