@@ -485,6 +485,7 @@ Return ONLY the JSON array, no markdown.''',
                   _buildKidSwitcher(context, provider, switchableKids, family),
                 _buildActionButtons(context),
                 _buildAnnouncementSection(context, provider, family),
+                _buildBirthdaysSection(db, familyId, today),
                 _buildAISuggestionsSection(),
                 _buildMonthlySummarySection(),
                 _buildStatsGrid(
@@ -496,11 +497,13 @@ Return ONLY the JSON array, no markdown.''',
                   habitsCompleted: habitsCompletedToday,
                   habitsTotal: habitsToday.length,
                 ),
+                _buildEventCountdown(context, upcomingEvents),
                 _buildRecapCard(now),
                 _buildTodayFocus(context, todayFocusTasks, overdueTasks, provider),
                 _buildUpcomingEvents(context, upcomingEvents),
                 _buildActiveLists(context, activeLists),
-                _buildBudgetSection(context, spentThisMonth, db, familyId, monthStart),
+                _buildBudgetSnapshot(context, db, familyId, monthStart),
+                _buildPointsLeaderboard(db, familyId),
                 _buildTodayMeals(context, todayMealPlans),
                 _buildTodayChores(context, choresToday, choresCompletedToday),
                 _buildDevotional(context, todayDevotional),
@@ -1265,41 +1268,7 @@ Return ONLY the JSON array, no markdown.''',
     );
   }
 
-  Widget _buildBudgetSection(BuildContext context, double spent, AppDB db, String familyId, DateTime monthStart) {
-    final income = db.budgetEntries
-        .where((e) =>
-            e.familyId == familyId &&
-            e.type == TransactionType.INCOME &&
-            !e.date.isBefore(monthStart))
-        .fold<double>(0, (sum, e) => sum + e.amount);
-
-    return _dashSection(
-      title: 'Budget',
-      actionLabel: 'Details',
-      onAction: () => context.go('/budget'),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (spent == 0 && income == 0)
-            const Text('Start tracking to see insights.', style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400))
-          else
-            const SizedBox.shrink(),
-          const SizedBox(height: 12),
-          Row(children: [
-            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('INCOME', style: TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.5, color: AppTheme.stone400)),
-              Text('\$${income.toStringAsFixed(0)}', style: const TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.success)),
-            ]),
-            const SizedBox(width: 32),
-            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('EXPENSES', style: TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.5, color: AppTheme.stone400)),
-              Text('\$${spent.toStringAsFixed(0)}', style: const TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.stone900)),
-            ]),
-          ]),
-        ],
-      ),
-    );
-  }
+  // _buildBudgetSection removed — replaced by _buildBudgetSnapshot above
 
   Widget _buildTodayMeals(BuildContext context, List<MealPlanEntry> meals) {
     // mealType is a lowercase String: 'breakfast', 'lunch', 'dinner'
@@ -1532,6 +1501,337 @@ Return ONLY the JSON array, no markdown.''',
                 const Icon(Icons.chevron_right_rounded, size: 18, color: AppTheme.stone400),
               ]),
             )).toList()),
+    );
+  }
+
+  // ── Birthdays & Anniversaries (next 7 days) ─────────────────────────────
+
+  Widget _buildBirthdaysSection(AppDB db, String familyId, DateTime today) {
+    final specialDates = db.specialDates
+        .where((d) => d.familyId == familyId)
+        .toList();
+
+    if (specialDates.isEmpty) return const SizedBox.shrink();
+
+    // Calculate days until each date this year
+    final upcoming = <Map<String, dynamic>>[];
+    for (final sd in specialDates) {
+      var nextOccurrence = DateTime(today.year, sd.month, sd.day);
+      if (nextOccurrence.isBefore(today)) {
+        nextOccurrence = DateTime(today.year + 1, sd.month, sd.day);
+      }
+      final daysUntil = nextOccurrence.difference(today).inDays;
+      if (daysUntil <= 7) {
+        int? turningAge;
+        if (sd.year != null && sd.type == SpecialDateType.BIRTHDAY) {
+          turningAge = nextOccurrence.year - sd.year!;
+        }
+        upcoming.add({
+          'date': sd,
+          'daysUntil': daysUntil,
+          'turningAge': turningAge,
+        });
+      }
+    }
+
+    if (upcoming.isEmpty) return const SizedBox.shrink();
+    upcoming.sort((a, b) => (a['daysUntil'] as int).compareTo(b['daysUntil'] as int));
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Icon(Icons.cake_rounded, size: 18, color: Color(0xFFEC4899)),
+            const SizedBox(width: 8),
+            const Expanded(child: Text('Upcoming Celebrations', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 15, color: AppTheme.stone900))),
+            GestureDetector(
+              onTap: () => context.go('/birthdays'),
+              child: const Text('View all >', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 12, color: Color(0xFFEC4899))),
+            ),
+          ]),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 90,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: upcoming.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 10),
+              itemBuilder: (_, i) {
+                final item = upcoming[i];
+                final sd = item['date'] as SpecialDate;
+                final daysUntil = item['daysUntil'] as int;
+                final turningAge = item['turningAge'] as int?;
+                final isToday = daysUntil == 0;
+                final emoji = sd.emoji ?? (sd.type == SpecialDateType.BIRTHDAY ? '\u{1F382}' : '\u{1F48D}');
+
+                return Container(
+                  width: 140,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    gradient: isToday
+                        ? const LinearGradient(colors: [Color(0xFFFCE7F3), Color(0xFFFDF2F8)])
+                        : null,
+                    color: isToday ? null : Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: isToday ? const Color(0xFFF9A8D4) : AppTheme.stone100),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(children: [
+                        Text(emoji, style: const TextStyle(fontSize: 18)),
+                        const Spacer(),
+                        if (isToday)
+                          const Text('\u{1F389}', style: TextStyle(fontSize: 14)),
+                      ]),
+                      const SizedBox(height: 6),
+                      Text(sd.name, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.stone800), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      Text(
+                        isToday ? 'Today!' : daysUntil == 1 ? 'Tomorrow' : 'In $daysUntil days',
+                        style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w600, color: isToday ? const Color(0xFFDB2777) : AppTheme.stone400),
+                      ),
+                      if (turningAge != null)
+                        Text('Turning $turningAge', style: const TextStyle(fontFamily: 'Inter', fontSize: 10, color: Color(0xFFEC4899))),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Event Countdown Cards ─────────────────────────────────────────────────
+
+  Widget _buildEventCountdown(BuildContext context, List<CalendarEvent> events) {
+    if (events.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      child: SizedBox(
+        height: 80,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: events.length.clamp(0, 5),
+          separatorBuilder: (_, __) => const SizedBox(width: 10),
+          itemBuilder: (_, i) {
+            final event = events[i];
+            final now = DateTime.now();
+            final today = DateTime(now.year, now.month, now.day);
+            final eventDay = DateTime(event.startDate.year, event.startDate.month, event.startDate.day);
+            final daysLeft = eventDay.difference(today).inDays;
+
+            return GestureDetector(
+              onTap: () => context.go('/calendar'),
+              child: Container(
+                width: 130,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [BoxShadow(color: const Color(0xFF6366F1).withValues(alpha: 0.3), blurRadius: 8, offset: const Offset(0, 3))],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      daysLeft == 0 ? '\u{1F389}' : '$daysLeft',
+                      style: const TextStyle(fontFamily: 'Inter', fontSize: 22, fontWeight: FontWeight.w900, color: Colors.white),
+                    ),
+                    if (daysLeft > 0)
+                      Text('day${daysLeft == 1 ? '' : 's'} left', style: TextStyle(fontFamily: 'Inter', fontSize: 10, color: Colors.white.withValues(alpha: 0.7))),
+                    const SizedBox(height: 4),
+                    Text(event.title, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white), maxLines: 2, overflow: TextOverflow.ellipsis),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  // ── Budget Snapshot with category breakdown ────────────────────────────────
+
+  Widget _buildBudgetSnapshot(BuildContext context, AppDB db, String familyId, DateTime monthStart) {
+    final monthEntries = db.budgetEntries.where((e) =>
+      e.familyId == familyId && !e.date.isBefore(monthStart)).toList();
+    final income = monthEntries.where((e) => e.isIncome).fold<double>(0, (s, e) => s + e.amount);
+    final expenses = monthEntries.where((e) => !e.isIncome).fold<double>(0, (s, e) => s + e.amount);
+    final net = income - expenses;
+
+    // Group expenses by category
+    final byCategory = <String, double>{};
+    for (final e in monthEntries.where((e) => !e.isIncome)) {
+      byCategory[e.category.name] = (byCategory[e.category.name] ?? 0) + e.amount;
+    }
+    final sortedCats = byCategory.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+
+    // Category colors
+    const catColors = {
+      'housing': Color(0xFF6366F1),
+      'food': Color(0xFFF59E0B),
+      'transport': Color(0xFF3B82F6),
+      'entertainment': Color(0xFFEC4899),
+      'utilities': Color(0xFF14B8A6),
+      'healthcare': Color(0xFFEF4444),
+      'education': Color(0xFF8B5CF6),
+      'savings': Color(0xFF22C55E),
+      'other': Color(0xFF78716C),
+    };
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.stone100),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Text('Budget', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 16, color: AppTheme.stone900)),
+            const Spacer(),
+            GestureDetector(
+              onTap: () => context.go('/budget'),
+              child: Text('Details >', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 12, color: AppTheme.primary)),
+            ),
+          ]),
+          const SizedBox(height: 12),
+          if (income == 0 && expenses == 0)
+            const Text('Start tracking to see insights.', style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400))
+          else ...[
+            // Summary row
+            Row(children: [
+              _budgetMetric('INCOME', '\$${income.toStringAsFixed(0)}', AppTheme.success),
+              const SizedBox(width: 24),
+              _budgetMetric('EXPENSES', '\$${expenses.toStringAsFixed(0)}', AppTheme.error),
+              const SizedBox(width: 24),
+              _budgetMetric('NET', '${net >= 0 ? '+' : ''}\$${net.toStringAsFixed(0)}', net >= 0 ? AppTheme.success : AppTheme.error),
+            ]),
+            // Category breakdown bars
+            if (sortedCats.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              const Text('SPENDING BY CATEGORY', style: TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.5, color: AppTheme.stone400)),
+              const SizedBox(height: 8),
+              ...sortedCats.take(5).map((entry) {
+                final pct = expenses > 0 ? entry.value / expenses : 0.0;
+                final color = catColors[entry.key] ?? const Color(0xFF78716C);
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Row(children: [
+                    Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+                    const SizedBox(width: 8),
+                    SizedBox(width: 80, child: Text(entry.key, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.stone600))),
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(3),
+                        child: LinearProgressIndicator(
+                          value: pct,
+                          minHeight: 6,
+                          backgroundColor: AppTheme.stone100,
+                          valueColor: AlwaysStoppedAnimation(color),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    SizedBox(width: 55, child: Text('\$${entry.value.toStringAsFixed(0)}', textAlign: TextAlign.right, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.stone700))),
+                  ]),
+                );
+              }),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _budgetMetric(String label, String value, Color color) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(label, style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.5, color: AppTheme.stone400)),
+      Text(value, style: TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w800, color: color)),
+    ]);
+  }
+
+  // ── Points Leaderboard ────────────────────────────────────────────────────
+
+  Widget _buildPointsLeaderboard(AppDB db, String familyId) {
+    // Aggregate all-time chore points per user
+    final pointsMap = <String, int>{};
+    for (final cc in db.choreCompletions.where((c) => c.familyId == familyId && c.approvalStatus == ApprovalStatus.APPROVED)) {
+      final chore = db.chores.where((c) => c.id == cc.choreId).toList();
+      if (chore.isNotEmpty) {
+        pointsMap[cc.userId] = (pointsMap[cc.userId] ?? 0) + chore.first.points;
+      }
+    }
+
+    if (pointsMap.isEmpty) return const SizedBox.shrink();
+
+    final sorted = pointsMap.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    final top5 = sorted.take(5).toList();
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBEB),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Icon(Icons.emoji_events_rounded, size: 18, color: Color(0xFFD97706)),
+            const SizedBox(width: 8),
+            const Expanded(child: Text('Points Leaderboard', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 16, color: Color(0xFF92400E)))),
+            GestureDetector(
+              onTap: () => context.go('/chores'),
+              child: const Text('Chores >', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 12, color: Color(0xFFF59E0B))),
+            ),
+          ]),
+          const SizedBox(height: 12),
+          ...top5.asMap().entries.map((entry) {
+            final rank = entry.key;
+            final userId = entry.value.key;
+            final points = entry.value.value;
+            final user = db.users.where((u) => u.id == userId).toList();
+            final name = user.isNotEmpty ? user.first.name.split(' ').first : 'Unknown';
+            final medal = rank == 0 ? '\u{1F451}' : '${rank + 1}';
+            final bgColor = rank == 0 ? const Color(0xFFFEF3C7)
+                : rank == 1 ? const Color(0xFFF1F5F9)
+                : rank == 2 ? const Color(0xFFFFF7ED)
+                : Colors.transparent;
+
+            return Container(
+              margin: const EdgeInsets.only(bottom: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: bgColor,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(children: [
+                SizedBox(width: 24, child: Text(medal, style: const TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w800))),
+                const SizedBox(width: 8),
+                Expanded(child: Text(name, style: const TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone800))),
+                Text('$points pts', style: const TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFFD97706))),
+              ]),
+            );
+          }),
+        ],
+      ),
     );
   }
 
