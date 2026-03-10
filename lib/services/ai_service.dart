@@ -166,6 +166,65 @@ Items: ${items.join(', ')}
     }
   }
 
+  static Future<Map<String, dynamic>?> generateEventItinerary(
+    String description, {
+    required String familyId,
+  }) async {
+    final prompt = '''
+Create an event itinerary for the following:
+$description
+
+Return a JSON object with:
+- "itinerary": a detailed itinerary as a string with timeline and activities
+- "checklist": an array of strings for things to prepare/do
+
+Keep it practical and family-friendly.
+''';
+    return askJson(prompt: prompt, feature: 'ai_tasks', familyId: familyId);
+  }
+
+  static Future<Map<String, dynamic>?> planFullEvent({
+    required String template,
+    required String eventName,
+    required String date,
+    String? guestCount,
+    String? budget,
+    String? notes,
+    required String familyId,
+  }) async {
+    final prompt = '''
+Plan a complete "$eventName" event (type: $template) on $date.
+${guestCount != null && guestCount.isNotEmpty ? 'Expected guests: $guestCount' : ''}
+${budget != null && budget.isNotEmpty ? 'Budget: \$$budget' : ''}
+${notes != null && notes.isNotEmpty ? 'Additional notes: $notes' : ''}
+
+Return a JSON object with exactly these fields:
+- "description": string, a short event description
+- "location_suggestion": string, a suggested venue/location
+- "tasks": array of objects with "title" (string), "priority" (HIGH/MEDIUM/LOW), "daysBefore" (integer, days before the event to complete this)
+- "lists": array of objects with "title" (string), "category" (GROCERY/OTHER), "items" (array of objects with "text" and optional "quantity")
+- "tips": array of helpful tip strings (3-5 tips)
+''';
+    return askJson(prompt: prompt, feature: 'ai_tasks', familyId: familyId);
+  }
+
+  static Future<String?> refineWeeklyMealPlan({
+    required String currentPlanJson,
+    required String refinementRequest,
+    required String familyId,
+  }) async {
+    final prompt = '''
+Here is the current weekly meal plan:
+$currentPlanJson
+
+The user wants to refine it: "$refinementRequest"
+
+Return an updated JSON array of 7 day objects with the same structure (dayName, meals array with type/name/ingredients/steps/servings), applying the requested changes.
+Return valid JSON only, no markdown fences.
+''';
+    return ask(prompt: prompt, feature: 'ai_recipes', familyId: familyId);
+  }
+
   static Future<String?> analyzeBudget({
     required double totalIncome,
     required double totalExpenses,
