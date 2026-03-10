@@ -101,15 +101,26 @@ class _BiometricLockScreenState extends State<BiometricLockScreen>
       final isDeviceSupported = await _localAuth.isDeviceSupported();
       final availableBiometrics = await _localAuth.getAvailableBiometrics();
 
-      // Check if actual biometrics (fingerprint/face) are enrolled
-      final hasBiometrics = canCheck && availableBiometrics.isNotEmpty;
+      debugPrint('[BiometricLock] canCheck=$canCheck supported=$isDeviceSupported biometrics=$availableBiometrics');
+
+      // On Android 15+ (Pixel 10 Pro etc.), canCheckBiometrics may return false
+      // even when biometrics are enrolled. Check both canCheck AND isDeviceSupported,
+      // and also look for BiometricType.strong/weak (modern Android biometric types)
+      // in addition to .fingerprint/.face.
+      final hasBiometrics = (canCheck || isDeviceSupported) &&
+          availableBiometrics.isNotEmpty &&
+          availableBiometrics.any((b) =>
+              b == BiometricType.fingerprint ||
+              b == BiometricType.face ||
+              b == BiometricType.strong ||
+              b == BiometricType.weak);
 
       if (hasBiometrics) {
         // Try biometric-first authentication (fingerprint / face)
         final authenticated = await _localAuth.authenticate(
           localizedReason: 'Unlock FamilyHub with your fingerprint or face',
           options: const AuthenticationOptions(
-            biometricOnly: true, // Only allow fingerprint/face, not device PIN
+            biometricOnly: true,
             stickyAuth: true,
           ),
         );
@@ -130,7 +141,7 @@ class _BiometricLockScreenState extends State<BiometricLockScreen>
         }
       }
 
-      // No biometrics available → try device credentials (system PIN/pattern)
+      // No biometrics enrolled → try device credentials (system PIN/pattern)
       if (isDeviceSupported) {
         final authenticated = await _localAuth.authenticate(
           localizedReason: 'Unlock FamilyHub',

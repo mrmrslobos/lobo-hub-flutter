@@ -92,6 +92,8 @@ class SupabaseService {
       'messages',
       'health_records',
       'external_calendars',
+      'rewards',
+      'reading_plans',
     ];
 
     const familyIdTables = [

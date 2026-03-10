@@ -29,6 +29,10 @@ class TasksScreen extends StatefulWidget {
 
 class _TasksScreenState extends State<TasksScreen> {
   _TaskFilter _filter = _TaskFilter.all;
+  String? _selectedFolder; // null = All Tasks, otherwise tag name
+  String? _selectedMemberId; // null = all members
+
+  static const _folderNames = ['Home', 'Work', 'Personal', 'Shopping', 'AI Generated', 'Event'];
 
   List<Task> _filteredTasks(AppProvider provider) {
     final familyId = provider.activeFamily?.id;
@@ -40,6 +44,18 @@ class _TasksScreenState extends State<TasksScreen> {
 
     return provider.db.tasks.where((t) {
       if (t.familyId != familyId) return false;
+
+      // Folder filter: match by tag (case-insensitive)
+      if (_selectedFolder != null) {
+        final folderLower = _selectedFolder!.toLowerCase();
+        if (!t.tags.any((tag) => tag.toLowerCase() == folderLower)) return false;
+      }
+
+      // Member filter
+      if (_selectedMemberId != null) {
+        if (!t.assigneeIds.contains(_selectedMemberId) && t.createdBy != _selectedMemberId) return false;
+      }
+
       switch (_filter) {
         case _TaskFilter.all:
           return !t.completed;
@@ -160,8 +176,12 @@ class _TasksScreenState extends State<TasksScreen> {
         final highPriorityTasks = allTasks.where((t) => t.priority == Priority.HIGH).toList();
         final doneTasks = provider.db.tasks.where((t) => t.familyId == familyId && t.completed).toList();
 
-        // Folder counts
+        // Folder counts (by tag, case-insensitive)
         final allCount = allTasks.length;
+        int _folderCount(String folder) {
+          final fl = folder.toLowerCase();
+          return allTasks.where((t) => t.tags.any((tag) => tag.toLowerCase() == fl)).length;
+        }
 
         // Progress
         final totalTasks = provider.db.tasks.where((t) => t.familyId == familyId).length;
@@ -343,19 +363,17 @@ class _TasksScreenState extends State<TasksScreen> {
                   ),
                   child: Column(
                     children: [
-                      _buildFolderItem('All Tasks', Icons.folder_outlined, allCount, isSelected: true),
-                      const Divider(height: 1),
-                      _buildFolderItem('Home', Icons.folder_outlined, 0),
-                      const Divider(height: 1),
-                      _buildFolderItem('Work', Icons.folder_outlined, 0),
-                      const Divider(height: 1),
-                      _buildFolderItem('Personal', Icons.folder_outlined, 0),
-                      const Divider(height: 1),
-                      _buildFolderItem('Shopping', Icons.folder_outlined, 0),
-                      const Divider(height: 1),
-                      _buildFolderItem('AI Generated', Icons.folder_outlined, 0),
-                      const Divider(height: 1),
-                      _buildFolderItem('Event', Icons.folder_outlined, 0),
+                      _buildFolderItem('All Tasks', Icons.folder_outlined, allCount,
+                        isSelected: _selectedFolder == null,
+                        onTap: () => setState(() { _selectedFolder = null; _selectedMemberId = null; }),
+                      ),
+                      for (final folder in _folderNames) ...[
+                        const Divider(height: 1),
+                        _buildFolderItem(folder, Icons.folder_outlined, _folderCount(folder),
+                          isSelected: _selectedFolder == folder,
+                          onTap: () => setState(() { _selectedFolder = folder; _selectedMemberId = null; }),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -383,23 +401,37 @@ class _TasksScreenState extends State<TasksScreen> {
                     children: [
                       for (int i = 0; i < members.length; i++) ...[
                         if (i > 0) const Divider(height: 1),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                          child: Row(
-                            children: [
-                              AvatarInitials(name: provider.memberDisplayName(members[i]), size: 30),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  provider.memberDisplayName(members[i]),
-                                  style: const TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w500, color: AppTheme.stone800),
+                        InkWell(
+                          onTap: () => setState(() {
+                            if (_selectedMemberId == members[i].id) {
+                              _selectedMemberId = null; // deselect
+                            } else {
+                              _selectedMemberId = members[i].id;
+                              _selectedFolder = null;
+                            }
+                          }),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                            child: Row(
+                              children: [
+                                AvatarInitials(name: provider.memberDisplayName(members[i]), size: 30),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    provider.memberDisplayName(members[i]),
+                                    style: TextStyle(
+                                      fontFamily: 'Inter', fontSize: 14,
+                                      fontWeight: _selectedMemberId == members[i].id ? FontWeight.w700 : FontWeight.w500,
+                                      color: _selectedMemberId == members[i].id ? AppTheme.primary : AppTheme.stone800,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                              Text(
-                                '${allTasks.where((t) => t.assigneeIds.contains(members[i].id)).length} tasks',
-                                style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
-                              ),
-                            ],
+                                Text(
+                                  '${allTasks.where((t) => t.assigneeIds.contains(members[i].id)).length} tasks',
+                                  style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: _selectedMemberId == members[i].id ? AppTheme.primary : AppTheme.stone400),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ],
@@ -521,8 +553,10 @@ class _TasksScreenState extends State<TasksScreen> {
     );
   }
 
-  Widget _buildFolderItem(String name, IconData icon, int count, {bool isSelected = false}) {
-    return Padding(
+  Widget _buildFolderItem(String name, IconData icon, int count, {bool isSelected = false, VoidCallback? onTap}) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       child: Row(
         children: [
@@ -558,6 +592,7 @@ class _TasksScreenState extends State<TasksScreen> {
             ),
         ],
       ),
+    ),
     );
   }
 }
@@ -1268,6 +1303,8 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
             title: 'New Task Assigned',
             body: '${provider.activeUser?.name ?? 'Someone'} created: ${savedTask.title}',
             payload: 'task:${savedTask.id}',
+            familyId: provider.activeFamily?.id,
+            excludeUserId: provider.activeUser?.id,
           );
         }
       }

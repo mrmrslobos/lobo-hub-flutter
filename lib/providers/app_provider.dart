@@ -4,9 +4,11 @@
 // ignore_for_file: avoid_catches_without_on_clauses
 
 import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
 
 import '../models/models.dart';
 import '../services/database_service.dart';
+import '../services/notification_service.dart';
 import '../services/supabase_service.dart';
 
 class AppProvider extends ChangeNotifier {
@@ -16,6 +18,8 @@ class AppProvider extends ChangeNotifier {
   bool _isInitializing = true;
   bool _isLocked = false;
   Set<String> _unreadModules = {};
+  RealtimeChannel? _realtimeChannel;
+  bool _isSyncing = false;
 
   // ── Getters ───────────────────────────────────────────────────────────────
 
@@ -98,6 +102,8 @@ class AppProvider extends ChangeNotifier {
         if (family != null) {
           _activeUser = user;
           _activeFamily = family;
+          _startRealtimeListener();
+          NotificationService.registerDeviceToken(family.id, user.id);
         }
       }
     }
@@ -113,6 +119,9 @@ class AppProvider extends ChangeNotifier {
     if (_db.families.isEmpty) {
       _db = DatabaseService.db;
     }
+    _startRealtimeListener();
+    // Register FCM token so push notifications reach this device
+    NotificationService.registerDeviceToken(family.id, user.id);
     notifyListeners();
   }
 
@@ -128,7 +137,45 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Start listening for realtime changes from other family members.
+  void _startRealtimeListener() {
+    _stopRealtimeListener();
+    final familyId = _activeFamily?.id;
+    if (familyId == null || !SupabaseService.isConfigured) return;
+
+    _realtimeChannel = SupabaseService.subscribeToFamily(
+      familyId,
+      onBroadcast: (_) => _pullFromCloud(),
+    );
+  }
+
+  void _stopRealtimeListener() {
+    if (_realtimeChannel != null) {
+      SupabaseService.unsubscribe(_realtimeChannel!);
+      _realtimeChannel = null;
+    }
+  }
+
+  /// Pull latest data from cloud and merge into local state.
+  Future<void> _pullFromCloud() async {
+    if (_isSyncing || _activeFamily == null) return;
+    _isSyncing = true;
+    try {
+      final merged = await DatabaseService.reconcileCloud(_db, _activeFamily!.id);
+      _db = merged;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('[AppProvider] pullFromCloud error: $e');
+    } finally {
+      _isSyncing = false;
+    }
+  }
+
+  /// Public method to manually refresh from cloud.
+  Future<void> refreshFromCloud() => _pullFromCloud();
+
   Future<void> logout() async {
+    _stopRealtimeListener();
     _activeUser = null;
     _activeFamily = null;
     _isLocked = false;
@@ -160,8 +207,23 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
     if (_activeFamily != null) {
       await DatabaseService.saveAndSync(newDb, _activeFamily!.id);
+      // Broadcast change to other family members via realtime channel
+      _broadcastChange();
     } else {
       await DatabaseService.saveLocal(newDb);
+    }
+  }
+
+  /// Broadcast a db_change event so other devices pull the latest data.
+  void _broadcastChange() {
+    if (_realtimeChannel == null || _activeFamily == null) return;
+    try {
+      _realtimeChannel!.sendBroadcastMessage(
+        event: 'db_change',
+        payload: {'userId': _activeUser?.id, 'ts': DateTime.now().toIso8601String()},
+      );
+    } catch (e) {
+      debugPrint('[AppProvider] broadcast error: $e');
     }
   }
 

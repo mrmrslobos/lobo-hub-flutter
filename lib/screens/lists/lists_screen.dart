@@ -40,6 +40,8 @@ class _ListsScreenState extends State<ListsScreen> {
       NotificationService.notifyFamilyActivity(
         title: 'New List Created',
         body: '${provider.activeUser?.name ?? "Someone"} created: ${list.title}',
+        familyId: provider.activeFamily?.id,
+        excludeUserId: provider.activeUser?.id,
       );
     }
     setState(() => _selectedList = list);
@@ -67,6 +69,8 @@ class _ListsScreenState extends State<ListsScreen> {
       NotificationService.notifyFamilyActivity(
         title: 'Item Added to ${list.title}',
         body: '${provider.activeUser?.name ?? "Someone"} added: $name',
+        familyId: provider.activeFamily?.id,
+        excludeUserId: provider.activeUser?.id,
       );
     }
   }
@@ -84,6 +88,8 @@ class _ListsScreenState extends State<ListsScreen> {
       NotificationService.notifyFamilyActivity(
         title: '${list.title} Updated',
         body: '${provider.activeUser?.name ?? "Someone"} checked off: ${item.text}',
+        familyId: provider.activeFamily?.id,
+        excludeUserId: provider.activeUser?.id,
       );
     }
   }
@@ -153,21 +159,54 @@ class _ListsScreenState extends State<ListsScreen> {
   }
 
   Future<void> _showAiCategorization() async {
-    if (_selectedList == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Select a list first')),
+    ShoppingList? list = _selectedList;
+
+    // If no list is selected, let the user pick one
+    if (list == null) {
+      final provider = context.read<AppProvider>();
+      final familyId = provider.activeFamily?.id;
+      final allLists = provider.db.shoppingLists.where((l) => l.familyId == familyId && l.items.isNotEmpty).toList();
+      if (allLists.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Create a list with items first')),
+        );
+        return;
+      }
+      list = await showModalBottomSheet<ShoppingList>(
+        context: context,
+        backgroundColor: Colors.transparent,
+        builder: (ctx) => Container(
+          decoration: const BoxDecoration(
+            color: AppTheme.surface,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Center(child: Container(width: 36, height: 4, decoration: BoxDecoration(color: AppTheme.stone300, borderRadius: BorderRadius.circular(2)))),
+            const SizedBox(height: 16),
+            const Text('Select a list to categorize', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 18, color: AppTheme.stone900)),
+            const SizedBox(height: 12),
+            ...allLists.map((l) => ListTile(
+              leading: const Icon(Icons.list_rounded, color: AppTheme.primary),
+              title: Text(l.name, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 15)),
+              subtitle: Text('${l.items.length} items', style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              onTap: () => Navigator.pop(ctx, l),
+            )),
+          ]),
+        ),
       );
-      return;
+      if (list == null) return;
+      setState(() => _selectedList = list);
     }
 
-    final list = _selectedList!;
     final itemNames = list.items.map((i) => i.name).toList();
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => _AiCategorizationSheet(list: list, itemNames: itemNames),
+      builder: (ctx) => _AiCategorizationSheet(list: list!, itemNames: itemNames),
     );
   }
 

@@ -898,6 +898,44 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
     if (mounted) Navigator.pop(context);
   }
 
+  Future<void> _removeMember(int index) async {
+    final m = _members[index];
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove Member'),
+        content: Text('Remove ${m.displayName} from this family? They will lose access to all shared data.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final provider = context.read<AppProvider>();
+    final db = provider.db;
+    final removedUserId = m.userId;
+
+    // Remove from familyMembers
+    final updatedMembers = db.familyMembers
+        .where((fm) => !(fm.userId == removedUserId && fm.familyId == m.familyId))
+        .toList();
+
+    await provider.saveAndSync(db.copyWith(familyMembers: updatedMembers));
+    setState(() => _members.removeAt(index));
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${m.displayName} removed from family'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -1112,6 +1150,30 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
                       );
                     }).toList(),
                   ),
+                  // Remove member button (not for owner)
+                  if (m.role != Role.OWNER) ...[
+                    const SizedBox(height: 16),
+                    const Divider(height: 1),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _removeMember(index),
+                        icon: const Icon(Icons.person_remove_rounded, size: 16),
+                        label: const Text('Remove from Family'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.red,
+                          side: const BorderSide(color: Colors.red, width: 1),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          textStyle: const TextStyle(
+                            fontFamily: 'Inter',
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),

@@ -215,29 +215,43 @@ class NotificationService {
     await _plugin.cancel(notifId);
   }
 
-  /// Show an immediate notification when a family member adds a shared item.
+  /// Notify other family members about an activity (not the actor).
+  /// Sends a push notification via the Supabase edge function to all
+  /// other devices in the family, excluding the current user.
   static Future<void> notifyFamilyActivity({
     required String title,
     required String body,
+    String? familyId,
+    String? excludeUserId,
     String? payload,
   }) async {
-    if (!_initialized) await init();
+    // Send push notification to other family members via edge function
+    try {
+      if (familyId != null && excludeUserId != null) {
+        final restUrl = Supabase.instance.client.rest.url;
+        final supabaseUrl = restUrl.replaceAll('/rest/v1', '');
+        final accessToken =
+            Supabase.instance.client.auth.currentSession?.accessToken ?? '';
+        final uri = Uri.parse('$supabaseUrl/functions/v1/notify-family');
 
-    const androidDetails = AndroidNotificationDetails(
-      'lobohub_family_activity',
-      'Family Activity',
-      channelDescription: 'Notifications when family members add shared items',
-      importance: Importance.defaultImportance,
-      priority: Priority.defaultPriority,
-    );
-    const details = NotificationDetails(
-      android: androidDetails,
-      iOS: DarwinNotificationDetails(),
-    );
-
-    // Use current timestamp as notification ID for uniqueness
-    final notifId = DateTime.now().millisecondsSinceEpoch % 2147483647;
-    await _plugin.show(notifId, title, body, details, payload: payload);
+        await http.post(
+          uri,
+          headers: {
+            'Authorization': 'Bearer $accessToken',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({
+            'action': 'notify',
+            'familyId': familyId,
+            'excludeUserId': excludeUserId,
+            'title': title,
+            'body': body,
+          }),
+        );
+      }
+    } catch (e) {
+      debugPrint('[NotificationService] notifyFamilyActivity push error: $e');
+    }
   }
 
   static Future<String?> getFcmToken() async {
