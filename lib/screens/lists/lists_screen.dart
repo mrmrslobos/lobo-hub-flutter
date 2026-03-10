@@ -611,6 +611,61 @@ class _AiCategorizationSheetState extends State<_AiCategorizationSheet> {
                 ),
               ),
             ),
+          if (_categories != null && _categories!.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  // Build item→category map (inverted from category→[items])
+                  final itemToCategory = <String, String>{};
+                  for (final entry in _categories!.entries) {
+                    for (final itemName in entry.value) {
+                      itemToCategory[itemName] = entry.key;
+                    }
+                  }
+
+                  // Update each list item with its aiCategory
+                  final updatedItems = widget.list.items.map((item) {
+                    final cat = itemToCategory[item.name];
+                    if (cat != null) {
+                      return item.copyWith(aiCategory: cat);
+                    }
+                    return item;
+                  }).toList();
+
+                  // Sort items: group by category, unchecked first
+                  updatedItems.sort((a, b) {
+                    if (a.checked != b.checked) return a.checked ? 1 : -1;
+                    final catA = a.aiCategory ?? 'zzz';
+                    final catB = b.aiCategory ?? 'zzz';
+                    return catA.compareTo(catB);
+                  });
+
+                  final provider = context.read<AppProvider>();
+                  final db = provider.db;
+                  final updatedList = widget.list.copyWith(items: updatedItems);
+                  final updatedLists = db.shoppingLists
+                      .map((l) => l.id == widget.list.id ? updatedList : l)
+                      .toList();
+                  provider.saveAndSync(db.copyWith(shoppingLists: updatedLists));
+
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Categories applied! Use the group icon to view by category.')),
+                  );
+                },
+                icon: const Icon(Icons.check_rounded, size: 18),
+                label: const Text('Apply Categories', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
