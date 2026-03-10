@@ -20,6 +20,7 @@ enum _AuthView {
   login,
   signup,
   forgotPassword,
+  resetPassword,
   onboarding,
   createFamily,
   joinFamily,
@@ -53,7 +54,8 @@ const List<_Country> _countries = [
 // ─── AuthScreen ───────────────────────────────────────────────────────────────
 
 class AuthScreen extends StatefulWidget {
-  const AuthScreen({super.key});
+  final bool showResetPassword;
+  const AuthScreen({super.key, this.showResetPassword = false});
 
   @override
   State<AuthScreen> createState() => _AuthScreenState();
@@ -66,6 +68,7 @@ class _AuthScreenState extends State<AuthScreen> {
   final _nameCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
+  final _confirmPasswordCtrl = TextEditingController();
   final _familyNameCtrl = TextEditingController();
   final _joinCodeCtrl = TextEditingController();
 
@@ -73,14 +76,25 @@ class _AuthScreenState extends State<AuthScreen> {
   final _loginKey = GlobalKey<FormState>();
   final _signupKey = GlobalKey<FormState>();
   final _forgotKey = GlobalKey<FormState>();
+  final _resetPasswordKey = GlobalKey<FormState>();
   final _familyNameKey = GlobalKey<FormState>();
   final _joinCodeKey = GlobalKey<FormState>();
 
   // UI state
   bool _loading = false;
   bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
   String? _error;
   bool _resetSent = false;
+  bool _passwordUpdated = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.showResetPassword) {
+      _view = _AuthView.resetPassword;
+    }
+  }
 
   // Pending data accumulated across steps
   User? _pendingUser;
@@ -109,6 +123,7 @@ class _AuthScreenState extends State<AuthScreen> {
     _nameCtrl.dispose();
     _emailCtrl.dispose();
     _passwordCtrl.dispose();
+    _confirmPasswordCtrl.dispose();
     _familyNameCtrl.dispose();
     _joinCodeCtrl.dispose();
     super.dispose();
@@ -267,8 +282,10 @@ class _AuthScreenState extends State<AuthScreen> {
     _setError(null);
     try {
       if (_supabaseConfigured) {
-        await Supabase.instance.client.auth
-            .resetPasswordForEmail(_emailCtrl.text.trim());
+        await Supabase.instance.client.auth.resetPasswordForEmail(
+          _emailCtrl.text.trim(),
+          redirectTo: AppConfig.passwordResetRedirect,
+        );
       }
       setState(() => _resetSent = true);
     } catch (e) {
@@ -554,6 +571,8 @@ class _AuthScreenState extends State<AuthScreen> {
         return _buildSignup();
       case _AuthView.forgotPassword:
         return _buildForgotPassword();
+      case _AuthView.resetPassword:
+        return _buildResetPassword();
       case _AuthView.onboarding:
         return _buildOnboarding();
       case _AuthView.createFamily:
@@ -772,6 +791,128 @@ class _AuthScreenState extends State<AuthScreen> {
           OutlinedButton(
             onPressed: () => _setView(_AuthView.login),
             child: const Text('Back to Sign In'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── Reset password view (set new password) ─────────────────────────────
+
+  Future<void> _updatePassword() async {
+    if (!(_resetPasswordKey.currentState?.validate() ?? false)) return;
+    _setLoading(true);
+    _setError(null);
+    try {
+      if (_supabaseConfigured) {
+        await Supabase.instance.client.auth.updateUser(
+          UserAttributes(password: _passwordCtrl.text),
+        );
+      }
+      setState(() => _passwordUpdated = true);
+    } catch (e) {
+      _setError(e.toString().replaceAll('Exception: ', ''));
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  Widget _buildResetPassword() {
+    if (_passwordUpdated) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SizedBox(height: 16),
+          const Center(
+            child: Icon(Icons.check_circle_outline,
+                size: 60, color: AppTheme.success),
+          ),
+          const SizedBox(height: 20),
+          _sectionTitle('Password updated'),
+          const SizedBox(height: 8),
+          _subtitle('Your password has been changed successfully.'),
+          const SizedBox(height: 28),
+          ElevatedButton(
+            onPressed: () {
+              _passwordUpdated = false;
+              _passwordCtrl.clear();
+              _confirmPasswordCtrl.clear();
+              // Sign out the recovery session so user can log in fresh
+              if (_supabaseConfigured) {
+                Supabase.instance.client.auth.signOut();
+              }
+              context.go('/auth');
+            },
+            child: const Text('Sign In'),
+          ),
+        ],
+      );
+    }
+
+    return Form(
+      key: _resetPasswordKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _sectionTitle('Set new password'),
+          const SizedBox(height: 6),
+          _subtitle('Enter your new password below'),
+          const SizedBox(height: 24),
+          TextFormField(
+            controller: _passwordCtrl,
+            validator: _passwordValidator,
+            obscureText: _obscurePassword,
+            decoration: InputDecoration(
+              hintText: 'New password',
+              prefixIcon: const Icon(Icons.lock_outline),
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _obscurePassword
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
+                ),
+                onPressed: () =>
+                    setState(() => _obscurePassword = !_obscurePassword),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          TextFormField(
+            controller: _confirmPasswordCtrl,
+            obscureText: _obscureConfirmPassword,
+            validator: (v) {
+              if (v == null || v.isEmpty) return 'Please confirm your password';
+              if (v != _passwordCtrl.text) return 'Passwords do not match';
+              return null;
+            },
+            decoration: InputDecoration(
+              hintText: 'Confirm new password',
+              prefixIcon: const Icon(Icons.lock_outline),
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _obscureConfirmPassword
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
+                ),
+                onPressed: () => setState(
+                    () => _obscureConfirmPassword = !_obscureConfirmPassword),
+              ),
+            ),
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 12),
+            _errorBanner(_error!),
+          ],
+          const SizedBox(height: 20),
+          ElevatedButton(
+            onPressed: _loading ? null : _updatePassword,
+            child: _loading
+                ? const SizedBox(
+                    height: 20,
+                    width: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Update Password'),
           ),
         ],
       ),

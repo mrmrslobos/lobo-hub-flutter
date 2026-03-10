@@ -35,6 +35,8 @@ class AppConfig {
   static const String themeColorHex = '#6366f1';
   static const String backgroundColorHex = '#fcfcf9';
 
-  // OAuth redirect
+  // OAuth / deep-link redirects
   static const String oauthRedirectScheme = 'com.lobohub.app://login-callback';
+  static const String passwordResetRedirect =
+      'com.lobohub.app://reset-callback';
 }
