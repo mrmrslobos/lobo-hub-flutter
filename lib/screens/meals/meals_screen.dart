@@ -12,11 +12,21 @@ import '../../providers/app_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../services/ai_service.dart';
+import '../../services/locale_service.dart';
 import '../../config/theme.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const _mealTypes = ['breakfast', 'lunch', 'dinner', 'snack'];
+
+/// Helper for consolidating duplicate ingredients across recipes.
+class _IngredientAccum {
+  final String name;
+  final String? unit;
+  double? numQty;
+  final String? rawQty;
+  _IngredientAccum({required this.name, this.unit, this.numQty, this.rawQty});
+}
 
 const _mealTypeLabels = {
   'breakfast': 'Breakfast',
@@ -135,11 +145,19 @@ class _MealsScreenState extends State<MealsScreen>
     if (prefs.isEmpty) return;
     setState(() { _chefLoading = true; _chefSuggestions = null; });
 
+    final localeService = context.read<LocaleService>();
+    final useMetric = localeService.config.useMetric;
+    final unitInstruction = useMetric
+        ? 'IMPORTANT: Use metric units (grams, kilograms, millilitres, litres). Never use ounces, pounds, cups, or other imperial units.'
+        : 'Use standard US units (cups, tablespoons, ounces, pounds).';
+
     const systemPrompt =
         'You are a creative family chef AI. Always respond with valid JSON only, no markdown fences.';
     final prompt = '''
 Suggest 3 meal recipes based on the following preferences:
 "$prefs"
+
+$unitInstruction
 
 Return a JSON array of exactly 3 objects, each with these fields:
 - "title" (string): recipe name
@@ -231,11 +249,19 @@ Return a JSON array of exactly 3 objects, each with these fields:
     if (prefs.isEmpty) return;
     setState(() => _weekPlannerLoading = true);
 
+    final localeService = context.read<LocaleService>();
+    final useMetric = localeService.config.useMetric;
+    final unitInstruction = useMetric
+        ? 'IMPORTANT: Use metric units (grams, kilograms, millilitres, litres, centimetres). Never use ounces, pounds, cups, or other imperial units.'
+        : 'Use standard US units (cups, tablespoons, ounces, pounds).';
+
     const systemPrompt =
         'You are a weekly meal planning AI for families. Always respond with valid JSON only, no markdown fences.';
     final prompt = '''
 Create a 7-day meal plan (Monday through Sunday) based on these preferences:
 "$prefs"
+
+$unitInstruction
 
 Return a JSON array of 7 objects, each with:
 - "dayName" (string): "Monday", "Tuesday", etc.
@@ -282,7 +308,8 @@ Return a JSON array of 7 objects, each with:
 
       final newRecipes = <Recipe>[];
       final newMealPlans = <MealPlanEntry>[];
-      final allIngredients = <String>[];
+      // Track ingredients for consolidation: key = "name|unit", value = total qty
+      final ingredientMap = <String, _IngredientAccum>{};
 
       for (final dayData in decoded) {
         if (dayData is! Map<String, dynamic>) continue;
@@ -307,7 +334,18 @@ Return a JSON array of 7 objects, each with:
                 final qty = ing['quantity']?.toString();
                 final unit = ing['unit']?.toString();
                 ingredients.add(RecipeIngredient(name: name, quantity: qty, unit: unit));
-                allIngredients.add(qty != null ? '$qty${unit != null ? ' $unit' : ''} $name' : name);
+
+                // Consolidate: merge by name+unit key
+                final key = '${name.toLowerCase()}|${(unit ?? '').toLowerCase()}';
+                final numQty = double.tryParse(qty ?? '');
+                if (ingredientMap.containsKey(key)) {
+                  final existing = ingredientMap[key]!;
+                  if (numQty != null && existing.numQty != null) {
+                    existing.numQty = existing.numQty! + numQty;
+                  }
+                } else {
+                  ingredientMap[key] = _IngredientAccum(name: name, unit: unit, numQty: numQty, rawQty: qty);
+                }
               }
             }
           }
@@ -352,8 +390,19 @@ Return a JSON array of 7 objects, each with:
       );
 
       // Create shopping list from consolidated ingredients
-      if (allIngredients.isNotEmpty) {
-        final listItems = allIngredients.map((ing) => ListItem(
+      if (ingredientMap.isNotEmpty) {
+        // Build consolidated ingredient strings
+        final consolidatedItems = ingredientMap.values.map((a) {
+          final qtyStr = a.numQty != null
+              ? (a.numQty! == a.numQty!.roundToDouble() ? a.numQty!.toInt().toString() : a.numQty!.toStringAsFixed(1))
+              : a.rawQty;
+          if (qtyStr != null && qtyStr.isNotEmpty) {
+            return '$qtyStr${a.unit != null && a.unit!.isNotEmpty ? ' ${a.unit}' : ''} ${a.name}';
+          }
+          return a.name;
+        }).toList();
+
+        final listItems = consolidatedItems.map((ing) => ListItem(
           id: const Uuid().v4(),
           text: ing,
         )).toList();
@@ -361,11 +410,11 @@ Return a JSON array of 7 objects, each with:
         // Try AI categorization
         try {
           final categories = await AiService.categorizeItems(
-            allIngredients.map((i) => i.split(' ').last).toList(),
+            consolidatedItems.map((i) => i.split(' ').last).toList(),
             familyId: familyId,
           );
           for (var i = 0; i < listItems.length; i++) {
-            final itemName = allIngredients[i].split(' ').last;
+            final itemName = consolidatedItems[i].split(' ').last;
             final cat = categories[itemName];
             if (cat != null) {
               listItems[i] = listItems[i].copyWith(aiCategory: cat);
@@ -1551,10 +1600,17 @@ class _MealSlotCard extends StatelessWidget {
       ),
     );
 
+    final localeService = context.read<LocaleService>();
+    final unitInstruction = localeService.config.useMetric
+        ? 'Use metric units (grams, kilograms, millilitres, litres). No imperial units.'
+        : 'Use standard US units (cups, tablespoons, ounces, pounds).';
+
     const systemPrompt =
         'You are a meal swap AI. Always respond with valid JSON only, no markdown fences.';
     final prompt = '''
 Suggest a replacement for this ${label.toLowerCase()} meal: "$currentMealName"
+
+$unitInstruction
 
 Return a JSON object with:
 - "name" (string): new meal name
