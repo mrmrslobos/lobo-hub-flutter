@@ -1,6 +1,6 @@
 name: lobohub
 description: FamilyHub - Family management app for tasks, meals, budget, calendar, and more.
-version: 1.0.0+1
+version: 1.0.1+2
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
