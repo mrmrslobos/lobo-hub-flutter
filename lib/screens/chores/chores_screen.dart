@@ -190,7 +190,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
         choreRows.add(_ChoreRow(chore: chore, userId: user.id, userName: 'You'));
       } else {
         for (final assigneeId in chore.assigneeIds) {
-          final m = members.cast<User?>().firstWhere((u) => u?.id == assigneeId, orElse: () => null);
+          final m = members.where((u) => u.id == assigneeId).firstOrNull;
           choreRows.add(_ChoreRow(
             chore: chore,
             userId: assigneeId,

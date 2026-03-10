@@ -234,11 +234,8 @@ class _ChatScreenState extends State<ChatScreen> {
                           // Reply reference
                           ChatMessage? replyMsg;
                           if (msg.replyToId != null) {
-                            replyMsg = messages
-                                .cast<ChatMessage?>()
-                                .firstWhere(
-                                    (m) => m?.id == msg.replyToId,
-                                    orElse: () => null);
+                            replyMsg = messages.where(
+                                    (m) => m.id == msg.replyToId).firstOrNull;
                           }
 
                           return _MessageBubble(

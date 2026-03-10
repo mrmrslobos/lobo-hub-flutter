@@ -343,8 +343,8 @@ class _PollCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final totalVotes = poll.totalVotes;
-    final userVotedOption = poll.options.cast<PollOption?>().firstWhere(
-        (o) => o!.voterIds.contains(userId), orElse: () => null);
+    final userVotedOption = poll.options.where(
+        (o) => o.voterIds.contains(userId)).firstOrNull;
 
     return GestureDetector(
       onTap: onTap,
@@ -370,6 +370,10 @@ class _PollCard extends StatelessWidget {
               Expanded(
                 child: Text(poll.question, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: AppTheme.stone900)),
               ),
+              if (poll.anonymous) ...[
+                Icon(Icons.visibility_off_rounded, size: 12, color: AppTheme.stone400),
+                const SizedBox(width: 4),
+              ],
               Text('$totalVotes vote${totalVotes == 1 ? '' : 's'}',
                   style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
               const SizedBox(width: 8),
@@ -480,6 +484,7 @@ class _CreatePollSheetState extends State<_CreatePollSheet> {
     TextEditingController(),
   ];
   DateTime? _expiresAt;
+  bool _anonymous = false;
   bool _isSaving = false;
   final _uuid = const Uuid();
 
@@ -524,6 +529,7 @@ class _CreatePollSheetState extends State<_CreatePollSheet> {
       creatorId: provider.activeUser!.id,
       createdAt: DateTime.now(),
       deadline: _expiresAt,
+      anonymous: _anonymous,
     );
     await widget.onSave(poll);
     if (mounted) Navigator.pop(context);
@@ -603,6 +609,30 @@ class _CreatePollSheetState extends State<_CreatePollSheet> {
                     const Spacer(),
                     if (_expiresAt != null)
                       GestureDetector(onTap: () => setState(() => _expiresAt = null), child: const Icon(Icons.close_rounded, size: 16, color: AppTheme.stone400)),
+                  ]),
+                ),
+              ),
+              const SizedBox(height: 12),
+              GestureDetector(
+                onTap: () => setState(() => _anonymous = !_anonymous),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: _anonymous ? AppTheme.primary.withValues(alpha: 0.05) : AppTheme.stone50,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: _anonymous ? AppTheme.primary.withValues(alpha: 0.3) : AppTheme.stone200),
+                  ),
+                  child: Row(children: [
+                    Icon(Icons.visibility_off_rounded, size: 18, color: _anonymous ? AppTheme.primary : AppTheme.stone500),
+                    const SizedBox(width: 10),
+                    Text(
+                      'Anonymous voting',
+                      style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: _anonymous ? FontWeight.w600 : FontWeight.w400, color: _anonymous ? AppTheme.primary : AppTheme.stone400),
+                    ),
+                    const Spacer(),
+                    if (_anonymous)
+                      Icon(Icons.check_rounded, size: 18, color: AppTheme.primary),
                   ]),
                 ),
               ),
