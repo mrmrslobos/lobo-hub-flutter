@@ -267,8 +267,10 @@ class _AuthScreenState extends State<AuthScreen> {
     _setError(null);
     try {
       if (_supabaseConfigured) {
-        await Supabase.instance.client.auth
-            .resetPasswordForEmail(_emailCtrl.text.trim());
+        await Supabase.instance.client.auth.resetPasswordForEmail(
+          _emailCtrl.text.trim(),
+          redirectTo: AppConfig.passwordResetRedirect,
+        );
       }
       setState(() => _resetSent = true);
     } catch (e) {
