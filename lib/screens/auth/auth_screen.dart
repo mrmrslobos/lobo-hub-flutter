@@ -153,9 +153,7 @@ class _AuthScreenState extends State<AuthScreen> {
       }
 
       // Fall back: look up in local DB
-      user ??= provider.db.users
-          .cast<User?>()
-          .firstWhere((u) => u?.email == email, orElse: () => null);
+      user ??= provider.db.users.where((u) => u.email == email).firstOrNull;
 
       if (user == null) {
         _setError('No account found with that email. Please sign up.');
