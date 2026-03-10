@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
 
 import '../models/models.dart';
 import '../services/database_service.dart';
+import '../services/notification_service.dart';
 import '../services/supabase_service.dart';
 
 class AppProvider extends ChangeNotifier {
@@ -101,6 +102,8 @@ class AppProvider extends ChangeNotifier {
         if (family != null) {
           _activeUser = user;
           _activeFamily = family;
+          _startRealtimeListener();
+          NotificationService.registerDeviceToken(family.id, user.id);
         }
       }
     }
@@ -117,6 +120,8 @@ class AppProvider extends ChangeNotifier {
       _db = DatabaseService.db;
     }
     _startRealtimeListener();
+    // Register FCM token so push notifications reach this device
+    NotificationService.registerDeviceToken(family.id, user.id);
     notifyListeners();
   }
 
