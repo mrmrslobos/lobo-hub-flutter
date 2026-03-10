@@ -155,6 +155,10 @@ class DatabaseService {
         db.periodSymptoms.map((s) => s.toJson()).toList());
     await up('external_calendars',
         db.externalCalendars.map((c) => {...c.toJson(), 'familyId': fid}).toList());
+    await up('rewards',
+        db.rewards.map((r) => {...r.toJson(), 'familyId': fid}).toList());
+    await up('reading_plans',
+        db.readingPlans.map((r) => {...r.toJson(), 'familyId': fid}).toList());
   }
 
   // ── Cloud reconcile ───────────────────────────────────────────────────────
@@ -217,6 +221,7 @@ class DatabaseService {
       healthRecords: _safeParse(cloud['health_records'], HealthRecord.fromJson),
       periodCycles: _safeParse(cloud['period_cycles'], PeriodCycle.fromJson),
       periodSymptoms: _safeParse(cloud['period_symptoms'], PeriodSymptomLog.fromJson),
+      rewards: _safeParse(cloud['rewards'], Reward.fromJson),
       readingPlans: _safeParse(cloud['reading_plans'], ReadingPlan.fromJson),
       externalCalendars: _safeParse(cloud['external_calendars'], ExternalCalendar.fromJson),
     );

@@ -1377,6 +1377,8 @@ class _EventFormSheetState extends State<_EventFormSheet> {
         NotificationService.notifyFamilyActivity(
           title: 'New Calendar Event',
           body: '${provider.activeUser?.name ?? "Someone"} added: ${event.title}',
+          familyId: provider.activeFamily?.id,
+          excludeUserId: provider.activeUser?.id,
         );
       }
       if (mounted) Navigator.pop(context);

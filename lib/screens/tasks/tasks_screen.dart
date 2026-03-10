@@ -1268,6 +1268,8 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
             title: 'New Task Assigned',
             body: '${provider.activeUser?.name ?? 'Someone'} created: ${savedTask.title}',
             payload: 'task:${savedTask.id}',
+            familyId: provider.activeFamily?.id,
+            excludeUserId: provider.activeUser?.id,
           );
         }
       }
