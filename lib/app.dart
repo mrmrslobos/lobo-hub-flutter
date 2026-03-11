@@ -70,9 +70,10 @@ class _FamilyHubAppState extends State<FamilyHubApp> {
           _isPasswordRecovery = true;
           _router.go('/auth?resetPassword=true');
         } else if (data.event == AuthChangeEvent.signedIn) {
-          // OAuth callback or token refresh — notify provider so the
+          // OAuth callback or token refresh — re-resolve user/family from
+          // the new session so isAuthenticated becomes true, then the
           // router's refreshListenable triggers redirect re-evaluation.
-          _provider.notifyListeners();
+          _provider.initialize();
         } else if (data.event == AuthChangeEvent.signedOut) {
           _isPasswordRecovery = false;
         }

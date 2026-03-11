@@ -335,8 +335,14 @@ begin
   ]
   loop
     execute format('alter table %I enable row level security', t);
+    -- Drop old overly-permissive anon policy
     execute format('drop policy if exists "%s_rw_anon" on %I', t, t);
-    execute format('create policy "%s_rw_anon" on %I for all to anon, authenticated using (true) with check (true)', t, t);
+    -- Authenticated users: full access (app enforces family-scoping client-side)
+    execute format('drop policy if exists "%s_rw_auth" on %I', t, t);
+    execute format('create policy "%s_rw_auth" on %I for all to authenticated using (true) with check (true)', t, t);
+    -- Anon users: read-only (needed for join-by-code lookup before sign-in)
+    execute format('drop policy if exists "%s_ro_anon" on %I', t, t);
+    execute format('create policy "%s_ro_anon" on %I for select to anon using (true)', t, t);
   end loop;
 end $$;
 
@@ -388,6 +394,16 @@ begin
     alter table transactions add column visibility text not null default 'FAMILY';
   end if;
 end $$;
+
+-- families: add columns that the Family model requires but were not in the
+-- original minimal CREATE TABLE (safe to re-run).
+alter table families add column if not exists announcement text;
+alter table families add column if not exists "announcementAuthor" text;
+alter table families add column if not exists "subscriptionTier" text;
+alter table families add column if not exists "enabledModules" jsonb not null default '[]'::jsonb;
+alter table families add column if not exists "createdAt" text;
+alter table families add column if not exists "welcomeDismissed" boolean not null default false;
+alter table families add column if not exists settings jsonb;
 
 -- =============================================================================
 -- Push Notification device tokens
@@ -554,8 +570,14 @@ begin
   ]
   loop
     execute format('alter table %I enable row level security', t);
+    -- Drop old overly-permissive anon policy
     execute format('drop policy if exists "%s_rw_anon" on %I', t, t);
-    execute format('create policy "%s_rw_anon" on %I for all to anon, authenticated using (true) with check (true)', t, t);
+    -- Authenticated users: full access (app enforces family-scoping client-side)
+    execute format('drop policy if exists "%s_rw_auth" on %I', t, t);
+    execute format('create policy "%s_rw_auth" on %I for all to authenticated using (true) with check (true)', t, t);
+    -- Anon users: read-only (needed for join-by-code lookup before sign-in)
+    execute format('drop policy if exists "%s_ro_anon" on %I', t, t);
+    execute format('create policy "%s_ro_anon" on %I for select to anon using (true)', t, t);
   end loop;
 end $$;
 
