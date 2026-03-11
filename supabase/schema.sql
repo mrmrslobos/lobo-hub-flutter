@@ -31,8 +31,12 @@ create table if not exists tasks (
   title text not null,
   notes text,
   "dueDate" text not null,
+  "dueTime" text,
+  "reminderMinutes" integer,
   priority text not null,
   completed boolean not null default false,
+  "completedBy" text,
+  "updatedBy" text,
   visibility text not null default 'FAMILY',
   assignees jsonb not null default '[]'::jsonb,
   tags jsonb not null default '[]'::jsonb,
@@ -49,6 +53,7 @@ create table if not exists events (
   start text not null,
   "end" text not null,
   visibility text not null default 'FAMILY',
+  "sharedWith" jsonb not null default '[]'::jsonb,
   checklist jsonb not null default '[]'::jsonb,
   "budgetEstimate" numeric,
   recurrence text default 'NONE'
@@ -293,6 +298,7 @@ create table if not exists prayer_wall (
   text                text not null,
   "originalRequestId" text,
   reactions           jsonb not null default '[]'::jsonb,
+  "prayedByIds"       jsonb not null default '[]'::jsonb,
   date                text not null,
   "answeredAt"        text,
   visibility          text not null default 'FAMILY'

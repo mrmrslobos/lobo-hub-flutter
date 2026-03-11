@@ -140,18 +140,22 @@ $$;
 -- tasks
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS tasks (
-  id          text PRIMARY KEY,
-  "familyId"  text NOT NULL,
-  "creatorId" text NOT NULL,
-  title       text NOT NULL,
-  notes       text,
-  "dueDate"   text NOT NULL DEFAULT '',
-  priority    text NOT NULL,
-  completed   boolean NOT NULL DEFAULT false,
-  visibility  text NOT NULL DEFAULT 'FAMILY',
-  assignees   jsonb NOT NULL DEFAULT '[]'::jsonb,
-  tags        jsonb NOT NULL DEFAULT '[]'::jsonb,
-  recurrence  text DEFAULT 'NONE'
+  id               text PRIMARY KEY,
+  "familyId"       text NOT NULL,
+  "creatorId"      text NOT NULL,
+  title            text NOT NULL,
+  notes            text,
+  "dueDate"        text NOT NULL DEFAULT '',
+  "dueTime"        text,
+  "reminderMinutes" integer,
+  priority         text NOT NULL,
+  completed        boolean NOT NULL DEFAULT false,
+  "completedBy"    text,
+  "updatedBy"      text,
+  visibility       text NOT NULL DEFAULT 'FAMILY',
+  assignees        jsonb NOT NULL DEFAULT '[]'::jsonb,
+  tags             jsonb NOT NULL DEFAULT '[]'::jsonb,
+  recurrence       text DEFAULT 'NONE'
 );
 
 -- ---------------------------------------------------------------------------
@@ -167,6 +171,7 @@ CREATE TABLE IF NOT EXISTS events (
   start                text NOT NULL,
   "end"                text NOT NULL,
   visibility           text NOT NULL DEFAULT 'FAMILY',
+  "sharedWith"         jsonb NOT NULL DEFAULT '[]'::jsonb,
   checklist            jsonb NOT NULL DEFAULT '[]'::jsonb,
   "budgetEstimate"     numeric,
   "externalCalendarId" text,
@@ -468,6 +473,7 @@ CREATE TABLE IF NOT EXISTS prayer_wall (
   text                text NOT NULL,
   "originalRequestId" text,
   reactions           jsonb NOT NULL DEFAULT '[]'::jsonb,
+  "prayedByIds"       jsonb NOT NULL DEFAULT '[]'::jsonb,
   date                text NOT NULL,
   "answeredAt"        text,
   visibility          text NOT NULL DEFAULT 'FAMILY'

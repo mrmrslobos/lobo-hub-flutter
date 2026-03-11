@@ -49,8 +49,12 @@ class CalendarSyncService {
 
   /// Fetch the list of Google Calendars for the signed-in user.
   static Future<List<gcal.CalendarListEntry>> fetchGoogleCalendarList() async {
-    final httpClient = await _googleSignIn.authenticatedClient();
-    if (httpClient == null) return [];
+    var httpClient = await _googleSignIn.authenticatedClient();
+    if (httpClient == null) {
+      await _googleSignIn.signInSilently();
+      httpClient = await _googleSignIn.authenticatedClient();
+      if (httpClient == null) return [];
+    }
     try {
       final calendarApi = gcal.CalendarApi(httpClient);
       final calendarList = await calendarApi.calendarList.list();
@@ -71,8 +75,12 @@ class CalendarSyncService {
     DateTime? timeMin,
     DateTime? timeMax,
   }) async {
-    final httpClient = await _googleSignIn.authenticatedClient();
-    if (httpClient == null) return [];
+    var httpClient = await _googleSignIn.authenticatedClient();
+    if (httpClient == null) {
+      await _googleSignIn.signInSilently();
+      httpClient = await _googleSignIn.authenticatedClient();
+      if (httpClient == null) return [];
+    }
 
     try {
       final calendarApi = gcal.CalendarApi(httpClient);
@@ -156,7 +164,9 @@ class CalendarSyncService {
     required String externalCalendarId,
   }) {
     final events = <CalendarEvent>[];
-    final lines = icsContent.split('\n').map((l) => l.trim()).toList();
+    // RFC 5545: unfold lines that are continued with a leading space/tab
+    final unfolded = icsContent.replaceAll(RegExp(r'\r?\n[ \t]'), '');
+    final lines = unfolded.split('\n').map((l) => l.trim()).toList();
 
     int i = 0;
     while (i < lines.length) {
