@@ -106,7 +106,7 @@ class SupabaseService {
     ];
 
     const userScopedTables = [
-      'fitness_metrics',
+      'fitness',
       'fitness_plans',
       'ai_history',
       'daily_habits',

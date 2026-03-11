@@ -11,7 +11,7 @@ dependencies:
     sdk: flutter
 
   # Supabase
-  supabase_flutter: ^2.8.4
+  supabase_flutter: ^2.12.0
 
   # State management
   provider: ^6.1.2
@@ -20,7 +20,7 @@ dependencies:
   go_router: ^14.6.3
 
   # Local storage
-  shared_preferences: ^2.3.3
+  shared_preferences: ^2.5.4
   flutter_secure_storage: ^9.2.4
 
   # Biometric auth
@@ -30,7 +30,7 @@ dependencies:
   fl_chart: ^0.69.0
 
   # Image handling
-  image_picker: ^1.1.2
+  image_picker: ^1.2.1
   cached_network_image: ^3.4.1
 
   # Location
@@ -47,7 +47,7 @@ dependencies:
   http: ^1.2.2
 
   # Calendar widget
-  table_calendar: ^3.1.2
+  table_calendar: ^3.2.0
 
   # Google Sign-In & Calendar API
   google_sign_in: ^6.2.2
@@ -55,7 +55,7 @@ dependencies:
   extension_google_sign_in_as_googleapis_auth: ^2.0.12
 
   # URL launcher
-  url_launcher: ^6.3.1
+  url_launcher: ^6.3.2
 
   # Push notifications
   flutter_local_notifications: ^18.0.1

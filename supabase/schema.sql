@@ -31,8 +31,12 @@ create table if not exists tasks (
   title text not null,
   notes text,
   "dueDate" text not null,
+  "dueTime" text,
+  "reminderMinutes" integer,
   priority text not null,
   completed boolean not null default false,
+  "completedBy" text,
+  "updatedBy" text,
   visibility text not null default 'FAMILY',
   assignees jsonb not null default '[]'::jsonb,
   tags jsonb not null default '[]'::jsonb,
@@ -49,6 +53,7 @@ create table if not exists events (
   start text not null,
   "end" text not null,
   visibility text not null default 'FAMILY',
+  "sharedWith" jsonb not null default '[]'::jsonb,
   checklist jsonb not null default '[]'::jsonb,
   "budgetEstimate" numeric,
   recurrence text default 'NONE'
@@ -165,6 +170,7 @@ create table if not exists chores (
   description text,
   icon text not null default '🧹',
   points integer not null default 10,
+  reward numeric,
   frequency text not null default 'DAILY',
   "daysOfWeek" jsonb not null default '[]'::jsonb,
   assignees jsonb not null default '[]'::jsonb,
@@ -249,6 +255,15 @@ create table if not exists reward_items (
   "createdAt" text not null
 );
 
+create table if not exists rewards (
+  id            text primary key,
+  "familyId"    text not null,
+  title         text not null,
+  "pointCost"   int not null default 0,
+  description   text,
+  "redeemedBy"  jsonb not null default '[]'::jsonb
+);
+
 create table if not exists reward_redemptions (
   id            text primary key,
   "familyId"    text not null,
@@ -283,6 +298,7 @@ create table if not exists prayer_wall (
   text                text not null,
   "originalRequestId" text,
   reactions           jsonb not null default '[]'::jsonb,
+  "prayedByIds"       jsonb not null default '[]'::jsonb,
   date                text not null,
   "answeredAt"        text,
   visibility          text not null default 'FAMILY'
@@ -320,13 +336,19 @@ begin
     'users','families','family_members','tasks','events','recipes','meal_plans',
     'lists','devotionals','fitness','fitness_plans','budget_categories','transactions','ai_history',
     'daily_habits','daily_habit_completions','chores','chore_completions','polls','poll_votes',
-    'external_calendars','reward_items','reward_redemptions','savings_goals',
+    'external_calendars','rewards','reward_items','reward_redemptions','savings_goals',
     'prayer_wall','reading_plans','reading_plan_progress'
   ]
   loop
     execute format('alter table %I enable row level security', t);
+    -- Drop old overly-permissive anon policy
     execute format('drop policy if exists "%s_rw_anon" on %I', t, t);
-    execute format('create policy "%s_rw_anon" on %I for all to anon, authenticated using (true) with check (true)', t, t);
+    -- Authenticated users: full access (app enforces family-scoping client-side)
+    execute format('drop policy if exists "%s_rw_auth" on %I', t, t);
+    execute format('create policy "%s_rw_auth" on %I for all to authenticated using (true) with check (true)', t, t);
+    -- Anon users: read-only (needed for join-by-code lookup before sign-in)
+    execute format('drop policy if exists "%s_ro_anon" on %I', t, t);
+    execute format('create policy "%s_ro_anon" on %I for select to anon using (true)', t, t);
   end loop;
 end $$;
 
@@ -360,6 +382,9 @@ begin
   if not exists (select 1 from information_schema.columns where table_name='devotionals' and column_name='prayer') then
     alter table devotionals add column prayer text;
   end if;
+  if not exists (select 1 from information_schema.columns where table_name='devotionals' and column_name='userPrayer') then
+    alter table devotionals add column "userPrayer" text;
+  end if;
   -- budget_categories
   if not exists (select 1 from information_schema.columns where table_name='budget_categories' and column_name='creatorId') then
     alter table budget_categories add column "creatorId" text not null default '';
@@ -375,6 +400,16 @@ begin
     alter table transactions add column visibility text not null default 'FAMILY';
   end if;
 end $$;
+
+-- families: add columns that the Family model requires but were not in the
+-- original minimal CREATE TABLE (safe to re-run).
+alter table families add column if not exists announcement text;
+alter table families add column if not exists "announcementAuthor" text;
+alter table families add column if not exists "subscriptionTier" text;
+alter table families add column if not exists "enabledModules" jsonb not null default '[]'::jsonb;
+alter table families add column if not exists "createdAt" text;
+alter table families add column if not exists "welcomeDismissed" boolean not null default false;
+alter table families add column if not exists settings jsonb;
 
 -- =============================================================================
 -- Push Notification device tokens
@@ -541,8 +576,14 @@ begin
   ]
   loop
     execute format('alter table %I enable row level security', t);
+    -- Drop old overly-permissive anon policy
     execute format('drop policy if exists "%s_rw_anon" on %I', t, t);
-    execute format('create policy "%s_rw_anon" on %I for all to anon, authenticated using (true) with check (true)', t, t);
+    -- Authenticated users: full access (app enforces family-scoping client-side)
+    execute format('drop policy if exists "%s_rw_auth" on %I', t, t);
+    execute format('create policy "%s_rw_auth" on %I for all to authenticated using (true) with check (true)', t, t);
+    -- Anon users: read-only (needed for join-by-code lookup before sign-in)
+    execute format('drop policy if exists "%s_ro_anon" on %I', t, t);
+    execute format('create policy "%s_ro_anon" on %I for select to anon using (true)', t, t);
   end loop;
 end $$;
 
@@ -569,6 +610,57 @@ alter table web_push_subscriptions enable row level security;
 
 create policy "Users manage own web push subscriptions"
   on web_push_subscriptions
+  for all
+  using  (auth.uid()::text = "userId")
+  with check (auth.uid()::text = "userId");
+
+-- =============================================================================
+-- Period Cycles
+-- =============================================================================
+create table if not exists period_cycles (
+  id          text primary key,
+  "userId"    text not null,
+  "familyId"  text not null,
+  "startDate" timestamptz not null,
+  "endDate"   timestamptz,
+  "flowLevel" text not null default 'MEDIUM',
+  notes       text,
+  "createdAt" timestamptz not null default now()
+);
+
+create index if not exists period_cycles_user_idx on period_cycles ("userId");
+create index if not exists period_cycles_family_idx on period_cycles ("familyId");
+
+alter table period_cycles enable row level security;
+
+create policy "Users manage own period cycles"
+  on period_cycles
+  for all
+  using  (auth.uid()::text = "userId")
+  with check (auth.uid()::text = "userId");
+
+-- =============================================================================
+-- Period Symptoms
+-- =============================================================================
+create table if not exists period_symptoms (
+  id          text primary key,
+  "userId"    text not null,
+  "familyId"  text not null,
+  date        timestamptz not null,
+  symptoms    jsonb not null default '[]'::jsonb,
+  mood        text,
+  "painLevel" int,
+  notes       text,
+  "createdAt" timestamptz not null default now()
+);
+
+create index if not exists period_symptoms_user_idx on period_symptoms ("userId");
+create index if not exists period_symptoms_family_idx on period_symptoms ("familyId");
+
+alter table period_symptoms enable row level security;
+
+create policy "Users manage own period symptoms"
+  on period_symptoms
   for all
   using  (auth.uid()::text = "userId")
   with check (auth.uid()::text = "userId");

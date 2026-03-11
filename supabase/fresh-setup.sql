@@ -43,7 +43,10 @@ CREATE TABLE IF NOT EXISTS families (
   "enabledModules"     jsonb NOT NULL DEFAULT '[]'::jsonb,
   settings             jsonb,
   "createdAt"          text,
-  "welcomeDismissed"   boolean NOT NULL DEFAULT false
+  "welcomeDismissed"   boolean NOT NULL DEFAULT false,
+  "weeklyDigest"       boolean DEFAULT true,
+  "weeklyDigestDay"    smallint DEFAULT 0,
+  "weeklyDigestHour"   smallint DEFAULT 8
 );
 
 -- ---------------------------------------------------------------------------
@@ -137,18 +140,22 @@ $$;
 -- tasks
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS tasks (
-  id          text PRIMARY KEY,
-  "familyId"  text NOT NULL,
-  "creatorId" text NOT NULL,
-  title       text NOT NULL,
-  notes       text,
-  "dueDate"   text NOT NULL DEFAULT '',
-  priority    text NOT NULL,
-  completed   boolean NOT NULL DEFAULT false,
-  visibility  text NOT NULL DEFAULT 'FAMILY',
-  assignees   jsonb NOT NULL DEFAULT '[]'::jsonb,
-  tags        jsonb NOT NULL DEFAULT '[]'::jsonb,
-  recurrence  text DEFAULT 'NONE'
+  id               text PRIMARY KEY,
+  "familyId"       text NOT NULL,
+  "creatorId"      text NOT NULL,
+  title            text NOT NULL,
+  notes            text,
+  "dueDate"        text NOT NULL DEFAULT '',
+  "dueTime"        text,
+  "reminderMinutes" integer,
+  priority         text NOT NULL,
+  completed        boolean NOT NULL DEFAULT false,
+  "completedBy"    text,
+  "updatedBy"      text,
+  visibility       text NOT NULL DEFAULT 'FAMILY',
+  assignees        jsonb NOT NULL DEFAULT '[]'::jsonb,
+  tags             jsonb NOT NULL DEFAULT '[]'::jsonb,
+  recurrence       text DEFAULT 'NONE'
 );
 
 -- ---------------------------------------------------------------------------
@@ -164,6 +171,7 @@ CREATE TABLE IF NOT EXISTS events (
   start                text NOT NULL,
   "end"                text NOT NULL,
   visibility           text NOT NULL DEFAULT 'FAMILY',
+  "sharedWith"         jsonb NOT NULL DEFAULT '[]'::jsonb,
   checklist            jsonb NOT NULL DEFAULT '[]'::jsonb,
   "budgetEstimate"     numeric,
   "externalCalendarId" text,
@@ -396,6 +404,18 @@ CREATE TABLE IF NOT EXISTS external_calendars (
 );
 
 -- ---------------------------------------------------------------------------
+-- rewards (family rewards catalogue)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS rewards (
+  id            text PRIMARY KEY,
+  "familyId"    text NOT NULL,
+  title         text NOT NULL,
+  "pointCost"   int NOT NULL DEFAULT 0,
+  description   text,
+  "redeemedBy"  jsonb NOT NULL DEFAULT '[]'::jsonb
+);
+
+-- ---------------------------------------------------------------------------
 -- reward_items (chore reward store)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS reward_items (
@@ -453,6 +473,7 @@ CREATE TABLE IF NOT EXISTS prayer_wall (
   text                text NOT NULL,
   "originalRequestId" text,
   reactions           jsonb NOT NULL DEFAULT '[]'::jsonb,
+  "prayedByIds"       jsonb NOT NULL DEFAULT '[]'::jsonb,
   date                text NOT NULL,
   "answeredAt"        text,
   visibility          text NOT NULL DEFAULT 'FAMILY'
@@ -486,6 +507,41 @@ CREATE TABLE IF NOT EXISTS reading_plan_progress (
   "startedAt"       text NOT NULL,
   "lastCompletedAt" text
 );
+
+-- ---------------------------------------------------------------------------
+-- period_cycles
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS period_cycles (
+  id          text PRIMARY KEY,
+  "userId"    text NOT NULL,
+  "familyId"  text NOT NULL,
+  "startDate" timestamptz NOT NULL,
+  "endDate"   timestamptz,
+  "flowLevel" text NOT NULL DEFAULT 'MEDIUM',
+  notes       text,
+  "createdAt" timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS period_cycles_user_idx ON period_cycles ("userId");
+CREATE INDEX IF NOT EXISTS period_cycles_family_idx ON period_cycles ("familyId");
+
+-- ---------------------------------------------------------------------------
+-- period_symptoms
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS period_symptoms (
+  id          text PRIMARY KEY,
+  "userId"    text NOT NULL,
+  "familyId"  text NOT NULL,
+  date        timestamptz NOT NULL,
+  symptoms    jsonb NOT NULL DEFAULT '[]'::jsonb,
+  mood        text,
+  "painLevel" int,
+  notes       text,
+  "createdAt" timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS period_symptoms_user_idx ON period_symptoms ("userId");
+CREATE INDEX IF NOT EXISTS period_symptoms_family_idx ON period_symptoms ("familyId");
 
 -- ---------------------------------------------------------------------------
 -- device_tokens (push notifications — one row per user per platform)
@@ -680,6 +736,11 @@ CREATE POLICY "external_calendars_all" ON external_calendars FOR ALL
   USING (auth_is_member_of("familyId"))
   WITH CHECK (auth_is_member_of("familyId"));
 
+ALTER TABLE rewards ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "rewards_all" ON rewards FOR ALL
+  USING (auth_is_member_of("familyId"))
+  WITH CHECK (auth_is_member_of("familyId"));
+
 ALTER TABLE reward_items ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "reward_items_all" ON reward_items FOR ALL
   USING (auth_is_member_of("familyId"))
@@ -741,6 +802,18 @@ CREATE POLICY "daily_habit_completions_all" ON daily_habit_completions FOR ALL
   WITH CHECK (
     "userId" = auth.uid()::text
   );
+
+-- period_cycles — users manage only their own rows
+ALTER TABLE period_cycles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "period_cycles_all" ON period_cycles FOR ALL
+  USING ("userId" = auth.uid()::text)
+  WITH CHECK ("userId" = auth.uid()::text);
+
+-- period_symptoms — users manage only their own rows
+ALTER TABLE period_symptoms ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "period_symptoms_all" ON period_symptoms FOR ALL
+  USING ("userId" = auth.uid()::text)
+  WITH CHECK ("userId" = auth.uid()::text);
 
 -- device_tokens — users manage only their own tokens
 ALTER TABLE device_tokens ENABLE ROW LEVEL SECURITY;

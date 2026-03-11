@@ -69,6 +69,14 @@ class _FamilyHubAppState extends State<FamilyHubApp> {
         if (data.event == AuthChangeEvent.passwordRecovery) {
           _isPasswordRecovery = true;
           _router.go('/auth?resetPassword=true');
+        } else if (data.event == AuthChangeEvent.signedIn) {
+          _isPasswordRecovery = false;
+          // OAuth callback or token refresh — re-resolve user/family from
+          // the new session so isAuthenticated becomes true, then the
+          // router's refreshListenable triggers redirect re-evaluation.
+          _provider.initialize();
+        } else if (data.event == AuthChangeEvent.signedOut) {
+          _isPasswordRecovery = false;
         }
       });
     } catch (_) {
@@ -282,7 +290,15 @@ class _FamilyHubAppState extends State<FamilyHubApp> {
 // ─────────────────────────────────────────────
 
 class _RouterRefreshStream extends ChangeNotifier {
-  _RouterRefreshStream(AppProvider provider) {
-    provider.addListener(notifyListeners);
+  final AppProvider _provider;
+
+  _RouterRefreshStream(this._provider) {
+    _provider.addListener(notifyListeners);
+  }
+
+  @override
+  void dispose() {
+    _provider.removeListener(notifyListeners);
+    super.dispose();
   }
 }

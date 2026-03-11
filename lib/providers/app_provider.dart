@@ -171,6 +171,12 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  @override
+  void dispose() {
+    _stopRealtimeListener();
+    super.dispose();
+  }
+
   /// Public method to manually refresh from cloud.
   Future<void> refreshFromCloud() => _pullFromCloud();
 
@@ -254,7 +260,7 @@ class AppProvider extends ChangeNotifier {
 
   /// Returns true if the active user can access the given module path.
   bool canAccess(String path) {
-    if (_activeUser == null || _activeFamily == null) return true;
+    if (_activeUser == null || _activeFamily == null) return false;
 
     // Normalize: strip leading '/' for comparison since enabledModules
     // and moduleAccess store paths without the leading slash.
