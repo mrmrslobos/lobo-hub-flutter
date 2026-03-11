@@ -393,9 +393,8 @@ class _RewardsScreenState extends State<RewardsScreen> {
               ...savingsGoals.map((goal) {
                 final progress = goal.targetAmount > 0 ? (goal.savedAmount / goal.targetAmount).clamp(0.0, 1.0) : 0.0;
                 final isComplete = goal.savedAmount >= goal.targetAmount;
-                final ownerName = provider.memberDisplayName(
-                  members.firstWhere((m) => m.id == goal.userId, orElse: () => members.first),
-                );
+                final goalMember = members.where((m) => m.id == goal.userId).firstOrNull ?? members.firstOrNull;
+                final ownerName = goalMember != null ? provider.memberDisplayName(goalMember) : 'Unknown';
                 return Padding(
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
                   child: Container(
