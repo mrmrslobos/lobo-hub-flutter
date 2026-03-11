@@ -301,72 +301,63 @@ Make the content warm, relatable, and suitable for children.''';
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: Container(
-            padding: const EdgeInsets.all(20),
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
                 colors: [Color(0xFFF59E0B), Color(0xFFF97316)],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(16),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Icon(Icons.auto_awesome, size: 18, color: Colors.white.withValues(alpha: 0.9)),
-                    const SizedBox(width: 8),
-                    const Text('AI Faith Assistant', style: TextStyle(
-                      fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: Colors.white,
-                    )),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Need inspiration? Tell me a topic (e.g., Patience, Hope, Forgiveness) and I\'ll draft a devotional.',
-                  style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: Colors.white.withValues(alpha: 0.85)),
-                ),
-                const SizedBox(height: 14),
-                TextField(
-                  controller: _topicCtrl,
-                  style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone800),
-                  decoration: InputDecoration(
-                    hintText: 'Enter a topic...',
-                    hintStyle: TextStyle(color: AppTheme.stone400),
-                    filled: true,
-                    fillColor: Colors.white,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                const Row(children: [
+                  Icon(Icons.auto_awesome, size: 18, color: Colors.white),
+                  SizedBox(width: 8),
+                  Text('AI Faith Assistant', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white)),
+                ]),
+                const SizedBox(height: 8),
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: TextField(
+                    controller: _topicCtrl,
+                    style: const TextStyle(color: Colors.white, fontFamily: 'Inter', fontSize: 14),
+                    decoration: const InputDecoration(
+                      hintText: 'e.g. Patience, Hope, Forgiveness...',
+                      hintStyle: TextStyle(color: Colors.white54, fontFamily: 'Inter'),
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      filled: false,
+                    ),
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 Row(
                   children: [
                     _toggleChip('Shared', _isShared, () => setState(() => _isShared = true)),
                     const SizedBox(width: 8),
                     _toggleChip('Private', !_isShared, () => setState(() => _isShared = false)),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                SizedBox(
-                  width: double.infinity,
-                  height: 46,
-                  child: ElevatedButton(
-                    onPressed: _isGenerating ? null : _generate,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: const Color(0xFFF59E0B),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      elevation: 0,
+                    const Spacer(),
+                    GestureDetector(
+                      onTap: _isGenerating ? null : _generate,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: _isGenerating
+                            ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFF59E0B)))
+                            : const Text('Generate Now', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFFF59E0B))),
+                      ),
                     ),
-                    child: _isGenerating
-                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Text('Generate Now', style: TextStyle(
-                            fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15,
-                          )),
-                  ),
+                  ],
                 ),
               ],
             ),
@@ -586,33 +577,25 @@ Make it warm, kid-friendly, and relatable.''';
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: Container(
-            padding: const EdgeInsets.all(20),
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
                 colors: [Color(0xFF8B7BF7), Color(0xFFB4A0FF)],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(16),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Icon(Icons.auto_awesome, size: 18, color: Colors.white.withValues(alpha: 0.9)),
-                    const SizedBox(width: 8),
-                    const Text('Create a Reading Plan', style: TextStyle(
-                      fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: Colors.white,
-                    )),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Choose a theme and duration. The AI will create a day-by-day scripture journey for your family.',
-                  style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: Colors.white.withValues(alpha: 0.85)),
-                ),
-                const SizedBox(height: 14),
+                const Row(children: [
+                  Icon(Icons.auto_awesome, size: 18, color: Colors.white),
+                  SizedBox(width: 8),
+                  Text('Create a Reading Plan', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white)),
+                ]),
+                const SizedBox(height: 8),
                 Wrap(
                   spacing: 8, runSpacing: 8,
                   children: _topics.map((t) {
@@ -637,65 +620,65 @@ Make it warm, kid-friendly, and relatable.''';
                     );
                   }).toList(),
                 ),
-                const SizedBox(height: 14),
-                TextField(
-                  controller: _customTopicCtrl,
-                  style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone800),
-                  onChanged: (_) => setState(() => _selectedTopic = null),
-                  decoration: InputDecoration(
-                    hintText: 'Or type your own theme...',
-                    hintStyle: TextStyle(color: AppTheme.stone400),
-                    filled: true,
-                    fillColor: Colors.white.withValues(alpha: 0.2),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.3))),
-                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.3))),
-                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Colors.white, width: 2)),
+                const SizedBox(height: 10),
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                ),
-                const SizedBox(height: 12),
-                // Duration selector
-                Row(
-                  children: [7, 14, 21, 30].map((d) {
-                    final selected = _duration == d;
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: GestureDetector(
-                        onTap: () => setState(() => _duration = d),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                          decoration: BoxDecoration(
-                            color: selected ? Colors.white.withValues(alpha: 0.3) : Colors.white.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(20),
-                            border: selected ? Border.all(color: Colors.white.withValues(alpha: 0.6)) : null,
-                          ),
-                          child: Text('$d days', style: TextStyle(
-                            fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 12,
-                            color: Colors.white.withValues(alpha: selected ? 1.0 : 0.7),
-                          )),
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-                const SizedBox(height: 14),
-                SizedBox(
-                  width: double.infinity,
-                  height: 46,
-                  child: ElevatedButton(
-                    onPressed: _isGenerating ? null : _generatePlan,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: AppTheme.primary,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      elevation: 0,
+                  child: TextField(
+                    controller: _customTopicCtrl,
+                    style: const TextStyle(color: Colors.white, fontFamily: 'Inter', fontSize: 14),
+                    onChanged: (_) => setState(() => _selectedTopic = null),
+                    decoration: const InputDecoration(
+                      hintText: 'Or type your own theme...',
+                      hintStyle: TextStyle(color: Colors.white54, fontFamily: 'Inter'),
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      filled: false,
                     ),
-                    child: _isGenerating
-                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Text('Generate Plan', style: TextStyle(
-                            fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15,
-                          )),
                   ),
+                ),
+                const SizedBox(height: 10),
+                // Duration selector + Generate button
+                Row(
+                  children: [
+                    ...[7, 14, 21, 30].map((d) {
+                      final selected = _duration == d;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: GestureDetector(
+                          onTap: () => setState(() => _duration = d),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                            decoration: BoxDecoration(
+                              color: selected ? Colors.white.withValues(alpha: 0.3) : Colors.white.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(20),
+                              border: selected ? Border.all(color: Colors.white.withValues(alpha: 0.6)) : null,
+                            ),
+                            child: Text('$d days', style: TextStyle(
+                              fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 12,
+                              color: Colors.white.withValues(alpha: selected ? 1.0 : 0.7),
+                            )),
+                          ),
+                        ),
+                      );
+                    }),
+                    const Spacer(),
+                    GestureDetector(
+                      onTap: _isGenerating ? null : _generatePlan,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: _isGenerating
+                            ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF8B7BF7)))
+                            : const Text('Generate Plan', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF8B7BF7))),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
