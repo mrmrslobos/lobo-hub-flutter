@@ -540,7 +540,7 @@ Make it warm, kid-friendly, and relatable.''';
           familyId: widget.familyId,
           creatorId: provider.activeUser?.id ?? '',
           title: data['title'] as String? ?? '$topic Reading Plan',
-          description: data['description'] as String?,
+          description: (data['description'] as String?) ?? '',
           entryIds: newEntries.map((e) => e.id).toList(),
           createdAt: DateTime.now(),
         );
