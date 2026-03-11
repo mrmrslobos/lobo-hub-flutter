@@ -10,6 +10,7 @@ import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
+import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 
@@ -363,6 +364,10 @@ Make the content warm, relatable, and suitable for children.''';
             ),
           ),
         ),
+        const SizedBox(height: 16),
+
+        // ── Daily AI Devotional Schedule ──
+        _DailyDevotionalCard(familyId: widget.familyId),
         const SizedBox(height: 24),
 
         // ── Past Readings ──
@@ -640,45 +645,47 @@ Make it warm, kid-friendly, and relatable.''';
                   ),
                 ),
                 const SizedBox(height: 10),
-                // Duration selector + Generate button
-                Row(
-                  children: [
-                    ...[7, 14, 21, 30].map((d) {
-                      final selected = _duration == d;
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: GestureDetector(
-                          onTap: () => setState(() => _duration = d),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                            decoration: BoxDecoration(
-                              color: selected ? Colors.white.withValues(alpha: 0.3) : Colors.white.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(20),
-                              border: selected ? Border.all(color: Colors.white.withValues(alpha: 0.6)) : null,
-                            ),
-                            child: Text('$d days', style: TextStyle(
-                              fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 12,
-                              color: Colors.white.withValues(alpha: selected ? 1.0 : 0.7),
-                            )),
-                          ),
-                        ),
-                      );
-                    }),
-                    const Spacer(),
-                    GestureDetector(
-                      onTap: _isGenerating ? null : _generatePlan,
+                // Duration selector
+                Wrap(
+                  spacing: 8, runSpacing: 8,
+                  children: [7, 14, 21, 30].map((d) {
+                    final selected = _duration == d;
+                    return GestureDetector(
+                      onTap: () => setState(() => _duration = d),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
                         decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(10),
+                          color: selected ? Colors.white.withValues(alpha: 0.3) : Colors.white.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(20),
+                          border: selected ? Border.all(color: Colors.white.withValues(alpha: 0.6)) : null,
                         ),
+                        child: Text('$d days', style: TextStyle(
+                          fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 12,
+                          color: Colors.white.withValues(alpha: selected ? 1.0 : 0.7),
+                        )),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 12),
+                // Generate button
+                SizedBox(
+                  width: double.infinity,
+                  child: GestureDetector(
+                    onTap: _isGenerating ? null : _generatePlan,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Center(
                         child: _isGenerating
                             ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF8B7BF7)))
                             : const Text('Generate Plan', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF8B7BF7))),
                       ),
                     ),
-                  ],
+                  ),
                 ),
               ],
             ),
@@ -1334,6 +1341,156 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ─── Daily AI Devotional Schedule Card ──────────────────────────────────────
+
+class _DailyDevotionalCard extends StatelessWidget {
+  final String familyId;
+
+  const _DailyDevotionalCard({required this.familyId});
+
+  static const _notifId = 9901; // stable ID for daily devotional notification
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.watch<AppProvider>();
+    final family = provider.activeFamily;
+    if (family == null) return const SizedBox.shrink();
+
+    final enabled = family.dailyDevotionalEnabled;
+    final hour = family.dailyDevotionalHour;
+    final minute = family.dailyDevotionalMinute;
+    final timeOfDay = TimeOfDay(hour: hour, minute: minute);
+    final formattedTime = timeOfDay.format(context);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF6366F1), Color(0xFF818CF8)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.schedule_rounded, size: 18, color: Colors.white),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text('Daily AI Devotional', style: TextStyle(
+                    fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white,
+                  )),
+                ),
+                Transform.scale(
+                  scale: 0.85,
+                  child: Switch.adaptive(
+                    value: enabled,
+                    onChanged: (val) => _toggle(context, val, hour, minute),
+                    activeColor: Colors.white,
+                    activeTrackColor: Colors.white.withValues(alpha: 0.35),
+                    inactiveThumbColor: Colors.white70,
+                    inactiveTrackColor: Colors.white.withValues(alpha: 0.15),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              enabled
+                  ? 'A fresh devotional will be generated and delivered to your family every day.'
+                  : 'Enable to receive a fresh AI devotional at your chosen time each day.',
+              style: TextStyle(
+                fontFamily: 'Inter', fontSize: 12, height: 1.4,
+                color: Colors.white.withValues(alpha: 0.8),
+              ),
+            ),
+            if (enabled) ...[
+              const SizedBox(height: 12),
+              GestureDetector(
+                onTap: () => _pickTime(context, timeOfDay),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.access_time_rounded, size: 16, color: Colors.white),
+                      const SizedBox(width: 8),
+                      Text(formattedTime, style: const TextStyle(
+                        fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: Colors.white,
+                      )),
+                      const SizedBox(width: 6),
+                      Icon(Icons.edit_rounded, size: 14, color: Colors.white.withValues(alpha: 0.7)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _toggle(BuildContext context, bool val, int hour, int minute) async {
+    final provider = context.read<AppProvider>();
+    final family = provider.activeFamily!;
+    final updated = family.copyWith(dailyDevotionalEnabled: val);
+    final db = provider.db;
+    await provider.saveAndSync(db.copyWith(
+      families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
+    ));
+
+    if (val) {
+      await _scheduleNotification(hour, minute);
+    } else {
+      await NotificationService.cancel(_notifId);
+    }
+  }
+
+  Future<void> _pickTime(BuildContext context, TimeOfDay current) async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: current,
+      helpText: 'Choose devotional delivery time',
+    );
+    if (picked == null || !context.mounted) return;
+
+    final provider = context.read<AppProvider>();
+    final family = provider.activeFamily!;
+    final updated = family.copyWith(
+      dailyDevotionalHour: picked.hour,
+      dailyDevotionalMinute: picked.minute,
+    );
+    final db = provider.db;
+    await provider.saveAndSync(db.copyWith(
+      families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
+    ));
+
+    await _scheduleNotification(picked.hour, picked.minute);
+  }
+
+  static Future<void> _scheduleNotification(int hour, int minute) async {
+    await NotificationService.cancel(_notifId);
+    await NotificationService.scheduleDaily(
+      id: _notifId,
+      title: 'Daily Devotional Ready',
+      body: 'Your family\u2019s AI devotional for today is here. Open to read and reflect together.',
+      time: Time(hour, minute),
     );
   }
 }
