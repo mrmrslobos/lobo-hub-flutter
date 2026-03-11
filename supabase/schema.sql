@@ -572,3 +572,54 @@ create policy "Users manage own web push subscriptions"
   for all
   using  (auth.uid()::text = "userId")
   with check (auth.uid()::text = "userId");
+
+-- =============================================================================
+-- Period Cycles
+-- =============================================================================
+create table if not exists period_cycles (
+  id          text primary key,
+  "userId"    text not null,
+  "familyId"  text not null,
+  "startDate" timestamptz not null,
+  "endDate"   timestamptz,
+  "flowLevel" text not null default 'MEDIUM',
+  notes       text,
+  "createdAt" timestamptz not null default now()
+);
+
+create index if not exists period_cycles_user_idx on period_cycles ("userId");
+create index if not exists period_cycles_family_idx on period_cycles ("familyId");
+
+alter table period_cycles enable row level security;
+
+create policy "Users manage own period cycles"
+  on period_cycles
+  for all
+  using  (auth.uid()::text = "userId")
+  with check (auth.uid()::text = "userId");
+
+-- =============================================================================
+-- Period Symptoms
+-- =============================================================================
+create table if not exists period_symptoms (
+  id          text primary key,
+  "userId"    text not null,
+  "familyId"  text not null,
+  date        timestamptz not null,
+  symptoms    jsonb not null default '[]'::jsonb,
+  mood        text,
+  "painLevel" int,
+  notes       text,
+  "createdAt" timestamptz not null default now()
+);
+
+create index if not exists period_symptoms_user_idx on period_symptoms ("userId");
+create index if not exists period_symptoms_family_idx on period_symptoms ("familyId");
+
+alter table period_symptoms enable row level security;
+
+create policy "Users manage own period symptoms"
+  on period_symptoms
+  for all
+  using  (auth.uid()::text = "userId")
+  with check (auth.uid()::text = "userId");

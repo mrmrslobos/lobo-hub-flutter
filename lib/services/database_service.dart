@@ -107,7 +107,7 @@ class DatabaseService {
         db.lists.map((l) => {...l.toJson(), 'familyId': fid}).toList());
     await up('devotionals',
         db.devotionals.map((d) => {...d.toJson(), 'familyId': fid}).toList());
-    await up('fitness_metrics',
+    await up('fitness',
         db.fitness.map((f) => f.toJson()).toList());
     await up('budget_categories',
         db.budgetCategories.map((b) => {...b.toJson(), 'familyId': fid}).toList());
@@ -183,47 +183,68 @@ class DatabaseService {
     }
   }
 
+  /// Merge two lists by [id], with cloud items winning on conflict.
+  static List<T> _mergeById<T>(List<T> local, List<T> cloud) {
+    if (cloud.isEmpty) return local;
+    if (local.isEmpty) return cloud;
+    final map = <String, T>{};
+    for (final item in local) {
+      try {
+        final id = (item as dynamic).id as String;
+        map[id] = item;
+      } catch (_) {}
+    }
+    for (final item in cloud) {
+      try {
+        final id = (item as dynamic).id as String;
+        map[id] = item; // cloud wins on conflict
+      } catch (_) {}
+    }
+    return map.values.toList();
+  }
+
   static AppDB _mergeWithCloud(
     AppDB local,
     Map<String, dynamic> cloud,
   ) {
-    // Parse each table individually so one bad table doesn't kill everything
+    // Parse each table individually so one bad table doesn't kill everything.
+    // Merge by ID so offline-created items aren't lost.
     return AppDB(
-      users: _safeParse(cloud['users'], User.fromJson),
-      families: _safeParse(cloud['families'], Family.fromJson),
-      familyMembers: _safeParse(cloud['family_members'], FamilyMember.fromJson),
-      tasks: _safeParse(cloud['tasks'], Task.fromJson),
-      events: _safeParse(cloud['events'], CalendarEvent.fromJson),
-      recipes: _safeParse(cloud['recipes'], Recipe.fromJson),
-      mealPlans: _safeParse(cloud['meal_plans'], MealPlanEntry.fromJson),
-      lists: _safeParse(cloud['lists'], ShoppingList.fromJson),
-      devotionals: _safeParse(cloud['devotionals'], DevotionalEntry.fromJson),
-      fitness: _safeParse(cloud['fitness_metrics'], FitnessMetric.fromJson),
-      budgetCategories: _safeParse(cloud['budget_categories'], BudgetCategoryRecord.fromJson),
-      transactions: _safeParse(cloud['transactions'], Transaction.fromJson),
-      aiHistory: _safeParse(cloud['ai_history'], AIHistory.fromJson),
-      dailyHabits: _safeParse(cloud['daily_habits'], DailyHabit.fromJson),
-      dailyHabitCompletions: _safeParse(cloud['daily_habit_completions'], DailyHabitCompletion.fromJson),
-      chores: _safeParse(cloud['chores'], Chore.fromJson),
-      choreCompletions: _safeParse(cloud['chore_completions'], ChoreCompletion.fromJson),
-      polls: _safeParse(cloud['polls'], Poll.fromJson),
-      pollVotes: _safeParse(cloud['poll_votes'], PollVote.fromJson),
-      rewardItems: _safeParse(cloud['reward_items'], RewardItem.fromJson),
-      rewardRedemptions: _safeParse(cloud['reward_redemptions'], RewardRedemption.fromJson),
-      savingsGoals: _safeParse(cloud['savings_goals'], SavingsGoal.fromJson),
-      prayerWall: _safeParse(cloud['prayer_wall'], PrayerWallEntry.fromJson),
-      specialDates: _safeParse(cloud['special_dates'], SpecialDate.fromJson),
-      familyPhotos: _safeParse(cloud['family_photos'], FamilyPhoto.fromJson),
-      milestones: _safeParse(cloud['milestones'], Milestone.fromJson),
-      savedPlaces: _safeParse(cloud['saved_places'], SavedPlace.fromJson),
-      userLocations: _safeParse(cloud['user_locations'], UserLocation.fromJson),
-      messages: _safeParse(cloud['messages'], ChatMessage.fromJson),
-      healthRecords: _safeParse(cloud['health_records'], HealthRecord.fromJson),
-      periodCycles: _safeParse(cloud['period_cycles'], PeriodCycle.fromJson),
-      periodSymptoms: _safeParse(cloud['period_symptoms'], PeriodSymptomLog.fromJson),
-      rewards: _safeParse(cloud['rewards'], Reward.fromJson),
-      readingPlans: _safeParse(cloud['reading_plans'], ReadingPlan.fromJson),
-      externalCalendars: _safeParse(cloud['external_calendars'], ExternalCalendar.fromJson),
+      users: _mergeById(local.users, _safeParse(cloud['users'], User.fromJson)),
+      families: _mergeById(local.families, _safeParse(cloud['families'], Family.fromJson)),
+      familyMembers: _mergeById(local.familyMembers, _safeParse(cloud['family_members'], FamilyMember.fromJson)),
+      tasks: _mergeById(local.tasks, _safeParse(cloud['tasks'], Task.fromJson)),
+      events: _mergeById(local.events, _safeParse(cloud['events'], CalendarEvent.fromJson)),
+      recipes: _mergeById(local.recipes, _safeParse(cloud['recipes'], Recipe.fromJson)),
+      mealPlans: _mergeById(local.mealPlans, _safeParse(cloud['meal_plans'], MealPlanEntry.fromJson)),
+      lists: _mergeById(local.lists, _safeParse(cloud['lists'], ShoppingList.fromJson)),
+      devotionals: _mergeById(local.devotionals, _safeParse(cloud['devotionals'], DevotionalEntry.fromJson)),
+      fitness: _mergeById(local.fitness, _safeParse(cloud['fitness'], FitnessMetric.fromJson)),
+      budgetCategories: _mergeById(local.budgetCategories, _safeParse(cloud['budget_categories'], BudgetCategoryRecord.fromJson)),
+      transactions: _mergeById(local.transactions, _safeParse(cloud['transactions'], Transaction.fromJson)),
+      aiHistory: _mergeById(local.aiHistory, _safeParse(cloud['ai_history'], AIHistory.fromJson)),
+      dailyHabits: _mergeById(local.dailyHabits, _safeParse(cloud['daily_habits'], DailyHabit.fromJson)),
+      dailyHabitCompletions: _mergeById(local.dailyHabitCompletions, _safeParse(cloud['daily_habit_completions'], DailyHabitCompletion.fromJson)),
+      chores: _mergeById(local.chores, _safeParse(cloud['chores'], Chore.fromJson)),
+      choreCompletions: _mergeById(local.choreCompletions, _safeParse(cloud['chore_completions'], ChoreCompletion.fromJson)),
+      polls: _mergeById(local.polls, _safeParse(cloud['polls'], Poll.fromJson)),
+      pollVotes: _mergeById(local.pollVotes, _safeParse(cloud['poll_votes'], PollVote.fromJson)),
+      rewardItems: _mergeById(local.rewardItems, _safeParse(cloud['reward_items'], RewardItem.fromJson)),
+      rewardRedemptions: _mergeById(local.rewardRedemptions, _safeParse(cloud['reward_redemptions'], RewardRedemption.fromJson)),
+      savingsGoals: _mergeById(local.savingsGoals, _safeParse(cloud['savings_goals'], SavingsGoal.fromJson)),
+      prayerWall: _mergeById(local.prayerWall, _safeParse(cloud['prayer_wall'], PrayerWallEntry.fromJson)),
+      specialDates: _mergeById(local.specialDates, _safeParse(cloud['special_dates'], SpecialDate.fromJson)),
+      familyPhotos: _mergeById(local.familyPhotos, _safeParse(cloud['family_photos'], FamilyPhoto.fromJson)),
+      milestones: _mergeById(local.milestones, _safeParse(cloud['milestones'], Milestone.fromJson)),
+      savedPlaces: _mergeById(local.savedPlaces, _safeParse(cloud['saved_places'], SavedPlace.fromJson)),
+      userLocations: _mergeById(local.userLocations, _safeParse(cloud['user_locations'], UserLocation.fromJson)),
+      messages: _mergeById(local.messages, _safeParse(cloud['messages'], ChatMessage.fromJson)),
+      healthRecords: _mergeById(local.healthRecords, _safeParse(cloud['health_records'], HealthRecord.fromJson)),
+      periodCycles: _mergeById(local.periodCycles, _safeParse(cloud['period_cycles'], PeriodCycle.fromJson)),
+      periodSymptoms: _mergeById(local.periodSymptoms, _safeParse(cloud['period_symptoms'], PeriodSymptomLog.fromJson)),
+      rewards: _mergeById(local.rewards, _safeParse(cloud['rewards'], Reward.fromJson)),
+      readingPlans: _mergeById(local.readingPlans, _safeParse(cloud['reading_plans'], ReadingPlan.fromJson)),
+      externalCalendars: _mergeById(local.externalCalendars, _safeParse(cloud['external_calendars'], ExternalCalendar.fromJson)),
     );
   }
 

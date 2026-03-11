@@ -20,6 +20,26 @@ class NotificationService {
   static final _plugin = FlutterLocalNotificationsPlugin();
   static bool _initialized = false;
 
+  /// Route to navigate to when a notification is tapped.
+  /// Consumers should read and clear this after acting on it.
+  static String? pendingRoute;
+
+  /// Called when a local notification is tapped.
+  static void _onNotificationTap(NotificationResponse response) {
+    final payload = response.payload;
+    if (payload != null && payload.isNotEmpty) {
+      pendingRoute = payload;
+    }
+  }
+
+  /// Called when a FCM notification is tapped (background/terminated).
+  static void _onFcmMessageTap(RemoteMessage message) {
+    final route = message.data['route'] as String?;
+    if (route != null && route.isNotEmpty) {
+      pendingRoute = route;
+    }
+  }
+
   static Future<void> init() async {
     if (_initialized) return;
 
@@ -37,7 +57,10 @@ class NotificationService {
       iOS: iosSettings,
     );
 
-    await _plugin.initialize(initSettings);
+    await _plugin.initialize(
+      initSettings,
+      onDidReceiveNotificationResponse: _onNotificationTap,
+    );
 
     // Request permissions on Android 13+
     await requestPermissions();
@@ -51,6 +74,28 @@ class NotificationService {
         badge: true,
         sound: true,
       );
+
+      // Handle foreground FCM messages → show as local notification
+      FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+        final notification = message.notification;
+        if (notification != null) {
+          showLocal(
+            id: notification.hashCode,
+            title: notification.title ?? '',
+            body: notification.body ?? '',
+            payload: message.data['route'] as String?,
+          );
+        }
+      });
+
+      // Handle background/terminated tap on FCM notification
+      FirebaseMessaging.onMessageOpenedApp.listen(_onFcmMessageTap);
+
+      // Check if app was opened from a terminated-state FCM notification
+      final initialMessage = await messaging.getInitialMessage();
+      if (initialMessage != null) {
+        _onFcmMessageTap(initialMessage);
+      }
     } catch (e) {
       debugPrint('[NotificationService] Firebase init skipped: $e');
     }
