@@ -650,7 +650,7 @@ class _ChoreFormSheetState extends State<_ChoreFormSheet> {
       description: _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
       icon: _choreIcons[_selectedIconIndex],
       points: _points,
-      reward: _rewardAmount > 0 ? _rewardAmount.toStringAsFixed(2) : null,
+      reward: _rewardAmount > 0 ? _rewardAmount : null,
       frequency: _frequency,
       daysOfWeek: _frequency == ChoreFrequency.CUSTOM ? _customDays : const [],
       assignees: _assigneeIds,
