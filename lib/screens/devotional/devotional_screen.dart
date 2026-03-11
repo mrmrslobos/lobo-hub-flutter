@@ -221,9 +221,97 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
   bool _isGenerating = false;
 
   @override
+  void initState() {
+    super.initState();
+    // Check if we need to auto-generate today's daily devotional
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeGenerateDaily());
+  }
+
+  @override
   void dispose() {
     _topicCtrl.dispose();
     super.dispose();
+  }
+
+  /// Auto-generate a daily devotional if enabled and not yet created today.
+  Future<void> _maybeGenerateDaily() async {
+    if (!mounted) return;
+    final provider = context.read<AppProvider>();
+    final family = provider.activeFamily;
+    if (family == null || !family.dailyDevotionalEnabled) return;
+
+    final now = DateTime.now();
+    final scheduledTime = DateTime(now.year, now.month, now.day, family.dailyDevotionalHour, family.dailyDevotionalMinute);
+
+    // Only generate if we're past the scheduled time
+    if (now.isBefore(scheduledTime)) return;
+
+    // Check if today's daily devotional already exists
+    final today = DateTime(now.year, now.month, now.day);
+    final alreadyExists = provider.db.devotionalEntries.any((e) =>
+      e.familyId == family.id &&
+      e.tags.contains('daily-auto') &&
+      DateTime(e.date.year, e.date.month, e.date.day) == today,
+    );
+    if (alreadyExists) return;
+
+    // Generate the daily devotional
+    setState(() => _isGenerating = true);
+    try {
+      final raw = await AiService.ask(
+        prompt: '''Write a kids-friendly family devotional for today.
+Pick a random Bible verse and build a short, warm devotional around it.
+Return JSON with these exact fields: title, scripture, content, reflectionPrompts (array of 3 discussion questions), prayer.
+Make the content warm, relatable, and suitable for children.''',
+        feature: 'ai_devotional',
+        familyId: family.id,
+        responseMimeType: 'application/json',
+      );
+
+      if (raw != null && mounted) {
+        try {
+          final data = jsonDecode(raw) as Map<String, dynamic>;
+          final entry = DevotionalEntry(
+            id: const Uuid().v4(),
+            familyId: family.id,
+            creatorId: provider.activeUser?.id ?? '',
+            title: data['title'] as String? ?? 'Daily Devotional',
+            scripture: data['scripture'] as String?,
+            content: data['content'] as String?,
+            reflectionPrompts: (data['reflectionPrompts'] as List?)?.cast<String>() ?? [],
+            prayer: data['prayer'] as String?,
+            tags: ['daily-auto'],
+            date: DateTime.now(),
+            visibility: Visibility.FAMILY,
+          );
+          final db = provider.db;
+          await provider.saveAndSync(db.copyWith(
+            devotionalEntries: [...db.devotionalEntries, entry],
+          ));
+          if (mounted) widget.onSelectEntry(entry);
+        } catch (_) {
+          final entry = DevotionalEntry(
+            id: const Uuid().v4(),
+            familyId: family.id,
+            creatorId: provider.activeUser?.id ?? '',
+            title: 'Daily Devotional',
+            content: raw,
+            tags: ['daily-auto'],
+            date: DateTime.now(),
+            visibility: Visibility.FAMILY,
+          );
+          final db = provider.db;
+          await provider.saveAndSync(db.copyWith(
+            devotionalEntries: [...db.devotionalEntries, entry],
+          ));
+          if (mounted) widget.onSelectEntry(entry);
+        }
+      }
+    } catch (e) {
+      debugPrint('Daily devotional auto-generation failed: $e');
+    } finally {
+      if (mounted) setState(() => _isGenerating = false);
+    }
   }
 
   Future<void> _generate() async {
@@ -367,7 +455,10 @@ Make the content warm, relatable, and suitable for children.''';
         const SizedBox(height: 16),
 
         // ── Daily AI Devotional Schedule ──
-        _DailyDevotionalCard(familyId: widget.familyId),
+        _DailyDevotionalCard(
+          familyId: widget.familyId,
+          onTapToday: (entry) => widget.onSelectEntry(entry),
+        ),
         const SizedBox(height: 24),
 
         // ── Past Readings ──
@@ -1349,8 +1440,9 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
 
 class _DailyDevotionalCard extends StatelessWidget {
   final String familyId;
+  final ValueChanged<DevotionalEntry>? onTapToday;
 
-  const _DailyDevotionalCard({required this.familyId});
+  const _DailyDevotionalCard({required this.familyId, this.onTapToday});
 
   static const _notifId = 9901; // stable ID for daily devotional notification
 
@@ -1365,6 +1457,18 @@ class _DailyDevotionalCard extends StatelessWidget {
     final minute = family.dailyDevotionalMinute;
     final timeOfDay = TimeOfDay(hour: hour, minute: minute);
     final formattedTime = timeOfDay.format(context);
+
+    // Check if today's devotional exists
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final todayEntry = enabled
+        ? provider.db.devotionalEntries.cast<DevotionalEntry?>().firstWhere(
+            (e) => e!.familyId == familyId &&
+                e.tags.contains('daily-auto') &&
+                DateTime(e.date.year, e.date.month, e.date.day) == today,
+            orElse: () => null,
+          )
+        : null;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -1416,28 +1520,64 @@ class _DailyDevotionalCard extends StatelessWidget {
             ),
             if (enabled) ...[
               const SizedBox(height: 12),
-              GestureDetector(
-                onTap: () => _pickTime(context, timeOfDay),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.18),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
+              Row(
+                children: [
+                  GestureDetector(
+                    onTap: () => _pickTime(context, timeOfDay),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.access_time_rounded, size: 16, color: Colors.white),
+                          const SizedBox(width: 8),
+                          Text(formattedTime, style: const TextStyle(
+                            fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: Colors.white,
+                          )),
+                          const SizedBox(width: 6),
+                          Icon(Icons.edit_rounded, size: 14, color: Colors.white.withValues(alpha: 0.7)),
+                        ],
+                      ),
+                    ),
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.access_time_rounded, size: 16, color: Colors.white),
-                      const SizedBox(width: 8),
-                      Text(formattedTime, style: const TextStyle(
-                        fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: Colors.white,
-                      )),
-                      const SizedBox(width: 6),
-                      Icon(Icons.edit_rounded, size: 14, color: Colors.white.withValues(alpha: 0.7)),
-                    ],
-                  ),
-                ),
+                  const Spacer(),
+                  if (todayEntry != null)
+                    GestureDetector(
+                      onTap: () => onTapToday?.call(todayEntry),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Text('Read Today\'s', style: TextStyle(
+                          fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF6366F1),
+                        )),
+                      ),
+                    )
+                  else
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        now.isBefore(DateTime(now.year, now.month, now.day, hour, minute))
+                            ? 'Scheduled'
+                            : 'Generating...',
+                        style: TextStyle(
+                          fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13,
+                          color: Colors.white.withValues(alpha: 0.7),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ],
           ],
