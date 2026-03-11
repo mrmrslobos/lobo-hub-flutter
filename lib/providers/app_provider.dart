@@ -304,6 +304,11 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  void updateFamily(Family family) {
+    _activeFamily = family;
+    notifyListeners();
+  }
+
   /// Returns the FamilyMember record for the active user in the active family.
   FamilyMember? get activeUserMembership {
     if (_activeUser == null || _activeFamily == null) return null;
