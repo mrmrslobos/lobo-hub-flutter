@@ -53,10 +53,11 @@ CREATE TABLE IF NOT EXISTS families (
 -- family_members
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS family_members (
-  "userId"      text NOT NULL,
-  "familyId"    text NOT NULL,
-  role          text NOT NULL,
+  "userId"       text NOT NULL,
+  "familyId"     text NOT NULL,
+  role           text NOT NULL,
   "moduleAccess" jsonb,
+  "displayName"  text,
   PRIMARY KEY ("userId", "familyId")
 );
 

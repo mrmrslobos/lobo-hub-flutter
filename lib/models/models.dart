@@ -420,6 +420,7 @@ class FamilyMember {
     'family_id': familyId,
     'role': role.name,
     'module_access': moduleAccess,
+    'display_name': displayName,
   };
 }
 
