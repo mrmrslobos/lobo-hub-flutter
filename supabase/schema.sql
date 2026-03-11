@@ -21,6 +21,7 @@ create table if not exists family_members (
   "familyId" text not null,
   role text not null,
   "moduleAccess" jsonb,
+  "displayName" text,
   primary key ("userId", "familyId")
 );
 
