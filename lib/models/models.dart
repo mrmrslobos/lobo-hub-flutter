@@ -310,6 +310,9 @@ class Family {
   final bool weeklyDigest;
   final int weeklyDigestDay;   // 0=Sun … 6=Sat (UTC)
   final int weeklyDigestHour;  // 0–23 (UTC)
+  final bool dailyDevotionalEnabled;
+  final int dailyDevotionalHour;   // 0–23 (local)
+  final int dailyDevotionalMinute; // 0–59
 
   const Family({
     required this.id,
@@ -325,6 +328,9 @@ class Family {
     this.weeklyDigest = true,
     this.weeklyDigestDay = 0,
     this.weeklyDigestHour = 8,
+    this.dailyDevotionalEnabled = false,
+    this.dailyDevotionalHour = 7,
+    this.dailyDevotionalMinute = 0,
   });
 
   factory Family.fromJson(Map<String, dynamic> j) => Family(
@@ -341,6 +347,9 @@ class Family {
     weeklyDigest: (j['weekly_digest'] ?? j['weeklyDigest'] ?? true) as bool,
     weeklyDigestDay: ((j['weekly_digest_day'] ?? j['weeklyDigestDay']) as num?)?.toInt() ?? 0,
     weeklyDigestHour: ((j['weekly_digest_hour'] ?? j['weeklyDigestHour']) as num?)?.toInt() ?? 8,
+    dailyDevotionalEnabled: (j['daily_devotional_enabled'] ?? j['dailyDevotionalEnabled'] ?? false) as bool,
+    dailyDevotionalHour: ((j['daily_devotional_hour'] ?? j['dailyDevotionalHour']) as num?)?.toInt() ?? 7,
+    dailyDevotionalMinute: ((j['daily_devotional_minute'] ?? j['dailyDevotionalMinute']) as num?)?.toInt() ?? 0,
   );
 
   Map<String, dynamic> toJson() => {
@@ -357,6 +366,9 @@ class Family {
     'weekly_digest': weeklyDigest,
     'weekly_digest_day': weeklyDigestDay,
     'weekly_digest_hour': weeklyDigestHour,
+    'daily_devotional_enabled': dailyDevotionalEnabled,
+    'daily_devotional_hour': dailyDevotionalHour,
+    'daily_devotional_minute': dailyDevotionalMinute,
   };
 
   Family copyWith({
@@ -365,6 +377,7 @@ class Family {
     SubscriptionTier? subscriptionTier, List<String>? enabledModules,
     DateTime? createdAt, bool? welcomeDismissed, bool? weeklyDigest,
     int? weeklyDigestDay, int? weeklyDigestHour,
+    bool? dailyDevotionalEnabled, int? dailyDevotionalHour, int? dailyDevotionalMinute,
   }) => Family(
     id: id ?? this.id,
     name: name ?? this.name,
@@ -379,6 +392,9 @@ class Family {
     weeklyDigest: weeklyDigest ?? this.weeklyDigest,
     weeklyDigestDay: weeklyDigestDay ?? this.weeklyDigestDay,
     weeklyDigestHour: weeklyDigestHour ?? this.weeklyDigestHour,
+    dailyDevotionalEnabled: dailyDevotionalEnabled ?? this.dailyDevotionalEnabled,
+    dailyDevotionalHour: dailyDevotionalHour ?? this.dailyDevotionalHour,
+    dailyDevotionalMinute: dailyDevotionalMinute ?? this.dailyDevotionalMinute,
   );
 }
 
