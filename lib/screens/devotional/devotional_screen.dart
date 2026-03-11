@@ -1451,6 +1451,7 @@ class _DailyDevotionalCard extends StatelessWidget {
     final family = provider.activeFamily!;
     final updated = family.copyWith(dailyDevotionalEnabled: val);
     final db = provider.db;
+    provider.updateFamily(updated);
     await provider.saveAndSync(db.copyWith(
       families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
     ));
@@ -1477,6 +1478,7 @@ class _DailyDevotionalCard extends StatelessWidget {
       dailyDevotionalMinute: picked.minute,
     );
     final db = provider.db;
+    provider.updateFamily(updated);
     await provider.saveAndSync(db.copyWith(
       families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
     ));
