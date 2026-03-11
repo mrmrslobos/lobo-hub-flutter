@@ -73,6 +73,8 @@ class _FamilyHubAppState extends State<FamilyHubApp> {
           // OAuth callback or token refresh — notify provider so the
           // router's refreshListenable triggers redirect re-evaluation.
           _provider.notifyListeners();
+        } else if (data.event == AuthChangeEvent.signedOut) {
+          _isPasswordRecovery = false;
         }
       });
     } catch (_) {

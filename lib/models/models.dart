@@ -308,6 +308,8 @@ class Family {
   final DateTime createdAt;
   final bool welcomeDismissed;
   final bool weeklyDigest;
+  final int weeklyDigestDay;   // 0=Sun … 6=Sat (UTC)
+  final int weeklyDigestHour;  // 0–23 (UTC)
 
   const Family({
     required this.id,
@@ -321,6 +323,8 @@ class Family {
     required this.createdAt,
     this.welcomeDismissed = false,
     this.weeklyDigest = true,
+    this.weeklyDigestDay = 0,
+    this.weeklyDigestHour = 8,
   });
 
   factory Family.fromJson(Map<String, dynamic> j) => Family(
@@ -335,6 +339,8 @@ class Family {
     createdAt: _parseDate(j['created_at'] ?? j['createdAt']),
     welcomeDismissed: (j['welcome_dismissed'] ?? j['welcomeDismissed'] ?? false) as bool,
     weeklyDigest: (j['weekly_digest'] ?? j['weeklyDigest'] ?? true) as bool,
+    weeklyDigestDay: ((j['weekly_digest_day'] ?? j['weeklyDigestDay']) as num?)?.toInt() ?? 0,
+    weeklyDigestHour: ((j['weekly_digest_hour'] ?? j['weeklyDigestHour']) as num?)?.toInt() ?? 8,
   );
 
   Map<String, dynamic> toJson() => {
@@ -349,6 +355,8 @@ class Family {
     'created_at': createdAt.toIso8601String(),
     'welcome_dismissed': welcomeDismissed,
     'weekly_digest': weeklyDigest,
+    'weekly_digest_day': weeklyDigestDay,
+    'weekly_digest_hour': weeklyDigestHour,
   };
 
   Family copyWith({
@@ -356,6 +364,7 @@ class Family {
     String? announcement, String? announcementAuthor,
     SubscriptionTier? subscriptionTier, List<String>? enabledModules,
     DateTime? createdAt, bool? welcomeDismissed, bool? weeklyDigest,
+    int? weeklyDigestDay, int? weeklyDigestHour,
   }) => Family(
     id: id ?? this.id,
     name: name ?? this.name,
@@ -368,6 +377,8 @@ class Family {
     createdAt: createdAt ?? this.createdAt,
     welcomeDismissed: welcomeDismissed ?? this.welcomeDismissed,
     weeklyDigest: weeklyDigest ?? this.weeklyDigest,
+    weeklyDigestDay: weeklyDigestDay ?? this.weeklyDigestDay,
+    weeklyDigestHour: weeklyDigestHour ?? this.weeklyDigestHour,
   );
 }
 
@@ -469,7 +480,7 @@ class Task {
     notes: j['notes'] as String?,
     dueDate: _parseDateOpt(j['due_date'] ?? j['dueDate']),
     dueTime: (j['due_time'] ?? j['dueTime']) as String?,
-    reminderMinutes: j['reminder_minutes'] as int? ?? j['reminderMinutes'] as int?,
+    reminderMinutes: (j['reminder_minutes'] as num?)?.toInt() ?? (j['reminderMinutes'] as num?)?.toInt(),
     priority: priorityFromString(j['priority'] as String?),
     completed: (j['completed'] ?? false) as bool,
     completedBy: (j['completed_by'] ?? j['completedBy']) as String?,
@@ -486,7 +497,7 @@ class Task {
     'creator_id': creatorId,
     'title': title,
     'notes': notes,
-    'due_date': dueDate?.toIso8601String() ?? DateTime.now().toIso8601String(),
+    'due_date': (dueDate ?? DateTime.now()).toIso8601String(),
     'priority': priority.name,
     'completed': completed,
     'visibility': visibility.name,
@@ -683,11 +694,11 @@ class ExternalCalendar {
     creatorId: (j['creator_id'] ?? j['creatorId'] ?? j['user_id'] ?? j['userId']) as String? ?? '',
     type: externalCalendarTypeFromString(j['type'] as String?),
     name: j['name'] as String? ?? '',
-    googleCalendarId: (j['google_calendar_id'] ?? j['googleCalendarId']) as String?,
-    icsUrl: (j['ics_url'] ?? j['icsUrl']) as String?,
+    googleCalendarId: (j['google_calendar_id'] ?? j['googleCalendarId'] ?? (j['type'] == 'GOOGLE' ? j['url'] : null)) as String?,
+    icsUrl: (j['ics_url'] ?? j['icsUrl'] ?? (j['type'] != 'GOOGLE' ? j['url'] : null)) as String?,
     color: j['color'] as String?,
     enabled: j['enabled'] as bool? ?? true,
-    lastSyncedAt: _parseDate(j['last_synced_at'] ?? j['lastSyncedAt']),
+    lastSyncedAt: _parseDate(j['last_synced'] ?? j['lastSynced'] ?? j['last_synced_at'] ?? j['lastSyncedAt']),
     createdAt: _parseDate(j['created_at'] ?? j['createdAt']),
   );
 
@@ -697,6 +708,7 @@ class ExternalCalendar {
     'creator_id': creatorId,
     'type': type.name,
     'name': name,
+    'url': googleCalendarId ?? icsUrl,
     'color': color,
     'enabled': enabled,
     'last_synced': lastSyncedAt.toIso8601String(),
@@ -768,7 +780,7 @@ class Recipe {
       title: j['title'] as String? ?? '',
       ingredients: ingredients,
       steps: _strList(j['steps']),
-      servings: (j['servings'] as int?) ?? 4,
+      servings: (j['servings'] as num?)?.toInt() ?? 4,
       tags: _strList(j['tags']),
       image: j['image'] as String?,
     );
@@ -1157,7 +1169,7 @@ class FitnessLog {
     userId: (j['user_id'] ?? j['userId']) as String? ?? '',
     activity: j['activity'] as String? ?? '',
     durationMinutes: ((j['duration_minutes'] ?? j['durationMinutes']) as int?) ?? 0,
-    caloriesBurned: j['calories_burned'] as int?,
+    caloriesBurned: (j['calories_burned'] as num?)?.toInt(),
     notes: j['notes'] as String?,
     date: _parseDate(j['date']),
   );
@@ -1453,7 +1465,7 @@ class DailyHabit {
     targetValue: (j['target_value'] ?? j['targetValue']) as num?,
     targetUnit: (j['target_unit'] ?? j['targetUnit']) as String?,
     createdAt: _parseDate(j['created_at'] ?? j['createdAt']),
-    order: (j['order'] as int?) ?? 0,
+    order: (j['order'] as num?)?.toInt() ?? 0,
   );
 
   Map<String, dynamic> toJson() => {
@@ -1550,7 +1562,7 @@ class Chore {
     title: j['title'] as String? ?? '',
     description: j['description'] as String?,
     icon: j['icon'] as String?,
-    points: (j['points'] as int?) ?? 0,
+    points: (j['points'] as num?)?.toInt() ?? 0,
     reward: (j['reward'] as num?)?.toDouble(),
     frequency: choreFrequencyFromString(j['frequency'] as String?),
     daysOfWeek: _intList(j['days_of_week'] ?? j['daysOfWeek']),
@@ -2347,9 +2359,9 @@ class SpecialDate {
     creatorId: (j['creator_id'] ?? j['creatorId']) as String? ?? '',
     name: j['name'] as String? ?? '',
     type: specialDateTypeFromString(j['type'] as String?),
-    month: (j['month'] as int?) ?? 1,
-    day: (j['day'] as int?) ?? 1,
-    year: j['year'] as int?,
+    month: (j['month'] as num?)?.toInt() ?? 1,
+    day: (j['day'] as num?)?.toInt() ?? 1,
+    year: (j['year'] as num?)?.toInt(),
     emoji: j['emoji'] as String?,
     notes: j['notes'] as String?,
     reminderDays: _intList(j['reminder_days'] ?? j['reminderDays']),
@@ -2953,7 +2965,7 @@ class PeriodSymptomLog {
     date: _parseDate(j['date']),
     symptoms: _strList(j['symptoms']),
     mood: j['mood'] != null ? cycleMoodFromString(j['mood'] as String?) : null,
-    painLevel: j['pain_level'] as int? ?? j['painLevel'] as int?,
+    painLevel: (j['pain_level'] as num?)?.toInt() ?? (j['painLevel'] as num?)?.toInt(),
     notes: j['notes'] as String?,
     createdAt: _parseDate(j['created_at'] ?? j['createdAt']),
   );

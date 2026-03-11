@@ -253,6 +253,8 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
     ('🇮🇳', 'India', 'IN'),
   ];
 
+  static const _dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
   @override
   void initState() {
     super.initState();
@@ -277,6 +279,61 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('lobohub_locale', code);
     setState(() => _selectedLocale = code);
+  }
+
+  /// Convert local day-of-week + hour to UTC day + hour.
+  (int, int) _localToUtc(int localDay, int localHour) {
+    final now = DateTime.now();
+    final offset = now.timeZoneOffset.inHours;
+    var utcHour = localHour - offset;
+    var utcDay = localDay;
+    if (utcHour < 0) {
+      utcHour += 24;
+      utcDay = (utcDay - 1) % 7;
+    } else if (utcHour >= 24) {
+      utcHour -= 24;
+      utcDay = (utcDay + 1) % 7;
+    }
+    return (utcDay, utcHour);
+  }
+
+  /// Convert UTC day-of-week + hour to local day + hour.
+  (int, int) _utcToLocal(int utcDay, int utcHour) {
+    final now = DateTime.now();
+    final offset = now.timeZoneOffset.inHours;
+    var localHour = utcHour + offset;
+    var localDay = utcDay;
+    if (localHour < 0) {
+      localHour += 24;
+      localDay = (localDay - 1) % 7;
+    } else if (localHour >= 24) {
+      localHour -= 24;
+      localDay = (localDay + 1) % 7;
+    }
+    return (localDay, localHour);
+  }
+
+  /// Save weekly digest settings to the family record via provider.
+  Future<void> _saveDigestSettings(AppProvider provider, {bool? enabled, int? localDay, int? localHour}) async {
+    final family = provider.activeFamily;
+    if (family == null) return;
+
+    // Get current local values
+    final (curLocalDay, curLocalHour) = _utcToLocal(family.weeklyDigestDay, family.weeklyDigestHour);
+    final newLocalDay = localDay ?? curLocalDay;
+    final newLocalHour = localHour ?? curLocalHour;
+    final (utcDay, utcHour) = _localToUtc(newLocalDay, newLocalHour);
+
+    final updated = family.copyWith(
+      weeklyDigest: enabled ?? family.weeklyDigest,
+      weeklyDigestDay: utcDay,
+      weeklyDigestHour: utcHour,
+    );
+
+    // Update the family in the DB
+    final db = provider.db;
+    final families = db.families.map((f) => f.id == updated.id ? updated : f).toList();
+    await provider.saveAndSync(db.copyWith(families: families));
   }
 
   @override
@@ -352,6 +409,149 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
                   ),
                 ),
                 const SizedBox(height: 16),
+
+                // Weekly Digest settings
+                Builder(builder: (ctx) {
+                  final provider = ctx.watch<AppProvider>();
+                  final family = provider.activeFamily;
+                  if (family == null) return const SizedBox.shrink();
+                  final isOwner = family.ownerId == provider.activeUser?.id;
+                  final digestEnabled = family.weeklyDigest;
+                  final (localDay, localHour) = _utcToLocal(family.weeklyDigestDay, family.weeklyDigestHour);
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'WEEKLY DIGEST',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                          letterSpacing: 0.5,
+                          color: AppTheme.stone500,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: AppTheme.stone50,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          children: [
+                            SwitchListTile(
+                              title: const Text(
+                                'Weekly Summary',
+                                style: TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 15,
+                                  color: AppTheme.stone900,
+                                ),
+                              ),
+                              subtitle: const Text(
+                                'Get a weekly notification with upcoming events, tasks, and chore stats',
+                                style: TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontSize: 12,
+                                  color: AppTheme.stone500,
+                                ),
+                              ),
+                              value: digestEnabled,
+                              onChanged: isOwner
+                                  ? (val) => _saveDigestSettings(provider, enabled: val)
+                                  : null,
+                              secondary: const Icon(Icons.summarize_rounded, color: AppTheme.primary),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            if (digestEnabled) ...[
+                              const Divider(height: 1, indent: 16, endIndent: 16),
+                              ListTile(
+                                leading: const Icon(Icons.calendar_today_rounded, color: AppTheme.primary, size: 20),
+                                title: const Text(
+                                  'Day',
+                                  style: TextStyle(
+                                    fontFamily: 'Inter',
+                                    fontWeight: FontWeight.w500,
+                                    fontSize: 14,
+                                    color: AppTheme.stone800,
+                                  ),
+                                ),
+                                trailing: DropdownButton<int>(
+                                  value: localDay,
+                                  underline: const SizedBox.shrink(),
+                                  style: const TextStyle(
+                                    fontFamily: 'Inter',
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14,
+                                    color: AppTheme.primary,
+                                  ),
+                                  items: List.generate(7, (i) => DropdownMenuItem(
+                                    value: i,
+                                    child: Text(_dayNames[i]),
+                                  )),
+                                  onChanged: isOwner
+                                      ? (val) {
+                                          if (val != null) _saveDigestSettings(provider, localDay: val);
+                                        }
+                                      : null,
+                                ),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              const Divider(height: 1, indent: 16, endIndent: 16),
+                              ListTile(
+                                leading: const Icon(Icons.access_time_rounded, color: AppTheme.primary, size: 20),
+                                title: const Text(
+                                  'Time',
+                                  style: TextStyle(
+                                    fontFamily: 'Inter',
+                                    fontWeight: FontWeight.w500,
+                                    fontSize: 14,
+                                    color: AppTheme.stone800,
+                                  ),
+                                ),
+                                trailing: DropdownButton<int>(
+                                  value: localHour,
+                                  underline: const SizedBox.shrink(),
+                                  style: const TextStyle(
+                                    fontFamily: 'Inter',
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14,
+                                    color: AppTheme.primary,
+                                  ),
+                                  items: List.generate(24, (h) {
+                                    final display = h == 0 ? '12 AM' : h < 12 ? '$h AM' : h == 12 ? '12 PM' : '${h - 12} PM';
+                                    return DropdownMenuItem(value: h, child: Text(display));
+                                  }),
+                                  onChanged: isOwner
+                                      ? (val) {
+                                          if (val != null) _saveDigestSettings(provider, localHour: val);
+                                        }
+                                      : null,
+                                ),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      if (!isOwner && digestEnabled)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 4, left: 4),
+                          child: Text(
+                            'Only the family owner can change digest settings',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 11,
+                              color: AppTheme.stone400,
+                            ),
+                          ),
+                        ),
+                      const SizedBox(height: 16),
+                    ],
+                  );
+                }),
 
                 // Country/Region selector
                 const Text(

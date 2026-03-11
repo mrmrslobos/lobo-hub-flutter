@@ -165,6 +165,7 @@ create table if not exists chores (
   description text,
   icon text not null default '🧹',
   points integer not null default 10,
+  reward numeric,
   frequency text not null default 'DAILY',
   "daysOfWeek" jsonb not null default '[]'::jsonb,
   assignees jsonb not null default '[]'::jsonb,
@@ -249,6 +250,15 @@ create table if not exists reward_items (
   "createdAt" text not null
 );
 
+create table if not exists rewards (
+  id            text primary key,
+  "familyId"    text not null,
+  title         text not null,
+  "pointCost"   int not null default 0,
+  description   text,
+  "redeemedBy"  jsonb not null default '[]'::jsonb
+);
+
 create table if not exists reward_redemptions (
   id            text primary key,
   "familyId"    text not null,
@@ -320,7 +330,7 @@ begin
     'users','families','family_members','tasks','events','recipes','meal_plans',
     'lists','devotionals','fitness','fitness_plans','budget_categories','transactions','ai_history',
     'daily_habits','daily_habit_completions','chores','chore_completions','polls','poll_votes',
-    'external_calendars','reward_items','reward_redemptions','savings_goals',
+    'external_calendars','rewards','reward_items','reward_redemptions','savings_goals',
     'prayer_wall','reading_plans','reading_plan_progress'
   ]
   loop
@@ -359,6 +369,9 @@ begin
   end if;
   if not exists (select 1 from information_schema.columns where table_name='devotionals' and column_name='prayer') then
     alter table devotionals add column prayer text;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_name='devotionals' and column_name='userPrayer') then
+    alter table devotionals add column "userPrayer" text;
   end if;
   -- budget_categories
   if not exists (select 1 from information_schema.columns where table_name='budget_categories' and column_name='creatorId') then
