@@ -384,7 +384,7 @@ class _LocationScreenState extends State<LocationScreen> {
                     width: 50, height: 50,
                     decoration: BoxDecoration(
                       color: isSharing ? AppTheme.success : AppTheme.stone200,
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(16),
                     ),
                     child: Icon(
                       Icons.navigation_rounded,
@@ -419,7 +419,7 @@ class _LocationScreenState extends State<LocationScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                       decoration: BoxDecoration(
                         color: isSharing ? AppTheme.stone200 : AppTheme.success,
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(16),
                         boxShadow: isSharing ? null : [
                           BoxShadow(color: AppTheme.success.withValues(alpha: 0.3), blurRadius: 8, offset: const Offset(0, 2)),
                         ],
@@ -592,7 +592,7 @@ class _LocationScreenState extends State<LocationScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: AppTheme.stone100),
                     ),
                     child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -621,7 +621,7 @@ class _LocationScreenState extends State<LocationScreen> {
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
                   color: AppTheme.stone50,
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: AppTheme.stone200),
                 ),
                 child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -813,7 +813,7 @@ class _AddPlaceSheetState extends State<_AddPlaceSheet> {
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       decoration: BoxDecoration(
                         color: AppTheme.stone100,
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(16),
                       ),
                       child: const Center(child: Text('Cancel', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone700))),
                     ),
@@ -829,7 +829,7 @@ class _AddPlaceSheetState extends State<_AddPlaceSheet> {
                         color: widget.currentPosition != null && _nameCtrl.text.trim().isNotEmpty
                             ? AppTheme.primary
                             : AppTheme.primary.withValues(alpha: 0.4),
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(16),
                       ),
                       child: const Center(child: Text('Save Place', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: Colors.white))),
                     ),

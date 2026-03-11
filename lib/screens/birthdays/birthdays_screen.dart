@@ -151,7 +151,7 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
                           color: AppTheme.surface,
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(16),
                           border: Border.all(color: AppTheme.stone100),
                         ),
                         child: Row(children: [
@@ -174,7 +174,7 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
                           color: AppTheme.surface,
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(16),
                           border: Border.all(color: AppTheme.stone100),
                         ),
                         child: Row(children: [

@@ -725,7 +725,7 @@ Return ONLY the JSON array, no markdown.''',
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: const Color(0xFFEFF6FF),
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(color: const Color(0xFFBFDBFE)),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

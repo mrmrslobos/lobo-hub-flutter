@@ -366,7 +366,7 @@ class _FitnessScreenState extends State<FitnessScreen> {
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       color: AppTheme.primaryLight,
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(16),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -395,7 +395,7 @@ class _FitnessScreenState extends State<FitnessScreen> {
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       color: AppTheme.primaryLight,
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(16),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -565,7 +565,7 @@ class _FitnessScreenState extends State<FitnessScreen> {
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
                     color: AppTheme.primaryLight,
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: AppTheme.primary.withValues(alpha: 0.2)),
                   ),
                   child: Column(children: [
@@ -860,7 +860,7 @@ Apply the requested change while keeping everything else sensible.
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: const Color(0xFFEEF2FF),
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(16),
             border: Border.all(color: const Color(0xFFC7D2FE)),
           ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1242,7 +1242,7 @@ Return ONLY valid JSON (no markdown) with this structure:
                     foregroundColor: Colors.white,
                     elevation: 0,
                     padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   ),
                 ),
               ),
@@ -1280,7 +1280,7 @@ Return ONLY valid JSON (no markdown) with this structure:
         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
         decoration: BoxDecoration(
           color: selected ? AppTheme.primary : Colors.white,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(color: selected ? AppTheme.primary : AppTheme.stone200, width: selected ? 2 : 1),
         ),
         child: Column(children: [
