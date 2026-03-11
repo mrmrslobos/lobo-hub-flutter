@@ -139,7 +139,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           height: 52,
                           decoration: BoxDecoration(
                             color: AppTheme.stone100,
-                            borderRadius: BorderRadius.circular(14),
+                            borderRadius: BorderRadius.circular(16),
                           ),
                           alignment: Alignment.center,
                           child: Text(e,

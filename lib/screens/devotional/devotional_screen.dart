@@ -392,7 +392,7 @@ Make the content warm, relatable, and suitable for children.''';
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: AppTheme.stone100),
                 ),
                 child: Column(
@@ -714,7 +714,7 @@ Make it warm, kid-friendly, and relatable.''';
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: AppTheme.stone100),
                   ),
                   child: Column(
@@ -860,7 +860,7 @@ class _EntryDetailView extends StatelessWidget {
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: const Color(0xFFFDF2F8),
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: const Color(0xFFF9A8D4).withValues(alpha: 0.4)),
                 ),
                 child: Column(
@@ -911,7 +911,7 @@ class _EntryDetailView extends StatelessWidget {
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: const Color(0xFFFFFBEB),
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: const Color(0xFFFDE68A).withValues(alpha: 0.5)),
                 ),
                 child: Column(
@@ -1255,7 +1255,7 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     color: const Color(0xFFFFF7ED),
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: const Color(0xFFFDBA74).withValues(alpha: 0.4)),
                   ),
                   child: Column(
@@ -1307,7 +1307,7 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppTheme.primary,
                         foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         elevation: 0,
                       ),

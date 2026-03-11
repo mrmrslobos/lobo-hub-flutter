@@ -277,7 +277,7 @@ class _PollsScreenState extends State<PollsScreen> {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppTheme.stone100),
       ),
       child: Column(

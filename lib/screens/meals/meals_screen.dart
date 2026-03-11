@@ -874,7 +874,7 @@ Return a JSON array of 7 objects, each with:
                       margin: const EdgeInsets.only(bottom: 8),
                       decoration: BoxDecoration(
                         color: AppTheme.surface,
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(16),
                         border: Border.all(color: AppTheme.stone100),
                       ),
                       child: Padding(
@@ -1191,7 +1191,7 @@ Return a JSON array of 7 objects, each with:
                 child: Container(
                   decoration: BoxDecoration(
                     color: AppTheme.surface,
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: AppTheme.stone100),
                   ),
                   child: Column(
@@ -1360,7 +1360,7 @@ class _MealPlanTabState extends State<_MealPlanTab> {
                         : isToday
                             ? AppTheme.primaryLight
                             : AppTheme.surface,
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(16),
                     border: Border.all(
                       color: isSelected
                           ? AppTheme.primary
@@ -2115,7 +2115,7 @@ class _RecipesTabState extends State<_RecipesTab> {
               filled: true,
               fillColor: AppTheme.stone100,
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(16),
                 borderSide: BorderSide.none,
               ),
               contentPadding: const EdgeInsets.symmetric(vertical: 12),

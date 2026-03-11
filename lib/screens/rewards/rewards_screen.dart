@@ -224,7 +224,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
+                    borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: AppTheme.stone100),
                   ),
                   child: Row(
@@ -393,16 +393,15 @@ class _RewardsScreenState extends State<RewardsScreen> {
               ...savingsGoals.map((goal) {
                 final progress = goal.targetAmount > 0 ? (goal.savedAmount / goal.targetAmount).clamp(0.0, 1.0) : 0.0;
                 final isComplete = goal.savedAmount >= goal.targetAmount;
-                final ownerName = provider.memberDisplayName(
-                  members.firstWhere((m) => m.id == goal.userId, orElse: () => members.first),
-                );
+                final goalMember = members.where((m) => m.id == goal.userId).firstOrNull ?? members.firstOrNull;
+                final ownerName = goalMember != null ? provider.memberDisplayName(goalMember) : 'Unknown';
                 return Padding(
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
                   child: Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: isComplete ? AppTheme.success.withValues(alpha: 0.4) : AppTheme.stone100, width: isComplete ? 2 : 1),
                     ),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -676,7 +675,7 @@ class _SavingsGoalSheetState extends State<_SavingsGoalSheet> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppTheme.primary,
                 padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               ),
               child: const Text('Create Goal', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15)),
             ),

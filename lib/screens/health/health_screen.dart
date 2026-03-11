@@ -330,7 +330,7 @@ class _HealthScreenState extends State<HealthScreen> {
       child: Container(
         decoration: BoxDecoration(
           color: AppTheme.surface,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(color: AppTheme.stone100),
         ),
         child: Column(children: [

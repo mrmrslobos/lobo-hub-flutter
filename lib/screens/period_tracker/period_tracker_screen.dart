@@ -896,7 +896,7 @@ class _PeriodLogSheetState extends State<_PeriodLogSheet> {
                     onTap: () => _pickDate(true),
                     child: Container(
                       padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(color: AppTheme.stone50, borderRadius: BorderRadius.circular(14), border: Border.all(color: AppTheme.stone200)),
+                      decoration: BoxDecoration(color: AppTheme.stone50, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.stone200)),
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                         const Text('START DATE', style: TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.stone400, letterSpacing: 0.8)),
                         const SizedBox(height: 4),
@@ -911,7 +911,7 @@ class _PeriodLogSheetState extends State<_PeriodLogSheet> {
                     onTap: () => _pickDate(false),
                     child: Container(
                       padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(color: AppTheme.stone50, borderRadius: BorderRadius.circular(14), border: Border.all(color: AppTheme.stone200)),
+                      decoration: BoxDecoration(color: AppTheme.stone50, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.stone200)),
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                         const Text('END DATE', style: TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.stone400, letterSpacing: 0.8)),
                         const SizedBox(height: 4),
@@ -1091,7 +1091,7 @@ class _DayActionSheet extends StatelessWidget {
                 foregroundColor: Colors.white,
                 elevation: 0,
                 padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               ),
             ),
           ),
@@ -1109,7 +1109,7 @@ class _DayActionSheet extends StatelessWidget {
                 foregroundColor: const Color(0xFFE11D48),
                 elevation: 0,
                 padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               ),
             ),
           ),
@@ -1128,7 +1128,7 @@ class _DayActionSheet extends StatelessWidget {
                 elevation: 0,
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(16),
                   side: const BorderSide(color: Color(0xFFE5E7EB)),
                 ),
               ),

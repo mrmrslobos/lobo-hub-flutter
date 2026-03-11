@@ -2302,7 +2302,7 @@ class _EventPlannerWizardState extends State<_EventPlannerWizard> {
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: t['color'] as Color,
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(16),
               border: Border.all(color: (t['iconColor'] as Color).withValues(alpha: 0.2)),
             ),
             child: Row(
@@ -2453,7 +2453,7 @@ class _EventPlannerWizardState extends State<_EventPlannerWizard> {
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: const Color(0xFFF0FDF4),
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(16),
             border: Border.all(color: const Color(0xFF86EFAC)),
           ),
           child: Column(
