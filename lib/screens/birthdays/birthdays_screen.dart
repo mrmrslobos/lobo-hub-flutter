@@ -1,13 +1,38 @@
 // lib/screens/birthdays/birthdays_screen.dart
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+
+// ─── Type config ─────────────────────────────────────────────────────────────
+
+const _typeConfig = <String, ({String label, String emoji, SpecialDateType enumVal})>{
+  'birthday':    (label: 'Birthday',    emoji: '🎂', enumVal: SpecialDateType.BIRTHDAY),
+  'anniversary': (label: 'Anniversary', emoji: '💍', enumVal: SpecialDateType.ANNIVERSARY),
+  'memorial':    (label: 'Memorial',    emoji: '🕊️', enumVal: SpecialDateType.MEMORIAL),
+  'other':       (label: 'Other',       emoji: '🎉', enumVal: SpecialDateType.OTHER),
+};
+
+String _typeKey(SpecialDateType t) {
+  switch (t) {
+    case SpecialDateType.BIRTHDAY: return 'birthday';
+    case SpecialDateType.ANNIVERSARY: return 'anniversary';
+    case SpecialDateType.MEMORIAL: return 'memorial';
+    case SpecialDateType.OTHER: return 'other';
+  }
+}
+
+String _typeEmoji(SpecialDateType t) => _typeConfig[_typeKey(t)]?.emoji ?? '⭐';
+String _typeLabel(SpecialDateType t) => _typeConfig[_typeKey(t)]?.label ?? 'Other';
+
+// ─── Main Screen ─────────────────────────────────────────────────────────────
 
 class BirthdaysScreen extends StatefulWidget {
   const BirthdaysScreen({super.key});
@@ -17,11 +42,11 @@ class BirthdaysScreen extends StatefulWidget {
 }
 
 class _BirthdaysScreenState extends State<BirthdaysScreen> {
-  // Calculate days until next occurrence of a date
+  // ── Helpers ────────────────────────────────────────────────────────────────
+
   int _daysUntil(Occasion occasion) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    // Use the occasion date; if it has already passed this year, use next year
     DateTime next = DateTime(now.year, occasion.date.month, occasion.date.day);
     if (next.isBefore(today)) {
       next = DateTime(now.year + 1, occasion.date.month, occasion.date.day);
@@ -30,18 +55,40 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
   }
 
   int? _age(Occasion occasion) {
+    // Age only makes sense for occasions with a known origin year (non-recurring)
+    // In the model: recurring means year == null
+    if (occasion.recurring) return null;
     final now = DateTime.now();
-    if (!occasion.recurring) return null;
-    // We can't know birth year from the Occasion model directly
-    // date.year will be used as birth year if it's not a recurring-only date
-    if (occasion.date.year < 1900 || occasion.date.year > now.year) return null;
-    int age = now.year - occasion.date.year;
-    final birthdayThisYear = DateTime(now.year, occasion.date.month, occasion.date.day);
-    if (birthdayThisYear.isAfter(now)) age--;
-    return age;
+    final originYear = occasion.date.year;
+    if (originYear < 1900 || originYear > now.year) return null;
+    int age = now.year - originYear;
+    final thisYear = DateTime(now.year, occasion.date.month, occasion.date.day);
+    if (thisYear.isAfter(now)) age--;
+    return age > 0 ? age : null;
   }
 
+  Color _badgeColor(int days) {
+    if (days == 0) return const Color(0xFFEC4899); // pink for today
+    if (days <= 7) return AppTheme.success;
+    if (days <= 30) return AppTheme.warning;
+    return AppTheme.stone400;
+  }
+
+  // ── Data actions ───────────────────────────────────────────────────────────
+
   Future<void> _deleteOccasion(String id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Occasion'),
+        content: const Text('Remove this occasion?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(db.copyWith(
@@ -49,36 +96,113 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
     ));
   }
 
-  void _showAddSheet() {
+  void _showAddSheet({Occasion? editOccasion}) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => _OccasionFormSheet(
+        editOccasion: editOccasion,
         onSave: (occasion) async {
           final provider = context.read<AppProvider>();
           final db = provider.db;
-          await provider.saveAndSync(db.copyWith(occasions: [...db.occasions, occasion]));
+          if (editOccasion != null) {
+            await provider.saveAndSync(db.copyWith(
+              occasions: db.occasions.map((o) => o.id == editOccasion.id ? occasion : o).toList(),
+            ));
+          } else {
+            await provider.saveAndSync(db.copyWith(occasions: [...db.occasions, occasion]));
+            NotificationService.notifyFamilyActivity(
+              title: 'New Occasion Added',
+              body: '${provider.activeUser?.name ?? "Someone"} added: ${occasion.title}',
+              familyId: provider.activeFamily?.id,
+              excludeUserId: provider.activeUser?.id,
+            );
+          }
         },
       ),
     );
   }
 
-  Color _badgeColor(int days) {
-    if (days <= 7) return AppTheme.success;
-    if (days <= 30) return AppTheme.warning;
-    return AppTheme.stone400;
+  void _showOccasionActions(Occasion occasion) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SheetHandle(),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+              child: Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: _badgeColor(_daysUntil(occasion)).withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(_typeEmoji(occasion.type), style: const TextStyle(fontSize: 20)),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(occasion.title, style: const TextStyle(
+                          fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w700, color: AppTheme.stone900,
+                        )),
+                        Text(_typeLabel(occasion.type), style: const TextStyle(
+                          fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400,
+                        )),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            _actionTile(Icons.edit_outlined, 'Edit Occasion', AppTheme.stone700, () {
+              Navigator.pop(ctx);
+              _showAddSheet(editOccasion: occasion);
+            }),
+            _actionTile(Icons.delete_outline_rounded, 'Delete Occasion', AppTheme.error, () {
+              Navigator.pop(ctx);
+              _deleteOccasion(occasion.id);
+            }),
+            SizedBox(height: MediaQuery.of(ctx).padding.bottom + 12),
+          ],
+        ),
+      ),
+    );
   }
 
-  String _typeEmoji(String type) {
-    switch (type.toLowerCase()) {
-      case 'birthday': return '🎂';
-      case 'anniversary': return '💍';
-      case 'holiday': return '🎉';
-      case 'memorial': return '🕊️';
-      default: return '⭐';
-    }
+  Widget _actionTile(IconData icon, String label, Color color, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        child: Row(
+          children: [
+            Icon(icon, size: 20, color: color),
+            const SizedBox(width: 14),
+            Text(label, style: TextStyle(
+              fontFamily: 'Inter', fontSize: 15, fontWeight: FontWeight.w500, color: color,
+            )),
+          ],
+        ),
+      ),
+    );
   }
+
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -94,256 +218,386 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
     final upcoming = occasions.where((o) => _daysUntil(o) <= 30).toList();
     final later = occasions.where((o) => _daysUntil(o) > 30).toList();
 
+    // Next occasion
+    final nextOccasion = occasions.isNotEmpty ? occasions.first : null;
+    final nextDays = nextOccasion != null ? _daysUntil(nextOccasion) : null;
+
     return Scaffold(
       backgroundColor: AppTheme.background,
       drawer: const AppDrawer(),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: Builder(
-          builder: (context) => IconButton(
-            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
-            onPressed: () => Scaffold.of(context).openDrawer(),
+      appBar: const FamilyHubAppBar(),
+      body: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          // ── Page Header ──
+          PageHeader(
+            title: 'Occasions',
+            subtitle: 'Birthdays, anniversaries & special dates.',
+            actions: [
+              ActionChipButton(
+                icon: Icons.add_rounded,
+                label: 'Add Occasion',
+                onTap: () => _showAddSheet(),
+                isPrimary: true,
+              ),
+            ],
           ),
-        ),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
-            const SizedBox(width: 6),
-            const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
-          ],
-        ),
-        centerTitle: false,
-        titleSpacing: 0,
-        actions: const [],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.only(bottom: 32),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ── Page Header ──
-            PageHeader(
-              title: '\u{1F389} Occasions',
-              subtitle: 'Birthdays, anniversaries & special dates',
-              actions: [
-                ActionChipButton(
-                  icon: Icons.add_rounded,
-                  label: 'Add Occasion',
-                  onTap: _showAddSheet,
-                  isPrimary: true,
+
+          // ── Stat Cards ──
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                _StatCard(
+                  icon: Icons.celebration_rounded,
+                  label: 'Total',
+                  value: '${occasions.length}',
+                  color: AppTheme.primary,
+                ),
+                const SizedBox(width: 10),
+                _StatCard(
+                  icon: Icons.upcoming_rounded,
+                  label: 'This Month',
+                  value: '${upcoming.length}',
+                  color: AppTheme.success,
+                ),
+                const SizedBox(width: 10),
+                _StatCard(
+                  icon: Icons.timer_outlined,
+                  label: 'Next In',
+                  value: nextDays != null ? (nextDays == 0 ? 'Today' : '${nextDays}d') : '—',
+                  color: const Color(0xFFF59E0B),
                 ),
               ],
             ),
+          ),
+          const SizedBox(height: 16),
 
-            // ── Stats row ──
-            if (occasions.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+          // ── Next Up Banner ──
+          if (nextOccasion != null && nextDays != null && nextDays <= 7)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: nextDays == 0
+                        ? [const Color(0xFFEC4899), const Color(0xFFF472B6)]
+                        : [const Color(0xFF8B7BF7), const Color(0xFFB4A0FF)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                ),
                 child: Row(
                   children: [
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(_typeEmoji(nextOccasion.type), style: const TextStyle(fontSize: 24)),
+                    ),
+                    const SizedBox(width: 14),
                     Expanded(
-                      child: Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: AppTheme.surface,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: AppTheme.stone100),
-                        ),
-                        child: Row(children: [
-                          Container(
-                            width: 36, height: 36,
-                            decoration: BoxDecoration(color: AppTheme.success.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
-                            child: const Icon(Icons.upcoming_rounded, size: 18, color: AppTheme.success),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            nextDays == 0
+                                ? "It's today!"
+                                : nextDays == 1
+                                    ? 'Tomorrow!'
+                                    : 'In $nextDays days',
+                            style: TextStyle(
+                              fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600,
+                              color: Colors.white.withValues(alpha: 0.8),
+                            ),
                           ),
-                          const SizedBox(width: 10),
-                          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text('${upcoming.length}', style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.stone900)),
-                            const Text('Within 30 days', style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone500)),
-                          ]),
-                        ]),
+                          const SizedBox(height: 2),
+                          Text(
+                            nextOccasion.title,
+                            style: const TextStyle(
+                              fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white,
+                            ),
+                          ),
+                          if (_age(nextOccasion) != null)
+                            Text(
+                              'Turning ${_age(nextOccasion)! + 1}',
+                              style: TextStyle(
+                                fontFamily: 'Inter', fontSize: 13, color: Colors.white.withValues(alpha: 0.7),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: AppTheme.surface,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: AppTheme.stone100),
-                        ),
-                        child: Row(children: [
-                          Container(
-                            width: 36, height: 36,
-                            decoration: BoxDecoration(color: AppTheme.primaryLight, borderRadius: BorderRadius.circular(10)),
-                            child: const Icon(Icons.celebration_rounded, size: 18, color: AppTheme.primary),
-                          ),
-                          const SizedBox(width: 10),
-                          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text('${occasions.length}', style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.stone900)),
-                            const Text('Total', style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone500)),
-                          ]),
-                        ]),
+                    Text(
+                      DateFormat('MMM d').format(nextOccasion.date),
+                      style: TextStyle(
+                        fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700,
+                        color: Colors.white.withValues(alpha: 0.8),
                       ),
                     ),
                   ],
                 ),
               ),
+            ),
+          if (nextOccasion != null && nextDays != null && nextDays <= 7)
+            const SizedBox(height: 16),
 
-            // ── Content ──
-            if (occasions.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: OnboardingCard(
-                  emoji: '\u{1F389}',
-                  title: 'Track Special Dates',
-                  bullets: ['Never miss a birthday or anniversary', 'Get reminders for upcoming occasions', 'Keep all special dates in one place'],
-                  actionLabel: '+ Add Occasion',
-                  onAction: _showAddSheet,
+          // ── Content ──
+          if (occasions.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 32),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppTheme.stone100),
                 ),
-              )
-            else
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (upcoming.isNotEmpty) ...[
-                      const Text('COMING UP', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1)),
-                      const SizedBox(height: 8),
-                      ...upcoming.map((o) => Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: _OccasionCard(
-                              occasion: o,
-                              daysUntil: _daysUntil(o),
-                              age: _age(o),
-                              emoji: _typeEmoji(o.type.name.toLowerCase()),
-                              badgeColor: _badgeColor(_daysUntil(o)),
-                              onDelete: () => _deleteOccasion(o.id),
-                            ),
-                          )),
-                    ],
-                    if (later.isNotEmpty) ...[
-                      if (upcoming.isNotEmpty) const SizedBox(height: 12),
-                      const Text('UPCOMING', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1)),
-                      const SizedBox(height: 8),
-                      ...later.map((o) => Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: _OccasionCard(
-                              occasion: o,
-                              daysUntil: _daysUntil(o),
-                              age: _age(o),
-                              emoji: _typeEmoji(o.type.name.toLowerCase()),
-                              badgeColor: _badgeColor(_daysUntil(o)),
-                              onDelete: () => _deleteOccasion(o.id),
-                            ),
-                          )),
-                    ],
+                    Container(
+                      width: 56,
+                      height: 56,
+                      decoration: const BoxDecoration(
+                        color: AppTheme.stone50,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.celebration_outlined, size: 28, color: AppTheme.stone300),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text('No occasions yet', style: TextStyle(
+                      fontFamily: 'Inter', fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.stone500,
+                    )),
+                    const SizedBox(height: 4),
+                    const Text('Add birthdays, anniversaries, and more', style: TextStyle(
+                      fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400,
+                    )),
+                    const SizedBox(height: 16),
+                    GestureDetector(
+                      onTap: () => _showAddSheet(),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primary,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Text('+ Add Occasion', style: TextStyle(
+                          fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white,
+                        )),
+                      ),
+                    ),
                   ],
                 ),
               ),
-          ],
-        ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (upcoming.isNotEmpty) ...[
+                    const Padding(
+                      padding: EdgeInsets.only(left: 4, bottom: 8),
+                      child: Row(
+                        children: [
+                          Text('COMING UP', style: TextStyle(
+                            fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800,
+                            color: AppTheme.stone400, letterSpacing: 1.1,
+                          )),
+                          SizedBox(width: 8),
+                        ],
+                      ),
+                    ),
+                    ...upcoming.map((o) => _buildOccasionCard(o)),
+                  ],
+                  if (later.isNotEmpty) ...[
+                    if (upcoming.isNotEmpty) const SizedBox(height: 16),
+                    const Padding(
+                      padding: EdgeInsets.only(left: 4, bottom: 8),
+                      child: Text('LATER', style: TextStyle(
+                        fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800,
+                        color: AppTheme.stone400, letterSpacing: 1.1,
+                      )),
+                    ),
+                    ...later.map((o) => _buildOccasionCard(o)),
+                  ],
+                ],
+              ),
+            ),
+          const SizedBox(height: 32),
+        ],
       ),
     );
   }
-}
 
-class _OccasionCard extends StatelessWidget {
-  final Occasion occasion;
-  final int daysUntil;
-  final int? age;
-  final String emoji;
-  final Color badgeColor;
-  final VoidCallback onDelete;
+  Widget _buildOccasionCard(Occasion occasion) {
+    final days = _daysUntil(occasion);
+    final age = _age(occasion);
+    final emoji = _typeEmoji(occasion.type);
+    final color = _badgeColor(days);
+    final isToday = days == 0;
 
-  const _OccasionCard({
-    required this.occasion,
-    required this.daysUntil,
-    required this.age,
-    required this.emoji,
-    required this.badgeColor,
-    required this.onDelete,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Dismissible(
-      key: Key(occasion.id),
-      direction: DismissDirection.endToStart,
-      background: Container(
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 20),
-        decoration: BoxDecoration(color: AppTheme.error, borderRadius: BorderRadius.circular(16)),
-        child: const Icon(Icons.delete_outline_rounded, color: Colors.white),
-      ),
-      confirmDismiss: (_) async => await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Delete Occasion'),
-          content: Text('Delete "${occasion.title}"?'),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
-          ],
-        ),
-      ),
-      onDismissed: (_) => onDelete(),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppTheme.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: daysUntil <= 7 ? AppTheme.success.withValues(alpha: 0.3) : AppTheme.stone100),
-        ),
-        child: Row(children: [
-          Container(
-            width: 46, height: 46,
-            decoration: BoxDecoration(color: badgeColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
-            child: Center(child: Text(emoji, style: const TextStyle(fontSize: 22))),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: GestureDetector(
+        onLongPress: () => _showOccasionActions(occasion),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isToday
+                  ? const Color(0xFFEC4899).withValues(alpha: 0.3)
+                  : days <= 7
+                      ? AppTheme.success.withValues(alpha: 0.3)
+                      : AppTheme.stone100,
+            ),
           ),
-          const SizedBox(width: 12),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(occasion.title, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: AppTheme.stone900)),
-            const SizedBox(height: 2),
-            Row(children: [
-              Text(occasion.type.name.toLowerCase(), style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500)),
-              if (age != null) ...[
-                const Text(' · ', style: TextStyle(color: AppTheme.stone400)),
-                Text('Turns $age', style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500)),
-              ],
-              if (occasion.recurring) ...[
-                const Text(' · ', style: TextStyle(color: AppTheme.stone400)),
-                const Icon(Icons.repeat_rounded, size: 12, color: AppTheme.stone400),
-              ],
-            ]),
-          ])),
-          Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+          child: Row(children: [
+            // Emoji badge
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(color: badgeColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
-              child: Text(
-                daysUntil == 0 ? 'TODAY! 🎉' : daysUntil == 1 ? 'Tomorrow' : 'in $daysUntil days',
-                style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w700, color: badgeColor),
+              width: 48, height: 48,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              alignment: Alignment.center,
+              child: Text(emoji, style: const TextStyle(fontSize: 24)),
+            ),
+            const SizedBox(width: 14),
+            // Info
+            Expanded(child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(occasion.title, style: const TextStyle(
+                  fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: AppTheme.stone900,
+                )),
+                const SizedBox(height: 3),
+                Row(children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppTheme.stone50,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(_typeLabel(occasion.type), style: const TextStyle(
+                      fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.stone500,
+                    )),
+                  ),
+                  if (age != null) ...[
+                    const SizedBox(width: 8),
+                    Text('Turns ${age + 1}', style: const TextStyle(
+                      fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500,
+                    )),
+                  ],
+                  if (!occasion.recurring) ...[
+                    const SizedBox(width: 8),
+                    const Icon(Icons.repeat_rounded, size: 12, color: AppTheme.stone300),
+                  ],
+                ]),
+                const SizedBox(height: 2),
+                Text(
+                  DateFormat('MMMM d').format(occasion.date),
+                  style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
+                ),
+              ],
+            )),
+            // Days badge
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Column(
+                children: [
+                  if (isToday)
+                    const Text('TODAY', style: TextStyle(
+                      fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w800,
+                      color: Color(0xFFEC4899),
+                    ))
+                  else ...[
+                    Text('$days', style: TextStyle(
+                      fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w800, color: color,
+                    )),
+                    Text('days', style: TextStyle(
+                      fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w600, color: color,
+                    )),
+                  ],
+                ],
               ),
             ),
           ]),
-        ]),
+        ),
       ),
     );
   }
 }
 
-// ─────────────────────────────────────────────
-// Add occasion form
-// ─────────────────────────────────────────────
+// ─── Stat Card ───────────────────────────────────────────────────────────────
+
+class _StatCard extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  const _StatCard({required this.icon, required this.label, required this.value, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppTheme.stone100),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, size: 16, color: color),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(value, style: TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w800, color: color)),
+                  Text(label, style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w600, color: AppTheme.stone400)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Occasion Form Sheet ─────────────────────────────────────────────────────
 
 class _OccasionFormSheet extends StatefulWidget {
   final Future<void> Function(Occasion) onSave;
-  const _OccasionFormSheet({required this.onSave});
+  final Occasion? editOccasion;
+  const _OccasionFormSheet({required this.onSave, this.editOccasion});
 
   @override
   State<_OccasionFormSheet> createState() => _OccasionFormSheetState();
@@ -358,7 +612,20 @@ class _OccasionFormSheetState extends State<_OccasionFormSheet> {
   bool _isSaving = false;
   final _uuid = const Uuid();
 
-  static const _types = ['birthday', 'anniversary', 'holiday', 'memorial', 'custom'];
+  bool get _isEditing => widget.editOccasion != null;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.editOccasion != null) {
+      final o = widget.editOccasion!;
+      _titleCtrl.text = o.title;
+      _notesCtrl.text = o.notes ?? '';
+      _type = _typeKey(o.type);
+      _date = o.date;
+      _recurring = o.recurring;
+    }
+  }
 
   @override
   void dispose() {
@@ -379,19 +646,22 @@ class _OccasionFormSheetState extends State<_OccasionFormSheet> {
 
   Future<void> _save() async {
     if (_titleCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a name or title'), behavior: SnackBarBehavior.floating),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('Please enter a name or title'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ));
       return;
     }
     setState(() => _isSaving = true);
     final provider = context.read<AppProvider>();
+    final config = _typeConfig[_type]!;
     final occasion = Occasion(
-      id: _uuid.v4(),
+      id: widget.editOccasion?.id ?? _uuid.v4(),
       familyId: provider.activeFamily!.id,
-      creatorId: provider.activeUser!.id,
+      creatorId: widget.editOccasion?.creatorId ?? (provider.activeUser!.id),
       title: _titleCtrl.text.trim(),
-      typeStr: _type,
+      type: config.enumVal,
       date: _date,
       recurring: _recurring,
       notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
@@ -405,71 +675,241 @@ class _OccasionFormSheetState extends State<_OccasionFormSheet> {
     return DraggableScrollableSheet(
       initialChildSize: 0.8, maxChildSize: 0.95, minChildSize: 0.5, expand: false,
       builder: (_, controller) => Container(
-        decoration: const BoxDecoration(color: AppTheme.surface, borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
         child: Column(children: [
           const SheetHandle(),
+          // Header
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
-            child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              const Text('New Occasion', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 20, color: AppTheme.stone900)),
-              TextButton(
-                onPressed: _isSaving ? null : _save,
-                child: _isSaving
-                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Text('Save', style: TextStyle(fontWeight: FontWeight.w700)),
-              ),
-            ]),
+            child: Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    _isEditing ? Icons.edit_outlined : Icons.celebration_outlined,
+                    size: 18,
+                    color: AppTheme.primary,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  _isEditing ? 'Edit Occasion' : 'New Occasion',
+                  style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.stone900),
+                ),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded, color: AppTheme.stone400),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
           ),
+          const SizedBox(height: 8),
           Expanded(
-            child: ListView(controller: controller, padding: const EdgeInsets.fromLTRB(20, 12, 20, 32), children: [
-              TextField(controller: _titleCtrl, autofocus: true, textCapitalization: TextCapitalization.words,
-                  decoration: const InputDecoration(labelText: 'Name *', prefixIcon: Icon(Icons.person_outline_rounded))),
-              const SizedBox(height: 20),
-              const Text('Type', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13, color: AppTheme.stone600)),
-              const SizedBox(height: 8),
-              Wrap(spacing: 8, runSpacing: 8, children: _types.map((t) {
-                final isSelected = t == _type;
-                return GestureDetector(
-                  onTap: () => setState(() => _type = t),
+            child: ListView(
+              controller: controller,
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+              children: [
+                // Name
+                _sectionLabel('Name'),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _titleCtrl,
+                  autofocus: !_isEditing,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: InputDecoration(
+                    hintText: 'e.g., Mom\'s Birthday',
+                    hintStyle: const TextStyle(color: AppTheme.stone300),
+                    filled: true,
+                    fillColor: AppTheme.stone50,
+                    prefixIcon: const Icon(Icons.person_outline_rounded),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primary, width: 2)),
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // Type selector
+                _sectionLabel('Type'),
+                const SizedBox(height: 8),
+                Row(
+                  children: _typeConfig.entries.map((entry) {
+                    final key = entry.key;
+                    final config = entry.value;
+                    final isSelected = key == _type;
+                    return Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.only(right: key != 'other' ? 8 : 0),
+                        child: GestureDetector(
+                          onTap: () => setState(() => _type = key),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 150),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            decoration: BoxDecoration(
+                              color: isSelected ? AppTheme.primaryLight : AppTheme.stone50,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: isSelected ? AppTheme.primary : AppTheme.stone200,
+                                width: isSelected ? 1.5 : 1,
+                              ),
+                            ),
+                            child: Column(
+                              children: [
+                                Text(config.emoji, style: const TextStyle(fontSize: 20)),
+                                const SizedBox(height: 4),
+                                Text(config.label, style: TextStyle(
+                                  fontFamily: 'Inter', fontSize: 11, fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                  color: isSelected ? AppTheme.primary : AppTheme.stone600,
+                                )),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 20),
+
+                // Date picker
+                _sectionLabel('Date'),
+                const SizedBox(height: 8),
+                GestureDetector(
+                  onTap: _pickDate,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: AppTheme.stone50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppTheme.stone200),
+                    ),
+                    child: Row(children: [
+                      Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: AppTheme.primary.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.calendar_today_outlined, size: 16, color: AppTheme.primary),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          DateFormat('MMMM d, y').format(_date),
+                          style: const TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone800),
+                        ),
+                      ),
+                      const Icon(Icons.edit_outlined, size: 14, color: AppTheme.stone400),
+                    ]),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // Recurring toggle
+                GestureDetector(
+                  onTap: () => setState(() => _recurring = !_recurring),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 150),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                     decoration: BoxDecoration(
-                      color: isSelected ? AppTheme.primaryLight : AppTheme.stone50,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: isSelected ? AppTheme.primary : AppTheme.stone200, width: isSelected ? 2 : 1),
+                      color: _recurring ? AppTheme.primary.withValues(alpha: 0.05) : AppTheme.stone50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: _recurring ? AppTheme.primary.withValues(alpha: 0.3) : AppTheme.stone200,
+                      ),
                     ),
-                    child: Text(t, style: TextStyle(fontFamily: 'Inter', fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500, fontSize: 13, color: isSelected ? AppTheme.primary : AppTheme.stone600)),
+                    child: Row(children: [
+                      Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: (_recurring ? AppTheme.primary : AppTheme.stone400).withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(Icons.repeat_rounded, size: 16, color: _recurring ? AppTheme.primary : AppTheme.stone400),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Recurring Yearly', style: TextStyle(
+                              fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600,
+                              color: _recurring ? AppTheme.primary : AppTheme.stone800,
+                            )),
+                            Text(
+                              'Repeat this event each year',
+                              style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: _recurring ? AppTheme.primary.withValues(alpha: 0.7) : AppTheme.stone400),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (_recurring)
+                        const Icon(Icons.check_circle_rounded, size: 20, color: AppTheme.primary),
+                    ]),
                   ),
-                );
-              }).toList()),
-              const SizedBox(height: 16),
-              GestureDetector(
-                onTap: _pickDate,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  decoration: BoxDecoration(color: AppTheme.stone50, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.stone200)),
-                  child: Row(children: [
-                    const Icon(Icons.calendar_today_outlined, size: 18, color: AppTheme.stone500),
-                    const SizedBox(width: 10),
-                    Text('${_date.month}/${_date.day}/${_date.year}', style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone800)),
-                  ]),
                 ),
-              ),
-              const SizedBox(height: 12),
-              SwitchListTile(
-                title: const Text('Recurring yearly', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600)),
-                subtitle: const Text('Repeat this event each year', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
-                value: _recurring,
-                onChanged: (v) => setState(() => _recurring = v),
-                contentPadding: EdgeInsets.zero,
-              ),
-              const SizedBox(height: 8),
-              TextField(controller: _notesCtrl, maxLines: 2, decoration: const InputDecoration(labelText: 'Notes (optional)', alignLabelWithHint: true)),
-            ]),
+                const SizedBox(height: 20),
+
+                // Notes
+                _sectionLabel('Notes (optional)'),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _notesCtrl,
+                  maxLines: 3,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: InputDecoration(
+                    hintText: 'Gift ideas, reminders, etc.',
+                    hintStyle: const TextStyle(color: AppTheme.stone300),
+                    filled: true,
+                    fillColor: AppTheme.stone50,
+                    alignLabelWithHint: true,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primary, width: 2)),
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                // Save button
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton(
+                    onPressed: _isSaving ? null : _save,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.primary,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      elevation: 0,
+                    ),
+                    child: _isSaving
+                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                        : Text(_isEditing ? 'Save Changes' : 'Add Occasion', style: const TextStyle(
+                            fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16,
+                          )),
+                  ),
+                ),
+              ],
+            ),
           ),
         ]),
       ),
     );
   }
+
+  Widget _sectionLabel(String label) => Text(
+    label,
+    style: const TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.stone700),
+  );
 }
