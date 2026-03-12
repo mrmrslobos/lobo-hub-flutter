@@ -498,12 +498,7 @@ Return ONLY the JSON array, no markdown.''',
             ),
             centerTitle: false,
             titleSpacing: 0,
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.notifications_none_rounded, color: AppTheme.stone500),
-                onPressed: () {},
-              ),
-            ],
+            actions: const [],
           ),
           body: RefreshIndicator(
             onRefresh: _onRefresh,

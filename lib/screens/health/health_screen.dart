@@ -147,9 +147,7 @@ class _HealthScreenState extends State<HealthScreen> {
         ),
         centerTitle: false,
         titleSpacing: 0,
-        actions: [
-          IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
-        ],
+        actions: const [],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
@@ -403,7 +401,12 @@ class _AllergiesSectionState extends State<_AllergiesSection> {
   void dispose() { _nameCtrl.dispose(); _reactionCtrl.dispose(); super.dispose(); }
 
   void _add() {
-    if (_nameCtrl.text.trim().isEmpty) return;
+    if (_nameCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter an allergy name'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     final allergy = HealthAllergy(
       id: _uid(), name: _nameCtrl.text.trim(),
       severity: _severity,
@@ -560,7 +563,12 @@ class _MedicationsSectionState extends State<_MedicationsSection> {
   void dispose() { _nameCtrl.dispose(); _doseCtrl.dispose(); _freqCtrl.dispose(); super.dispose(); }
 
   void _add() {
-    if (_nameCtrl.text.trim().isEmpty) return;
+    if (_nameCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a medication name'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     final med = HealthMedication(
       id: _uid(), name: _nameCtrl.text.trim(),
       dose: _doseCtrl.text.trim().isEmpty ? null : _doseCtrl.text.trim(),
@@ -668,7 +676,12 @@ class _ConditionsSectionState extends State<_ConditionsSection> {
   void dispose() { _nameCtrl.dispose(); _notesCtrl.dispose(); super.dispose(); }
 
   void _add() {
-    if (_nameCtrl.text.trim().isEmpty) return;
+    if (_nameCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a condition name'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     final cond = HealthCondition(
       id: _uid(), name: _nameCtrl.text.trim(),
       notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
@@ -772,7 +785,12 @@ class _ImmunizationsSectionState extends State<_ImmunizationsSection> {
   void dispose() { _nameCtrl.dispose(); _dateCtrl.dispose(); super.dispose(); }
 
   void _add() {
-    if (_nameCtrl.text.trim().isEmpty) return;
+    if (_nameCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter an immunization name'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     final immu = HealthImmunization(
       id: _uid(), name: _nameCtrl.text.trim(),
       date: DateTime.tryParse(_dateCtrl.text.trim()),
@@ -878,7 +896,18 @@ class _EmergencySectionState extends State<_EmergencySection> {
   void dispose() { _nameCtrl.dispose(); _phoneCtrl.dispose(); _relationCtrl.dispose(); super.dispose(); }
 
   void _add() {
-    if (_nameCtrl.text.trim().isEmpty || _phoneCtrl.text.trim().isEmpty) return;
+    if (_nameCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a contact name'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
+    if (_phoneCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a phone number'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     final ec = EmergencyContact(
       id: _uid(), name: _nameCtrl.text.trim(), phone: _phoneCtrl.text.trim(),
       relation: _relationCtrl.text.trim().isEmpty ? null : _relationCtrl.text.trim(),

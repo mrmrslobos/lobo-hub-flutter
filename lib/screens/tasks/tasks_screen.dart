@@ -255,9 +255,7 @@ class _TasksScreenState extends State<TasksScreen> {
             ),
             centerTitle: false,
             titleSpacing: 0,
-            actions: [
-              IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
-            ],
+            actions: const [],
           ),
           body: ListView(
             padding: EdgeInsets.zero,

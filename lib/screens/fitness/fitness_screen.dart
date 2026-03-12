@@ -238,11 +238,7 @@ class _FitnessScreenState extends State<FitnessScreen> {
         ),
         centerTitle: false,
         titleSpacing: 0,
-        actions: [
-          IconButton(
-              icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500),
-              onPressed: () {}),
-        ],
+        actions: const [],
       ),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 32),
@@ -1498,10 +1494,25 @@ class _FitnessLogSheetState extends State<_FitnessLogSheet> {
   }
 
   Future<void> _save() async {
-    if (_activityCtrl.text.trim().isEmpty ||
-        _durationCtrl.text.trim().isEmpty) return;
+    if (_activityCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter an activity name'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
+    if (_durationCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a duration'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     final duration = int.tryParse(_durationCtrl.text);
-    if (duration == null || duration <= 0) return;
+    if (duration == null || duration <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Duration must be a positive number'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     setState(() => _isSaving = true);
     final provider = context.read<AppProvider>();
     final log = FitnessLog(

@@ -300,9 +300,7 @@ class _ListsScreenState extends State<ListsScreen> {
         ),
         centerTitle: false,
         titleSpacing: 0,
-        actions: [
-          IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
-        ],
+        actions: const [],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
