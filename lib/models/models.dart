@@ -425,7 +425,7 @@ class FamilyMember {
     userId: (j['user_id'] ?? j['userId']) as String? ?? '',
     familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
     role: roleFromString(j['role'] as String?),
-    moduleAccess: j['module_access'] != null
+    moduleAccess: (j['module_access'] ?? j['moduleAccess']) != null
         ? _strList(j['module_access'] ?? j['moduleAccess'])
         : null,
     displayName: (j['display_name'] ?? j['displayName'] ?? j['name']) as String?,
