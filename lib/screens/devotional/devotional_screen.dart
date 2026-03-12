@@ -10,6 +10,7 @@ import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
+import '../../services/database_service.dart';
 import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
@@ -234,6 +235,9 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
   }
 
   /// Auto-generate a daily devotional if enabled and not yet created today.
+  /// First syncs with the cloud to pick up server-generated devotionals
+  /// (produced by the daily-devotional edge function even when the app is
+  /// closed). Falls back to client-side generation if nothing was found.
   Future<void> _maybeGenerateDaily() async {
     if (!mounted) return;
     final provider = context.read<AppProvider>();
@@ -246,16 +250,30 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
     // Only generate if we're past the scheduled time
     if (now.isBefore(scheduledTime)) return;
 
-    // Check if today's daily devotional already exists
     final today = DateTime(now.year, now.month, now.day);
-    final alreadyExists = provider.db.devotionalEntries.any((e) =>
+
+    bool _hasTodaysDevotional() => provider.db.devotionalEntries.any((e) =>
       e.familyId == family.id &&
       e.tags.contains('daily-auto') &&
       DateTime(e.date.year, e.date.month, e.date.day) == today,
     );
-    if (alreadyExists) return;
 
-    // Generate the daily devotional
+    // Check local first
+    if (_hasTodaysDevotional()) return;
+
+    // Sync with cloud — the server may have already generated today's devotional
+    try {
+      final merged = await DatabaseService.reconcileCloud(provider.db, family.id);
+      if (mounted) provider.updateDb(merged);
+    } catch (_) {
+      // Cloud sync failed — continue with local check
+    }
+    if (!mounted) return;
+
+    // Re-check after cloud sync
+    if (_hasTodaysDevotional()) return;
+
+    // Fallback: generate client-side (server may not have run yet)
     setState(() => _isGenerating = true);
     try {
       final raw = await AiService.ask(
@@ -1511,7 +1529,7 @@ class _DailyDevotionalCard extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               enabled
-                  ? 'A fresh devotional will be generated and delivered to your family every day.'
+                  ? 'A fresh devotional is generated and delivered to your family every day \u2014 even if the app is closed.'
                   : 'Enable to receive a fresh AI devotional at your chosen time each day.',
               style: TextStyle(
                 fontFamily: 'Inter', fontSize: 12, height: 1.4,
