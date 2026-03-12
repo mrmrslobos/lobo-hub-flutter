@@ -79,7 +79,12 @@ class AppProvider extends ChangeNotifier {
       knownFamilyId = membership?.familyId;
     }
 
-    // If still unknown, look up membership from cloud
+    // Authenticate immediately from local data for fast startup
+    if (user != null) {
+      _setActiveUserFamily(user, knownFamilyId);
+    }
+
+    // If user not found locally, look up membership from cloud
     if (knownFamilyId == null && SupabaseService.isConfigured) {
       try {
         final memberships = await SupabaseService.client
@@ -93,30 +98,35 @@ class AppProvider extends ChangeNotifier {
       } catch (_) {}
     }
 
-    // Always reconcile with cloud to ensure data is up to date
+    // Reconcile with cloud in the background (non-blocking)
     if (knownFamilyId != null && SupabaseService.isConfigured) {
+      final fid = knownFamilyId;
+      _pullFromCloud();
+    } else if (user == null && knownFamilyId != null) {
+      // User not in local DB — must wait for cloud sync
       try {
         _db = await DatabaseService.reconcileCloud(_db, knownFamilyId);
+        user = _db.users.firstWhereOrNull((u) => u.id == userId);
+        if (user != null) _setActiveUserFamily(user, knownFamilyId);
       } catch (e) {
         debugPrint('[AppProvider] Cloud reconciliation failed: $e');
       }
-      user = _db.users.firstWhereOrNull((u) => u.id == userId);
     }
+  }
 
-    if (user != null) {
-      final membership = _db.familyMembers.firstWhereOrNull(
-        (m) => m.userId == user!.id,
+  void _setActiveUserFamily(User user, String? knownFamilyId) {
+    final membership = _db.familyMembers.firstWhereOrNull(
+      (m) => m.userId == user.id,
+    );
+    if (membership != null) {
+      final family = _db.families.firstWhereOrNull(
+        (f) => f.id == membership.familyId,
       );
-      if (membership != null) {
-        final family = _db.families.firstWhereOrNull(
-          (f) => f.id == membership.familyId,
-        );
-        if (family != null) {
-          _activeUser = user;
-          _activeFamily = family;
-          _startRealtimeListener();
-          NotificationService.registerDeviceToken(family.id, user.id);
-        }
+      if (family != null) {
+        _activeUser = user;
+        _activeFamily = family;
+        _startRealtimeListener();
+        NotificationService.registerDeviceToken(family.id, user.id);
       }
     }
   }

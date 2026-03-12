@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
@@ -331,6 +332,7 @@ class NotificationService {
           'token': token,
           'familyId': familyId,
           'userId': userId,
+          'platform': Platform.isIOS ? 'ios' : 'android',
         }),
       );
     } catch (e, st) {

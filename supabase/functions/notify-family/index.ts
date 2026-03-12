@@ -581,8 +581,7 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    // Parse the Supabase webhook body
-    const payload: WebhookPayload = await req.json();
+    const body = await req.json();
 
     // Service-role Supabase client for reading device_tokens + users
     const supabaseClient = createClient(
@@ -590,6 +589,36 @@ Deno.serve(async (req: Request) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
       { auth: { persistSession: false } },
     );
+
+    // ── Device token registration ───────────────────────────────────────
+    if (body.action === 'register' && body.token && body.familyId && body.userId) {
+      const platform = body.platform || 'android';
+      const { error } = await supabaseClient
+        .from('device_tokens')
+        .upsert(
+          {
+            userId: body.userId,
+            familyId: body.familyId,
+            token: body.token,
+            platform,
+            updatedAt: new Date().toISOString(),
+          },
+          { onConflict: 'userId,platform' },
+        );
+      if (error) {
+        console.error('[notify-family] Token registration failed:', error.message);
+        return new Response(JSON.stringify({ registered: false, error: error.message }), {
+          status: 400,
+          headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({ registered: true }), {
+        headers: { ...CORS, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // ── Webhook notification flow ───────────────────────────────────────
+    const payload: WebhookPayload = body;
 
     // Build notification content from webhook payload
     const notification = await buildNotification(payload, supabaseClient);
