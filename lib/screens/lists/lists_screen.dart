@@ -48,18 +48,6 @@ class _ListsScreenState extends State<ListsScreen> {
   }
 
   Future<void> _deleteList(ShoppingList list) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete List'),
-        content: Text('Delete "${list.title}" and all its items? This cannot be undone.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(db.copyWith(
@@ -107,18 +95,6 @@ class _ListsScreenState extends State<ListsScreen> {
   }
 
   Future<void> _deleteItem(ShoppingList list, String itemId) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Remove Item'),
-        content: const Text('Remove this item from the list?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Remove', style: TextStyle(color: AppTheme.error))),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
     final updatedList = list.copyWith(items: list.items.where((i) => i.id != itemId).toList());
@@ -722,14 +698,11 @@ class _ListDetailView extends StatefulWidget {
 }
 
 class _ListDetailViewState extends State<_ListDetailView> {
-  final _addCtrl = TextEditingController();
-  final _focusNode = FocusNode();
+  TextEditingController _addCtrl = TextEditingController();
   bool _groupedView = false;
 
   @override
   void dispose() {
-    _addCtrl.dispose();
-    _focusNode.dispose();
     super.dispose();
   }
 
@@ -937,12 +910,34 @@ class _ListDetailViewState extends State<_ListDetailView> {
           ),
           child: Row(children: [
             Expanded(
-              child: TextField(
-                controller: _addCtrl,
-                focusNode: _focusNode,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: const InputDecoration(hintText: 'Add item...', prefixIcon: Icon(Icons.add_rounded)),
-                onSubmitted: (_) => _submit(),
+              child: Autocomplete<String>(
+                optionsBuilder: (textEditingValue) {
+                  final query = textEditingValue.text.trim().toLowerCase();
+                  if (query.isEmpty) return const Iterable<String>.empty();
+                  final provider = context.read<AppProvider>();
+                  final allNames = provider.db.shoppingLists
+                      .expand((l) => l.items)
+                      .map((i) => i.text)
+                      .toSet()
+                      .where((name) => name.toLowerCase().contains(query) && name.toLowerCase() != query)
+                      .toList()
+                    ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+                  return allNames.take(5);
+                },
+                onSelected: (value) {
+                  _addCtrl.text = value;
+                  _submit();
+                },
+                fieldViewBuilder: (context, textEditingController, focusNode, onFieldSubmitted) {
+                  _addCtrl = textEditingController;
+                  return TextField(
+                    controller: textEditingController,
+                    focusNode: focusNode,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: const InputDecoration(hintText: 'Add item...', prefixIcon: Icon(Icons.add_rounded)),
+                    onSubmitted: (_) { onFieldSubmitted(); _submit(); },
+                  );
+                },
               ),
             ),
             const SizedBox(width: 8),
