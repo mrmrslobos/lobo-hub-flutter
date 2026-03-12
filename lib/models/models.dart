@@ -1057,6 +1057,7 @@ class DevotionalEntry {
   final List<String> tags;
   final DateTime date;
   final Visibility visibility;
+  final bool isFavorited;
 
   DevotionalEntry({
     required this.id,
@@ -1072,6 +1073,7 @@ class DevotionalEntry {
     this.tags = const [],
     DateTime? date,
     this.visibility = Visibility.FAMILY,
+    this.isFavorited = false,
   }) : creatorId = creatorId ?? userId ?? '',
        date = date ?? DateTime.now();
 
@@ -1088,6 +1090,7 @@ class DevotionalEntry {
     tags: _strList(j['tags']),
     date: _parseDate(j['date']),
     visibility: visibilityFromString(j['visibility'] as String?),
+    isFavorited: (j['is_favorited'] ?? j['isFavorited'] ?? false) as bool,
   );
 
   Map<String, dynamic> toJson() => {
@@ -1103,6 +1106,7 @@ class DevotionalEntry {
     'tags': tags,
     'date': date.toIso8601String(),
     'visibility': visibility.name,
+    'is_favorited': isFavorited,
   };
 
   // Convenience getter
@@ -1112,7 +1116,7 @@ class DevotionalEntry {
     String? id, String? familyId, String? creatorId, String? title,
     String? scripture, String? content, List<String>? reflectionPrompts,
     String? prayer, String? userPrayer, List<String>? tags,
-    DateTime? date, Visibility? visibility,
+    DateTime? date, Visibility? visibility, bool? isFavorited,
   }) => DevotionalEntry(
     id: id ?? this.id, familyId: familyId ?? this.familyId,
     creatorId: creatorId ?? this.creatorId, title: title ?? this.title,
@@ -1121,6 +1125,7 @@ class DevotionalEntry {
     prayer: prayer ?? this.prayer, userPrayer: userPrayer ?? this.userPrayer,
     tags: tags ?? this.tags, date: date ?? this.date,
     visibility: visibility ?? this.visibility,
+    isFavorited: isFavorited ?? this.isFavorited,
   );
 }
 

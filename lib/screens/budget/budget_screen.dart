@@ -29,6 +29,16 @@ enum _BudgetFilter { all, income, expenses }
 class _BudgetScreenState extends State<BudgetScreen> {
   _BudgetFilter _filter = _BudgetFilter.all;
   final _currencyFmt = NumberFormat.currency(symbol: '\$', decimalDigits: 2);
+  late DateTime _selectedMonth;
+  String _searchQuery = '';
+  bool _showAllTransactions = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    _selectedMonth = DateTime(now.year, now.month);
+  }
 
   String _formatCurrency(double amount) => '\$${amount.toStringAsFixed(2)}';
 
@@ -144,6 +154,16 @@ class _BudgetScreenState extends State<BudgetScreen> {
               if (amount == null || amount <= 0) {
                 ScaffoldMessenger.of(ctx).showSnackBar(
                   const SnackBar(content: Text('Enter an amount greater than \$0'), behavior: SnackBarBehavior.floating),
+                );
+                return;
+              }
+              final remaining = goal.targetAmount - goal.savedAmount;
+              if (remaining > 0 && amount > remaining) {
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  SnackBar(
+                    content: Text('Only \$${remaining.toStringAsFixed(2)} needed to reach the goal'),
+                    behavior: SnackBarBehavior.floating,
+                  ),
                 );
                 return;
               }
@@ -473,13 +493,12 @@ class _BudgetScreenState extends State<BudgetScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    final now = DateTime.now();
     final allEntries = provider.db.budgetEntries
         .where((e) => e.familyId == family.id)
         .toList();
 
     final monthEntries = allEntries
-        .where((e) => e.date.year == now.year && e.date.month == now.month)
+        .where((e) => e.date.year == _selectedMonth.year && e.date.month == _selectedMonth.month)
         .toList();
 
     final totalIncome = monthEntries
@@ -501,14 +520,23 @@ class _BudgetScreenState extends State<BudgetScreen> {
     List<BudgetEntry> shown;
     switch (_filter) {
       case _BudgetFilter.all:
-        shown = allEntries;
+        shown = monthEntries;
         break;
       case _BudgetFilter.income:
-        shown = allEntries.where((e) => e.isIncome).toList();
+        shown = monthEntries.where((e) => e.isIncome).toList();
         break;
       case _BudgetFilter.expenses:
-        shown = allEntries.where((e) => !e.isIncome).toList();
+        shown = monthEntries.where((e) => !e.isIncome).toList();
         break;
+    }
+    // Apply search filter
+    if (_searchQuery.isNotEmpty) {
+      final q = _searchQuery.toLowerCase();
+      shown = shown.where((e) =>
+        e.title.toLowerCase().contains(q) ||
+        e.category.name.toLowerCase().contains(q) ||
+        e.amount.toStringAsFixed(2).contains(q)
+      ).toList();
     }
     shown.sort((a, b) => b.date.compareTo(a.date));
 
@@ -583,6 +611,65 @@ class _BudgetScreenState extends State<BudgetScreen> {
               ),
             ],
           ),
+
+          // ─── Month Navigation ──────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.chevron_left_rounded, color: AppTheme.stone600),
+                  onPressed: () => setState(() {
+                    _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month - 1);
+                    _showAllTransactions = false;
+                  }),
+                ),
+                GestureDetector(
+                  onTap: () => setState(() {
+                    final now = DateTime.now();
+                    _selectedMonth = DateTime(now.year, now.month);
+                    _showAllTransactions = false;
+                  }),
+                  child: Text(
+                    DateFormat('MMMM yyyy').format(_selectedMonth),
+                    style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: AppTheme.stone900),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.chevron_right_rounded, color: AppTheme.stone600),
+                  onPressed: () => setState(() {
+                    _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month + 1);
+                    _showAllTransactions = false;
+                  }),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // ─── Search ─────────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: TextField(
+              onChanged: (v) => setState(() => _searchQuery = v),
+              decoration: InputDecoration(
+                hintText: 'Search transactions...',
+                hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
+                prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(icon: const Icon(Icons.close_rounded, size: 18), onPressed: () => setState(() => _searchQuery = ''))
+                    : null,
+                filled: true,
+                fillColor: Colors.white,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primary)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
 
           // ─── Summary Cards ─────────────────────────────────────────────
           Padding(
@@ -815,9 +902,18 @@ class _BudgetScreenState extends State<BudgetScreen> {
           // ─── Recent Activity ───────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 24, 20, 12),
-            child: const Text(
-              'Recent Activity',
-              style: TextStyle(fontFamily: 'Inter', fontSize: 17, fontWeight: FontWeight.w800, color: AppTheme.stone900),
+            child: Row(
+              children: [
+                const Text(
+                  'Recent Activity',
+                  style: TextStyle(fontFamily: 'Inter', fontSize: 17, fontWeight: FontWeight.w800, color: AppTheme.stone900),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '${shown.length} transactions',
+                  style: const TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.stone400),
+                ),
+              ],
             ),
           ),
           if (shown.isEmpty)
@@ -840,17 +936,30 @@ class _BudgetScreenState extends State<BudgetScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Column(
-                children: shown.take(20).map((entry) {
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: _EntryCard(
-                      entry: entry,
-                      currencyFmt: _currencyFmt,
-                      onDelete: () => _deleteEntry(entry.id),
-                      onEdit: () => _showEditEntry(entry),
+                children: [
+                  ...(_showAllTransactions ? shown : shown.take(20)).map((entry) {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _EntryCard(
+                        entry: entry,
+                        currencyFmt: _currencyFmt,
+                        onDelete: () => _deleteEntry(entry.id),
+                        onEdit: () => _showEditEntry(entry),
+                      ),
+                    );
+                  }),
+                  if (shown.length > 20 && !_showAllTransactions)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4, bottom: 8),
+                      child: TextButton(
+                        onPressed: () => setState(() => _showAllTransactions = true),
+                        child: Text(
+                          'View All ${shown.length} Transactions',
+                          style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13, color: AppTheme.primary),
+                        ),
+                      ),
                     ),
-                  );
-                }).toList(),
+                ],
               ),
             ),
 

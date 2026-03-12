@@ -36,6 +36,7 @@ class PhotosScreen extends StatefulWidget {
 class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderStateMixin {
   final _picker = ImagePicker();
   late TabController _tabCtrl;
+  bool _isUploading = false;
 
   @override
   void initState() {
@@ -82,6 +83,9 @@ class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderSt
     final familyId = provider.activeFamily!.id;
     final photoId = const Uuid().v4();
 
+    // Show upload progress
+    setState(() => _isUploading = true);
+
     // Upload to Supabase Storage (falls back to local path on failure)
     final url = await SupabaseService.uploadPhoto(
       familyId: familyId,
@@ -90,6 +94,8 @@ class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderSt
     );
 
     if (!mounted) return;
+    setState(() => _isUploading = false);
+
     final photo = Photo(
       id: photoId,
       familyId: familyId,
@@ -252,6 +258,27 @@ class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderSt
                 ),
               ],
             ),
+
+            // Upload progress
+            if (_isUploading)
+              Container(
+                margin: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: AppTheme.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppTheme.primary.withValues(alpha: 0.2)),
+                ),
+                child: Row(
+                  children: [
+                    const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primary)),
+                    const SizedBox(width: 12),
+                    const Text('Uploading photo...', style: TextStyle(
+                      fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13, color: AppTheme.primary,
+                    )),
+                  ],
+                ),
+              ),
 
             // Stats bar
             if (photos.isNotEmpty || milestones.isNotEmpty)

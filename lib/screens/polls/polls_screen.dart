@@ -98,6 +98,25 @@ class _PollsScreenState extends State<PollsScreen> {
     }
 
     final polls = provider.db.polls.where((p) => p.familyId == family.id).toList();
+
+    // Auto-close expired polls
+    final now = DateTime.now();
+    final expiredPolls = polls.where((p) =>
+      p.status == PollStatus.open && p.deadline != null && p.deadline!.isBefore(now),
+    ).toList();
+    if (expiredPolls.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        final db = provider.db;
+        var updatedPolls = db.polls.map((p) {
+          if (expiredPolls.any((e) => e.id == p.id)) {
+            return p.copyWith(status: PollStatus.closed);
+          }
+          return p;
+        }).toList();
+        await provider.saveAndSync(db.copyWith(polls: updatedPolls));
+      });
+    }
+
     polls.sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
     final openPolls = polls.where((p) => p.status == PollStatus.open).toList();
