@@ -306,6 +306,8 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
     if (_hasTodaysDevotional()) return;
 
     // Fallback: generate client-side (server may not have run yet)
+    // Use a flag to prevent concurrent generation
+    if (_isGenerating) return;
     setState(() => _isGenerating = true);
     try {
       final raw = await AiService.ask(
@@ -321,6 +323,8 @@ Make the content warm, relatable, and suitable for children.''',
       );
 
       if (raw != null && mounted) {
+        // Final dedup check before inserting to prevent race with server cron
+        if (_hasTodaysDevotional()) return;
         try {
           final data = jsonDecode(raw) as Map<String, dynamic>;
           final scriptureRef = data['scriptureRef'] as String?;
