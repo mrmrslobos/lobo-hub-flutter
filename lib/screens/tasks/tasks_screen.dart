@@ -98,12 +98,46 @@ class _TasksScreenState extends State<TasksScreen> {
       BuildContext context, AppProvider provider, Task task) async {
     final db = provider.db;
     final updated = task.copyWith(completed: !task.completed);
-    final tasks =
-        db.tasks.map((t) => t.id == task.id ? updated : t).toList();
+    var tasks = db.tasks.map((t) => t.id == task.id ? updated : t).toList();
+
+    // Generate next recurring instance when completing a recurring task
+    if (updated.completed && task.recurrence != Recurrence.NONE && task.dueDate != null) {
+      final nextDue = _nextRecurrenceDate(task.dueDate!, task.recurrence);
+      final nextTask = task.copyWith(
+        id: const Uuid().v4(),
+        completed: false,
+        completedBy: null,
+        dueDate: nextDue,
+      );
+      tasks = [...tasks, nextTask];
+      // Schedule reminder for new instance
+      if (nextTask.dueDate != null && nextTask.reminderMinutes != null && nextTask.dueTime != null) {
+        NotificationService.scheduleTaskReminder(
+          taskId: nextTask.id,
+          taskTitle: nextTask.title,
+          dueDate: nextTask.dueDate!,
+          dueTime: nextTask.dueTime!,
+          reminderMinutes: nextTask.reminderMinutes!,
+        );
+      }
+    }
+
     await provider.saveAndSync(db.copyWith(tasks: tasks));
-    // Cancel reminder when task is completed
     if (updated.completed) {
       NotificationService.cancelTaskReminder(task.id);
+    }
+  }
+
+  DateTime _nextRecurrenceDate(DateTime current, Recurrence recurrence) {
+    switch (recurrence) {
+      case Recurrence.DAILY:
+        return current.add(const Duration(days: 1));
+      case Recurrence.WEEKLY:
+        return current.add(const Duration(days: 7));
+      case Recurrence.MONTHLY:
+        return DateTime(current.year, current.month + 1, current.day);
+      case Recurrence.NONE:
+        return current;
     }
   }
 

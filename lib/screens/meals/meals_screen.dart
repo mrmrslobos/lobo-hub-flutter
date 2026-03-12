@@ -1598,11 +1598,22 @@ class _MealSlotCard extends StatelessWidget {
     );
   }
 
-  void _deleteMeal(BuildContext context) {
+  Future<void> _deleteMeal(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Meal'),
+        content: const Text('Remove this meal from your plan?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    final updated =
-        db.mealPlans.where((m) => m.id != meal!.id).toList();
+    final updated = db.mealPlans.where((m) => m.id != meal!.id).toList();
     provider.saveAndSync(db.copyWith(mealPlans: updated));
   }
 
@@ -1810,7 +1821,12 @@ class _AddMealSheetState extends State<_AddMealSheet> {
   }
 
   Future<void> _save() async {
-    if (_titleController.text.trim().isEmpty) return;
+    if (_titleController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a title'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     setState(() => _saving = true);
 
     final provider = context.read<AppProvider>();
@@ -3015,7 +3031,12 @@ class _AddRecipeSheetState extends State<_AddRecipeSheet> {
   }
 
   Future<void> _save() async {
-    if (_titleController.text.trim().isEmpty) return;
+    if (_titleController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a title'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     setState(() => _saving = true);
 
     final provider = context.read<AppProvider>();

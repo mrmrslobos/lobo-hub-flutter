@@ -103,6 +103,18 @@ class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderSt
   }
 
   Future<void> _deletePhoto(String id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Photo'),
+        content: const Text('Delete this photo permanently?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(db.copyWith(photos: db.photos.where((p) => p.id != id).toList()));

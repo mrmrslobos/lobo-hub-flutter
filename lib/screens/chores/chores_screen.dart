@@ -116,6 +116,18 @@ class _ChoresScreenState extends State<ChoresScreen> {
   }
 
   Future<void> _deleteChore(String choreId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Chore'),
+        content: const Text('Delete this chore and all completion history?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(db.copyWith(
@@ -757,7 +769,12 @@ class _ChoreFormSheetState extends State<_ChoreFormSheet> {
   }
 
   Future<void> _save() async {
-    if (_titleCtrl.text.trim().isEmpty) return;
+    if (_titleCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a chore name'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     setState(() => _isSaving = true);
     final provider = context.read<AppProvider>();
     final chore = Chore(

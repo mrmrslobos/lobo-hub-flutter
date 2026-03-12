@@ -47,6 +47,18 @@ class _BudgetScreenState extends State<BudgetScreen> {
   static Color _categoryColor(String key) => _categoryColors[key.toLowerCase()] ?? const Color(0xFF78716C);
 
   Future<void> _deleteEntry(String id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Transaction'),
+        content: const Text('Delete this transaction? This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(db.copyWith(
@@ -87,6 +99,18 @@ class _BudgetScreenState extends State<BudgetScreen> {
   }
 
   Future<void> _deleteGoal(String id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Savings Goal'),
+        content: const Text('Delete this goal and all progress? This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(db.copyWith(
@@ -117,7 +141,12 @@ class _BudgetScreenState extends State<BudgetScreen> {
           ElevatedButton(
             onPressed: () async {
               final amount = double.tryParse(amountCtrl.text.trim());
-              if (amount == null || amount <= 0) return;
+              if (amount == null || amount <= 0) {
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  const SnackBar(content: Text('Enter an amount greater than \$0'), behavior: SnackBarBehavior.floating),
+                );
+                return;
+              }
               Navigator.pop(ctx);
               final provider = context.read<AppProvider>();
               final db = provider.db;
@@ -825,6 +854,95 @@ class _BudgetScreenState extends State<BudgetScreen> {
               ),
             ),
 
+          // ─── Savings Goals ─────────────────────────────────────────────
+          if (savingsGoals.isNotEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 24, 20, 12),
+              child: Row(children: [
+                const Icon(Icons.savings_outlined, size: 20, color: AppTheme.stone500),
+                const SizedBox(width: 8),
+                const Expanded(child: Text('Savings Goals', style: TextStyle(
+                  fontFamily: 'Inter', fontSize: 17, fontWeight: FontWeight.w800, color: AppTheme.stone900,
+                ))),
+                GestureDetector(
+                  onTap: _showAddGoalSheet,
+                  child: const Icon(Icons.add_circle_outline_rounded, size: 20, color: AppTheme.primary),
+                ),
+              ]),
+            ),
+            ...savingsGoals.map((goal) {
+              final progress = goal.targetAmount > 0 ? (goal.savedAmount / goal.targetAmount).clamp(0.0, 1.0) : 0.0;
+              final isComplete = goal.savedAmount >= goal.targetAmount && goal.targetAmount > 0;
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: isComplete ? AppTheme.success.withValues(alpha: 0.4) : AppTheme.stone100),
+                  ),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Row(children: [
+                      Text(goal.icon ?? '\u{1F3AF}', style: const TextStyle(fontSize: 20)),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(goal.title, style: const TextStyle(
+                          fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.stone800,
+                        )),
+                      ),
+                      if (isComplete)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppTheme.success.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Text('Complete!', style: TextStyle(
+                            fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.success,
+                          )),
+                        )
+                      else
+                        GestureDetector(
+                          onTap: () => _showAddFundsDialog(context, goal),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: AppTheme.primary.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Text('+ Add', style: TextStyle(
+                              fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.primary,
+                            )),
+                          ),
+                        ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: () => _deleteGoal(goal.id),
+                        child: const Icon(Icons.close_rounded, size: 16, color: AppTheme.stone300),
+                      ),
+                    ]),
+                    const SizedBox(height: 10),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: progress,
+                        minHeight: 6,
+                        backgroundColor: AppTheme.stone100,
+                        valueColor: AlwaysStoppedAnimation<Color>(isComplete ? AppTheme.success : AppTheme.primary),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${_currencyFmt.format(goal.savedAmount)} of ${_currencyFmt.format(goal.targetAmount)}',
+                      style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
+                    ),
+                  ]),
+                ),
+              );
+            }),
+          ],
+
           // ─── Spending by Category ──────────────────────────────────────
           if (monthEntries.where((e) => !e.isIncome).isNotEmpty)
             _buildSpendingByCategory(monthEntries, totalExpenses),
@@ -1103,7 +1221,18 @@ class _AddGoalSheetState extends State<_AddGoalSheet> {
   Future<void> _save() async {
     final title = _titleCtrl.text.trim();
     final target = double.tryParse(_targetCtrl.text.trim());
-    if (title.isEmpty || target == null || target <= 0) return;
+    if (title.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a goal name'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
+    if (target == null || target <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid target amount'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
 
     final current = double.tryParse(_currentCtrl.text.trim()) ?? 0.0;
 
@@ -1686,10 +1815,19 @@ class _BudgetEntrySheetState extends State<_BudgetEntrySheet> {
   }
 
   Future<void> _save() async {
-    if (_titleCtrl.text.trim().isEmpty || _amountCtrl.text.trim().isEmpty)
+    if (_titleCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a title'), behavior: SnackBarBehavior.floating),
+      );
       return;
+    }
     final amount = double.tryParse(_amountCtrl.text);
-    if (amount == null || amount <= 0) return;
+    if (amount == null || amount <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid amount'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     setState(() => _isSaving = true);
     final provider = context.read<AppProvider>();
     final existing = widget.existingEntry;

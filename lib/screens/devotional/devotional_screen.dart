@@ -51,6 +51,18 @@ class _DevotionalScreenState extends State<DevotionalScreen>
   }
 
   Future<void> _deleteEntry(String id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Devotional'),
+        content: const Text('Delete this devotional entry? This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(db.copyWith(

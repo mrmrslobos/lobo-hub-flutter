@@ -35,6 +35,16 @@ class _ChatScreenState extends State<ChatScreen> {
     super.dispose();
   }
 
+  bool _isSameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
+  String _formatDateSeparator(DateTime date) {
+    final now = DateTime.now();
+    if (_isSameDay(date, now)) return 'Today';
+    if (_isSameDay(date, now.subtract(const Duration(days: 1)))) return 'Yesterday';
+    return DateFormat('EEEE, MMMM d').format(date);
+  }
+
   void _scrollToBottom({bool animated = true}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollCtrl.hasClients) {
@@ -169,9 +179,15 @@ class _ChatScreenState extends State<ChatScreen> {
                 .toList()
               ..sort((a, b) => a.createdAt.compareTo(b.createdAt)));
 
-        // Scroll to bottom on first build or new message
+        // Scroll to bottom only if already near bottom
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _scrollToBottom(animated: false);
+          if (_scrollCtrl.hasClients) {
+            final maxScroll = _scrollCtrl.position.maxScrollExtent;
+            final currentScroll = _scrollCtrl.position.pixels;
+            if (maxScroll - currentScroll < 150) {
+              _scrollToBottom(animated: false);
+            }
+          }
         });
 
         return Scaffold(
@@ -231,6 +247,10 @@ class _ChatScreenState extends State<ChatScreen> {
                                   messages[i - 1].senderId !=
                                       msg.senderId);
 
+                          // Date separator
+                          final showDateSep = i == 0 ||
+                              !_isSameDay(messages[i - 1].createdAt, msg.createdAt);
+
                           // Reply reference
                           ChatMessage? replyMsg;
                           if (msg.replyToId != null) {
@@ -238,19 +258,34 @@ class _ChatScreenState extends State<ChatScreen> {
                                     (m) => m.id == msg.replyToId).firstOrNull;
                           }
 
-                          return _MessageBubble(
-                            msg: msg,
-                            isMe: isMe,
-                            sender: sender,
-                            showSenderInfo: showSenderInfo,
-                            replyMsg: replyMsg,
-                            provider: provider,
-                            onLongPress: () =>
-                                _showReactionPicker(provider, msg),
-                            onReply: () =>
-                                setState(() => _replyTo = msg),
-                            onReact: (emoji) =>
-                                _addReaction(provider, msg, emoji),
+                          return Column(
+                            children: [
+                              if (showDateSep)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  child: Text(
+                                    _formatDateSeparator(msg.createdAt),
+                                    style: const TextStyle(
+                                      fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w600,
+                                      color: AppTheme.stone400,
+                                    ),
+                                  ),
+                                ),
+                              _MessageBubble(
+                                msg: msg,
+                                isMe: isMe,
+                                sender: sender,
+                                showSenderInfo: showSenderInfo,
+                                replyMsg: replyMsg,
+                                provider: provider,
+                                onLongPress: () =>
+                                    _showReactionPicker(provider, msg),
+                                onReply: () =>
+                                    setState(() => _replyTo = msg),
+                                onReact: (emoji) =>
+                                    _addReaction(provider, msg, emoji),
+                              ),
+                            ],
                           );
                         },
                       ),
@@ -533,6 +568,14 @@ class _MessageBubble extends StatelessWidget {
                                           : AppTheme.stone400,
                                     ),
                                   ),
+                                  if (isMe) ...[
+                                    const SizedBox(width: 4),
+                                    Icon(
+                                      Icons.done_all_rounded,
+                                      size: 14,
+                                      color: Colors.white.withValues(alpha: 0.7),
+                                    ),
+                                  ],
                                 ],
                               ),
                             ],
