@@ -38,6 +38,22 @@ class _AISuggestion {
   });
 }
 
+class _TryAIFeature {
+  final IconData icon;
+  final String label;
+  final String description;
+  final String route;
+  final Color color;
+
+  const _TryAIFeature({
+    required this.icon,
+    required this.label,
+    required this.description,
+    required this.route,
+    required this.color,
+  });
+}
+
 // ─── Dashboard Screen ────────────────────────────────────────────────────────
 
 class DashboardScreen extends StatefulWidget {
@@ -485,6 +501,8 @@ Return ONLY the JSON array, no markdown.''',
                   _buildKidSwitcher(context, provider, switchableKids, family),
                 _buildActionButtons(context),
                 _buildAnnouncementSection(context, provider, family),
+                if (!family.welcomeDismissed)
+                  _buildTryAICard(context, provider, family),
                 _buildBirthdaysSection(db, familyId, today),
                 _buildAISuggestionsSection(),
                 _buildMonthlySummarySection(),
@@ -861,6 +879,155 @@ Return ONLY the JSON array, no markdown.''',
           else
             Icon(Icons.edit_outlined, size: 16, color: AppTheme.primary.withValues(alpha: 0.5)),
         ]),
+      ),
+    );
+  }
+
+  // ── Try AI Onboarding Card ──────────────────────────────────────────────
+
+  Widget _buildTryAICard(BuildContext context, AppProvider provider, Family family) {
+    final features = [
+      _TryAIFeature(
+        icon: Icons.auto_awesome_rounded,
+        label: 'Daily Devotional',
+        description: 'AI-generated family devotionals with scripture & prayer',
+        route: '/devotional',
+        color: const Color(0xFFF59E0B), // amber
+      ),
+      _TryAIFeature(
+        icon: Icons.restaurant_rounded,
+        label: 'Meal Planner',
+        description: 'Generate a full week of meals tailored to your family',
+        route: '/meals',
+        color: const Color(0xFF10B981), // emerald
+      ),
+      _TryAIFeature(
+        icon: Icons.checklist_rounded,
+        label: 'Task Breakdown',
+        description: 'Turn big goals into bite-sized tasks with AI',
+        route: '/tasks',
+        color: AppTheme.primary,
+      ),
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 8, 0),
+              child: Row(
+                children: [
+                  const Icon(Icons.waving_hand_rounded, color: Colors.white, size: 20),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'Try our AI-powered features',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded, color: Colors.white70, size: 18),
+                    onPressed: () {
+                      final updated = family.copyWith(welcomeDismissed: true);
+                      final db = provider.db;
+                      provider.updateFamily(updated);
+                      provider.saveAndSync(db.copyWith(
+                        families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
+                      ));
+                    },
+                    splashRadius: 18,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  ),
+                ],
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 4, 16, 12),
+              child: Text(
+                'Tap a feature below to get started',
+                style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white70),
+              ),
+            ),
+            SizedBox(
+              height: 130,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                itemCount: features.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 10),
+                itemBuilder: (_, i) {
+                  final f = features[i];
+                  return GestureDetector(
+                    onTap: () => context.push(f.route),
+                    child: Container(
+                      width: 150,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: f.color.withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Icon(f.icon, color: Colors.white, size: 18),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            f.label,
+                            style: const TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Expanded(
+                            child: Text(
+                              f.description,
+                              style: const TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 10.5,
+                                color: Colors.white70,
+                                height: 1.3,
+                              ),
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

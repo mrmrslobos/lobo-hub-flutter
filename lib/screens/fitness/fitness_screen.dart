@@ -106,7 +106,8 @@ class _FitnessScreenState extends State<FitnessScreen> {
         onSavePlan: (planMap) async {
           final provider = context.read<AppProvider>();
           final db = provider.db;
-          final userId = provider.activeUser!.id;
+          final userId = provider.activeUser?.id;
+          if (userId == null) return;
           // Replace existing plan for this user, or add new
           final plans = db.fitnessPlans.toList();
           plans.removeWhere((p) => p is Map && p['userId'] == userId);
@@ -1487,8 +1488,8 @@ class _FitnessLogSheetState extends State<_FitnessLogSheet> {
     final provider = context.read<AppProvider>();
     final log = FitnessLog(
       id: _uuid.v4(),
-      familyId: provider.activeFamily!.id,
-      userId: provider.activeUser!.id,
+      familyId: provider.activeFamily?.id ?? '',
+      userId: provider.activeUser?.id ?? '',
       activity: _activityCtrl.text.trim(),
       durationMinutes: duration,
       caloriesBurned: int.tryParse(_caloriesCtrl.text),
@@ -1671,7 +1672,7 @@ class _LogWeightSheetState extends State<_LogWeightSheet> {
     final provider = context.read<AppProvider>();
     final metric = FitnessMetric(
       id: const Uuid().v4(),
-      userId: provider.activeUser!.id,
+      userId: provider.activeUser?.id ?? '',
       type: 'WEIGHT',
       value: weight,
       date: _date,

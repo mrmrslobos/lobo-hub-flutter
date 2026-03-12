@@ -158,10 +158,11 @@ class AppProvider extends ChangeNotifier {
 
   /// Pull latest data from cloud and merge into local state.
   Future<void> _pullFromCloud() async {
-    if (_isSyncing || _activeFamily == null) return;
+    final familyId = _activeFamily?.id;
+    if (_isSyncing || familyId == null) return;
     _isSyncing = true;
     try {
-      final merged = await DatabaseService.reconcileCloud(_db, _activeFamily!.id);
+      final merged = await DatabaseService.reconcileCloud(_db, familyId);
       _db = merged;
       notifyListeners();
     } catch (e) {

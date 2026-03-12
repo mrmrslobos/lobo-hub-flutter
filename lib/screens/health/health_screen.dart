@@ -51,7 +51,11 @@ class _HealthScreenState extends State<HealthScreen> {
 
   /// Get or create a stable health record for a member.
   HealthRecord _getRecord(AppProvider provider, String memberId) {
-    final family = provider.activeFamily!;
+    final family = provider.activeFamily;
+    final user = provider.activeUser;
+    if (family == null || user == null) {
+      return HealthRecord(id: 'health_unknown_$memberId', familyId: '', userId: memberId, updatedBy: '');
+    }
     final records = provider.db.healthRecords
         .where((r) => r.familyId == family.id && r.userId == memberId)
         .toList();
@@ -60,13 +64,15 @@ class _HealthScreenState extends State<HealthScreen> {
       id: 'health_${family.id}_$memberId',
       familyId: family.id,
       userId: memberId,
-      updatedBy: provider.activeUser!.id,
+      updatedBy: user.id,
     );
   }
 
   Future<void> _saveRecord(HealthRecord updated) async {
     final provider = context.read<AppProvider>();
-    final family = provider.activeFamily!;
+    final family = provider.activeFamily;
+    final user = provider.activeUser;
+    if (family == null || user == null) return;
     final db = provider.db;
     final filtered = db.healthRecords
         .where((r) => !(r.familyId == family.id && r.userId == updated.userId))
@@ -75,7 +81,7 @@ class _HealthScreenState extends State<HealthScreen> {
       id: updated.id,
       familyId: updated.familyId,
       userId: updated.userId,
-      updatedBy: provider.activeUser!.id,
+      updatedBy: user.id,
       bloodType: updated.bloodType,
       allergies: updated.allergies,
       medications: updated.medications,

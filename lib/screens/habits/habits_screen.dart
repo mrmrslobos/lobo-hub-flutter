@@ -262,6 +262,22 @@ class _HabitsScreenState extends State<HabitsScreen> {
         },
         onDelete: () async {
           Navigator.of(context).pop();
+          final confirmed = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Delete Habit?'),
+              content: Text('Delete "${habit.title}" and all its history? This cannot be undone.'),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  style: TextButton.styleFrom(foregroundColor: Colors.red),
+                  child: const Text('Delete'),
+                ),
+              ],
+            ),
+          );
+          if (confirmed != true) return;
           final updated = db.dailyHabits
               .where((h) => h.id != habit.id)
               .toList();

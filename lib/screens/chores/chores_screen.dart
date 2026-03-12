@@ -644,8 +644,8 @@ class _ChoreFormSheetState extends State<_ChoreFormSheet> {
     final provider = context.read<AppProvider>();
     final chore = Chore(
       id: const Uuid().v4(),
-      familyId: provider.activeFamily!.id,
-      creatorId: provider.activeUser!.id,
+      familyId: provider.activeFamily?.id ?? '',
+      creatorId: provider.activeUser?.id ?? '',
       title: _titleCtrl.text.trim(),
       description: _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
       icon: _choreIcons[_selectedIconIndex],
