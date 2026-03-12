@@ -15,6 +15,15 @@ import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 
+/// Extract the reference portion from a combined scripture string.
+/// e.g. "For God so loved...\n— John 3:16" → "John 3:16"
+/// Falls back to the full string if no em-dash separator is found.
+String _extractRef(String scripture) {
+  final idx = scripture.lastIndexOf('\u2014');
+  if (idx >= 0) return scripture.substring(idx + 1).trim();
+  return scripture;
+}
+
 class DevotionalScreen extends StatefulWidget {
   const DevotionalScreen({super.key});
 
@@ -279,7 +288,9 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
       final raw = await AiService.ask(
         prompt: '''Write a kids-friendly family devotional for today.
 Pick a random Bible verse and build a short, warm devotional around it.
-Return JSON with these exact fields: title, scripture, content, reflectionPrompts (array of 3 discussion questions), prayer.
+Return JSON with these exact fields: title, scripture, scriptureRef, content, reflectionPrompts (array of 3 discussion questions), prayer.
+For "scripture", write out the FULL verse text (e.g. "For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.").
+For "scriptureRef", provide only the reference (e.g. "John 3:16").
 Make the content warm, relatable, and suitable for children.''',
         feature: 'ai_devotional',
         familyId: family.id,
@@ -289,12 +300,17 @@ Make the content warm, relatable, and suitable for children.''',
       if (raw != null && mounted) {
         try {
           final data = jsonDecode(raw) as Map<String, dynamic>;
+          final scriptureRef = data['scriptureRef'] as String?;
+          final scriptureText = data['scripture'] as String?;
+          final scripture = scriptureText != null && scriptureRef != null
+              ? '$scriptureText\n\u2014 $scriptureRef'
+              : scriptureText ?? scriptureRef;
           final entry = DevotionalEntry(
             id: const Uuid().v4(),
             familyId: family.id,
             creatorId: provider.activeUser?.id ?? '',
             title: data['title'] as String? ?? 'Daily Devotional',
-            scripture: data['scripture'] as String?,
+            scripture: scripture,
             content: data['content'] as String?,
             reflectionPrompts: (data['reflectionPrompts'] as List?)?.cast<String>() ?? [],
             prayer: data['prayer'] as String?,
@@ -338,7 +354,9 @@ Make the content warm, relatable, and suitable for children.''',
       final topic = _topicCtrl.text.trim().isEmpty ? 'a random Bible verse' : _topicCtrl.text.trim();
       final provider = context.read<AppProvider>();
       final prompt = '''Write a kids-friendly family devotional based on: $topic.
-Return JSON with these exact fields: title, scripture, content, reflectionPrompts (array of 3 discussion questions), prayer.
+Return JSON with these exact fields: title, scripture, scriptureRef, content, reflectionPrompts (array of 3 discussion questions), prayer.
+For "scripture", write out the FULL verse text (e.g. "For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.").
+For "scriptureRef", provide only the reference (e.g. "John 3:16").
 Make the content warm, relatable, and suitable for children.''';
 
       final raw = await AiService.ask(
@@ -351,12 +369,17 @@ Make the content warm, relatable, and suitable for children.''';
       if (raw != null && mounted) {
         try {
           final data = jsonDecode(raw) as Map<String, dynamic>;
+          final scriptureRef = data['scriptureRef'] as String?;
+          final scriptureText = data['scripture'] as String?;
+          final scripture = scriptureText != null && scriptureRef != null
+              ? '$scriptureText\n\u2014 $scriptureRef'
+              : scriptureText ?? scriptureRef;
           final entry = DevotionalEntry(
             id: const Uuid().v4(),
             familyId: widget.familyId,
             creatorId: provider.activeUser?.id ?? '',
             title: data['title'] as String? ?? 'Daily Devotional',
-            scripture: data['scripture'] as String?,
+            scripture: scripture,
             content: data['content'] as String?,
             reflectionPrompts: (data['reflectionPrompts'] as List?)?.cast<String>() ?? [],
             prayer: data['prayer'] as String?,
@@ -514,7 +537,7 @@ Make the content warm, relatable, and suitable for children.''';
                   children: [
                     if (entry.scripture != null)
                       Text(
-                        'BASED ON ${entry.scripture!.toUpperCase()}',
+                        'BASED ON ${_extractRef(entry.scripture!).toUpperCase()}',
                         style: const TextStyle(
                           fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700,
                           color: AppTheme.stone400, letterSpacing: 0.5,
@@ -617,7 +640,9 @@ class _ReadingPlansTabState extends State<_ReadingPlansTab> {
     try {
       final provider = context.read<AppProvider>();
       final prompt = '''Generate a $_duration-day family Bible reading plan on "$topic".
-Return JSON: { "title": string, "description": string, "entries": [{ "day": number, "title": string, "scripture": string, "content": string, "discussion": string }] }
+Return JSON: { "title": string, "description": string, "entries": [{ "day": number, "title": string, "scripture": string, "scriptureRef": string, "content": string, "discussion": string }] }
+For each entry's "scripture", write out the FULL verse text (e.g. "For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.").
+For "scriptureRef", provide only the book/chapter/verse reference (e.g. "John 3:16").
 Make it warm, kid-friendly, and relatable.''';
 
       final raw = await AiService.ask(
@@ -636,12 +661,17 @@ Make it warm, kid-friendly, and relatable.''';
         final newEntries = <DevotionalEntry>[];
         for (final dayData in entriesData) {
           final d = dayData as Map<String, dynamic>;
+          final sRef = d['scriptureRef'] as String?;
+          final sText = d['scripture'] as String?;
+          final combinedScripture = sText != null && sRef != null
+              ? '$sText\n\u2014 $sRef'
+              : sText ?? sRef;
           final entry = DevotionalEntry(
             id: const Uuid().v4(),
             familyId: widget.familyId,
             creatorId: provider.activeUser?.id ?? '',
             title: d['title'] as String? ?? 'Day ${d['day']}',
-            scripture: d['scripture'] as String?,
+            scripture: combinedScripture,
             content: d['content'] as String?,
             reflectionPrompts: [if (d['discussion'] != null) d['discussion'] as String],
             date: DateTime.now(),
@@ -926,7 +956,7 @@ class _EntryDetailView extends StatelessWidget {
             // Scripture badge
             if (entry.scripture != null) ...[
               Text(
-                'KIDS FRIENDLY BASED ON ${entry.scripture!.toUpperCase()}',
+                'KIDS FRIENDLY BASED ON ${_extractRef(entry.scripture!).toUpperCase()}',
                 style: const TextStyle(
                   fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700,
                   color: AppTheme.stone400, letterSpacing: 0.5,
