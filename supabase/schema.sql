@@ -665,3 +665,13 @@ create policy "Users manage own period symptoms"
   for all
   using  (auth.uid()::text = "userId")
   with check (auth.uid()::text = "userId");
+
+-- =============================================================================
+-- Daily Devotional scheduling columns on families
+-- =============================================================================
+alter table families add column if not exists "dailyDevotionalEnabled" boolean not null default false;
+alter table families add column if not exists "dailyDevotionalHour" smallint not null default 7;
+alter table families add column if not exists "dailyDevotionalMinute" smallint not null default 0;
+
+-- Devotional favorites (per-entry, local-first but synced)
+alter table devotionals add column if not exists "isFavorited" boolean not null default false;

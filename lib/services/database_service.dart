@@ -83,8 +83,12 @@ class DatabaseService {
     Future<void> up(String table, List<Map<String, dynamic>> rows,
         {String onConflict = 'id'}) async {
       if (rows.isNotEmpty) {
-        await SupabaseService.upsertTable(table, _camelRows(rows),
-            onConflict: onConflict);
+        try {
+          await SupabaseService.upsertTable(table, _camelRows(rows),
+              onConflict: onConflict);
+        } catch (e) {
+          debugPrint('[DatabaseService] Failed to sync $table: $e');
+        }
       }
     }
 
