@@ -48,6 +48,7 @@ class PrayerWallScreen extends StatefulWidget {
 
 class _PrayerWallScreenState extends State<PrayerWallScreen> {
   String _selectedFilter = 'all';
+  String _searchQuery = '';
 
   Future<void> _togglePrayed(PrayerRequest request, String userId) async {
     final provider = context.read<AppProvider>();
@@ -144,6 +145,12 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
         filtered = all;
     }
 
+    // Apply search filter
+    if (_searchQuery.isNotEmpty) {
+      final q = _searchQuery.toLowerCase();
+      filtered = filtered.where((r) => r.text.toLowerCase().contains(q)).toList();
+    }
+
     return Scaffold(
       backgroundColor: _warmCream,
       drawer: const AppDrawer(),
@@ -167,9 +174,7 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
         ),
         centerTitle: false,
         titleSpacing: 0,
-        actions: [
-          IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
-        ],
+        actions: const [],
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
@@ -266,6 +271,26 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
             ),
           ),
 
+          const SizedBox(height: 12),
+
+          // Search
+          TextField(
+            onChanged: (v) => setState(() => _searchQuery = v),
+            decoration: InputDecoration(
+              hintText: 'Search prayers...',
+              hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
+              prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
+              suffixIcon: _searchQuery.isNotEmpty
+                  ? IconButton(icon: const Icon(Icons.close_rounded, size: 18), onPressed: () => setState(() => _searchQuery = ''))
+                  : null,
+              filled: true,
+              fillColor: Colors.white,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primary)),
+            ),
+          ),
           const SizedBox(height: 16),
 
           // Posts

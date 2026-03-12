@@ -111,9 +111,7 @@ class _HabitsScreenState extends State<HabitsScreen> {
         ),
         centerTitle: false,
         titleSpacing: 0,
-        actions: [
-          IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
-        ],
+        actions: const [],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
@@ -753,7 +751,12 @@ class _AddHabitSheetState extends State<_AddHabitSheet> {
 
   Future<void> _save() async {
     final title = _titleCtrl.text.trim();
-    if (title.isEmpty) return;
+    if (title.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a habit name'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
 
     setState(() => _saving = true);
 

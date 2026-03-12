@@ -149,6 +149,106 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     }
   }
 
+  void _showImportSheet() {
+    final ctrl = TextEditingController();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+        child: Container(
+          decoration: const BoxDecoration(
+            color: AppTheme.surface,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const SheetHandle(),
+            const SizedBox(height: 8),
+            const Text('Import Period Data', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 20, color: AppTheme.stone900)),
+            const SizedBox(height: 8),
+            const Text(
+              'Paste your period dates below, one per line.\nFormat: start date - end date (YYYY-MM-DD)\n\nExample:\n2025-01-05 - 2025-01-10\n2025-02-03 - 2025-02-08',
+              style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone500),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: ctrl,
+              maxLines: 8,
+              style: const TextStyle(fontFamily: 'Inter', fontSize: 13),
+              decoration: InputDecoration(
+                hintText: '2025-01-05 - 2025-01-10\n2025-02-03 - 2025-02-08',
+                hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone300),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                contentPadding: const EdgeInsets.all(14),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () async {
+                  final text = ctrl.text.trim();
+                  if (text.isEmpty) return;
+                  final lines = text.split('\n').where((l) => l.trim().isNotEmpty);
+                  final provider = context.read<AppProvider>();
+                  final db = provider.db;
+                  final uuid = const Uuid();
+                  final familyId = provider.activeFamily!.id;
+                  final userId = provider.activeUser!.id;
+                  final newEntries = <PeriodEntry>[];
+                  int failed = 0;
+
+                  for (final line in lines) {
+                    try {
+                      final parts = line.split(RegExp(r'\s*[-–—]+\s*'));
+                      final start = DateTime.parse(parts[0].trim());
+                      final end = parts.length > 1 ? DateTime.parse(parts[1].trim()) : null;
+                      newEntries.add(PeriodEntry(
+                        id: uuid.v4(),
+                        familyId: familyId,
+                        userId: userId,
+                        startDate: start,
+                        endDate: end,
+                        flowLevel: FlowLevel.MEDIUM,
+                        symptoms: const [],
+                      ));
+                    } catch (_) {
+                      failed++;
+                    }
+                  }
+
+                  if (newEntries.isNotEmpty) {
+                    await provider.saveAndSync(db.copyWith(
+                      periodEntries: [...db.periodEntries, ...newEntries],
+                    ));
+                  }
+
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text('Imported ${newEntries.length} entries${failed > 0 ? ' ($failed failed)' : ''}'),
+                      backgroundColor: newEntries.isNotEmpty ? AppTheme.success : AppTheme.error,
+                    ));
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFE11D48),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text('Import', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700)),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
   Future<void> _deleteEntry(String id) async {
     final provider = context.read<AppProvider>();
     final db = provider.db;
@@ -241,12 +341,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
         ),
         centerTitle: false,
         titleSpacing: 0,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500),
-            onPressed: () {},
-          ),
-        ],
+        actions: const [],
       ),
       body: SingleChildScrollView(
         child: Column(
@@ -260,7 +355,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
                 ActionChipButton(
                   icon: Icons.download_rounded,
                   label: 'Import',
-                  onTap: () {},
+                  onTap: _showImportSheet,
                   backgroundColor: AppTheme.stone100,
                   foregroundColor: AppTheme.stone700,
                 ),
@@ -494,6 +589,19 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
                   decoration: BoxDecoration(color: AppTheme.error, borderRadius: BorderRadius.circular(16)),
                   child: const Icon(Icons.delete_outline_rounded, color: Colors.white),
                 ),
+                confirmDismiss: (_) async {
+                  return await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('Delete Entry'),
+                      content: const Text('Delete this period log entry? This cannot be undone.'),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                        TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+                      ],
+                    ),
+                  ) ?? false;
+                },
                 onDismissed: (_) => _deleteEntry(entry.id),
                 child: GestureDetector(
                   onTap: () => _showLogSheet(existing: entry),
@@ -851,6 +959,12 @@ class _PeriodLogSheetState extends State<_PeriodLogSheet> {
   }
 
   Future<void> _save() async {
+    if (_endDate != null && _endDate!.isBefore(_startDate)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('End date cannot be before start date'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     setState(() => _isSaving = true);
     final provider = context.read<AppProvider>();
     final entry = PeriodEntry(
