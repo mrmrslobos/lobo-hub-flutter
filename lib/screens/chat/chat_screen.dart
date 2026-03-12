@@ -27,12 +27,24 @@ class _ChatScreenState extends State<ChatScreen> {
   final _scrollCtrl = ScrollController();
   ChatMessage? _replyTo;
   bool _sending = false;
+  String _searchQuery = '';
+  bool _showSearch = false;
 
   @override
   void dispose() {
     _textCtrl.dispose();
     _scrollCtrl.dispose();
     super.dispose();
+  }
+
+  bool _isSameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
+  String _formatDateSeparator(DateTime date) {
+    final now = DateTime.now();
+    if (_isSameDay(date, now)) return 'Today';
+    if (_isSameDay(date, now.subtract(const Duration(days: 1)))) return 'Yesterday';
+    return DateFormat('EEEE, MMMM d').format(date);
   }
 
   void _scrollToBottom({bool animated = true}) {
@@ -102,6 +114,81 @@ class _ChatScreenState extends State<ChatScreen> {
     await provider.saveAndSync(db.copyWith(messages: messages));
   }
 
+  Future<void> _deleteMessage(AppProvider provider, ChatMessage msg) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Message'),
+        content: const Text('Delete this message? This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final db = provider.db;
+    await provider.saveAndSync(db.copyWith(
+      messages: db.messages.where((m) => m.id != msg.id).toList(),
+    ));
+  }
+
+  void _showMessageActions(AppProvider provider, ChatMessage msg) {
+    final isMe = msg.senderId == provider.activeUser?.id;
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SheetHandle(),
+            const SizedBox(height: 12),
+            ListTile(
+              leading: const Icon(Icons.reply_rounded),
+              title: const Text('Reply'),
+              onTap: () {
+                Navigator.pop(ctx);
+                setState(() => _replyTo = msg);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.emoji_emotions_outlined),
+              title: const Text('React'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showReactionPicker(provider, msg);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.copy_rounded),
+              title: const Text('Copy Text'),
+              onTap: () {
+                Clipboard.setData(ClipboardData(text: msg.content));
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Copied to clipboard'), duration: Duration(seconds: 1)),
+                );
+              },
+            ),
+            if (isMe)
+              ListTile(
+                leading: Icon(Icons.delete_outline_rounded, color: AppTheme.error),
+                title: Text('Delete', style: TextStyle(color: AppTheme.error)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _deleteMessage(provider, msg);
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showReactionPicker(AppProvider provider, ChatMessage msg) {
     const emojis = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
     showModalBottomSheet(
@@ -169,9 +256,15 @@ class _ChatScreenState extends State<ChatScreen> {
                 .toList()
               ..sort((a, b) => a.createdAt.compareTo(b.createdAt)));
 
-        // Scroll to bottom on first build or new message
+        // Scroll to bottom only if already near bottom
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _scrollToBottom(animated: false);
+          if (_scrollCtrl.hasClients) {
+            final maxScroll = _scrollCtrl.position.maxScrollExtent;
+            final currentScroll = _scrollCtrl.position.pixels;
+            if (maxScroll - currentScroll < 150) {
+              _scrollToBottom(animated: false);
+            }
+          }
         });
 
         return Scaffold(
@@ -199,61 +292,105 @@ class _ChatScreenState extends State<ChatScreen> {
             centerTitle: false,
             titleSpacing: 0,
             actions: [
-              IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
+              IconButton(
+                icon: Icon(_showSearch ? Icons.close_rounded : Icons.search_rounded, color: AppTheme.stone500),
+                onPressed: () => setState(() {
+                  _showSearch = !_showSearch;
+                  if (!_showSearch) _searchQuery = '';
+                }),
+              ),
             ],
           ),
           body: Column(
             children: [
+              // ─── Search bar ────────────────────────────────────────────
+              if (_showSearch)
+                Container(
+                  color: Colors.white,
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                  child: TextField(
+                    autofocus: true,
+                    onChanged: (v) => setState(() => _searchQuery = v),
+                    decoration: InputDecoration(
+                      hintText: 'Search messages...',
+                      hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
+                      prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
+                      suffixIcon: _searchQuery.isNotEmpty
+                          ? IconButton(icon: const Icon(Icons.close_rounded, size: 18), onPressed: () => setState(() => _searchQuery = ''))
+                          : null,
+                      filled: true,
+                      fillColor: AppTheme.stone50,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                    ),
+                  ),
+                ),
+
               // ─── Message list ──────────────────────────────────────────
               Expanded(
-                child: messages.isEmpty
-                    ? const EmptyState(
-                        emoji: '💬',
-                        title: 'No messages yet',
-                        subtitle:
-                            'Send the first message to your family!',
-                      )
-                    : ListView.builder(
-                        controller: _scrollCtrl,
-                        padding: const EdgeInsets.fromLTRB(
-                            12, 16, 12, 16),
-                        itemCount: messages.length,
-                        itemBuilder: (ctx, i) {
-                          final msg = messages[i];
-                          final isMe = msg.senderId == myId;
-                          final sender =
-                              provider.userById(msg.senderId);
+                child: () {
+                  final filteredMessages = _searchQuery.isEmpty
+                      ? messages
+                      : messages.where((m) => m.content.toLowerCase().contains(_searchQuery.toLowerCase())).toList();
+                  if (filteredMessages.isEmpty) {
+                    if (_searchQuery.isNotEmpty) {
+                      return const EmptyState(emoji: '🔍', title: 'No matches', subtitle: 'Try a different search term');
+                    }
+                    return const EmptyState(
+                      emoji: '💬',
+                      title: 'No messages yet',
+                      subtitle: 'Send the first message to your family!',
+                    );
+                  }
+                  return ListView.builder(
+                    controller: _scrollCtrl,
+                    padding: const EdgeInsets.fromLTRB(12, 16, 12, 16),
+                    itemCount: filteredMessages.length,
+                    itemBuilder: (ctx, i) {
+                      final msg = filteredMessages[i];
+                      final isMe = msg.senderId == myId;
+                      final sender = provider.userById(msg.senderId);
 
-                          // Group: show avatar + name only if
-                          // different sender than previous
-                          final showSenderInfo = !isMe &&
-                              (i == 0 ||
-                                  messages[i - 1].senderId !=
-                                      msg.senderId);
+                      final showSenderInfo = !isMe &&
+                          (i == 0 || filteredMessages[i - 1].senderId != msg.senderId);
 
-                          // Reply reference
-                          ChatMessage? replyMsg;
-                          if (msg.replyToId != null) {
-                            replyMsg = messages.where(
-                                    (m) => m.id == msg.replyToId).firstOrNull;
-                          }
+                      final showDateSep = i == 0 ||
+                          !_isSameDay(filteredMessages[i - 1].createdAt, msg.createdAt);
 
-                          return _MessageBubble(
+                      ChatMessage? replyMsg;
+                      if (msg.replyToId != null) {
+                        replyMsg = messages.where((m) => m.id == msg.replyToId).firstOrNull;
+                      }
+
+                      return Column(
+                        children: [
+                          if (showDateSep)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              child: Text(
+                                _formatDateSeparator(msg.createdAt),
+                                style: const TextStyle(
+                                  fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w600,
+                                  color: AppTheme.stone400,
+                                ),
+                              ),
+                            ),
+                          _MessageBubble(
                             msg: msg,
                             isMe: isMe,
                             sender: sender,
                             showSenderInfo: showSenderInfo,
                             replyMsg: replyMsg,
                             provider: provider,
-                            onLongPress: () =>
-                                _showReactionPicker(provider, msg),
-                            onReply: () =>
-                                setState(() => _replyTo = msg),
-                            onReact: (emoji) =>
-                                _addReaction(provider, msg, emoji),
-                          );
-                        },
-                      ),
+                            onLongPress: () => _showMessageActions(provider, msg),
+                            onReply: () => setState(() => _replyTo = msg),
+                            onReact: (emoji) => _addReaction(provider, msg, emoji),
+                          ),
+                        ],
+                      );
+                    },
+                  );
+                }(),
               ),
 
               // ─── Reply preview ────────────────────────────────────────
@@ -533,6 +670,14 @@ class _MessageBubble extends StatelessWidget {
                                           : AppTheme.stone400,
                                     ),
                                   ),
+                                  if (isMe) ...[
+                                    const SizedBox(width: 4),
+                                    Icon(
+                                      Icons.done_all_rounded,
+                                      size: 14,
+                                      color: Colors.white.withValues(alpha: 0.7),
+                                    ),
+                                  ],
                                 ],
                               ),
                             ],

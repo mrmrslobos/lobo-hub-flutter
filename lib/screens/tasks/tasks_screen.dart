@@ -31,6 +31,7 @@ class _TasksScreenState extends State<TasksScreen> {
   _TaskFilter _filter = _TaskFilter.all;
   String? _selectedFolder; // null = All Tasks, otherwise tag name
   String? _selectedMemberId; // null = all members
+  String _searchQuery = '';
 
   static const _folderNames = ['Home', 'Work', 'Personal', 'Shopping', 'AI Generated', 'Event'];
 
@@ -44,6 +45,16 @@ class _TasksScreenState extends State<TasksScreen> {
 
     return provider.db.tasks.where((t) {
       if (t.familyId != familyId) return false;
+
+      // Search filter
+      if (_searchQuery.isNotEmpty) {
+        final q = _searchQuery.toLowerCase();
+        if (!t.title.toLowerCase().contains(q) &&
+            !(t.notes?.toLowerCase().contains(q) ?? false) &&
+            !t.tags.any((tag) => tag.toLowerCase().contains(q))) {
+          return false;
+        }
+      }
 
       // Folder filter: match by tag (case-insensitive)
       if (_selectedFolder != null) {
@@ -98,12 +109,46 @@ class _TasksScreenState extends State<TasksScreen> {
       BuildContext context, AppProvider provider, Task task) async {
     final db = provider.db;
     final updated = task.copyWith(completed: !task.completed);
-    final tasks =
-        db.tasks.map((t) => t.id == task.id ? updated : t).toList();
+    var tasks = db.tasks.map((t) => t.id == task.id ? updated : t).toList();
+
+    // Generate next recurring instance when completing a recurring task
+    if (updated.completed && task.recurrence != Recurrence.NONE && task.dueDate != null) {
+      final nextDue = _nextRecurrenceDate(task.dueDate!, task.recurrence);
+      final nextTask = task.copyWith(
+        id: const Uuid().v4(),
+        completed: false,
+        completedBy: null,
+        dueDate: nextDue,
+      );
+      tasks = [...tasks, nextTask];
+      // Schedule reminder for new instance
+      if (nextTask.dueDate != null && nextTask.reminderMinutes != null && nextTask.dueTime != null) {
+        NotificationService.scheduleTaskReminder(
+          taskId: nextTask.id,
+          taskTitle: nextTask.title,
+          dueDate: nextTask.dueDate!,
+          dueTime: nextTask.dueTime!,
+          reminderMinutes: nextTask.reminderMinutes!,
+        );
+      }
+    }
+
     await provider.saveAndSync(db.copyWith(tasks: tasks));
-    // Cancel reminder when task is completed
     if (updated.completed) {
       NotificationService.cancelTaskReminder(task.id);
+    }
+  }
+
+  DateTime _nextRecurrenceDate(DateTime current, Recurrence recurrence) {
+    switch (recurrence) {
+      case Recurrence.DAILY:
+        return current.add(const Duration(days: 1));
+      case Recurrence.WEEKLY:
+        return current.add(const Duration(days: 7));
+      case Recurrence.MONTHLY:
+        return DateTime(current.year, current.month + 1, current.day);
+      case Recurrence.NONE:
+        return current;
     }
   }
 
@@ -210,9 +255,7 @@ class _TasksScreenState extends State<TasksScreen> {
             ),
             centerTitle: false,
             titleSpacing: 0,
-            actions: [
-              IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
-            ],
+            actions: const [],
           ),
           body: ListView(
             padding: EdgeInsets.zero,
@@ -478,6 +521,32 @@ class _TasksScreenState extends State<TasksScreen> {
                         onTap: () => setState(() => _filter = _TaskFilter.highPriority),
                       ),
                     ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Search bar
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: TextField(
+                  onChanged: (v) => setState(() => _searchQuery = v),
+                  decoration: InputDecoration(
+                    hintText: 'Search tasks...',
+                    hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
+                    prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.close_rounded, size: 18),
+                            onPressed: () => setState(() => _searchQuery = ''),
+                          )
+                        : null,
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primary)),
                   ),
                 ),
               ),
@@ -1239,6 +1308,26 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
 
   Future<void> _save() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
+
+    // Warn if due date is in the past (only for new tasks)
+    if (widget.editTask == null && _dueDate != null) {
+      final today = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+      if (_dueDate!.isBefore(today)) {
+        final proceed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Past Due Date'),
+            content: const Text('The due date is in the past. Create this task anyway?'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+              ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Create Anyway')),
+            ],
+          ),
+        );
+        if (proceed != true) return;
+      }
+    }
+
     setState(() => _loading = true);
     try {
       final provider = context.read<AppProvider>();

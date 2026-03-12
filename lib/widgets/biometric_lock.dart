@@ -1,6 +1,9 @@
 // lib/widgets/biometric_lock.dart
 // Biometric / PIN lock screen that wraps the app
 
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:local_auth/local_auth.dart';
@@ -187,6 +190,9 @@ class _BiometricLockScreenState extends State<BiometricLockScreen>
     });
   }
 
+  static String _hashPin(String pin) =>
+      sha256.convert(utf8.encode(pin)).toString();
+
   Future<void> _verifyPin() async {
     final enteredPin = _pinController.text.trim();
     if (enteredPin.length < 4) {
@@ -194,11 +200,12 @@ class _BiometricLockScreenState extends State<BiometricLockScreen>
       return;
     }
 
+    final hashedInput = _hashPin(enteredPin);
     final storedPin = await _secureStorage.read(key: 'lobohub_pin');
 
     if (storedPin == null) {
-      // No PIN stored — save this one as the new PIN
-      await _secureStorage.write(key: 'lobohub_pin', value: enteredPin);
+      // No PIN stored — save hashed PIN
+      await _secureStorage.write(key: 'lobohub_pin', value: hashedInput);
       setState(() {
         _unlocked = true;
         _pinError = null;
@@ -206,7 +213,18 @@ class _BiometricLockScreenState extends State<BiometricLockScreen>
       return;
     }
 
-    if (enteredPin == storedPin) {
+    // Migrate legacy plaintext PINs (4-digit strings) to hashed
+    final isLegacy = storedPin.length <= 8;
+    if (isLegacy && enteredPin == storedPin) {
+      await _secureStorage.write(key: 'lobohub_pin', value: hashedInput);
+      setState(() {
+        _unlocked = true;
+        _pinError = null;
+      });
+      return;
+    }
+
+    if (hashedInput == storedPin) {
       setState(() {
         _unlocked = true;
         _pinError = null;

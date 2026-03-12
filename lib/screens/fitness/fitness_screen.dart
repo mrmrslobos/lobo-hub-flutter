@@ -62,6 +62,7 @@ class _FitnessScreenState extends State<FitnessScreen> {
         if (mounted) setState(() => _motivationLoading = false);
       }
     } catch (e) {
+      debugPrint('[Fitness] motivation error: $e');
       if (mounted) setState(() => _motivationLoading = false);
     }
   }
@@ -106,7 +107,8 @@ class _FitnessScreenState extends State<FitnessScreen> {
         onSavePlan: (planMap) async {
           final provider = context.read<AppProvider>();
           final db = provider.db;
-          final userId = provider.activeUser!.id;
+          final userId = provider.activeUser?.id;
+          if (userId == null) return;
           // Replace existing plan for this user, or add new
           final plans = db.fitnessPlans.toList();
           plans.removeWhere((p) => p is Map && p['userId'] == userId);
@@ -118,6 +120,18 @@ class _FitnessScreenState extends State<FitnessScreen> {
   }
 
   Future<void> _deleteLog(String id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Log'),
+        content: const Text('Delete this fitness log entry?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(db.copyWith(
@@ -224,11 +238,7 @@ class _FitnessScreenState extends State<FitnessScreen> {
         ),
         centerTitle: false,
         titleSpacing: 0,
-        actions: [
-          IconButton(
-              icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500),
-              onPressed: () {}),
-        ],
+        actions: const [],
       ),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 32),
@@ -706,7 +716,12 @@ Apply the requested change while keeping everything else sensible.
       }
     } catch (e) {
       debugPrint('[Fitness] refine error: $e');
-      if (mounted) setState(() => _refining = false);
+      if (mounted) {
+        setState(() => _refining = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not refine plan. Please try again.'), behavior: SnackBarBehavior.floating),
+        );
+      }
     }
   }
 
@@ -1479,16 +1494,31 @@ class _FitnessLogSheetState extends State<_FitnessLogSheet> {
   }
 
   Future<void> _save() async {
-    if (_activityCtrl.text.trim().isEmpty ||
-        _durationCtrl.text.trim().isEmpty) return;
+    if (_activityCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter an activity name'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
+    if (_durationCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a duration'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     final duration = int.tryParse(_durationCtrl.text);
-    if (duration == null || duration <= 0) return;
+    if (duration == null || duration <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Duration must be a positive number'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     setState(() => _isSaving = true);
     final provider = context.read<AppProvider>();
     final log = FitnessLog(
       id: _uuid.v4(),
-      familyId: provider.activeFamily!.id,
-      userId: provider.activeUser!.id,
+      familyId: provider.activeFamily?.id ?? '',
+      userId: provider.activeUser?.id ?? '',
       activity: _activityCtrl.text.trim(),
       durationMinutes: duration,
       caloriesBurned: int.tryParse(_caloriesCtrl.text),
@@ -1671,7 +1701,7 @@ class _LogWeightSheetState extends State<_LogWeightSheet> {
     final provider = context.read<AppProvider>();
     final metric = FitnessMetric(
       id: const Uuid().v4(),
-      userId: provider.activeUser!.id,
+      userId: provider.activeUser?.id ?? '',
       type: 'WEIGHT',
       value: weight,
       date: _date,

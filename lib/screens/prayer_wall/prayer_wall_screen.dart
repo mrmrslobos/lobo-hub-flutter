@@ -48,6 +48,7 @@ class PrayerWallScreen extends StatefulWidget {
 
 class _PrayerWallScreenState extends State<PrayerWallScreen> {
   String _selectedFilter = 'all';
+  String _searchQuery = '';
 
   Future<void> _togglePrayed(PrayerRequest request, String userId) async {
     final provider = context.read<AppProvider>();
@@ -58,6 +59,20 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
     await provider.saveAndSync(db.copyWith(
       prayerRequests: db.prayerRequests
           .map((r) => r.id == request.id ? r.copyWith(prayedByIds: newPrayed) : r)
+          .toList(),
+    ));
+  }
+
+  Future<void> _toggleReaction(PrayerRequest request, String emoji, String userId) async {
+    final provider = context.read<AppProvider>();
+    final db = provider.db;
+    final hasReacted = request.reactions.any((r) => r.userId == userId && r.emoji == emoji);
+    final newReactions = hasReacted
+        ? request.reactions.where((r) => !(r.userId == userId && r.emoji == emoji)).toList()
+        : [...request.reactions, Reaction(userId: userId, emoji: emoji)];
+    await provider.saveAndSync(db.copyWith(
+      prayerRequests: db.prayerRequests
+          .map((r) => r.id == request.id ? r.copyWith(reactions: newReactions) : r)
           .toList(),
     ));
   }
@@ -144,6 +159,12 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
         filtered = all;
     }
 
+    // Apply search filter
+    if (_searchQuery.isNotEmpty) {
+      final q = _searchQuery.toLowerCase();
+      filtered = filtered.where((r) => r.text.toLowerCase().contains(q)).toList();
+    }
+
     return Scaffold(
       backgroundColor: _warmCream,
       drawer: const AppDrawer(),
@@ -167,9 +188,7 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
         ),
         centerTitle: false,
         titleSpacing: 0,
-        actions: [
-          IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
-        ],
+        actions: const [],
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
@@ -266,6 +285,26 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
             ),
           ),
 
+          const SizedBox(height: 12),
+
+          // Search
+          TextField(
+            onChanged: (v) => setState(() => _searchQuery = v),
+            decoration: InputDecoration(
+              hintText: 'Search prayers...',
+              hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
+              prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
+              suffixIcon: _searchQuery.isNotEmpty
+                  ? IconButton(icon: const Icon(Icons.close_rounded, size: 18), onPressed: () => setState(() => _searchQuery = ''))
+                  : null,
+              filled: true,
+              fillColor: Colors.white,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primary)),
+            ),
+          ),
           const SizedBox(height: 16),
 
           // Posts
@@ -298,6 +337,7 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
                   onAnswered: !request.answered && request.type == PrayerWallType.REQUEST
                       ? () => _markAnswered(request)
                       : null,
+                  onReaction: (emoji) => _toggleReaction(request, emoji, user.id),
                   onDelete: () => _deleteRequest(request.id),
                   authorName: author?.name ?? 'Family Member',
                   isGratitude: isGratitude,
@@ -438,6 +478,7 @@ class _PrayerCard extends StatelessWidget {
   final Color accentColor;
   final VoidCallback onPrayed;
   final VoidCallback? onAnswered;
+  final void Function(String emoji) onReaction;
   final VoidCallback onDelete;
   final String authorName;
   final bool isGratitude;
@@ -450,6 +491,7 @@ class _PrayerCard extends StatelessWidget {
     required this.accentColor,
     required this.onPrayed,
     required this.onAnswered,
+    required this.onReaction,
     required this.onDelete,
     required this.authorName,
     required this.isGratitude,
@@ -628,27 +670,38 @@ class _PrayerCard extends StatelessWidget {
             // Reactions row
             Row(children: [
               // Emoji reactions
-              ..._reactionEmojis.map((emoji) => GestureDetector(
-                    onTap: () {
-                      ScaffoldMessenger.of(context)
-                        ..clearSnackBars()
-                        ..showSnackBar(SnackBar(
-                          content: Text('Reacted with $emoji'),
-                          duration: const Duration(seconds: 1),
-                        ));
-                    },
+              ..._reactionEmojis.map((emoji) {
+                final count = request.reactions.where((r) => r.emoji == emoji).length;
+                final hasReacted = request.reactions.any((r) => r.userId == userId && r.emoji == emoji);
+                return GestureDetector(
+                    onTap: () => onReaction(emoji),
                     child: Container(
                       margin: const EdgeInsets.only(right: 6),
                       padding: const EdgeInsets.symmetric(
                           horizontal: 7, vertical: 4),
                       decoration: BoxDecoration(
-                        color: AppTheme.stone100,
+                        color: hasReacted
+                            ? accentColor.withValues(alpha: 0.12)
+                            : AppTheme.stone100,
                         borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                            color: hasReacted ? accentColor : Colors.transparent),
                       ),
-                      child: Text(emoji,
-                          style: const TextStyle(fontSize: 13)),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Text(emoji, style: const TextStyle(fontSize: 13)),
+                        if (count > 0) ...[
+                          const SizedBox(width: 3),
+                          Text('$count', style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: hasReacted ? accentColor : AppTheme.stone500,
+                          )),
+                        ],
+                      ]),
                     ),
-                  )),
+                  );
+              }),
               const Spacer(),
               // Prayed / 🙏 button
               GestureDetector(

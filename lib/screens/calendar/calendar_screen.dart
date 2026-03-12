@@ -32,6 +32,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   DateTime _selectedDay = DateTime.now();
   CalendarFormat _calFormat = CalendarFormat.month;
   bool _isSyncing = false;
+  String _searchQuery = '';
 
   // AI Event Strategist
   final _aiController = TextEditingController();
@@ -393,8 +394,18 @@ class _CalendarScreenState extends State<CalendarScreen> {
     final familyId = provider.activeFamily?.id;
     if (familyId == null) return [];
     return provider.db.events
-        .where((e) =>
-            e.familyId == familyId && isSameDay(e.startDate, day))
+        .where((e) {
+          if (e.familyId != familyId || !isSameDay(e.startDate, day)) return false;
+          if (_searchQuery.isNotEmpty) {
+            final q = _searchQuery.toLowerCase();
+            if (!e.title.toLowerCase().contains(q) &&
+                !(e.description?.toLowerCase().contains(q) ?? false) &&
+                !(e.location?.toLowerCase().contains(q) ?? false)) {
+              return false;
+            }
+          }
+          return true;
+        })
         .toList()
       ..sort((a, b) => a.startDate.compareTo(b.startDate));
   }
@@ -496,9 +507,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
             ),
             centerTitle: false,
             titleSpacing: 0,
-            actions: [
-              IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
-            ],
+            actions: const [],
           ),
           body: ListView(
             padding: EdgeInsets.zero,
@@ -534,6 +543,28 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     backgroundColor: AppTheme.stone800,
                   ),
                 ],
+              ),
+
+              // Event search
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                child: TextField(
+                  onChanged: (v) => setState(() => _searchQuery = v),
+                  decoration: InputDecoration(
+                    hintText: 'Search events...',
+                    hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
+                    prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(icon: const Icon(Icons.close_rounded, size: 18), onPressed: () => setState(() => _searchQuery = ''))
+                        : null,
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primary)),
+                  ),
+                ),
               ),
 
               // AI Event Strategist card

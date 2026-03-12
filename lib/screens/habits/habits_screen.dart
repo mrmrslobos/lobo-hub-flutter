@@ -111,9 +111,7 @@ class _HabitsScreenState extends State<HabitsScreen> {
         ),
         centerTitle: false,
         titleSpacing: 0,
-        actions: [
-          IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
-        ],
+        actions: const [],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
@@ -262,6 +260,22 @@ class _HabitsScreenState extends State<HabitsScreen> {
         },
         onDelete: () async {
           Navigator.of(context).pop();
+          final confirmed = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Delete Habit?'),
+              content: Text('Delete "${habit.title}" and all its history? This cannot be undone.'),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  style: TextButton.styleFrom(foregroundColor: Colors.red),
+                  child: const Text('Delete'),
+                ),
+              ],
+            ),
+          );
+          if (confirmed != true) return;
           final updated = db.dailyHabits
               .where((h) => h.id != habit.id)
               .toList();
@@ -737,7 +751,12 @@ class _AddHabitSheetState extends State<_AddHabitSheet> {
 
   Future<void> _save() async {
     final title = _titleCtrl.text.trim();
-    if (title.isEmpty) return;
+    if (title.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a habit name'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
 
     setState(() => _saving = true);
 

@@ -191,7 +191,12 @@ Return a JSON array of exactly 3 objects, each with these fields:
       }
     } catch (e) {
       debugPrint('[Meals] chef suggestion error: $e');
-      if (mounted) setState(() => _chefLoading = false);
+      if (mounted) {
+        setState(() => _chefLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not generate suggestions. Please try again.'), behavior: SnackBarBehavior.floating),
+        );
+      }
     }
   }
 
@@ -433,20 +438,42 @@ Return a JSON array of 7 objects, each with:
         db = db.copyWith(lists: [...db.lists, shoppingList]);
       }
 
+      // Auto-create meal prep tasks for each day
+      final mealTasks = <Task>[];
+      for (final mp in newMealPlans) {
+        final recipeName = mp.customMeal ??
+            newRecipes.where((r) => r.id == mp.recipeId).firstOrNull?.title ??
+            mp.mealType;
+        mealTasks.add(Task(
+          id: const Uuid().v4(),
+          familyId: provider.activeFamily!.id,
+          creatorId: provider.activeUser!.id,
+          title: 'Prep ${mp.mealType}: $recipeName',
+          dueDate: mp.date,
+          tags: const ['meals', 'auto'],
+        ));
+      }
+      db = db.copyWith(tasks: [...db.tasks, ...mealTasks]);
+
       await provider.saveAndSync(db);
 
       if (mounted) {
         setState(() => _weekPlannerLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Created ${newRecipes.length} recipes, ${newMealPlans.length} meal slots & shopping list!'),
+            content: Text('Created ${newRecipes.length} recipes, ${newMealPlans.length} meal slots, ${mealTasks.length} tasks & shopping list!'),
             behavior: SnackBarBehavior.floating,
           ),
         );
       }
     } catch (e) {
       debugPrint('[Meals] week planner error: $e');
-      if (mounted) setState(() => _weekPlannerLoading = false);
+      if (mounted) {
+        setState(() => _weekPlannerLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not generate meal plan. Please try again.'), behavior: SnackBarBehavior.floating),
+        );
+      }
     }
   }
 
@@ -725,9 +752,7 @@ Return a JSON array of 7 objects, each with:
         ),
         centerTitle: false,
         titleSpacing: 0,
-        actions: [
-          IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
-        ],
+        actions: const [],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
@@ -1571,11 +1596,22 @@ class _MealSlotCard extends StatelessWidget {
     );
   }
 
-  void _deleteMeal(BuildContext context) {
+  Future<void> _deleteMeal(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Meal'),
+        content: const Text('Remove this meal from your plan?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    final updated =
-        db.mealPlans.where((m) => m.id != meal!.id).toList();
+    final updated = db.mealPlans.where((m) => m.id != meal!.id).toList();
     provider.saveAndSync(db.copyWith(mealPlans: updated));
   }
 
@@ -1783,7 +1819,12 @@ class _AddMealSheetState extends State<_AddMealSheet> {
   }
 
   Future<void> _save() async {
-    if (_titleController.text.trim().isEmpty) return;
+    if (_titleController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a title'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     setState(() => _saving = true);
 
     final provider = context.read<AppProvider>();
@@ -2988,7 +3029,12 @@ class _AddRecipeSheetState extends State<_AddRecipeSheet> {
   }
 
   Future<void> _save() async {
-    if (_titleController.text.trim().isEmpty) return;
+    if (_titleController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a title'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     setState(() => _saving = true);
 
     final provider = context.read<AppProvider>();

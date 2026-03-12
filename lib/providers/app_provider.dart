@@ -29,6 +29,7 @@ class AppProvider extends ChangeNotifier {
   bool get isInitializing => _isInitializing;
   bool get isLocked => _isLocked;
   bool get isAuthenticated => _activeUser != null && _activeFamily != null;
+  bool get isSyncing => _isSyncing;
   Set<String> get unreadModules => _unreadModules;
 
   /// Returns the up-to-date Family from the DB (reflects any edits).
@@ -158,16 +159,18 @@ class AppProvider extends ChangeNotifier {
 
   /// Pull latest data from cloud and merge into local state.
   Future<void> _pullFromCloud() async {
-    if (_isSyncing || _activeFamily == null) return;
+    final familyId = _activeFamily?.id;
+    if (_isSyncing || familyId == null) return;
     _isSyncing = true;
+    notifyListeners();
     try {
-      final merged = await DatabaseService.reconcileCloud(_db, _activeFamily!.id);
+      final merged = await DatabaseService.reconcileCloud(_db, familyId);
       _db = merged;
-      notifyListeners();
     } catch (e) {
       debugPrint('[AppProvider] pullFromCloud error: $e');
     } finally {
       _isSyncing = false;
+      notifyListeners();
     }
   }
 

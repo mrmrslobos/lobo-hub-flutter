@@ -9,6 +9,7 @@ import 'package:flutter/material.dart' hide Visibility;
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../config/theme.dart';
@@ -38,6 +39,22 @@ class _AISuggestion {
   });
 }
 
+class _TryAIFeature {
+  final IconData icon;
+  final String label;
+  final String description;
+  final String route;
+  final Color color;
+
+  const _TryAIFeature({
+    required this.icon,
+    required this.label,
+    required this.description,
+    required this.route,
+    required this.color,
+  });
+}
+
 // ─── Dashboard Screen ────────────────────────────────────────────────────────
 
 class DashboardScreen extends StatefulWidget {
@@ -48,7 +65,7 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  bool _announcementDismissed = false;
+  String? _dismissedAnnouncement;
   List<_AISuggestion> _suggestions = [];
   bool _suggestionsLoading = true;
   bool _suggestionsLoaded = false;
@@ -60,7 +77,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
+    _loadDismissedAnnouncement();
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadAISuggestions());
+  }
+
+  Future<void> _loadDismissedAnnouncement() async {
+    final prefs = await SharedPreferences.getInstance();
+    final familyId = context.read<AppProvider>().activeFamily?.id;
+    if (familyId == null) return;
+    final dismissed = prefs.getString('dismissed_announcement_$familyId');
+    if (mounted) setState(() => _dismissedAnnouncement = dismissed);
+  }
+
+  Future<void> _dismissAnnouncement(String announcement, String familyId) async {
+    setState(() => _dismissedAnnouncement = announcement);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('dismissed_announcement_$familyId', announcement);
   }
 
   Future<void> _onRefresh() async {
@@ -466,12 +498,7 @@ Return ONLY the JSON array, no markdown.''',
             ),
             centerTitle: false,
             titleSpacing: 0,
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.notifications_none_rounded, color: AppTheme.stone500),
-                onPressed: () {},
-              ),
-            ],
+            actions: const [],
           ),
           body: RefreshIndicator(
             onRefresh: _onRefresh,
@@ -480,11 +507,10 @@ Return ONLY the JSON array, no markdown.''',
               padding: EdgeInsets.zero,
               children: [
                 _buildHeroSection(family),
-                // Kid switcher for parents
-                if (switchableKids.isNotEmpty)
-                  _buildKidSwitcher(context, provider, switchableKids, family),
                 _buildActionButtons(context),
                 _buildAnnouncementSection(context, provider, family),
+                if (!family.welcomeDismissed)
+                  _buildTryAICard(context, provider, family),
                 _buildBirthdaysSection(db, familyId, today),
                 _buildAISuggestionsSection(),
                 _buildMonthlySummarySection(),
@@ -576,6 +602,16 @@ Return ONLY the JSON array, no markdown.''',
           const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
         ]),
         centerTitle: false,
+        actions: [
+          if (provider.isSyncing)
+            const Padding(
+              padding: EdgeInsets.only(right: 16),
+              child: SizedBox(
+                width: 16, height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primary),
+              ),
+            ),
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: _onRefresh,
@@ -694,6 +730,22 @@ Return ONLY the JSON array, no markdown.''',
 
             // Today's Tasks
             _buildTodayFocus(context, tasksDueToday, const [], provider),
+
+            // Kid account switcher — show other kids
+            Builder(builder: (_) {
+              final otherKids = db.familyMembers
+                  .where((m) =>
+                      m.familyId == familyId &&
+                      m.userId != user.id &&
+                      m.moduleAccess != null &&
+                      m.moduleAccess!.isNotEmpty)
+                  .map((m) => db.users.where((u) => u.id == m.userId).toList())
+                  .where((u) => u.isNotEmpty)
+                  .map((u) => u.first)
+                  .toList();
+              if (otherKids.isEmpty) return const SizedBox.shrink();
+              return _buildKidSwitcher(context, provider, otherKids, family);
+            }),
           ],
         ),
       ),
@@ -716,7 +768,7 @@ Return ONLY the JSON array, no markdown.''',
     );
   }
 
-  // ── Kid Switcher (for parents) ─────────────────────────────────────────────
+  // ── Kid Switcher ───────────────────────────────────────────────────────────
 
   Widget _buildKidSwitcher(BuildContext context, AppProvider provider, List<User> kids, Family family) {
     return Padding(
@@ -730,9 +782,9 @@ Return ONLY the JSON array, no markdown.''',
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Row(children: [
-            Icon(Icons.child_care_rounded, size: 18, color: Color(0xFF2563EB)),
+            Icon(Icons.swap_horiz_rounded, size: 18, color: Color(0xFF2563EB)),
             SizedBox(width: 6),
-            Text('Switch to Kid View', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF2563EB))),
+            Text('Switch Account', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF2563EB))),
           ]),
           const SizedBox(height: 8),
           Wrap(spacing: 8, runSpacing: 8, children: kids.map((kid) {
@@ -834,7 +886,7 @@ Return ONLY the JSON array, no markdown.''',
   }
 
   Widget _buildAnnouncementSection(BuildContext context, AppProvider provider, Family family) {
-    final hasAnnouncement = family.announcement != null && !_announcementDismissed;
+    final hasAnnouncement = family.announcement != null && family.announcement != _dismissedAnnouncement;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
       child: Container(
@@ -855,12 +907,161 @@ Return ONLY the JSON array, no markdown.''',
           ),
           if (hasAnnouncement)
             GestureDetector(
-              onTap: () => setState(() => _announcementDismissed = true),
+              onTap: () => _dismissAnnouncement(family.announcement!, family.id),
               child: const Icon(Icons.close, size: 16, color: AppTheme.stone400),
             )
           else
             Icon(Icons.edit_outlined, size: 16, color: AppTheme.primary.withValues(alpha: 0.5)),
         ]),
+      ),
+    );
+  }
+
+  // ── Try AI Onboarding Card ──────────────────────────────────────────────
+
+  Widget _buildTryAICard(BuildContext context, AppProvider provider, Family family) {
+    final features = [
+      _TryAIFeature(
+        icon: Icons.auto_awesome_rounded,
+        label: 'Daily Devotional',
+        description: 'AI-generated family devotionals with scripture & prayer',
+        route: '/devotional',
+        color: const Color(0xFFF59E0B), // amber
+      ),
+      _TryAIFeature(
+        icon: Icons.restaurant_rounded,
+        label: 'Meal Planner',
+        description: 'Generate a full week of meals tailored to your family',
+        route: '/meals',
+        color: const Color(0xFF10B981), // emerald
+      ),
+      _TryAIFeature(
+        icon: Icons.checklist_rounded,
+        label: 'Task Breakdown',
+        description: 'Turn big goals into bite-sized tasks with AI',
+        route: '/tasks',
+        color: AppTheme.primary,
+      ),
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 8, 0),
+              child: Row(
+                children: [
+                  const Icon(Icons.waving_hand_rounded, color: Colors.white, size: 20),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'Try our AI-powered features',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded, color: Colors.white70, size: 18),
+                    onPressed: () {
+                      final updated = family.copyWith(welcomeDismissed: true);
+                      final db = provider.db;
+                      provider.updateFamily(updated);
+                      provider.saveAndSync(db.copyWith(
+                        families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
+                      ));
+                    },
+                    splashRadius: 18,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  ),
+                ],
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 4, 16, 12),
+              child: Text(
+                'Tap a feature below to get started',
+                style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white70),
+              ),
+            ),
+            SizedBox(
+              height: 130,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                itemCount: features.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 10),
+                itemBuilder: (_, i) {
+                  final f = features[i];
+                  return GestureDetector(
+                    onTap: () => context.push(f.route),
+                    child: Container(
+                      width: 150,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: f.color.withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Icon(f.icon, color: Colors.white, size: 18),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            f.label,
+                            style: const TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Expanded(
+                            child: Text(
+                              f.description,
+                              style: const TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 10.5,
+                                color: Colors.white70,
+                                height: 1.3,
+                              ),
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -51,6 +51,18 @@ class _DevotionalScreenState extends State<DevotionalScreen>
   }
 
   Future<void> _deleteEntry(String id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Devotional'),
+        content: const Text('Delete this devotional entry? This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(db.copyWith(
@@ -87,6 +99,15 @@ class _DevotionalScreenState extends State<DevotionalScreen>
           final provider = context.read<AppProvider>();
           final db = provider.db;
           final updated = _selectedEntry!.copyWith(userPrayer: prayer);
+          await provider.saveAndSync(db.copyWith(
+            devotionalEntries: db.devotionalEntries.map((e) => e.id == updated.id ? updated : e).toList(),
+          ));
+          setState(() => _selectedEntry = updated);
+        },
+        onToggleFavorite: () async {
+          final provider = context.read<AppProvider>();
+          final db = provider.db;
+          final updated = _selectedEntry!.copyWith(isFavorited: !_selectedEntry!.isFavorited);
           await provider.saveAndSync(db.copyWith(
             devotionalEntries: db.devotionalEntries.map((e) => e.id == updated.id ? updated : e).toList(),
           ));
@@ -229,6 +250,8 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
   final _topicCtrl = TextEditingController();
   bool _isShared = true;
   bool _isGenerating = false;
+  String _searchQuery = '';
+  bool _showFavoritesOnly = false;
 
   @override
   void initState() {
@@ -343,6 +366,11 @@ Make the content warm, relatable, and suitable for children.''',
       }
     } catch (e) {
       debugPrint('Daily devotional auto-generation failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not generate devotional. Pull down to retry.'), behavior: SnackBarBehavior.floating),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isGenerating = false);
     }
@@ -502,26 +530,110 @@ Make the content warm, relatable, and suitable for children.''';
         ),
         const SizedBox(height: 24),
 
-        // ── Past Readings ──
+        // ── Search & Favorites Filter ──
         if (widget.entries.isNotEmpty) ...[
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: TextField(
+              onChanged: (v) => setState(() => _searchQuery = v),
+              decoration: InputDecoration(
+                hintText: 'Search devotionals...',
+                hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
+                prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(icon: const Icon(Icons.close_rounded, size: 18), onPressed: () => setState(() => _searchQuery = ''))
+                    : null,
+                filled: true,
+                fillColor: Colors.white,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primary)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Row(
               children: [
-                Icon(Icons.menu_book_outlined, size: 18, color: AppTheme.stone500),
-                const SizedBox(width: 8),
-                const Text('Past Readings', style: TextStyle(
-                  fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: AppTheme.stone900,
-                )),
-                const Spacer(),
-                Text('${widget.entries.length}', style: const TextStyle(
-                  fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 14, color: AppTheme.stone400,
-                )),
+                GestureDetector(
+                  onTap: () => setState(() => _showFavoritesOnly = !_showFavoritesOnly),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: _showFavoritesOnly ? AppTheme.primary.withValues(alpha: 0.1) : AppTheme.stone100,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: _showFavoritesOnly ? AppTheme.primary : AppTheme.stone200),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _showFavoritesOnly ? Icons.bookmark_rounded : Icons.bookmark_outline_rounded,
+                          size: 16, color: _showFavoritesOnly ? AppTheme.primary : AppTheme.stone500,
+                        ),
+                        const SizedBox(width: 4),
+                        Text('Favorites', style: TextStyle(
+                          fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 12,
+                          color: _showFavoritesOnly ? AppTheme.primary : AppTheme.stone600,
+                        )),
+                      ],
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
-          const SizedBox(height: 12),
-          ...widget.entries.map((entry) => Padding(
+          const SizedBox(height: 16),
+        ],
+
+        // ── Past Readings ──
+        if (widget.entries.isNotEmpty) ...[
+          () {
+            final filtered = widget.entries.where((entry) {
+              if (_showFavoritesOnly && !entry.isFavorited) return false;
+              if (_searchQuery.isNotEmpty) {
+                final q = _searchQuery.toLowerCase();
+                if (!entry.title.toLowerCase().contains(q) &&
+                    !(entry.scripture?.toLowerCase().contains(q) ?? false) &&
+                    !(entry.content?.toLowerCase().contains(q) ?? false) &&
+                    !entry.tags.any((t) => t.toLowerCase().contains(q))) {
+                  return false;
+                }
+              }
+              return true;
+            }).toList();
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Row(
+                    children: [
+                      Icon(Icons.menu_book_outlined, size: 18, color: AppTheme.stone500),
+                      const SizedBox(width: 8),
+                      Text(_showFavoritesOnly ? 'Favorites' : 'Past Readings', style: const TextStyle(
+                        fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: AppTheme.stone900,
+                      )),
+                      const Spacer(),
+                      Text('${filtered.length}', style: const TextStyle(
+                        fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 14, color: AppTheme.stone400,
+                      )),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                if (filtered.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Center(child: Text(
+                      _showFavoritesOnly ? 'No favorited devotionals yet' : 'No matching devotionals',
+                      style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
+                    )),
+                  )
+                else
+                  ...filtered.map((entry) => Padding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
             child: GestureDetector(
               onTap: () => widget.onSelectEntry(entry),
@@ -552,24 +664,33 @@ Make the content warm, relatable, and suitable for children.''';
                       DateFormat('MMM d, yyyy').format(entry.date),
                       style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
                     ),
-                    if (entry.visibility == Visibility.FAMILY) ...[
-                      const SizedBox(height: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: AppTheme.primary.withValues(alpha: 0.08),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: const Text('Shared', style: TextStyle(
-                          fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w600, color: AppTheme.primary,
-                        )),
-                      ),
-                    ],
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        if (entry.visibility == Visibility.FAMILY)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            margin: const EdgeInsets.only(right: 6),
+                            decoration: BoxDecoration(
+                              color: AppTheme.primary.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Text('Shared', style: TextStyle(
+                              fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w600, color: AppTheme.primary,
+                            )),
+                          ),
+                        if (entry.isFavorited)
+                          Icon(Icons.bookmark_rounded, size: 16, color: AppTheme.primary),
+                      ],
+                    ),
                   ],
                 ),
               ),
             ),
           )),
+              ],
+            );
+          }(),
         ],
       ],
     );
@@ -908,12 +1029,14 @@ class _EntryDetailView extends StatelessWidget {
   final VoidCallback onBack;
   final VoidCallback onDelete;
   final Future<void> Function(String) onUpdatePrayer;
+  final VoidCallback onToggleFavorite;
 
   const _EntryDetailView({
     required this.entry,
     required this.onBack,
     required this.onDelete,
     required this.onUpdatePrayer,
+    required this.onToggleFavorite,
   });
 
   @override
@@ -1122,12 +1245,16 @@ class _EntryDetailView extends StatelessWidget {
                 Expanded(
                   child: OutlinedButton.icon(
                     onPressed: () {
+                      onToggleFavorite();
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Saved to favorites'), backgroundColor: AppTheme.success),
+                        SnackBar(
+                          content: Text(entry.isFavorited ? 'Removed from favorites' : 'Saved to favorites'),
+                          backgroundColor: AppTheme.success,
+                        ),
                       );
                     },
-                    icon: const Icon(Icons.bookmark_outline_rounded, size: 18),
-                    label: const Text('Save to Favorites'),
+                    icon: Icon(entry.isFavorited ? Icons.bookmark_rounded : Icons.bookmark_outline_rounded, size: 18),
+                    label: Text(entry.isFavorited ? 'Favorited' : 'Save to Favorites'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: AppTheme.stone600,
                       side: const BorderSide(color: AppTheme.stone200),

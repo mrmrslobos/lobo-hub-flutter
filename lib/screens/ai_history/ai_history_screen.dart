@@ -98,9 +98,7 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
         ),
         centerTitle: false,
         titleSpacing: 0,
-        actions: [
-          IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
-        ],
+        actions: const [],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
@@ -228,6 +226,19 @@ class _HistoryCard extends StatelessWidget {
         decoration: BoxDecoration(color: AppTheme.error, borderRadius: BorderRadius.circular(16)),
         child: const Icon(Icons.delete_outline_rounded, color: Colors.white),
       ),
+      confirmDismiss: (_) async {
+        return await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Delete Entry'),
+            content: const Text('Delete this AI history entry?'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+            ],
+          ),
+        ) ?? false;
+      },
       onDismissed: (_) => onDelete(),
       child: GestureDetector(
         onTap: onTap,
@@ -337,9 +348,22 @@ class _EntryDetailSheet extends StatelessWidget {
               IconButton(
                 icon: const Icon(Icons.delete_outline_rounded,
                     color: AppTheme.error),
-                onPressed: () {
-                  Navigator.pop(context);
-                  onDelete();
+                onPressed: () async {
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('Delete Entry'),
+                      content: const Text('Delete this AI history entry?'),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                        TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+                      ],
+                    ),
+                  );
+                  if (confirmed == true) {
+                    if (context.mounted) Navigator.pop(context);
+                    onDelete();
+                  }
                 },
               ),
             ]),

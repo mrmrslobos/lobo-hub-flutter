@@ -262,6 +262,18 @@ class _LocationScreenState extends State<LocationScreen> {
   }
 
   Future<void> _deletePlace(String placeId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Place'),
+        content: const Text('Remove this saved place?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(db.copyWith(
@@ -343,9 +355,7 @@ class _LocationScreenState extends State<LocationScreen> {
         ),
         centerTitle: false,
         titleSpacing: 0,
-        actions: [
-          IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
-        ],
+        actions: const [],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
@@ -676,7 +686,18 @@ class _AddPlaceSheetState extends State<_AddPlaceSheet> {
   }
 
   void _save() {
-    if (_nameCtrl.text.trim().isEmpty || widget.currentPosition == null) return;
+    if (_nameCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a place name'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
+    if (widget.currentPosition == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Location not available. Enable location services.'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     final provider = context.read<AppProvider>();
     final place = SavedPlace(
       id: const Uuid().v4(),

@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../config/theme.dart';
 import '../models/models.dart';
 import '../providers/app_provider.dart';
+import '../services/supabase_service.dart';
 import 'biometric_lock.dart';
 
 // ─────────────────────────────────────────────
@@ -121,19 +122,22 @@ class AppDrawer extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
 
-                  // Sections
+                  // Sections — hide inaccessible modules entirely
                   for (final section in _sections) ...[
-                    _SectionHeader(title: section.title),
-                    for (final item in section.items)
-                      _NavTile(
-                        icon: item.icon,
-                        label: item.label,
-                        route: item.route,
-                        isActive: currentRoute == item.route,
-                        canAccess: provider.canAccess(item.route),
-                        unreadCount: item.unreadCount,
-                      ),
-                    const SizedBox(height: 4),
+                    if (section.items.any((item) => provider.canAccess(item.route))) ...[
+                      _SectionHeader(title: section.title),
+                      for (final item in section.items)
+                        if (provider.canAccess(item.route))
+                          _NavTile(
+                            icon: item.icon,
+                            label: item.label,
+                            route: item.route,
+                            isActive: currentRoute == item.route,
+                            canAccess: true,
+                            unreadCount: item.unreadCount,
+                          ),
+                      const SizedBox(height: 4),
+                    ],
                   ],
 
                   // AI History at the end
@@ -892,13 +896,7 @@ class _NavTile extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (!canAccess)
-                  const Icon(
-                    Icons.lock_outline_rounded,
-                    size: 14,
-                    color: AppTheme.stone400,
-                  ),
-                if (unreadCount > 0 && canAccess)
+                if (unreadCount > 0)
                   Container(
                     width: 8,
                     height: 8,
@@ -1121,12 +1119,24 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
     final db = provider.db;
     final removedUserId = m.userId;
 
-    // Remove from familyMembers
+    // Remove from familyMembers locally
     final updatedMembers = db.familyMembers
         .where((fm) => !(fm.userId == removedUserId && fm.familyId == m.familyId))
         .toList();
 
     await provider.saveAndSync(db.copyWith(familyMembers: updatedMembers));
+
+    // Delete from cloud so the member doesn't return on next sync
+    if (SupabaseService.isConfigured) {
+      try {
+        await SupabaseService.deleteRows('family_members', {
+          'userId': removedUserId,
+          'familyId': m.familyId,
+        });
+      } catch (e) {
+        debugPrint('[Drawer] cloud delete member failed: $e');
+      }
+    }
     setState(() => _members.removeAt(index));
 
     if (mounted) {

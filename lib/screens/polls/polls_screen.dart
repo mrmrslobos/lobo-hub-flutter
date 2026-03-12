@@ -54,6 +54,18 @@ class _PollsScreenState extends State<PollsScreen> {
   }
 
   Future<void> _deletePoll(String pollId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Poll'),
+        content: const Text('Delete this poll and all votes? This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(db.copyWith(polls: db.polls.where((p) => p.id != pollId).toList()));
@@ -86,6 +98,25 @@ class _PollsScreenState extends State<PollsScreen> {
     }
 
     final polls = provider.db.polls.where((p) => p.familyId == family.id).toList();
+
+    // Auto-close expired polls
+    final now = DateTime.now();
+    final expiredPolls = polls.where((p) =>
+      p.status == PollStatus.open && p.deadline != null && p.deadline!.isBefore(now),
+    ).toList();
+    if (expiredPolls.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        final db = provider.db;
+        var updatedPolls = db.polls.map((p) {
+          if (expiredPolls.any((e) => e.id == p.id)) {
+            return p.copyWith(status: PollStatus.closed);
+          }
+          return p;
+        }).toList();
+        await provider.saveAndSync(db.copyWith(polls: updatedPolls));
+      });
+    }
+
     polls.sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
     final openPolls = polls.where((p) => p.status == PollStatus.open).toList();
@@ -124,9 +155,7 @@ class _PollsScreenState extends State<PollsScreen> {
         ),
         centerTitle: false,
         titleSpacing: 0,
-        actions: [
-          IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
-        ],
+        actions: const [],
       ),
       body: ListView(
         padding: EdgeInsets.zero,
@@ -515,9 +544,19 @@ class _CreatePollSheetState extends State<_CreatePollSheet> {
   }
 
   Future<void> _save() async {
-    if (_questionCtrl.text.trim().isEmpty) return;
+    if (_questionCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a question'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     final validOptions = _optionCtrls.map((c) => c.text.trim()).where((t) => t.isNotEmpty).toList();
-    if (validOptions.length < 2) return;
+    if (validOptions.length < 2) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Add at least 2 options'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     setState(() => _isSaving = true);
     final provider = context.read<AppProvider>();
     final poll = Poll(

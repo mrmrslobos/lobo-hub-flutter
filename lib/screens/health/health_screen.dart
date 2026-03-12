@@ -51,7 +51,11 @@ class _HealthScreenState extends State<HealthScreen> {
 
   /// Get or create a stable health record for a member.
   HealthRecord _getRecord(AppProvider provider, String memberId) {
-    final family = provider.activeFamily!;
+    final family = provider.activeFamily;
+    final user = provider.activeUser;
+    if (family == null || user == null) {
+      return HealthRecord(id: 'health_unknown_$memberId', familyId: '', userId: memberId, updatedBy: '');
+    }
     final records = provider.db.healthRecords
         .where((r) => r.familyId == family.id && r.userId == memberId)
         .toList();
@@ -60,13 +64,15 @@ class _HealthScreenState extends State<HealthScreen> {
       id: 'health_${family.id}_$memberId',
       familyId: family.id,
       userId: memberId,
-      updatedBy: provider.activeUser!.id,
+      updatedBy: user.id,
     );
   }
 
   Future<void> _saveRecord(HealthRecord updated) async {
     final provider = context.read<AppProvider>();
-    final family = provider.activeFamily!;
+    final family = provider.activeFamily;
+    final user = provider.activeUser;
+    if (family == null || user == null) return;
     final db = provider.db;
     final filtered = db.healthRecords
         .where((r) => !(r.familyId == family.id && r.userId == updated.userId))
@@ -75,7 +81,7 @@ class _HealthScreenState extends State<HealthScreen> {
       id: updated.id,
       familyId: updated.familyId,
       userId: updated.userId,
-      updatedBy: provider.activeUser!.id,
+      updatedBy: user.id,
       bloodType: updated.bloodType,
       allergies: updated.allergies,
       medications: updated.medications,
@@ -141,9 +147,7 @@ class _HealthScreenState extends State<HealthScreen> {
         ),
         centerTitle: false,
         titleSpacing: 0,
-        actions: [
-          IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
-        ],
+        actions: const [],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
@@ -397,7 +401,12 @@ class _AllergiesSectionState extends State<_AllergiesSection> {
   void dispose() { _nameCtrl.dispose(); _reactionCtrl.dispose(); super.dispose(); }
 
   void _add() {
-    if (_nameCtrl.text.trim().isEmpty) return;
+    if (_nameCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter an allergy name'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     final allergy = HealthAllergy(
       id: _uid(), name: _nameCtrl.text.trim(),
       severity: _severity,
@@ -417,7 +426,19 @@ class _AllergiesSectionState extends State<_AllergiesSection> {
     setState(() => _severity = AllergySeverity.MILD);
   }
 
-  void _remove(String id) {
+  Future<void> _remove(String id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove Allergy'),
+        content: const Text('Remove this allergy from the health record?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Remove', style: TextStyle(color: AppTheme.error))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     final r = widget.record;
     widget.onSave(HealthRecord(
       id: r.id, familyId: r.familyId, userId: r.userId, updatedBy: r.updatedBy,
@@ -542,7 +563,12 @@ class _MedicationsSectionState extends State<_MedicationsSection> {
   void dispose() { _nameCtrl.dispose(); _doseCtrl.dispose(); _freqCtrl.dispose(); super.dispose(); }
 
   void _add() {
-    if (_nameCtrl.text.trim().isEmpty) return;
+    if (_nameCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a medication name'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     final med = HealthMedication(
       id: _uid(), name: _nameCtrl.text.trim(),
       dose: _doseCtrl.text.trim().isEmpty ? null : _doseCtrl.text.trim(),
@@ -561,7 +587,19 @@ class _MedicationsSectionState extends State<_MedicationsSection> {
     _nameCtrl.clear(); _doseCtrl.clear(); _freqCtrl.clear();
   }
 
-  void _remove(String id) {
+  Future<void> _remove(String id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove Medication'),
+        content: const Text('Remove this medication from the health record?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Remove', style: TextStyle(color: AppTheme.error))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     final r = widget.record;
     widget.onSave(HealthRecord(
       id: r.id, familyId: r.familyId, userId: r.userId, updatedBy: r.updatedBy,
@@ -638,7 +676,12 @@ class _ConditionsSectionState extends State<_ConditionsSection> {
   void dispose() { _nameCtrl.dispose(); _notesCtrl.dispose(); super.dispose(); }
 
   void _add() {
-    if (_nameCtrl.text.trim().isEmpty) return;
+    if (_nameCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a condition name'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     final cond = HealthCondition(
       id: _uid(), name: _nameCtrl.text.trim(),
       notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
@@ -656,7 +699,19 @@ class _ConditionsSectionState extends State<_ConditionsSection> {
     _nameCtrl.clear(); _notesCtrl.clear();
   }
 
-  void _remove(String id) {
+  Future<void> _remove(String id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove Condition'),
+        content: const Text('Remove this condition from the health record?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Remove', style: TextStyle(color: AppTheme.error))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     final r = widget.record;
     widget.onSave(HealthRecord(
       id: r.id, familyId: r.familyId, userId: r.userId, updatedBy: r.updatedBy,
@@ -730,7 +785,12 @@ class _ImmunizationsSectionState extends State<_ImmunizationsSection> {
   void dispose() { _nameCtrl.dispose(); _dateCtrl.dispose(); super.dispose(); }
 
   void _add() {
-    if (_nameCtrl.text.trim().isEmpty) return;
+    if (_nameCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter an immunization name'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     final immu = HealthImmunization(
       id: _uid(), name: _nameCtrl.text.trim(),
       date: DateTime.tryParse(_dateCtrl.text.trim()),
@@ -748,7 +808,19 @@ class _ImmunizationsSectionState extends State<_ImmunizationsSection> {
     _nameCtrl.clear(); _dateCtrl.clear();
   }
 
-  void _remove(String id) {
+  Future<void> _remove(String id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove Immunization'),
+        content: const Text('Remove this immunization from the health record?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Remove', style: TextStyle(color: AppTheme.error))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     final r = widget.record;
     widget.onSave(HealthRecord(
       id: r.id, familyId: r.familyId, userId: r.userId, updatedBy: r.updatedBy,
@@ -824,7 +896,18 @@ class _EmergencySectionState extends State<_EmergencySection> {
   void dispose() { _nameCtrl.dispose(); _phoneCtrl.dispose(); _relationCtrl.dispose(); super.dispose(); }
 
   void _add() {
-    if (_nameCtrl.text.trim().isEmpty || _phoneCtrl.text.trim().isEmpty) return;
+    if (_nameCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a contact name'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
+    if (_phoneCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a phone number'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     final ec = EmergencyContact(
       id: _uid(), name: _nameCtrl.text.trim(), phone: _phoneCtrl.text.trim(),
       relation: _relationCtrl.text.trim().isEmpty ? null : _relationCtrl.text.trim(),
@@ -842,7 +925,19 @@ class _EmergencySectionState extends State<_EmergencySection> {
     _nameCtrl.clear(); _phoneCtrl.clear(); _relationCtrl.clear();
   }
 
-  void _remove(String id) {
+  Future<void> _remove(String id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove Contact'),
+        content: const Text('Remove this emergency contact?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Remove', style: TextStyle(color: AppTheme.error))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     final r = widget.record;
     widget.onSave(HealthRecord(
       id: r.id, familyId: r.familyId, userId: r.userId, updatedBy: r.updatedBy,

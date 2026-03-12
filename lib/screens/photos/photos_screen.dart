@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../services/supabase_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 
@@ -35,6 +36,7 @@ class PhotosScreen extends StatefulWidget {
 class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderStateMixin {
   final _picker = ImagePicker();
   late TabController _tabCtrl;
+  bool _isUploading = false;
 
   @override
   void initState() {
@@ -78,11 +80,27 @@ class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderSt
     if (!mounted) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
+    final familyId = provider.activeFamily!.id;
+    final photoId = const Uuid().v4();
+
+    // Show upload progress
+    setState(() => _isUploading = true);
+
+    // Upload to Supabase Storage (falls back to local path on failure)
+    final url = await SupabaseService.uploadPhoto(
+      familyId: familyId,
+      photoId: photoId,
+      filePath: file.path,
+    );
+
+    if (!mounted) return;
+    setState(() => _isUploading = false);
+
     final photo = Photo(
-      id: const Uuid().v4(),
-      familyId: provider.activeFamily!.id,
+      id: photoId,
+      familyId: familyId,
       uploaderId: provider.activeUser!.id,
-      url: file.path,
+      url: url,
       caption: caption?.isEmpty == true ? null : caption,
       tags: [],
       createdAt: DateTime.now(),
@@ -91,6 +109,18 @@ class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderSt
   }
 
   Future<void> _deletePhoto(String id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Photo'),
+        content: const Text('Delete this photo permanently?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(db.copyWith(photos: db.photos.where((p) => p.id != id).toList()));
@@ -228,6 +258,27 @@ class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderSt
                 ),
               ],
             ),
+
+            // Upload progress
+            if (_isUploading)
+              Container(
+                margin: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: AppTheme.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppTheme.primary.withValues(alpha: 0.2)),
+                ),
+                child: Row(
+                  children: [
+                    const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primary)),
+                    const SizedBox(width: 12),
+                    const Text('Uploading photo...', style: TextStyle(
+                      fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13, color: AppTheme.primary,
+                    )),
+                  ],
+                ),
+              ),
 
             // Stats bar
             if (photos.isNotEmpty || milestones.isNotEmpty)
