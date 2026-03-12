@@ -2207,7 +2207,12 @@ class _AiBankStatementImportSheetState extends State<_AiBankStatementImportSheet
 
   Future<void> _parseStatement() async {
     final text = _textController.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please paste your bank statement text'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     setState(() { _loading = true; _parsedTransactions = null; _error = null; });
 
     final provider = context.read<AppProvider>();

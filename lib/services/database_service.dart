@@ -6,6 +6,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/models.dart';
@@ -56,8 +57,8 @@ class DatabaseService {
     if (SupabaseService.isConfigured) {
       try {
         await _syncToCloud(db, familyId);
-      } catch (_) {
-        // Local save already succeeded; ignore cloud errors.
+      } catch (e) {
+        debugPrint('[DatabaseService] Cloud sync failed: $e');
       }
     }
   }
@@ -82,8 +83,12 @@ class DatabaseService {
     Future<void> up(String table, List<Map<String, dynamic>> rows,
         {String onConflict = 'id'}) async {
       if (rows.isNotEmpty) {
-        await SupabaseService.upsertTable(table, _camelRows(rows),
-            onConflict: onConflict);
+        try {
+          await SupabaseService.upsertTable(table, _camelRows(rows),
+              onConflict: onConflict);
+        } catch (e) {
+          debugPrint('[DatabaseService] Failed to sync $table: $e');
+        }
       }
     }
 

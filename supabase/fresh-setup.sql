@@ -44,9 +44,12 @@ CREATE TABLE IF NOT EXISTS families (
   settings             jsonb,
   "createdAt"          text,
   "welcomeDismissed"   boolean NOT NULL DEFAULT false,
-  "weeklyDigest"       boolean DEFAULT true,
-  "weeklyDigestDay"    smallint DEFAULT 0,
-  "weeklyDigestHour"   smallint DEFAULT 8
+  "weeklyDigest"              boolean DEFAULT true,
+  "weeklyDigestDay"           smallint DEFAULT 0,
+  "weeklyDigestHour"          smallint DEFAULT 8,
+  "dailyDevotionalEnabled"    boolean NOT NULL DEFAULT false,
+  "dailyDevotionalHour"       smallint NOT NULL DEFAULT 7,
+  "dailyDevotionalMinute"     smallint NOT NULL DEFAULT 0
 );
 
 -- ---------------------------------------------------------------------------
@@ -234,7 +237,8 @@ CREATE TABLE IF NOT EXISTS devotionals (
   "userPrayer"        text,
   tags                jsonb NOT NULL DEFAULT '[]'::jsonb,
   date                text NOT NULL,
-  visibility          text NOT NULL DEFAULT 'FAMILY'
+  visibility          text NOT NULL DEFAULT 'FAMILY',
+  "isFavorited"       boolean NOT NULL DEFAULT false
 );
 
 -- ---------------------------------------------------------------------------

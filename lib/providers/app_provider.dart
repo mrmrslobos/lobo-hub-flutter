@@ -68,28 +68,39 @@ class AppProvider extends ChangeNotifier {
   Future<void> _resolveUserFromSession(String userId, String email) async {
     var user = _db.users.firstWhereOrNull((u) => u.id == userId);
 
-    if (user == null) {
-      // Try to get the current active family from local state and reconcile
-      var knownFamilyId = _activeFamily?.id;
+    // Determine which family this user belongs to
+    var knownFamilyId = _activeFamily?.id;
 
-      // If no local family known, try looking up membership from cloud
-      if (knownFamilyId == null && SupabaseService.isConfigured) {
-        try {
-          final memberships = await SupabaseService.client
-              .from('family_members')
-              .select()
-              .eq('userId', userId);
-          if (memberships is List && memberships.isNotEmpty) {
-            knownFamilyId = (memberships.first['familyId'] ??
-                memberships.first['family_id']) as String?;
-          }
-        } catch (_) {}
-      }
+    // Check local memberships first
+    if (knownFamilyId == null && user != null) {
+      final membership = _db.familyMembers.firstWhereOrNull(
+        (m) => m.userId == userId,
+      );
+      knownFamilyId = membership?.familyId;
+    }
 
-      if (knownFamilyId != null) {
+    // If still unknown, look up membership from cloud
+    if (knownFamilyId == null && SupabaseService.isConfigured) {
+      try {
+        final memberships = await SupabaseService.client
+            .from('family_members')
+            .select()
+            .eq('userId', userId);
+        if (memberships is List && memberships.isNotEmpty) {
+          knownFamilyId = (memberships.first['familyId'] ??
+              memberships.first['family_id']) as String?;
+        }
+      } catch (_) {}
+    }
+
+    // Always reconcile with cloud to ensure data is up to date
+    if (knownFamilyId != null && SupabaseService.isConfigured) {
+      try {
         _db = await DatabaseService.reconcileCloud(_db, knownFamilyId);
-        user = _db.users.firstWhereOrNull((u) => u.id == userId);
+      } catch (e) {
+        debugPrint('[AppProvider] Cloud reconciliation failed: $e');
       }
+      user = _db.users.firstWhereOrNull((u) => u.id == userId);
     }
 
     if (user != null) {

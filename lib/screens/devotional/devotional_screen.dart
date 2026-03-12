@@ -755,7 +755,12 @@ class _ReadingPlansTabState extends State<_ReadingPlansTab> {
     final topic = _customTopicCtrl.text.trim().isNotEmpty
         ? _customTopicCtrl.text.trim()
         : _selectedTopic;
-    if (topic == null || topic.isEmpty) return;
+    if (topic == null || topic.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select or enter a topic'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
 
     setState(() => _isGenerating = true);
     try {
