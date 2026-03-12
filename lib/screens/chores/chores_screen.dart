@@ -124,6 +124,118 @@ class _ChoresScreenState extends State<ChoresScreen> {
     ));
   }
 
+  Future<void> _approveCompletion(String completionId, {bool approve = true}) async {
+    final provider = context.read<AppProvider>();
+    final db = provider.db;
+    final updated = db.choreCompletions.map((c) {
+      if (c.id != completionId) return c;
+      return ChoreCompletion(
+        id: c.id,
+        choreId: c.choreId,
+        userId: c.userId,
+        familyId: c.familyId,
+        date: c.date,
+        completedAt: c.completedAt,
+        approvalStatus: approve ? ApprovalStatus.APPROVED : ApprovalStatus.REJECTED,
+      );
+    }).toList();
+    await provider.saveAndSync(db.copyWith(choreCompletions: updated));
+    if (mounted) {
+      final chore = db.chores.where((c) => c.id == db.choreCompletions.firstWhere((cc) => cc.id == completionId).choreId).firstOrNull;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(approve ? 'Approved! +${chore?.points ?? 0} pts' : 'Rejected'),
+        backgroundColor: approve ? AppTheme.success : AppTheme.error,
+        duration: const Duration(seconds: 2),
+      ));
+    }
+  }
+
+  Widget? _buildPendingApprovals(AppProvider provider, User user, String familyId,
+      List<Chore> allChores, List<ChoreCompletion> completions, List<User> members) {
+    final myRole = provider.db.familyMembers
+        .firstWhereOrNull((m) => m.familyId == familyId && m.userId == user.id)?.role;
+    if (myRole != Role.OWNER && myRole != Role.ADMIN) return null;
+
+    final pending = completions.where((c) => c.approvalStatus == ApprovalStatus.PENDING).toList();
+    if (pending.isEmpty) return null;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppTheme.warning.withValues(alpha: 0.4)),
+        ),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Icon(Icons.pending_actions_rounded, size: 20, color: AppTheme.warning),
+              const SizedBox(width: 8),
+              Text('Pending Approvals (${pending.length})', style: const TextStyle(
+                fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: AppTheme.stone900,
+              )),
+            ]),
+            const SizedBox(height: 12),
+            ...pending.map((cc) {
+              final chore = allChores.firstWhereOrNull((c) => c.id == cc.choreId);
+              final member = members.firstWhereOrNull((m) => m.id == cc.userId);
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Row(children: [
+                  UserAvatarWidget(name: member?.name ?? '?', radius: 14),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(chore?.title ?? 'Chore', style: const TextStyle(
+                          fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.stone800,
+                        )),
+                        Text('${member?.name.split(' ').first ?? 'Member'} \u00B7 ${DateFormat.MMMd().format(cc.date)}',
+                          style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text('+${chore?.points ?? 0}', style: const TextStyle(
+                    fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.primary,
+                  )),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: () => _approveCompletion(cc.id, approve: false),
+                    child: Container(
+                      width: 30, height: 30,
+                      decoration: BoxDecoration(
+                        color: AppTheme.error.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.close_rounded, size: 16, color: AppTheme.error),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  GestureDetector(
+                    onTap: () => _approveCompletion(cc.id),
+                    child: Container(
+                      width: 30, height: 30,
+                      decoration: BoxDecoration(
+                        color: AppTheme.success.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.check_rounded, size: 16, color: AppTheme.success),
+                    ),
+                  ),
+                ]),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showAddSheet() {
     showModalBottomSheet(
       context: context,
@@ -488,6 +600,12 @@ class _ChoresScreenState extends State<ChoresScreen> {
             ),
           ),
           const SizedBox(height: 20),
+
+          // ── Pending Approvals (owners/admins only) ──────────────────
+          Builder(builder: (_) {
+            final approvals = _buildPendingApprovals(provider, user, familyId, allChores, completions, members);
+            return approvals ?? const SizedBox.shrink();
+          }),
 
           // ── Family Status Today ─────────────────────────────────────
           Padding(

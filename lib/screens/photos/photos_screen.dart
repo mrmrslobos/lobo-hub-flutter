@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../services/supabase_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 
@@ -78,11 +79,22 @@ class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderSt
     if (!mounted) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
+    final familyId = provider.activeFamily!.id;
+    final photoId = const Uuid().v4();
+
+    // Upload to Supabase Storage (falls back to local path on failure)
+    final url = await SupabaseService.uploadPhoto(
+      familyId: familyId,
+      photoId: photoId,
+      filePath: file.path,
+    );
+
+    if (!mounted) return;
     final photo = Photo(
-      id: const Uuid().v4(),
-      familyId: provider.activeFamily!.id,
+      id: photoId,
+      familyId: familyId,
       uploaderId: provider.activeUser!.id,
-      url: file.path,
+      url: url,
       caption: caption?.isEmpty == true ? null : caption,
       tags: [],
       createdAt: DateTime.now(),

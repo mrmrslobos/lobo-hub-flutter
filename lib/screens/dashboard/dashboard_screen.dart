@@ -610,6 +610,16 @@ Return ONLY the JSON array, no markdown.''',
           const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
         ]),
         centerTitle: false,
+        actions: [
+          if (provider.isSyncing)
+            const Padding(
+              padding: EdgeInsets.only(right: 16),
+              child: SizedBox(
+                width: 16, height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primary),
+              ),
+            ),
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: _onRefresh,

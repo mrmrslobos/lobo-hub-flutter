@@ -438,13 +438,30 @@ Return a JSON array of 7 objects, each with:
         db = db.copyWith(lists: [...db.lists, shoppingList]);
       }
 
+      // Auto-create meal prep tasks for each day
+      final mealTasks = <Task>[];
+      for (final mp in newMealPlans) {
+        final recipeName = mp.customMeal ??
+            newRecipes.where((r) => r.id == mp.recipeId).firstOrNull?.title ??
+            mp.mealType;
+        mealTasks.add(Task(
+          id: const Uuid().v4(),
+          familyId: provider.activeFamily!.id,
+          creatorId: provider.activeUser!.id,
+          title: 'Prep ${mp.mealType}: $recipeName',
+          dueDate: mp.date,
+          tags: const ['meals', 'auto'],
+        ));
+      }
+      db = db.copyWith(tasks: [...db.tasks, ...mealTasks]);
+
       await provider.saveAndSync(db);
 
       if (mounted) {
         setState(() => _weekPlannerLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Created ${newRecipes.length} recipes, ${newMealPlans.length} meal slots & shopping list!'),
+            content: Text('Created ${newRecipes.length} recipes, ${newMealPlans.length} meal slots, ${mealTasks.length} tasks & shopping list!'),
             behavior: SnackBarBehavior.floating,
           ),
         );

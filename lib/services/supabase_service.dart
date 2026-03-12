@@ -3,6 +3,9 @@
 
 // ignore_for_file: avoid_catches_without_on_clauses
 
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class SupabaseService {
@@ -250,5 +253,30 @@ class SupabaseService {
   /// Unsubscribe and remove a realtime channel.
   static Future<void> unsubscribe(RealtimeChannel channel) async {
     await client.removeChannel(channel);
+  }
+
+  // ── Storage ─────────────────────────────────────────────────────────────
+
+  /// Upload a photo file to Supabase Storage and return the public URL.
+  /// Falls back to the local file path if upload fails.
+  static Future<String> uploadPhoto({
+    required String familyId,
+    required String photoId,
+    required String filePath,
+  }) async {
+    try {
+      final ext = filePath.split('.').last;
+      final storagePath = '$familyId/$photoId.$ext';
+      final file = File(filePath);
+
+      await client.storage
+          .from('family-photos')
+          .upload(storagePath, file, fileOptions: const FileOptions(upsert: true));
+
+      return client.storage.from('family-photos').getPublicUrl(storagePath);
+    } catch (e) {
+      debugPrint('[SupabaseService] photo upload failed: $e');
+      return filePath; // fallback to local path
+    }
   }
 }
