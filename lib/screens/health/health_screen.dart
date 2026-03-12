@@ -423,7 +423,19 @@ class _AllergiesSectionState extends State<_AllergiesSection> {
     setState(() => _severity = AllergySeverity.MILD);
   }
 
-  void _remove(String id) {
+  Future<void> _remove(String id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove Allergy'),
+        content: const Text('Remove this allergy from the health record?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Remove', style: TextStyle(color: AppTheme.error))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     final r = widget.record;
     widget.onSave(HealthRecord(
       id: r.id, familyId: r.familyId, userId: r.userId, updatedBy: r.updatedBy,
@@ -567,7 +579,19 @@ class _MedicationsSectionState extends State<_MedicationsSection> {
     _nameCtrl.clear(); _doseCtrl.clear(); _freqCtrl.clear();
   }
 
-  void _remove(String id) {
+  Future<void> _remove(String id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove Medication'),
+        content: const Text('Remove this medication from the health record?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Remove', style: TextStyle(color: AppTheme.error))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     final r = widget.record;
     widget.onSave(HealthRecord(
       id: r.id, familyId: r.familyId, userId: r.userId, updatedBy: r.updatedBy,
@@ -662,7 +686,19 @@ class _ConditionsSectionState extends State<_ConditionsSection> {
     _nameCtrl.clear(); _notesCtrl.clear();
   }
 
-  void _remove(String id) {
+  Future<void> _remove(String id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove Condition'),
+        content: const Text('Remove this condition from the health record?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Remove', style: TextStyle(color: AppTheme.error))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     final r = widget.record;
     widget.onSave(HealthRecord(
       id: r.id, familyId: r.familyId, userId: r.userId, updatedBy: r.updatedBy,
@@ -754,7 +790,19 @@ class _ImmunizationsSectionState extends State<_ImmunizationsSection> {
     _nameCtrl.clear(); _dateCtrl.clear();
   }
 
-  void _remove(String id) {
+  Future<void> _remove(String id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove Immunization'),
+        content: const Text('Remove this immunization from the health record?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Remove', style: TextStyle(color: AppTheme.error))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     final r = widget.record;
     widget.onSave(HealthRecord(
       id: r.id, familyId: r.familyId, userId: r.userId, updatedBy: r.updatedBy,
@@ -848,7 +896,19 @@ class _EmergencySectionState extends State<_EmergencySection> {
     _nameCtrl.clear(); _phoneCtrl.clear(); _relationCtrl.clear();
   }
 
-  void _remove(String id) {
+  Future<void> _remove(String id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove Contact'),
+        content: const Text('Remove this emergency contact?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Remove', style: TextStyle(color: AppTheme.error))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     final r = widget.record;
     widget.onSave(HealthRecord(
       id: r.id, familyId: r.familyId, userId: r.userId, updatedBy: r.updatedBy,

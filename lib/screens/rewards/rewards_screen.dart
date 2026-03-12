@@ -147,16 +147,23 @@ class _RewardsScreenState extends State<RewardsScreen> {
     ));
   }
 
-  void _showAddRewardSheet() {
+  void _showAddRewardSheet({Reward? editReward}) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => _RewardFormSheet(
+        editReward: editReward,
         onSave: (reward) async {
           final provider = context.read<AppProvider>();
           final db = provider.db;
-          await provider.saveAndSync(db.copyWith(rewards: [...db.rewards, reward]));
+          if (editReward != null) {
+            await provider.saveAndSync(db.copyWith(
+              rewards: db.rewards.map((r) => r.id == reward.id ? reward : r).toList(),
+            ));
+          } else {
+            await provider.saveAndSync(db.copyWith(rewards: [...db.rewards, reward]));
+          }
         },
       ),
     );
@@ -200,12 +207,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
         ),
         centerTitle: false,
         titleSpacing: 0,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500),
-            onPressed: () {},
-          ),
-        ],
+        actions: const [],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 40),
@@ -376,6 +378,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
                           ? () => _redeemReward(reward, user.id)
                           : null,
                       onDelete: () => _deleteReward(reward.id),
+                      onEdit: () => _showAddRewardSheet(editReward: reward),
                     );
                   },
                 ),
@@ -724,6 +727,7 @@ class _RewardCard extends StatelessWidget {
   final bool alreadyRedeemed;
   final VoidCallback? onRedeem;
   final VoidCallback onDelete;
+  final VoidCallback onEdit;
 
   const _RewardCard({
     required this.reward,
@@ -731,6 +735,7 @@ class _RewardCard extends StatelessWidget {
     required this.alreadyRedeemed,
     required this.onRedeem,
     required this.onDelete,
+    required this.onEdit,
   });
 
   @override
@@ -745,10 +750,17 @@ class _RewardCard extends StatelessWidget {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           const Text('🎁', style: TextStyle(fontSize: 28)),
-          GestureDetector(
-            onTap: onDelete,
-            child: const Icon(Icons.close_rounded, size: 16, color: AppTheme.stone300),
-          ),
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            GestureDetector(
+              onTap: onEdit,
+              child: const Icon(Icons.edit_outlined, size: 16, color: AppTheme.stone300),
+            ),
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: onDelete,
+              child: const Icon(Icons.close_rounded, size: 16, color: AppTheme.stone300),
+            ),
+          ]),
         ]),
         const SizedBox(height: 6),
         Text(reward.title, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: AppTheme.stone900), maxLines: 2, overflow: TextOverflow.ellipsis),
@@ -782,16 +794,17 @@ class _RewardCard extends StatelessWidget {
 
 class _RewardFormSheet extends StatefulWidget {
   final Future<void> Function(Reward) onSave;
-  const _RewardFormSheet({required this.onSave});
+  final Reward? editReward;
+  const _RewardFormSheet({required this.onSave, this.editReward});
 
   @override
   State<_RewardFormSheet> createState() => _RewardFormSheetState();
 }
 
 class _RewardFormSheetState extends State<_RewardFormSheet> {
-  final _titleCtrl = TextEditingController();
-  final _descCtrl = TextEditingController();
-  final _costCtrl = TextEditingController(text: '50');
+  late final TextEditingController _titleCtrl;
+  late final TextEditingController _descCtrl;
+  late final TextEditingController _costCtrl;
   String _selectedIcon = '🎁';
   bool _isSaving = false;
   final _uuid = const Uuid();
@@ -800,6 +813,29 @@ class _RewardFormSheetState extends State<_RewardFormSheet> {
     '🎁', '🎮', '🍕', '🎬', '🏖️', '🛍️', '☕', '🍦', '🎯', '🏆',
     '💆', '🎤', '🎲', '📱', '🎵', '🌟', '🍫', '🚗', '✈️', '🏠',
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    final r = widget.editReward;
+    if (r != null) {
+      // Extract icon from title (first character if emoji)
+      final title = r.title;
+      final iconMatch = RegExp(r'^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F?)\s*', unicode: true).firstMatch(title);
+      if (iconMatch != null) {
+        _selectedIcon = iconMatch.group(0)!.trim();
+        _titleCtrl = TextEditingController(text: title.substring(iconMatch.end));
+      } else {
+        _titleCtrl = TextEditingController(text: title);
+      }
+      _descCtrl = TextEditingController(text: r.description ?? '');
+      _costCtrl = TextEditingController(text: '${r.pointCost}');
+    } else {
+      _titleCtrl = TextEditingController();
+      _descCtrl = TextEditingController();
+      _costCtrl = TextEditingController(text: '50');
+    }
+  }
 
   @override
   void dispose() {
@@ -813,15 +849,14 @@ class _RewardFormSheetState extends State<_RewardFormSheet> {
     if (_titleCtrl.text.trim().isEmpty) return;
     setState(() => _isSaving = true);
     final provider = context.read<AppProvider>();
-    // Prepend icon to title since model has no icon field
     final titleWithIcon = '$_selectedIcon ${_titleCtrl.text.trim()}';
     final reward = Reward(
-      id: _uuid.v4(),
+      id: widget.editReward?.id ?? _uuid.v4(),
       familyId: provider.activeFamily!.id,
       title: titleWithIcon,
       description: _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
       pointCost: int.tryParse(_costCtrl.text) ?? 50,
-      redeemedBy: [],
+      redeemedBy: widget.editReward?.redeemedBy ?? [],
     );
     await widget.onSave(reward);
     if (mounted) Navigator.pop(context);
@@ -840,7 +875,7 @@ class _RewardFormSheetState extends State<_RewardFormSheet> {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           const SheetHandle(),
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            const Text('New Reward', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 20, color: AppTheme.stone900)),
+            Text(widget.editReward != null ? 'Edit Reward' : 'New Reward', style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 20, color: AppTheme.stone900)),
             TextButton(
               onPressed: _isSaving ? null : _save,
               child: _isSaving

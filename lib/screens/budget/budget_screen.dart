@@ -563,9 +563,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
         ),
         centerTitle: false,
         titleSpacing: 0,
-        actions: [
-          IconButton(icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500), onPressed: () {}),
-        ],
+        actions: const [],
       ),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 100),
