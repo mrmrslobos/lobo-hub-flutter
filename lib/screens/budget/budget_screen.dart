@@ -597,7 +597,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
                 ActionChipButton(
                   icon: Icons.warning_amber_rounded,
                   label: 'Add a category first',
-                  onTap: _addCategory,
+                  onTap: _showManageCategories,
                   backgroundColor: const Color(0xFFFFF7ED),
                   foregroundColor: AppTheme.warning,
                 ),

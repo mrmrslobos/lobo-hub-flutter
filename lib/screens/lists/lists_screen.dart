@@ -1145,7 +1145,7 @@ class _ItemTile extends StatelessWidget {
           context: context,
           builder: (ctx) => AlertDialog(
             title: const Text('Delete Item?'),
-            content: Text('Remove "${item.title}" from the list?'),
+            content: Text('Remove "${item.text}" from the list?'),
             actions: [
               TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
               TextButton(
