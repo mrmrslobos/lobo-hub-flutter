@@ -290,10 +290,12 @@ async function sendWebPushNotification(
 // Gemini AI call (same logic as ai-proxy)
 // ---------------------------------------------------------------------------
 
-async function generateDevotional(apiKey: string): Promise<{ title: string; scripture: string; content: string; reflectionPrompts: string[]; prayer: string } | null> {
+async function generateDevotional(apiKey: string): Promise<{ title: string; scripture: string; scriptureRef: string; content: string; reflectionPrompts: string[]; prayer: string } | null> {
   const prompt = `Write a kids-friendly family devotional for today.
 Pick a random Bible verse and build a short, warm devotional around it.
-Return JSON with these exact fields: title, scripture, content, reflectionPrompts (array of 3 discussion questions), prayer.
+Return JSON with these exact fields: title, scripture, scriptureRef, content, reflectionPrompts (array of 3 discussion questions), prayer.
+For "scripture", write out the FULL verse text (e.g. "For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.").
+For "scriptureRef", provide only the reference (e.g. "John 3:16").
 Make the content warm, relatable, and suitable for children.`;
 
   const MODEL_CANDIDATES = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
@@ -430,7 +432,14 @@ Deno.serve(async (req: Request) => {
         continue;
       }
 
-      // Insert into devotional_entries table
+      // Combine full verse text with reference
+      const scriptureText = devotional.scripture || null;
+      const scriptureRef = devotional.scriptureRef || null;
+      const scripture = scriptureText && scriptureRef
+        ? `${scriptureText}\n\u2014 ${scriptureRef}`
+        : scriptureText ?? scriptureRef;
+
+      // Insert into devotionals table
       const entryId = crypto.randomUUID();
       const { error: insertErr } = await supabase
         .from('devotionals')
@@ -439,7 +448,7 @@ Deno.serve(async (req: Request) => {
           familyId: family.id,
           creatorId: '00000000-0000-0000-0000-000000000000', // system-generated
           title: devotional.title || 'Daily Devotional',
-          scripture: devotional.scripture || null,
+          scripture: scripture,
           content: devotional.content || null,
           reflectionPrompts: devotional.reflectionPrompts || [],
           prayer: devotional.prayer || null,
