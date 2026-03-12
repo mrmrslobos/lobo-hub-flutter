@@ -154,29 +154,10 @@ class _TasksScreenState extends State<TasksScreen> {
 
   Future<void> _deleteTask(
       BuildContext context, AppProvider provider, Task task) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete task'),
-        content: Text('Delete "${task.title}"?'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete',
-                style: TextStyle(color: AppTheme.error)),
-          ),
-        ],
-      ),
-    );
-    if (confirmed == true) {
-      final db = provider.db;
-      final tasks = db.tasks.where((t) => t.id != task.id).toList();
-      await provider.saveAndSync(db.copyWith(tasks: tasks));
-      NotificationService.cancelTaskReminder(task.id);
-    }
+    final db = provider.db;
+    final tasks = db.tasks.where((t) => t.id != task.id).toList();
+    await provider.saveAndSync(db.copyWith(tasks: tasks));
+    NotificationService.cancelTaskReminder(task.id);
   }
 
   void _showAddTaskSheet(BuildContext context, {Task? editTask}) {
@@ -1002,21 +983,18 @@ class _TaskCard extends StatelessWidget {
         ),
         child: const Icon(Icons.delete_outline, color: AppTheme.error),
       ),
-      confirmDismiss: (_) async {
-        final confirmed = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Delete Task'),
-            content: const Text('Delete this task?'),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
-            ],
-          ),
-        ) ?? false;
-        if (confirmed) onDelete();
-        return false;
-      },
+      confirmDismiss: (_) async => await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Delete Task'),
+          content: Text('Delete "${task.title}"?'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+          ],
+        ),
+      ),
+      onDismissed: (_) => onDelete(),
       child: GestureDetector(
         onLongPress: onEdit,
         child: Container(
