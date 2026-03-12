@@ -167,7 +167,13 @@ class AppProvider extends ChangeNotifier {
 
     _realtimeChannel = SupabaseService.subscribeToFamily(
       familyId,
-      onBroadcast: (_) => _pullFromCloud(),
+      onBroadcast: (payload) {
+        // Ignore our own broadcasts to avoid race condition where we pull
+        // stale cloud data before our own sync has propagated.
+        final senderId = payload is Map ? payload['userId'] : null;
+        if (senderId == _activeUser?.id) return;
+        _pullFromCloud();
+      },
     );
   }
 
@@ -236,9 +242,16 @@ class AppProvider extends ChangeNotifier {
     _db = newDb;
     notifyListeners();
     if (_activeFamily != null) {
-      await DatabaseService.saveAndSync(newDb, _activeFamily!.id);
-      // Broadcast change to other family members via realtime channel
-      _broadcastChange();
+      // Block _pullFromCloud during save to prevent stale cloud data
+      // from overwriting local changes before sync propagates.
+      _isSyncing = true;
+      try {
+        await DatabaseService.saveAndSync(newDb, _activeFamily!.id);
+        // Broadcast change to other family members via realtime channel
+        _broadcastChange();
+      } finally {
+        _isSyncing = false;
+      }
     } else {
       await DatabaseService.saveLocal(newDb);
     }
