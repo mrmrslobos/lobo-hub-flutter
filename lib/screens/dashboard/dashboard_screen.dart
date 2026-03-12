@@ -512,9 +512,6 @@ Return ONLY the JSON array, no markdown.''',
               padding: EdgeInsets.zero,
               children: [
                 _buildHeroSection(family),
-                // Kid switcher for parents
-                if (switchableKids.isNotEmpty)
-                  _buildKidSwitcher(context, provider, switchableKids, family),
                 _buildActionButtons(context),
                 _buildAnnouncementSection(context, provider, family),
                 if (!family.welcomeDismissed)
@@ -738,6 +735,22 @@ Return ONLY the JSON array, no markdown.''',
 
             // Today's Tasks
             _buildTodayFocus(context, tasksDueToday, const [], provider),
+
+            // Kid account switcher — show other kids
+            Builder(builder: (_) {
+              final otherKids = db.familyMembers
+                  .where((m) =>
+                      m.familyId == familyId &&
+                      m.userId != user.id &&
+                      m.moduleAccess != null &&
+                      m.moduleAccess!.isNotEmpty)
+                  .map((m) => db.users.where((u) => u.id == m.userId).toList())
+                  .where((u) => u.isNotEmpty)
+                  .map((u) => u.first)
+                  .toList();
+              if (otherKids.isEmpty) return const SizedBox.shrink();
+              return _buildKidSwitcher(context, provider, otherKids, family);
+            }),
           ],
         ),
       ),
@@ -760,7 +773,7 @@ Return ONLY the JSON array, no markdown.''',
     );
   }
 
-  // ── Kid Switcher (for parents) ─────────────────────────────────────────────
+  // ── Kid Switcher ───────────────────────────────────────────────────────────
 
   Widget _buildKidSwitcher(BuildContext context, AppProvider provider, List<User> kids, Family family) {
     return Padding(
@@ -774,9 +787,9 @@ Return ONLY the JSON array, no markdown.''',
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Row(children: [
-            Icon(Icons.child_care_rounded, size: 18, color: Color(0xFF2563EB)),
+            Icon(Icons.swap_horiz_rounded, size: 18, color: Color(0xFF2563EB)),
             SizedBox(width: 6),
-            Text('Switch to Kid View', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF2563EB))),
+            Text('Switch Account', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF2563EB))),
           ]),
           const SizedBox(height: 8),
           Wrap(spacing: 8, runSpacing: 8, children: kids.map((kid) {

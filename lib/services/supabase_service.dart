@@ -255,6 +255,20 @@ class SupabaseService {
     await client.removeChannel(channel);
   }
 
+  // ── Delete ──────────────────────────────────────────────────────────────
+
+  /// Delete rows from a table matching the given filters.
+  static Future<void> deleteRows(
+    String table,
+    Map<String, String> filters,
+  ) async {
+    var query = client.from(table).delete();
+    for (final entry in filters.entries) {
+      query = query.eq(entry.key, entry.value);
+    }
+    await query;
+  }
+
   // ── Storage ─────────────────────────────────────────────────────────────
 
   /// Upload a photo file to Supabase Storage and return the public URL.
