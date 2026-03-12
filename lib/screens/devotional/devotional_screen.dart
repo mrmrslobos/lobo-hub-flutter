@@ -51,18 +51,6 @@ class _DevotionalScreenState extends State<DevotionalScreen>
   }
 
   Future<void> _deleteEntry(String id) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete Devotional'),
-        content: const Text('Delete this devotional entry? This cannot be undone.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(db.copyWith(
@@ -252,6 +240,7 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
   bool _isGenerating = false;
   String _searchQuery = '';
   bool _showFavoritesOnly = false;
+  bool _pastReadingsExpanded = false;
 
   @override
   void initState() {
@@ -534,65 +523,7 @@ Make the content warm, relatable, and suitable for children.''';
         ),
         const SizedBox(height: 24),
 
-        // ── Search & Favorites Filter ──
-        if (widget.entries.isNotEmpty) ...[
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: TextField(
-              onChanged: (v) => setState(() => _searchQuery = v),
-              decoration: InputDecoration(
-                hintText: 'Search devotionals...',
-                hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
-                prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
-                suffixIcon: _searchQuery.isNotEmpty
-                    ? IconButton(icon: const Icon(Icons.close_rounded, size: 18), onPressed: () => setState(() => _searchQuery = ''))
-                    : null,
-                filled: true,
-                fillColor: Colors.white,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
-                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
-                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primary)),
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Row(
-              children: [
-                GestureDetector(
-                  onTap: () => setState(() => _showFavoritesOnly = !_showFavoritesOnly),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: _showFavoritesOnly ? AppTheme.primary.withValues(alpha: 0.1) : AppTheme.stone100,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: _showFavoritesOnly ? AppTheme.primary : AppTheme.stone200),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          _showFavoritesOnly ? Icons.bookmark_rounded : Icons.bookmark_outline_rounded,
-                          size: 16, color: _showFavoritesOnly ? AppTheme.primary : AppTheme.stone500,
-                        ),
-                        const SizedBox(width: 4),
-                        Text('Favorites', style: TextStyle(
-                          fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 12,
-                          color: _showFavoritesOnly ? AppTheme.primary : AppTheme.stone600,
-                        )),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-        ],
-
-        // ── Past Readings ──
+        // ── Past Readings (collapsible) ──
         if (widget.entries.isNotEmpty) ...[
           () {
             final filtered = widget.entries.where((entry) {
@@ -611,87 +542,185 @@ Make the content warm, relatable, and suitable for children.''';
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Row(
-                    children: [
-                      Icon(Icons.menu_book_outlined, size: 18, color: AppTheme.stone500),
-                      const SizedBox(width: 8),
-                      Text(_showFavoritesOnly ? 'Favorites' : 'Past Readings', style: const TextStyle(
-                        fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: AppTheme.stone900,
-                      )),
-                      const Spacer(),
-                      Text('${filtered.length}', style: const TextStyle(
-                        fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 14, color: AppTheme.stone400,
-                      )),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                if (filtered.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.all(32),
-                    child: Center(child: Text(
-                      _showFavoritesOnly ? 'No favorited devotionals yet' : 'No matching devotionals',
-                      style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
-                    )),
-                  )
-                else
-                  ...filtered.map((entry) => Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-            child: GestureDetector(
-              onTap: () => widget.onSelectEntry(entry),
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppTheme.stone100),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (entry.scripture != null)
-                      Text(
-                        'BASED ON ${_extractRef(entry.scripture!).toUpperCase()}',
-                        style: const TextStyle(
-                          fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700,
-                          color: AppTheme.stone400, letterSpacing: 0.5,
-                        ),
+                // Tappable header to expand/collapse
+                GestureDetector(
+                  onTap: () => setState(() => _pastReadingsExpanded = !_pastReadingsExpanded),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppTheme.stone200),
                       ),
-                    if (entry.scripture != null) const SizedBox(height: 6),
-                    Text(entry.title, style: const TextStyle(
-                      fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: AppTheme.stone900,
-                    ), maxLines: 2, overflow: TextOverflow.ellipsis),
-                    const SizedBox(height: 4),
-                    Text(
-                      DateFormat('MMM d, yyyy').format(entry.date),
-                      style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        if (entry.visibility == Visibility.FAMILY)
+                      child: Row(
+                        children: [
+                          Icon(Icons.menu_book_outlined, size: 18, color: AppTheme.stone500),
+                          const SizedBox(width: 8),
+                          Text(_showFavoritesOnly ? 'Favorites' : 'Past Readings', style: const TextStyle(
+                            fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: AppTheme.stone900,
+                          )),
+                          const SizedBox(width: 8),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            margin: const EdgeInsets.only(right: 6),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                             decoration: BoxDecoration(
-                              color: AppTheme.primary.withValues(alpha: 0.08),
-                              borderRadius: BorderRadius.circular(6),
+                              color: AppTheme.stone100,
+                              borderRadius: BorderRadius.circular(10),
                             ),
-                            child: const Text('Shared', style: TextStyle(
-                              fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w600, color: AppTheme.primary,
+                            child: Text('${widget.entries.length}', style: const TextStyle(
+                              fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 12, color: AppTheme.stone500,
                             )),
                           ),
-                        if (entry.isFavorited)
-                          Icon(Icons.bookmark_rounded, size: 16, color: AppTheme.primary),
-                      ],
+                          const Spacer(),
+                          AnimatedRotation(
+                            turns: _pastReadingsExpanded ? 0.5 : 0.0,
+                            duration: const Duration(milliseconds: 200),
+                            child: const Icon(Icons.keyboard_arrow_down_rounded, color: AppTheme.stone400),
+                          ),
+                        ],
+                      ),
                     ),
-                  ],
+                  ),
                 ),
-              ),
-            ),
-          )),
+
+                // Collapsible content
+                AnimatedCrossFade(
+                  firstChild: const SizedBox.shrink(),
+                  secondChild: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 12),
+                      // Search box
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: TextField(
+                          onChanged: (v) => setState(() => _searchQuery = v),
+                          decoration: InputDecoration(
+                            hintText: 'Search devotionals...',
+                            hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
+                            prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
+                            suffixIcon: _searchQuery.isNotEmpty
+                                ? IconButton(icon: const Icon(Icons.close_rounded, size: 18), onPressed: () => setState(() => _searchQuery = ''))
+                                : null,
+                            filled: true,
+                            fillColor: Colors.white,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+                            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+                            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primary)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      // Favorites filter
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Row(
+                          children: [
+                            GestureDetector(
+                              onTap: () => setState(() => _showFavoritesOnly = !_showFavoritesOnly),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: _showFavoritesOnly ? AppTheme.primary.withValues(alpha: 0.1) : AppTheme.stone100,
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(color: _showFavoritesOnly ? AppTheme.primary : AppTheme.stone200),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      _showFavoritesOnly ? Icons.bookmark_rounded : Icons.bookmark_outline_rounded,
+                                      size: 16, color: _showFavoritesOnly ? AppTheme.primary : AppTheme.stone500,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text('Favorites', style: TextStyle(
+                                      fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 12,
+                                      color: _showFavoritesOnly ? AppTheme.primary : AppTheme.stone600,
+                                    )),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            const Spacer(),
+                            Text('${filtered.length} result${filtered.length == 1 ? '' : 's'}', style: const TextStyle(
+                              fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400,
+                            )),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      // Filtered entries list
+                      if (filtered.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.all(32),
+                          child: Center(child: Text(
+                            _showFavoritesOnly ? 'No favorited devotionals yet' : 'No matching devotionals',
+                            style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
+                          )),
+                        )
+                      else
+                        ...filtered.map((entry) => Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+                          child: GestureDetector(
+                            onTap: () => widget.onSelectEntry(entry),
+                            child: Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: AppTheme.stone100),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (entry.scripture != null)
+                                    Text(
+                                      'BASED ON ${_extractRef(entry.scripture!).toUpperCase()}',
+                                      style: const TextStyle(
+                                        fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700,
+                                        color: AppTheme.stone400, letterSpacing: 0.5,
+                                      ),
+                                    ),
+                                  if (entry.scripture != null) const SizedBox(height: 6),
+                                  Text(entry.title, style: const TextStyle(
+                                    fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: AppTheme.stone900,
+                                  ), maxLines: 2, overflow: TextOverflow.ellipsis),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    DateFormat('MMM d, yyyy').format(entry.date),
+                                    style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      if (entry.visibility == Visibility.FAMILY)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                          margin: const EdgeInsets.only(right: 6),
+                                          decoration: BoxDecoration(
+                                            color: AppTheme.primary.withValues(alpha: 0.08),
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: const Text('Shared', style: TextStyle(
+                                            fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w600, color: AppTheme.primary,
+                                          )),
+                                        ),
+                                      if (entry.isFavorited)
+                                        Icon(Icons.bookmark_rounded, size: 16, color: AppTheme.primary),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        )),
+                    ],
+                  ),
+                  crossFadeState: _pastReadingsExpanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+                  duration: const Duration(milliseconds: 250),
+                ),
               ],
             );
           }(),
