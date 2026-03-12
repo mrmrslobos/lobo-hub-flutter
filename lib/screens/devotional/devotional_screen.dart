@@ -343,6 +343,11 @@ Make the content warm, relatable, and suitable for children.''',
       }
     } catch (e) {
       debugPrint('Daily devotional auto-generation failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not generate devotional. Pull down to retry.'), behavior: SnackBarBehavior.floating),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isGenerating = false);
     }

@@ -62,6 +62,7 @@ class _FitnessScreenState extends State<FitnessScreen> {
         if (mounted) setState(() => _motivationLoading = false);
       }
     } catch (e) {
+      debugPrint('[Fitness] motivation error: $e');
       if (mounted) setState(() => _motivationLoading = false);
     }
   }
@@ -707,7 +708,12 @@ Apply the requested change while keeping everything else sensible.
       }
     } catch (e) {
       debugPrint('[Fitness] refine error: $e');
-      if (mounted) setState(() => _refining = false);
+      if (mounted) {
+        setState(() => _refining = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not refine plan. Please try again.'), behavior: SnackBarBehavior.floating),
+        );
+      }
     }
   }
 

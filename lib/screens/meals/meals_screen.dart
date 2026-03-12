@@ -191,7 +191,12 @@ Return a JSON array of exactly 3 objects, each with these fields:
       }
     } catch (e) {
       debugPrint('[Meals] chef suggestion error: $e');
-      if (mounted) setState(() => _chefLoading = false);
+      if (mounted) {
+        setState(() => _chefLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not generate suggestions. Please try again.'), behavior: SnackBarBehavior.floating),
+        );
+      }
     }
   }
 
@@ -446,7 +451,12 @@ Return a JSON array of 7 objects, each with:
       }
     } catch (e) {
       debugPrint('[Meals] week planner error: $e');
-      if (mounted) setState(() => _weekPlannerLoading = false);
+      if (mounted) {
+        setState(() => _weekPlannerLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not generate meal plan. Please try again.'), behavior: SnackBarBehavior.floating),
+        );
+      }
     }
   }
 

@@ -75,6 +75,9 @@ dependencies:
   # JSON serialization
   json_annotation: ^4.9.0
 
+  # Cryptography
+  crypto: ^3.0.6
+
   # In-app subscriptions (RevenueCat)
   purchases_flutter: ^8.0.0
 

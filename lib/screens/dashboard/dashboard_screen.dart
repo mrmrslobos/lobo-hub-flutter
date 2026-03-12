@@ -9,6 +9,7 @@ import 'package:flutter/material.dart' hide Visibility;
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../config/theme.dart';
@@ -64,7 +65,7 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  bool _announcementDismissed = false;
+  String? _dismissedAnnouncement;
   List<_AISuggestion> _suggestions = [];
   bool _suggestionsLoading = true;
   bool _suggestionsLoaded = false;
@@ -76,7 +77,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
+    _loadDismissedAnnouncement();
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadAISuggestions());
+  }
+
+  Future<void> _loadDismissedAnnouncement() async {
+    final prefs = await SharedPreferences.getInstance();
+    final familyId = context.read<AppProvider>().activeFamily?.id;
+    if (familyId == null) return;
+    final dismissed = prefs.getString('dismissed_announcement_$familyId');
+    if (mounted) setState(() => _dismissedAnnouncement = dismissed);
+  }
+
+  Future<void> _dismissAnnouncement(String announcement, String familyId) async {
+    setState(() => _dismissedAnnouncement = announcement);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('dismissed_announcement_$familyId', announcement);
   }
 
   Future<void> _onRefresh() async {
@@ -852,7 +868,7 @@ Return ONLY the JSON array, no markdown.''',
   }
 
   Widget _buildAnnouncementSection(BuildContext context, AppProvider provider, Family family) {
-    final hasAnnouncement = family.announcement != null && !_announcementDismissed;
+    final hasAnnouncement = family.announcement != null && family.announcement != _dismissedAnnouncement;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
       child: Container(
@@ -873,7 +889,7 @@ Return ONLY the JSON array, no markdown.''',
           ),
           if (hasAnnouncement)
             GestureDetector(
-              onTap: () => setState(() => _announcementDismissed = true),
+              onTap: () => _dismissAnnouncement(family.announcement!, family.id),
               child: const Icon(Icons.close, size: 16, color: AppTheme.stone400),
             )
           else
