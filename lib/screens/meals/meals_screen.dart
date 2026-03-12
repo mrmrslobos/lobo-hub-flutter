@@ -142,7 +142,12 @@ class _MealsScreenState extends State<MealsScreen>
   // ── AI Chef Suggestion ──
   Future<void> _generateChefSuggestion() async {
     final prefs = _chefController.text.trim();
-    if (prefs.isEmpty) return;
+    if (prefs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter your meal preferences'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     setState(() { _chefLoading = true; _chefSuggestions = null; });
 
     final localeService = context.read<LocaleService>();
@@ -251,7 +256,12 @@ Return a JSON array of exactly 3 objects, each with these fields:
   // ── AI Week Planner ──
   Future<void> _generateWeekPlan() async {
     final prefs = _weekPlannerController.text.trim();
-    if (prefs.isEmpty) return;
+    if (prefs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter your meal preferences'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     setState(() => _weekPlannerLoading = true);
 
     final localeService = context.read<LocaleService>();
@@ -480,7 +490,13 @@ Return a JSON array of 7 objects, each with:
   // ── Refine Meal Plan ──
   Future<void> _refineMealPlan() async {
     final request = _refineController.text.trim();
-    if (request.isEmpty || _lastPlanJson == null) return;
+    if (request.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please describe how to refine the plan'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
+    if (_lastPlanJson == null) return;
 
     setState(() {
       _refineLoading = true;
@@ -639,7 +655,12 @@ Return a JSON array of 7 objects, each with:
   // ── Import from URL (inline) ──
   Future<void> _importFromUrl() async {
     final url = _importUrlController.text.trim();
-    if (url.isEmpty) return;
+    if (url.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a recipe URL'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     setState(() => _importLoading = true);
 
     try {
@@ -2777,7 +2798,12 @@ class _ImportUrlDialogState extends State<_ImportUrlDialog> {
 
   Future<void> _import() async {
     final url = _urlController.text.trim();
-    if (url.isEmpty) return;
+    if (url.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a recipe URL'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
 
     setState(() {
       _loading = true;

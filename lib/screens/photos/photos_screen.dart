@@ -761,7 +761,12 @@ class _AddMilestoneSheetState extends State<_AddMilestoneSheet> {
   }
 
   Future<void> _save() async {
-    if (_titleCtrl.text.trim().isEmpty) return;
+    if (_titleCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a title'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     setState(() => _saving = true);
 
     final provider = context.read<AppProvider>();

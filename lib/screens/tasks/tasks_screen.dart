@@ -1003,8 +1003,19 @@ class _TaskCard extends StatelessWidget {
         child: const Icon(Icons.delete_outline, color: AppTheme.error),
       ),
       confirmDismiss: (_) async {
-        onDelete();
-        return false; // We handle deletion ourselves
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Delete Task'),
+            content: const Text('Delete this task?'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+            ],
+          ),
+        ) ?? false;
+        if (confirmed) onDelete();
+        return false;
       },
       child: GestureDetector(
         onLongPress: onEdit,

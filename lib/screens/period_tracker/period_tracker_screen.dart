@@ -191,7 +191,12 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
               child: ElevatedButton(
                 onPressed: () async {
                   final text = ctrl.text.trim();
-                  if (text.isEmpty) return;
+                  if (text.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Please paste period data to import'), behavior: SnackBarBehavior.floating),
+                    );
+                    return;
+                  }
                   final lines = text.split('\n').where((l) => l.trim().isNotEmpty);
                   final provider = context.read<AppProvider>();
                   final db = provider.db;

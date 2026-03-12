@@ -982,7 +982,12 @@ class _AiTextToChecklistSheetState extends State<_AiTextToChecklistSheet> {
 
   Future<void> _convert() async {
     final text = _textController.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter some text to convert'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     setState(() => _loading = true);
 
     const systemPrompt =

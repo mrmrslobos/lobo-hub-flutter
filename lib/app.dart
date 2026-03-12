@@ -42,7 +42,7 @@ class FamilyHubApp extends StatefulWidget {
   State<FamilyHubApp> createState() => _FamilyHubAppState();
 }
 
-class _FamilyHubAppState extends State<FamilyHubApp> {
+class _FamilyHubAppState extends State<FamilyHubApp> with WidgetsBindingObserver {
   late final GoRouter _router;
   late final AppProvider _provider;
   StreamSubscription<AuthState>? _authSub;
@@ -59,6 +59,14 @@ class _FamilyHubAppState extends State<FamilyHubApp> {
       _router = _buildRouter(_provider);
       _isRouterInitialized = true;
       _listenToAuthState();
+      WidgetsBinding.instance.addObserver(this);
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _provider.isAuthenticated) {
+      _provider.refreshFromCloud();
     }
   }
 
@@ -86,6 +94,7 @@ class _FamilyHubAppState extends State<FamilyHubApp> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _authSub?.cancel();
     super.dispose();
   }

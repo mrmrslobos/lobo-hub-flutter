@@ -654,7 +654,12 @@ class _StoredPlanViewState extends State<_StoredPlanView> {
 
   Future<void> _refinePlan() async {
     final request = _refineController.text.trim();
-    if (request.isEmpty) return;
+    if (request.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please describe how to refine the plan'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     setState(() => _refining = true);
 
     final currentPlanJson = jsonEncode(widget.plan);

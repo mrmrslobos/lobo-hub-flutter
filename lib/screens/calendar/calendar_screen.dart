@@ -47,7 +47,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   Future<void> _handleAiQuickPlan() async {
     final input = _aiController.text.trim();
-    if (input.isEmpty) return;
+    if (input.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please describe what to plan'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
 
     final provider = context.read<AppProvider>();
     final family = provider.activeFamily;
@@ -1739,7 +1744,12 @@ class _IcsUrlSheetState extends State<_IcsUrlSheet> {
 
   Future<void> _submit() async {
     final url = _urlCtrl.text.trim();
-    if (url.isEmpty) return;
+    if (url.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a calendar URL'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
 
     if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('webcal://')) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2138,7 +2148,12 @@ class _EventPlannerWizardState extends State<_EventPlannerWizard> {
   }
 
   Future<void> _generatePlan() async {
-    if (_nameCtrl.text.trim().isEmpty) return;
+    if (_nameCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter an event name'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
 
     final provider = context.read<AppProvider>();
     final family = provider.activeFamily;
