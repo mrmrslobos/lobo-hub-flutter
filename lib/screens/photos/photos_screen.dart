@@ -16,14 +16,14 @@ import '../../widgets/common_widgets.dart';
 const _reactionEmojis = ['❤️', '😍', '😂', '🥹', '🎉', '👏'];
 
 const _milestoneCategories = [
-  {'id': 'Firsts', 'emoji': '⭐', 'icon': Icons.star_rounded, 'color': Color(0xFFF59E0B)},
-  {'id': 'Growing Up', 'emoji': '👶', 'icon': Icons.child_care_rounded, 'color': Color(0xFFEC4899)},
-  {'id': 'School', 'emoji': '🎒', 'icon': Icons.school_rounded, 'color': Color(0xFF3B82F6)},
-  {'id': 'Activities', 'emoji': '🏆', 'icon': Icons.emoji_events_rounded, 'color': Color(0xFF22C55E)},
-  {'id': 'Travel', 'emoji': '✈️', 'icon': Icons.flight_rounded, 'color': Color(0xFF0EA5E9)},
-  {'id': 'Celebrations', 'emoji': '🎉', 'icon': Icons.celebration_rounded, 'color': Color(0xFF8B5CF6)},
-  {'id': 'Health', 'emoji': '❤️', 'icon': Icons.favorite_rounded, 'color': Color(0xFFF43F5E)},
-  {'id': 'Family', 'emoji': '👨‍👩‍👧', 'icon': Icons.people_rounded, 'color': Color(0xFF6366F1)},
+  (id: 'Firsts',        emoji: '⭐', icon: Icons.star_rounded,         color: Color(0xFFF59E0B)),
+  (id: 'Growing Up',    emoji: '👶', icon: Icons.child_care_rounded,   color: Color(0xFFEC4899)),
+  (id: 'School',        emoji: '🎒', icon: Icons.school_rounded,       color: Color(0xFF3B82F6)),
+  (id: 'Activities',    emoji: '🏆', icon: Icons.emoji_events_rounded, color: Color(0xFF22C55E)),
+  (id: 'Travel',        emoji: '✈️', icon: Icons.flight_rounded,       color: Color(0xFF0EA5E9)),
+  (id: 'Celebrations',  emoji: '🎉', icon: Icons.celebration_rounded,  color: Color(0xFF8B5CF6)),
+  (id: 'Health',        emoji: '❤️', icon: Icons.favorite_rounded,     color: Color(0xFFF43F5E)),
+  (id: 'Family',        emoji: '👨‍👩‍👧', icon: Icons.people_rounded,       color: Color(0xFF6366F1)),
 ];
 
 class PhotosScreen extends StatefulWidget {
@@ -33,22 +33,35 @@ class PhotosScreen extends StatefulWidget {
   State<PhotosScreen> createState() => _PhotosScreenState();
 }
 
-class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderStateMixin {
+class _PhotosScreenState extends State<PhotosScreen> {
   final _picker = ImagePicker();
-  late TabController _tabCtrl;
+  int _tabIndex = 0;
   bool _isUploading = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _tabCtrl = TabController(length: 2, vsync: this);
+  // ─── Helpers ────────────────────────────────────────────────────────────────
+
+  bool _isNetworkUrl(String url) =>
+      url.startsWith('http://') || url.startsWith('https://');
+
+  Widget _photoImage(String url, {BoxFit fit = BoxFit.cover}) {
+    if (_isNetworkUrl(url)) {
+      return Image.network(url, fit: fit,
+          errorBuilder: (_, __, ___) => _photoPlaceholder());
+    }
+    return Image.file(File(url), fit: fit,
+        errorBuilder: (_, __, ___) => _photoPlaceholder());
   }
 
-  @override
-  void dispose() {
-    _tabCtrl.dispose();
-    super.dispose();
+  Widget _photoPlaceholder() {
+    return Container(
+      color: AppTheme.stone100,
+      child: const Center(
+        child: Icon(Icons.image_outlined, color: AppTheme.stone300, size: 32),
+      ),
+    );
   }
+
+  // ─── Photo Actions ──────────────────────────────────────────────────────────
 
   Future<void> _pickAndAddPhoto() async {
     final XFile? file = await _picker.pickImage(source: ImageSource.gallery);
@@ -56,24 +69,13 @@ class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderSt
 
     String? caption;
     if (mounted) {
-      caption = await showDialog<String>(
+      caption = await showModalBottomSheet<String>(
         context: context,
-        builder: (ctx) {
-          final ctrl = TextEditingController();
-          return AlertDialog(
-            title: const Text('Add Caption'),
-            content: TextField(
-              controller: ctrl,
-              autofocus: true,
-              textCapitalization: TextCapitalization.sentences,
-              decoration: const InputDecoration(hintText: 'Caption (optional)'),
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Skip')),
-              TextButton(onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: const Text('Add')),
-            ],
-          );
-        },
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        builder: (_) => _CaptionSheet(),
       );
     }
 
@@ -83,10 +85,8 @@ class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderSt
     final familyId = provider.activeFamily!.id;
     final photoId = const Uuid().v4();
 
-    // Show upload progress
     setState(() => _isUploading = true);
 
-    // Upload to Supabase Storage (falls back to local path on failure)
     final url = await SupabaseService.uploadPhoto(
       familyId: familyId,
       photoId: photoId,
@@ -106,24 +106,98 @@ class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderSt
       createdAt: DateTime.now(),
     );
     await provider.saveAndSync(db.copyWith(photos: [...db.photos, photo]));
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('Photo added!'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ));
+    }
   }
 
   Future<void> _deletePhoto(String id) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete Photo'),
-        content: const Text('Delete this photo permanently?'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(children: [
+          Container(
+            width: 36, height: 36,
+            decoration: BoxDecoration(
+              color: AppTheme.error.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(Icons.delete_outline_rounded, size: 18, color: AppTheme.error),
+          ),
+          const SizedBox(width: 10),
+          const Text('Delete Photo', style: TextStyle(fontFamily: 'Inter', fontSize: 17, fontWeight: FontWeight.w800)),
+        ]),
+        content: const Text('This photo will be permanently deleted.', style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone600)),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, color: AppTheme.stone500)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, color: AppTheme.error)),
+          ),
         ],
       ),
     );
-    if (confirmed != true) return;
+    if (confirmed != true || !mounted) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(db.copyWith(photos: db.photos.where((p) => p.id != id).toList()));
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('Photo deleted'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ));
+    }
+  }
+
+  Future<void> _editCaption(Photo photo) async {
+    final newCaption = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => _CaptionSheet(initialCaption: photo.caption),
+    );
+    if (newCaption == null || !mounted) return;
+
+    final provider = context.read<AppProvider>();
+    final db = provider.db;
+    final updatedPhotos = db.photos.map((p) {
+      if (p.id != photo.id) return p;
+      return FamilyPhoto(
+        id: p.id,
+        familyId: p.familyId,
+        uploaderId: p.uploaderId,
+        url: p.url,
+        caption: newCaption.isEmpty ? null : newCaption,
+        takenAt: p.takenAt,
+        createdAt: p.createdAt,
+        reactions: p.reactions,
+        milestoneId: p.milestoneId,
+        tags: p.tags,
+        visibility: p.visibility,
+      );
+    }).toList();
+    await provider.saveAndSync(db.copyWith(photos: updatedPhotos));
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('Caption updated'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ));
+    }
   }
 
   Future<void> _reactToPhoto(Photo photo, String emoji) async {
@@ -159,34 +233,205 @@ class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderSt
     await provider.saveAndSync(db.copyWith(photos: updatedPhotos));
   }
 
-  void _showAddMilestone() {
+  Future<void> _deleteMilestone(Milestone ms) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(children: [
+          Container(
+            width: 36, height: 36,
+            decoration: BoxDecoration(
+              color: AppTheme.error.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(Icons.delete_outline_rounded, size: 18, color: AppTheme.error),
+          ),
+          const SizedBox(width: 10),
+          const Text('Delete Milestone', style: TextStyle(fontFamily: 'Inter', fontSize: 17, fontWeight: FontWeight.w800)),
+        ]),
+        content: Text('Delete "${ms.title}"?', style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone600)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, color: AppTheme.stone500)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, color: AppTheme.error)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final provider = context.read<AppProvider>();
+    final db = provider.db;
+    await provider.saveAndSync(db.copyWith(
+      milestones: db.milestones.where((m) => m.id != ms.id).toList(),
+    ));
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('Milestone deleted'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ));
+    }
+  }
+
+  void _showAddMilestone({Milestone? editing}) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (_) => const _AddMilestoneSheet(),
+      builder: (_) => _AddMilestoneSheet(editing: editing),
     );
   }
 
-  bool _isNetworkUrl(String url) {
-    return url.startsWith('http://') || url.startsWith('https://');
-  }
-
-  Widget _photoImage(String url, {BoxFit fit = BoxFit.cover}) {
-    if (_isNetworkUrl(url)) {
-      return Image.network(url, fit: fit, errorBuilder: (_, __, ___) => _photoPlaceholder());
-    }
-    return Image.file(File(url), fit: fit, errorBuilder: (_, __, ___) => _photoPlaceholder());
-  }
-
-  Widget _photoPlaceholder() {
-    return Container(
-      color: AppTheme.stone100,
-      child: const Icon(Icons.image_outlined, color: AppTheme.stone300, size: 32),
+  void _showPhotoActions(Photo photo) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SheetHandle(),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+              child: Row(children: [
+                Container(
+                  width: 36, height: 36,
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.photo_rounded, size: 18, color: AppTheme.primary),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    photo.caption ?? 'Photo',
+                    style: const TextStyle(fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.stone900),
+                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ]),
+            ),
+            const Divider(height: 1, color: AppTheme.stone100),
+            ListTile(
+              leading: Container(
+                width: 36, height: 36,
+                decoration: BoxDecoration(
+                  color: AppTheme.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.edit_outlined, size: 18, color: AppTheme.primary),
+              ),
+              title: const Text('Edit Caption', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600)),
+              onTap: () {
+                Navigator.pop(context);
+                _editCaption(photo);
+              },
+            ),
+            ListTile(
+              leading: Container(
+                width: 36, height: 36,
+                decoration: BoxDecoration(
+                  color: AppTheme.error.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.delete_outline_rounded, size: 18, color: AppTheme.error),
+              ),
+              title: const Text('Delete Photo', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.error)),
+              onTap: () {
+                Navigator.pop(context);
+                _deletePhoto(photo.id);
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
     );
   }
+
+  void _showMilestoneActions(Milestone ms) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SheetHandle(),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+              child: Row(children: [
+                Container(
+                  width: 36, height: 36,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF59E0B).withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Center(child: Text(ms.emoji ?? '⭐', style: const TextStyle(fontSize: 18))),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    ms.title,
+                    style: const TextStyle(fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.stone900),
+                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ]),
+            ),
+            const Divider(height: 1, color: AppTheme.stone100),
+            ListTile(
+              leading: Container(
+                width: 36, height: 36,
+                decoration: BoxDecoration(
+                  color: AppTheme.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.edit_outlined, size: 18, color: AppTheme.primary),
+              ),
+              title: const Text('Edit Milestone', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600)),
+              onTap: () {
+                Navigator.pop(context);
+                _showAddMilestone(editing: ms);
+              },
+            ),
+            ListTile(
+              leading: Container(
+                width: 36, height: 36,
+                decoration: BoxDecoration(
+                  color: AppTheme.error.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.delete_outline_rounded, size: 18, color: AppTheme.error),
+              ),
+              title: const Text('Delete Milestone', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.error)),
+              onTap: () {
+                Navigator.pop(context);
+                _deleteMilestone(ms);
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ─── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -214,32 +459,13 @@ class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderSt
     return Scaffold(
       backgroundColor: AppTheme.background,
       drawer: const AppDrawer(),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: Builder(
-          builder: (context) => IconButton(
-            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
-            onPressed: () => Scaffold.of(context).openDrawer(),
-          ),
-        ),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
-            const SizedBox(width: 6),
-            const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
-          ],
-        ),
-        centerTitle: false,
-        titleSpacing: 0,
-      ),
+      appBar: const FamilyHubAppBar(),
       body: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // ─── Header ───────────────────────────────────────────
             PageHeader(
               title: '\u{1F4F8} Family Photos',
               subtitle: 'Your private family album & milestone moments',
@@ -247,7 +473,7 @@ class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderSt
                 ActionChipButton(
                   icon: Icons.star_rounded,
                   label: 'Milestone',
-                  onTap: _showAddMilestone,
+                  onTap: () => _showAddMilestone(),
                   backgroundColor: const Color(0xFFD97706),
                 ),
                 ActionChipButton(
@@ -259,7 +485,7 @@ class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderSt
               ],
             ),
 
-            // Upload progress
+            // ─── Upload progress ──────────────────────────────────
             if (_isUploading)
               Container(
                 margin: const EdgeInsets.fromLTRB(20, 0, 20, 12),
@@ -269,73 +495,59 @@ class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderSt
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: AppTheme.primary.withValues(alpha: 0.2)),
                 ),
-                child: Row(
-                  children: [
-                    const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primary)),
-                    const SizedBox(width: 12),
-                    const Text('Uploading photo...', style: TextStyle(
-                      fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13, color: AppTheme.primary,
-                    )),
-                  ],
-                ),
+                child: const Row(children: [
+                  SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primary)),
+                  SizedBox(width: 12),
+                  Text('Uploading photo...', style: TextStyle(
+                    fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13, color: AppTheme.primary,
+                  )),
+                ]),
               ),
 
-            // Stats bar
+            // ─── Stat cards ───────────────────────────────────────
             if (photos.isNotEmpty || milestones.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-                child: Row(
-                  children: [
-                    _StatChip(icon: Icons.image_rounded, iconColor: AppTheme.primary, value: photos.length, label: 'Photos'),
-                    const SizedBox(width: 8),
-                    _StatChip(icon: Icons.star_rounded, iconColor: const Color(0xFFD97706), value: milestones.length, label: 'Milestones'),
-                    const SizedBox(width: 8),
-                    _StatChip(icon: Icons.favorite_rounded, iconColor: const Color(0xFFF43F5E), value: totalReactions, label: 'Reactions'),
-                    const SizedBox(width: 8),
-                    _StatChip(icon: Icons.calendar_month_rounded, iconColor: const Color(0xFF22C55E), value: byMonth.length, label: 'Months'),
-                  ],
-                ),
+                child: Row(children: [
+                  _MiniStat(
+                    icon: Icons.image_rounded,
+                    iconColor: AppTheme.primary,
+                    value: '${photos.length}',
+                    label: 'Photos',
+                  ),
+                  const SizedBox(width: 10),
+                  _MiniStat(
+                    icon: Icons.star_rounded,
+                    iconColor: const Color(0xFFD97706),
+                    value: '${milestones.length}',
+                    label: 'Milestones',
+                  ),
+                  const SizedBox(width: 10),
+                  _MiniStat(
+                    icon: Icons.favorite_rounded,
+                    iconColor: const Color(0xFFF43F5E),
+                    value: '$totalReactions',
+                    label: 'Reactions',
+                  ),
+                ]),
               ),
 
-            // Tabs
+            // ─── Tabs ─────────────────────────────────────────────
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: AppTheme.stone100,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                padding: const EdgeInsets.all(3),
-                child: TabBar(
-                  controller: _tabCtrl,
-                  indicatorSize: TabBarIndicatorSize.tab,
-                  indicator: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(10),
-                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4)],
-                  ),
-                  dividerColor: Colors.transparent,
-                  labelColor: AppTheme.stone900,
-                  unselectedLabelColor: AppTheme.stone400,
-                  labelStyle: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13),
-                  unselectedLabelStyle: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13),
-                  tabs: const [
-                    Tab(text: 'Timeline'),
-                    Tab(text: 'Milestones'),
-                  ],
-                  onTap: (_) => setState(() {}),
-                ),
+              child: AppTabBar(
+                tabs: const ['Timeline', 'Milestones'],
+                selectedIndex: _tabIndex,
+                onSelected: (i) => setState(() => _tabIndex = i),
               ),
             ),
             const SizedBox(height: 16),
 
-            // Tab content
+            // ─── Tab content ──────────────────────────────────────
             IndexedStack(
-              index: _tabCtrl.index,
+              index: _tabIndex,
               children: [
-                // Timeline tab
                 _buildTimelineTab(photos, byMonth, provider),
-                // Milestones tab
                 _buildMilestonesTab(milestones, provider),
               ],
             ),
@@ -345,6 +557,8 @@ class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderSt
     );
   }
 
+  // ─── Timeline Tab ───────────────────────────────────────────────────────────
+
   Widget _buildTimelineTab(List<Photo> photos, Map<String, List<Photo>> byMonth, AppProvider provider) {
     if (photos.isEmpty) {
       return Padding(
@@ -352,7 +566,11 @@ class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderSt
         child: OnboardingCard(
           emoji: '\u{1F4F8}',
           title: 'No photos yet',
-          bullets: ['Share photos with your family', 'Capture and upload special moments', 'View and manage shared memories'],
+          bullets: [
+            'Share photos with your family',
+            'Capture and upload special moments',
+            'View and manage shared memories',
+          ],
           actionLabel: 'Add Photo',
           onAction: _pickAndAddPhoto,
         ),
@@ -367,29 +585,30 @@ class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderSt
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Month header
+              // Month header – ALL CAPS section style
               Padding(
                 padding: const EdgeInsets.only(bottom: 10, top: 4),
-                child: Row(
-                  children: [
-                    Text(
-                      entry.key,
-                      style: const TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w800, color: AppTheme.stone700),
+                child: Row(children: [
+                  Text(
+                    entry.key.toUpperCase(),
+                    style: const TextStyle(
+                      fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800,
+                      color: AppTheme.stone400, letterSpacing: 1.1,
                     ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: AppTheme.primaryLight,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        '${entry.value.length}',
-                        style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.primary),
-                      ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryLight,
+                      borderRadius: BorderRadius.circular(8),
                     ),
-                  ],
-                ),
+                    child: Text(
+                      '${entry.value.length}',
+                      style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.primary),
+                    ),
+                  ),
+                ]),
               ),
               // Photo grid
               GridView.builder(
@@ -406,53 +625,36 @@ class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderSt
                   final uploaderName = provider.userById(photo.uploadedBy)?.name ?? 'Member';
                   return GestureDetector(
                     onTap: () => _openLightbox(context, photo, uploaderName, provider),
-                    onLongPress: () async {
-                      final action = await showModalBottomSheet<String>(
-                        context: context,
-                        builder: (_) => SafeArea(
-                          child: Column(mainAxisSize: MainAxisSize.min, children: [
-                            ListTile(
-                              leading: const Icon(Icons.delete_outline_rounded, color: AppTheme.error),
-                              title: const Text('Delete photo', style: TextStyle(color: AppTheme.error)),
-                              onTap: () => Navigator.pop(context, 'delete'),
-                            ),
-                            ListTile(
-                              leading: const Icon(Icons.close_rounded),
-                              title: const Text('Cancel'),
-                              onTap: () => Navigator.pop(context),
-                            ),
-                          ]),
-                        ),
-                      );
-                      if (action == 'delete') _deletePhoto(photo.id);
-                    },
+                    onLongPress: () => _showPhotoActions(photo),
                     child: ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: BorderRadius.circular(12),
                       child: Stack(fit: StackFit.expand, children: [
                         _photoImage(photo.url),
-                        // Reactions indicator
+                        // Reactions badge
                         if (photo.reactions.isNotEmpty)
                           Positioned(
-                            top: 4,
-                            right: 4,
+                            top: 4, right: 4,
                             child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                               decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.5),
+                                color: Colors.black.withValues(alpha: 0.55),
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Row(mainAxisSize: MainAxisSize.min, children: [
                                 const Icon(Icons.favorite, size: 10, color: Colors.white),
                                 const SizedBox(width: 2),
-                                Text('${photo.reactions.length}', style: const TextStyle(color: Colors.white, fontSize: 9, fontFamily: 'Inter', fontWeight: FontWeight.w700)),
+                                Text('${photo.reactions.length}', style: const TextStyle(
+                                  color: Colors.white, fontSize: 9, fontFamily: 'Inter', fontWeight: FontWeight.w700,
+                                )),
                               ]),
                             ),
                           ),
+                        // Caption overlay
                         if (photo.caption != null)
                           Positioned(
                             bottom: 0, left: 0, right: 0,
                             child: Container(
-                              padding: const EdgeInsets.all(4),
+                              padding: const EdgeInsets.fromLTRB(6, 12, 6, 4),
                               decoration: BoxDecoration(
                                 gradient: LinearGradient(
                                   begin: Alignment.bottomCenter,
@@ -460,7 +662,11 @@ class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderSt
                                   colors: [Colors.black.withValues(alpha: 0.7), Colors.transparent],
                                 ),
                               ),
-                              child: Text(photo.caption!, style: const TextStyle(color: Colors.white, fontSize: 9, fontFamily: 'Inter'), maxLines: 1, overflow: TextOverflow.ellipsis),
+                              child: Text(
+                                photo.caption!,
+                                style: const TextStyle(color: Colors.white, fontSize: 9, fontFamily: 'Inter', fontWeight: FontWeight.w500),
+                                maxLines: 1, overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                           ),
                       ]),
@@ -476,6 +682,8 @@ class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderSt
     );
   }
 
+  // ─── Milestones Tab ─────────────────────────────────────────────────────────
+
   Widget _buildMilestonesTab(List<Milestone> milestones, AppProvider provider) {
     if (milestones.isEmpty) {
       return Padding(
@@ -483,9 +691,13 @@ class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderSt
         child: OnboardingCard(
           emoji: '⭐',
           title: 'No milestones yet',
-          bullets: ['Record first steps, first words', 'Track school achievements', 'Celebrate family moments'],
+          bullets: [
+            'Record first steps, first words',
+            'Track school achievements',
+            'Celebrate family moments',
+          ],
           actionLabel: 'Add Milestone',
-          onAction: _showAddMilestone,
+          onAction: () => _showAddMilestone(),
         ),
       );
     }
@@ -495,80 +707,94 @@ class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderSt
       child: Column(
         children: milestones.map((ms) {
           final catMeta = _milestoneCategories.firstWhere(
-            (c) => c['id'] == ms.category,
+            (c) => c.id == ms.category,
             orElse: () => _milestoneCategories.first,
           );
           final childName = ms.childId != null ? provider.userById(ms.childId!)?.name : null;
 
-          return Container(
-            margin: const EdgeInsets.only(bottom: 10),
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppTheme.stone100),
-            ),
-            child: Row(
-              children: [
+          return GestureDetector(
+            onLongPress: () => _showMilestoneActions(ms),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppTheme.stone100),
+              ),
+              child: Row(children: [
+                // Category icon
                 Container(
-                  width: 44,
-                  height: 44,
+                  width: 44, height: 44,
                   decoration: BoxDecoration(
-                    color: (catMeta['color'] as Color).withValues(alpha: 0.15),
+                    color: catMeta.color.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Center(
-                    child: Text(ms.emoji ?? catMeta['emoji'] as String, style: const TextStyle(fontSize: 20)),
+                    child: Text(ms.emoji ?? catMeta.emoji, style: const TextStyle(fontSize: 20)),
                   ),
                 ),
                 const SizedBox(width: 12),
+                // Content
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(ms.title, style: const TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.stone900)),
-                      const SizedBox(height: 2),
-                      Row(
-                        children: [
-                          Text(
-                            DateFormat('MMM d, yyyy').format(ms.date),
-                            style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400),
-                          ),
-                          if (ms.ageLabel != null && ms.ageLabel!.isNotEmpty) ...[
-                            const Text(' · ', style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone300)),
-                            Text(ms.ageLabel!, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
-                          ],
-                          if (childName != null) ...[
-                            const Text(' · ', style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone300)),
-                            Text(childName.split(' ').first, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
-                          ],
+                      Text(ms.title, style: const TextStyle(
+                        fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.stone900,
+                      )),
+                      const SizedBox(height: 3),
+                      Row(children: [
+                        Icon(Icons.calendar_today_rounded, size: 11, color: AppTheme.stone400),
+                        const SizedBox(width: 4),
+                        Text(
+                          DateFormat('MMM d, yyyy').format(ms.date),
+                          style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400),
+                        ),
+                        if (ms.ageLabel != null && ms.ageLabel!.isNotEmpty) ...[
+                          const Text(' · ', style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone300)),
+                          Text(ms.ageLabel!, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
                         ],
-                      ),
+                        if (childName != null) ...[
+                          const Text(' · ', style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone300)),
+                          Text(childName.split(' ').first, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
+                        ],
+                      ]),
                       if (ms.notes != null && ms.notes!.isNotEmpty) ...[
                         const SizedBox(height: 4),
-                        Text(ms.notes!, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500), maxLines: 2, overflow: TextOverflow.ellipsis),
+                        Text(ms.notes!, style: const TextStyle(
+                          fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500,
+                        ), maxLines: 2, overflow: TextOverflow.ellipsis),
                       ],
                     ],
                   ),
                 ),
+                const SizedBox(width: 8),
+                // Category badge
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: (catMeta['color'] as Color).withValues(alpha: 0.1),
+                    color: catMeta.color.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    catMeta['id'] as String,
-                    style: TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: catMeta['color'] as Color),
+                    catMeta.id,
+                    style: TextStyle(
+                      fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700,
+                      color: catMeta.color,
+                    ),
                   ),
                 ),
-              ],
+              ]),
             ),
           );
         }).toList(),
       ),
     );
   }
+
+  // ─── Lightbox ───────────────────────────────────────────────────────────────
 
   void _openLightbox(BuildContext context, Photo photo, String uploaderName, AppProvider provider) {
     Navigator.push(
@@ -579,8 +805,12 @@ class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderSt
           uploaderName: uploaderName,
           onReact: (emoji) => _reactToPhoto(photo, emoji),
           onDelete: () {
-            _deletePhoto(photo.id);
             Navigator.pop(context);
+            _deletePhoto(photo.id);
+          },
+          onEditCaption: () {
+            Navigator.pop(context);
+            _editCaption(photo);
           },
         ),
       ),
@@ -588,34 +818,184 @@ class _PhotosScreenState extends State<PhotosScreen> with SingleTickerProviderSt
   }
 }
 
-// ─── Stat chip ──────────────────────────────────────────────────────────────
+// ─── Mini Stat Card ───────────────────────────────────────────────────────────
 
-class _StatChip extends StatelessWidget {
+class _MiniStat extends StatelessWidget {
   final IconData icon;
   final Color iconColor;
-  final int value;
+  final String value;
   final String label;
 
-  const _StatChip({required this.icon, required this.iconColor, required this.value, required this.label});
+  const _MiniStat({required this.icon, required this.iconColor, required this.value, required this.label});
 
   @override
   Widget build(BuildContext context) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10),
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(color: AppTheme.stone100),
         ),
-        child: Column(
-          children: [
-            Icon(icon, size: 16, color: iconColor),
-            const SizedBox(height: 4),
-            Text('$value', style: const TextStyle(fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.stone800)),
-            Text(label, style: const TextStyle(fontFamily: 'Inter', fontSize: 9, fontWeight: FontWeight.w600, color: AppTheme.stone400)),
-          ],
-        ),
+        child: Row(children: [
+          Container(
+            width: 32, height: 32,
+            decoration: BoxDecoration(
+              color: iconColor.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: Icon(icon, size: 16, color: iconColor),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(value, style: const TextStyle(
+                  fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.stone800,
+                )),
+                Text(label, style: const TextStyle(
+                  fontFamily: 'Inter', fontSize: 9, fontWeight: FontWeight.w600, color: AppTheme.stone400,
+                )),
+              ],
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+// ─── Caption Sheet ────────────────────────────────────────────────────────────
+
+class _CaptionSheet extends StatefulWidget {
+  final String? initialCaption;
+  const _CaptionSheet({this.initialCaption});
+
+  @override
+  State<_CaptionSheet> createState() => _CaptionSheetState();
+}
+
+class _CaptionSheetState extends State<_CaptionSheet> {
+  late final TextEditingController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: widget.initialCaption);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isEditing = widget.initialCaption != null;
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SheetHandle(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Header
+                Row(children: [
+                  Container(
+                    width: 36, height: 36,
+                    decoration: BoxDecoration(
+                      color: AppTheme.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.text_fields_rounded, size: 18, color: AppTheme.primary),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    isEditing ? 'Edit Caption' : 'Add Caption',
+                    style: const TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.stone900),
+                  ),
+                ]),
+                const SizedBox(height: 20),
+
+                // Label
+                const Text('Caption', style: TextStyle(
+                  fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.stone700,
+                )),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: _ctrl,
+                  autofocus: true,
+                  textCapitalization: TextCapitalization.sentences,
+                  maxLines: 2,
+                  decoration: InputDecoration(
+                    hintText: 'Describe this moment...',
+                    hintStyle: const TextStyle(color: AppTheme.stone300),
+                    filled: true,
+                    fillColor: AppTheme.stone50,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide(color: AppTheme.stone200),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide(color: AppTheme.stone200),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                Row(children: [
+                  Expanded(
+                    child: SizedBox(
+                      height: 52,
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(context, isEditing ? '' : null),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: AppTheme.stone200),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        ),
+                        child: Text(
+                          isEditing ? 'Remove Caption' : 'Skip',
+                          style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, color: AppTheme.stone600),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: SizedBox(
+                      height: 52,
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.pop(context, _ctrl.text.trim()),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primary,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        ),
+                        child: Text(
+                          isEditing ? 'Save' : 'Add',
+                          style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ),
+                  ),
+                ]),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -628,8 +1008,15 @@ class _PhotoLightbox extends StatelessWidget {
   final String uploaderName;
   final void Function(String emoji) onReact;
   final VoidCallback onDelete;
+  final VoidCallback onEditCaption;
 
-  const _PhotoLightbox({required this.photo, required this.uploaderName, required this.onReact, required this.onDelete});
+  const _PhotoLightbox({
+    required this.photo,
+    required this.uploaderName,
+    required this.onReact,
+    required this.onDelete,
+    required this.onEditCaption,
+  });
 
   bool get _isNetwork => photo.url.startsWith('http://') || photo.url.startsWith('https://');
 
@@ -640,94 +1027,128 @@ class _PhotoLightbox extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
-        title: Text(photo.caption ?? 'Photo', style: const TextStyle(color: Colors.white, fontFamily: 'Inter', fontSize: 16)),
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        title: Text(
+          photo.caption ?? 'Photo',
+          style: const TextStyle(color: Colors.white, fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w700),
+        ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.delete_outline_rounded, color: Colors.white70),
+            icon: const Icon(Icons.edit_outlined, color: Colors.white70, size: 20),
+            onPressed: onEditCaption,
+            tooltip: 'Edit caption',
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_outline_rounded, color: Colors.white70, size: 20),
             onPressed: onDelete,
+            tooltip: 'Delete photo',
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: Center(
-              child: InteractiveViewer(
-                child: _isNetwork
-                    ? Image.network(photo.url, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(Icons.broken_image_rounded, color: Colors.white, size: 64))
-                    : Image.file(File(photo.url), fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(Icons.broken_image_rounded, color: Colors.white, size: 64)),
-              ),
+      body: Column(children: [
+        // Photo
+        Expanded(
+          child: Center(
+            child: InteractiveViewer(
+              child: _isNetwork
+                  ? Image.network(photo.url, fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => const Icon(Icons.broken_image_rounded, color: Colors.white54, size: 64))
+                  : Image.file(File(photo.url), fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => const Icon(Icons.broken_image_rounded, color: Colors.white54, size: 64)),
             ),
           ),
-          // Reaction bar
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        ),
+        // Info + reactions bar
+        Container(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
+          decoration: BoxDecoration(
             color: Colors.black,
-            child: Column(
-              children: [
-                // Photo info
-                Row(
-                  children: [
-                    Text(
-                      'By $uploaderName',
-                      style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white54),
-                    ),
-                    const SizedBox(width: 8),
+            border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.08))),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Column(children: [
+              // Photo info row
+              Row(children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    const Icon(Icons.person_outline_rounded, size: 12, color: Colors.white54),
+                    const SizedBox(width: 4),
+                    Text(uploaderName, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white54, fontWeight: FontWeight.w500)),
+                  ]),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    const Icon(Icons.calendar_today_rounded, size: 11, color: Colors.white54),
+                    const SizedBox(width: 4),
                     Text(
                       DateFormat('MMM d, yyyy').format(photo.createdAt),
-                      style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white54),
+                      style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white54, fontWeight: FontWeight.w500),
                     ),
-                    if (photo.reactions.isNotEmpty) ...[
-                      const Spacer(),
-                      Text(
-                        '${photo.reactions.length} reaction${photo.reactions.length == 1 ? '' : 's'}',
-                        style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white54),
-                      ),
-                    ],
-                  ],
+                  ]),
                 ),
-                const SizedBox(height: 10),
-                // Emoji reactions
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: _reactionEmojis.map((emoji) {
-                    final count = photo.reactions.where((r) => r.emoji == emoji).length;
-                    return GestureDetector(
-                      onTap: () => onReact(emoji),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: count > 0 ? Colors.white.withValues(alpha: 0.15) : Colors.transparent,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: count > 0 ? Colors.white24 : Colors.white12),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(emoji, style: const TextStyle(fontSize: 18)),
-                            if (count > 0) ...[
-                              const SizedBox(width: 4),
-                              Text('$count', style: const TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white)),
-                            ],
-                          ],
-                        ),
+                if (photo.reactions.isNotEmpty) ...[
+                  const Spacer(),
+                  Text(
+                    '${photo.reactions.length} reaction${photo.reactions.length == 1 ? '' : 's'}',
+                    style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white38, fontWeight: FontWeight.w500),
+                  ),
+                ],
+              ]),
+              const SizedBox(height: 12),
+              // Emoji reaction row
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: _reactionEmojis.map((emoji) {
+                  final count = photo.reactions.where((r) => r.emoji == emoji).length;
+                  return GestureDetector(
+                    onTap: () => onReact(emoji),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: count > 0 ? Colors.white.withValues(alpha: 0.15) : Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: count > 0 ? Colors.white24 : Colors.white12),
                       ),
-                    );
-                  }).toList(),
-                ),
-              ],
-            ),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Text(emoji, style: const TextStyle(fontSize: 18)),
+                        if (count > 0) ...[
+                          const SizedBox(width: 4),
+                          Text('$count', style: const TextStyle(
+                            fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white,
+                          )),
+                        ],
+                      ]),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ]),
           ),
-        ],
-      ),
+        ),
+      ]),
     );
   }
 }
 
-// ─── Add Milestone Sheet ────────────────────────────────────────────────────
+// ─── Add / Edit Milestone Sheet ─────────────────────────────────────────────
 
 class _AddMilestoneSheet extends StatefulWidget {
-  const _AddMilestoneSheet();
+  final Milestone? editing;
+  const _AddMilestoneSheet({this.editing});
 
   @override
   State<_AddMilestoneSheet> createState() => _AddMilestoneSheetState();
@@ -737,10 +1158,30 @@ class _AddMilestoneSheetState extends State<_AddMilestoneSheet> {
   final _titleCtrl = TextEditingController();
   final _notesCtrl = TextEditingController();
   final _ageLabelCtrl = TextEditingController();
-  String _category = 'Firsts';
-  String _emoji = '⭐';
-  DateTime _date = DateTime.now();
+  late String _category;
+  late String _emoji;
+  late DateTime _date;
   bool _saving = false;
+
+  bool get _isEditing => widget.editing != null;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_isEditing) {
+      final ms = widget.editing!;
+      _titleCtrl.text = ms.title;
+      _notesCtrl.text = ms.notes ?? '';
+      _ageLabelCtrl.text = ms.ageLabel ?? '';
+      _category = ms.category;
+      _emoji = ms.emoji ?? '⭐';
+      _date = ms.date;
+    } else {
+      _category = 'Firsts';
+      _emoji = '⭐';
+      _date = DateTime.now();
+    }
+  }
 
   @override
   void dispose() {
@@ -762,30 +1203,59 @@ class _AddMilestoneSheetState extends State<_AddMilestoneSheet> {
 
   Future<void> _save() async {
     if (_titleCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a title'), behavior: SnackBarBehavior.floating),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('Please enter a title'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ));
       return;
     }
     setState(() => _saving = true);
 
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    final milestone = Milestone(
-      id: const Uuid().v4(),
-      familyId: provider.activeFamily!.id,
-      childId: provider.activeUser!.id,
-      title: _titleCtrl.text.trim(),
-      emoji: _emoji,
-      category: _category,
-      date: _date,
-      notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
-      ageLabel: _ageLabelCtrl.text.trim().isEmpty ? null : _ageLabelCtrl.text.trim(),
-      createdAt: DateTime.now(),
-    );
 
-    await provider.saveAndSync(db.copyWith(milestones: [...db.milestones, milestone]));
-    if (mounted) Navigator.pop(context);
+    if (_isEditing) {
+      final updatedMilestones = db.milestones.map((m) {
+        if (m.id != widget.editing!.id) return m;
+        return Milestone(
+          id: m.id,
+          familyId: m.familyId,
+          childId: m.childId,
+          title: _titleCtrl.text.trim(),
+          emoji: _emoji,
+          category: _category,
+          date: _date,
+          notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+          ageLabel: _ageLabelCtrl.text.trim().isEmpty ? null : _ageLabelCtrl.text.trim(),
+          createdAt: m.createdAt,
+        );
+      }).toList();
+      await provider.saveAndSync(db.copyWith(milestones: updatedMilestones));
+    } else {
+      final milestone = Milestone(
+        id: const Uuid().v4(),
+        familyId: provider.activeFamily!.id,
+        childId: provider.activeUser!.id,
+        title: _titleCtrl.text.trim(),
+        emoji: _emoji,
+        category: _category,
+        date: _date,
+        notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+        ageLabel: _ageLabelCtrl.text.trim().isEmpty ? null : _ageLabelCtrl.text.trim(),
+        createdAt: DateTime.now(),
+      );
+      await provider.saveAndSync(db.copyWith(milestones: [...db.milestones, milestone]));
+    }
+
+    if (mounted) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_isEditing ? 'Milestone updated' : 'Milestone added!'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ));
+    }
   }
 
   @override
@@ -798,93 +1268,211 @@ class _AddMilestoneSheetState extends State<_AddMilestoneSheet> {
           children: [
             const SheetHandle(),
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Text('Add Milestone', style: TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.stone900)),
-                  const SizedBox(height: 16),
+                  // Header with icon badge
+                  Row(children: [
+                    Container(
+                      width: 36, height: 36,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF59E0B).withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.star_rounded, size: 18, color: Color(0xFFF59E0B)),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      _isEditing ? 'Edit Milestone' : 'Add Milestone',
+                      style: const TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.stone900),
+                    ),
+                  ]),
+                  const SizedBox(height: 20),
 
                   // Category selector
-                  const Text('Category', style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.stone500)),
-                  const SizedBox(height: 8),
+                  const Text('CATEGORY', style: TextStyle(
+                    fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800,
+                    color: AppTheme.stone400, letterSpacing: 1.1,
+                  )),
+                  const SizedBox(height: 10),
                   Wrap(
                     spacing: 6,
                     runSpacing: 6,
                     children: _milestoneCategories.map((cat) {
-                      final isSelected = _category == cat['id'];
+                      final isSelected = _category == cat.id;
                       return GestureDetector(
                         onTap: () => setState(() {
-                          _category = cat['id'] as String;
-                          _emoji = cat['emoji'] as String;
+                          _category = cat.id;
+                          _emoji = cat.emoji;
                         }),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
                           decoration: BoxDecoration(
-                            color: isSelected ? (cat['color'] as Color).withValues(alpha: 0.15) : AppTheme.stone50,
+                            color: isSelected ? cat.color.withValues(alpha: 0.12) : AppTheme.stone50,
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
-                              color: isSelected ? (cat['color'] as Color) : AppTheme.stone200,
+                              color: isSelected ? cat.color : AppTheme.stone200,
                               width: isSelected ? 1.5 : 1,
                             ),
                           ),
                           child: Row(mainAxisSize: MainAxisSize.min, children: [
-                            Text(cat['emoji'] as String, style: const TextStyle(fontSize: 14)),
-                            const SizedBox(width: 4),
-                            Text(cat['id'] as String, style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: isSelected ? cat['color'] as Color : AppTheme.stone600)),
+                            Text(cat.emoji, style: const TextStyle(fontSize: 14)),
+                            const SizedBox(width: 5),
+                            Text(cat.id, style: TextStyle(
+                              fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700,
+                              color: isSelected ? cat.color : AppTheme.stone600,
+                            )),
                           ]),
                         ),
                       );
                     }).toList(),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 20),
 
+                  // Title
+                  const Text('Title', style: TextStyle(
+                    fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.stone700,
+                  )),
+                  const SizedBox(height: 8),
                   TextFormField(
                     controller: _titleCtrl,
-                    autofocus: true,
-                    decoration: const InputDecoration(labelText: 'Milestone Title *', hintText: "e.g. First Steps"),
+                    autofocus: !_isEditing,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: InputDecoration(
+                      hintText: 'e.g. First Steps',
+                      hintStyle: const TextStyle(color: AppTheme.stone300),
+                      filled: true,
+                      fillColor: AppTheme.stone50,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: AppTheme.stone200),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: AppTheme.stone200),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
 
+                  // Date picker
+                  const Text('Date', style: TextStyle(
+                    fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.stone700,
+                  )),
+                  const SizedBox(height: 8),
                   GestureDetector(
                     onTap: _pickDate,
                     behavior: HitTestBehavior.opaque,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
                       decoration: BoxDecoration(
                         color: AppTheme.stone50,
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(14),
                         border: Border.all(color: AppTheme.stone200),
                       ),
                       child: Row(children: [
-                        const Icon(Icons.calendar_today_rounded, size: 16, color: AppTheme.stone500),
+                        Container(
+                          width: 32, height: 32,
+                          decoration: BoxDecoration(
+                            color: AppTheme.primary.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(9),
+                          ),
+                          child: const Icon(Icons.calendar_today_rounded, size: 15, color: AppTheme.primary),
+                        ),
                         const SizedBox(width: 10),
-                        Text(DateFormat('EEEE, MMMM d, yyyy').format(_date), style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone800)),
+                        Text(
+                          DateFormat('EEEE, MMMM d, yyyy').format(_date),
+                          style: const TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w500, color: AppTheme.stone800),
+                        ),
                         const Spacer(),
-                        const Icon(Icons.edit_outlined, size: 14, color: AppTheme.stone400),
+                        const Icon(Icons.chevron_right_rounded, size: 18, color: AppTheme.stone400),
                       ]),
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
 
+                  // Age label
+                  const Text('Age (optional)', style: TextStyle(
+                    fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.stone700,
+                  )),
+                  const SizedBox(height: 8),
                   TextFormField(
                     controller: _ageLabelCtrl,
-                    decoration: const InputDecoration(labelText: 'Age (optional)', hintText: 'e.g. 11 months'),
+                    decoration: InputDecoration(
+                      hintText: 'e.g. 11 months',
+                      hintStyle: const TextStyle(color: AppTheme.stone300),
+                      filled: true,
+                      fillColor: AppTheme.stone50,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: AppTheme.stone200),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: AppTheme.stone200),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
 
+                  // Notes
+                  const Text('Notes (optional)', style: TextStyle(
+                    fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.stone700,
+                  )),
+                  const SizedBox(height: 8),
                   TextFormField(
                     controller: _notesCtrl,
                     maxLines: 2,
-                    decoration: const InputDecoration(labelText: 'Notes (optional)', alignLabelWithHint: true),
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: InputDecoration(
+                      hintText: 'Any notes about this moment...',
+                      hintStyle: const TextStyle(color: AppTheme.stone300),
+                      filled: true,
+                      fillColor: AppTheme.stone50,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: AppTheme.stone200),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: AppTheme.stone200),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 24),
 
-                  ElevatedButton(
-                    onPressed: _saving ? null : _save,
-                    child: _saving
-                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(Colors.white)))
-                        : const Text('Add Milestone'),
+                  // Save button
+                  SizedBox(
+                    height: 52,
+                    child: ElevatedButton(
+                      onPressed: _saving ? null : _save,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primary,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      ),
+                      child: _saving
+                          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(Colors.white)))
+                          : Text(
+                              _isEditing ? 'Save Changes' : 'Add Milestone',
+                              style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15),
+                            ),
+                    ),
                   ),
                 ],
               ),
