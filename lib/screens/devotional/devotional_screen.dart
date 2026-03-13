@@ -262,7 +262,10 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
     if (family == null || !family.dailyDevotionalEnabled) return;
 
     final now = DateTime.now();
-    final scheduledTime = DateTime(now.year, now.month, now.day, family.dailyDevotionalHour, family.dailyDevotionalMinute);
+    // Stored values are UTC; convert to local for comparison
+    final utcDt = DateTime.utc(2024, 1, 1, family.dailyDevotionalHour, family.dailyDevotionalMinute);
+    final localDt = utcDt.toLocal();
+    final scheduledTime = DateTime(now.year, now.month, now.day, localDt.hour, localDt.minute);
 
     // Only generate if we're past the scheduled time
     if (now.isBefore(scheduledTime)) return;
@@ -1566,8 +1569,11 @@ class _DailyDevotionalCard extends StatelessWidget {
     if (family == null) return const SizedBox.shrink();
 
     final enabled = family.dailyDevotionalEnabled;
-    final hour = family.dailyDevotionalHour;
-    final minute = family.dailyDevotionalMinute;
+    // Stored values are UTC; convert to local for display
+    final utcDt = DateTime.utc(2024, 1, 1, family.dailyDevotionalHour, family.dailyDevotionalMinute);
+    final localDt = utcDt.toLocal();
+    final hour = localDt.hour;
+    final minute = localDt.minute;
     final timeOfDay = TimeOfDay(hour: hour, minute: minute);
     final formattedTime = timeOfDay.format(context);
 
@@ -1706,7 +1712,7 @@ class _DailyDevotionalCard extends StatelessWidget {
     );
   }
 
-  Future<void> _toggle(BuildContext context, bool val, int hour, int minute) async {
+  Future<void> _toggle(BuildContext context, bool val, int localHour, int localMinute) async {
     final provider = context.read<AppProvider>();
     final family = provider.activeFamily!;
     final updated = family.copyWith(dailyDevotionalEnabled: val);
@@ -1717,7 +1723,8 @@ class _DailyDevotionalCard extends StatelessWidget {
     ));
 
     if (val) {
-      await _scheduleNotification(hour, minute);
+      // hour/minute passed here are already local (converted from UTC in build)
+      await _scheduleNotification(localHour, localMinute);
     } else {
       await NotificationService.cancel(_notifId);
     }
@@ -1731,11 +1738,16 @@ class _DailyDevotionalCard extends StatelessWidget {
     );
     if (picked == null || !context.mounted) return;
 
+    // Convert local time to UTC for the server-side cron job
+    final now = DateTime.now();
+    final localDt = DateTime(now.year, now.month, now.day, picked.hour, picked.minute);
+    final utcDt = localDt.toUtc();
+
     final provider = context.read<AppProvider>();
     final family = provider.activeFamily!;
     final updated = family.copyWith(
-      dailyDevotionalHour: picked.hour,
-      dailyDevotionalMinute: picked.minute,
+      dailyDevotionalHour: utcDt.hour,
+      dailyDevotionalMinute: utcDt.minute,
     );
     final db = provider.db;
     provider.updateFamily(updated);
@@ -1743,6 +1755,7 @@ class _DailyDevotionalCard extends StatelessWidget {
       families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
     ));
 
+    // Schedule local notification at the user's chosen local time
     await _scheduleNotification(picked.hour, picked.minute);
   }
 
