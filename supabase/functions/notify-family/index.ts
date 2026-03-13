@@ -30,6 +30,24 @@ let cachedAccessToken: string | null = null;
 let tokenExpirationTime = 0; // ms since epoch
 
 // ---------------------------------------------------------------------------
+// Parse a JSON secret that may have been double-quoted by Supabase's secret
+// store.  e.g. the env var may arrive as:
+//   '"{\"type\":\"service_account\",...}"'   (string-wrapped JSON)
+// or with literal escaped quotes.  This helper peels away one layer of quoting
+// if present and then parses the result.
+// ---------------------------------------------------------------------------
+function parseJsonSecret(raw: string): Record<string, string> {
+  let cleaned = raw.trim();
+  // Strip surrounding double-quotes added by the secrets store
+  if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
+    cleaned = cleaned.slice(1, -1);
+  }
+  // Un-escape any escaped characters (e.g. \" → ", \\\n → \n)
+  cleaned = cleaned.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+  return JSON.parse(cleaned);
+}
+
+// ---------------------------------------------------------------------------
 // CORS headers
 // ---------------------------------------------------------------------------
 const CORS = {
@@ -631,7 +649,7 @@ Deno.serve(async (req: Request) => {
       let fcmPruned = 0;
       const serviceAccountRaw = Deno.env.get('FIREBASE_SERVICE_ACCOUNT');
       if (serviceAccountRaw) {
-        const serviceAccount = JSON.parse(serviceAccountRaw) as Record<string, string>;
+        const serviceAccount = parseJsonSecret(serviceAccountRaw);
         const projectId = serviceAccount.project_id;
         const accessToken = await getFcmAccessToken(serviceAccount);
 
@@ -722,7 +740,7 @@ Deno.serve(async (req: Request) => {
 
     const serviceAccountRaw = Deno.env.get('FIREBASE_SERVICE_ACCOUNT');
     if (serviceAccountRaw) {
-      const serviceAccount = JSON.parse(serviceAccountRaw) as Record<string, string>;
+      const serviceAccount = parseJsonSecret(serviceAccountRaw);
       const projectId = serviceAccount.project_id;
       const accessToken = await getFcmAccessToken(serviceAccount);
 
