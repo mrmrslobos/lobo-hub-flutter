@@ -1,10 +1,8 @@
-import 'dart:convert';
 import 'dart:io' show Platform;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
@@ -274,26 +272,16 @@ class NotificationService {
     // Send push notification to other family members via edge function
     try {
       if (familyId != null && excludeUserId != null) {
-        final restUrl = Supabase.instance.client.rest.url;
-        final supabaseUrl = restUrl.replaceAll('/rest/v1', '');
-        final accessToken =
-            Supabase.instance.client.auth.currentSession?.accessToken ?? '';
-        final uri = Uri.parse('$supabaseUrl/functions/v1/notify-family');
-
-        await http.post(
-          uri,
-          headers: {
-            'Authorization': 'Bearer $accessToken',
-            'Content-Type': 'application/json',
-          },
-          body: jsonEncode({
+        await Supabase.instance.client.functions.invoke(
+          'notify-family',
+          body: {
             'action': 'notify',
             'familyId': familyId,
             'excludeUserId': excludeUserId,
             'title': title,
             'body': body,
             'path': path ?? '/',
-          }),
+          },
         );
       }
     } catch (e) {
@@ -326,22 +314,17 @@ class NotificationService {
           Supabase.instance.client.auth.currentSession?.accessToken ?? '';
       final uri = Uri.parse('$supabaseUrl/functions/v1/notify-family');
 
-      debugPrint('[NotificationService] POST $uri accessToken=${accessToken.isEmpty ? "EMPTY" : "present(${accessToken.length} chars)"}');
-      final resp = await http.post(
-        uri,
-        headers: {
-          'Authorization': 'Bearer $accessToken',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
+      final resp = await Supabase.instance.client.functions.invoke(
+        'notify-family',
+        body: {
           'action': 'register',
           'token': token,
           'familyId': familyId,
           'userId': userId,
           'platform': Platform.isIOS ? 'ios' : 'android',
-        }),
+        },
       );
-      debugPrint('[NotificationService] register response: ${resp.statusCode} ${resp.body}');
+      debugPrint('[NotificationService] register response: ${resp.status} ${resp.data}');
     } catch (e, st) {
       debugPrint('[NotificationService] registerDeviceToken error: $e\n$st');
     }
