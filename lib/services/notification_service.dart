@@ -326,7 +326,8 @@ class NotificationService {
           Supabase.instance.client.auth.currentSession?.accessToken ?? '';
       final uri = Uri.parse('$supabaseUrl/functions/v1/notify-family');
 
-      await http.post(
+      debugPrint('[NotificationService] POST $uri accessToken=${accessToken.isEmpty ? "EMPTY" : "present(${accessToken.length} chars)"}');
+      final resp = await http.post(
         uri,
         headers: {
           'Authorization': 'Bearer $accessToken',
@@ -340,6 +341,7 @@ class NotificationService {
           'platform': Platform.isIOS ? 'ios' : 'android',
         }),
       );
+      debugPrint('[NotificationService] register response: ${resp.statusCode} ${resp.body}');
     } catch (e, st) {
       debugPrint('[NotificationService] registerDeviceToken error: $e\n$st');
     }
