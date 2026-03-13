@@ -412,6 +412,10 @@ alter table families add column if not exists "createdAt" text;
 alter table families add column if not exists "welcomeDismissed" boolean not null default false;
 alter table families add column if not exists settings jsonb;
 
+-- family_members: ensure columns added after initial create exist.
+alter table family_members add column if not exists "moduleAccess" jsonb;
+alter table family_members add column if not exists "displayName" text;
+
 -- =============================================================================
 -- Push Notification device tokens
 -- =============================================================================

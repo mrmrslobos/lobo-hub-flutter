@@ -1,6 +1,8 @@
 // lib/screens/prayer_wall/prayer_wall_screen.dart
+// Prayer wall screen for FamilyHub
 // ignore_for_file: use_build_context_synchronously
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
@@ -10,7 +12,18 @@ import '../../providers/app_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 
-const _warmCream = Color(0xFFFDF8F0);
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+void _showSnack(BuildContext context, String msg) {
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    content: Text(msg),
+    behavior: SnackBarBehavior.floating,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+  ));
+}
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+
 const _warmAmber = Color(0xFFD97706);
 const _warmGreen = Color(0xFF16A34A);
 const _warmPink = Color(0xFFEC4899);
@@ -39,6 +52,8 @@ String _timeAgo(DateTime date) {
   }
 }
 
+// ─── Main Screen ─────────────────────────────────────────────────────────────
+
 class PrayerWallScreen extends StatefulWidget {
   const PrayerWallScreen({super.key});
 
@@ -51,6 +66,7 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
   String _searchQuery = '';
 
   Future<void> _togglePrayed(PrayerRequest request, String userId) async {
+    HapticFeedback.lightImpact();
     final provider = context.read<AppProvider>();
     final db = provider.db;
     final newPrayed = request.prayedByIds.contains(userId)
@@ -64,6 +80,7 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
   }
 
   Future<void> _toggleReaction(PrayerRequest request, String emoji, String userId) async {
+    HapticFeedback.selectionClick();
     final provider = context.read<AppProvider>();
     final db = provider.db;
     final hasReacted = request.reactions.any((r) => r.userId == userId && r.emoji == emoji);
@@ -78,6 +95,7 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
   }
 
   Future<void> _markAnswered(PrayerRequest request) async {
+    HapticFeedback.mediumImpact();
     final provider = context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(db.copyWith(
@@ -86,9 +104,7 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
           .toList(),
     ));
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Praise God! Marked as answered 🙌')),
-      );
+      _showSnack(context, 'Praise God! Marked as answered');
     }
   }
 
@@ -98,6 +114,7 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
     await provider.saveAndSync(db.copyWith(
       prayerRequests: db.prayerRequests.where((r) => r.id != id).toList(),
     ));
+    if (mounted) _showSnack(context, 'Prayer removed');
   }
 
   void _showAddSheet() {
@@ -166,148 +183,118 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
     }
 
     return Scaffold(
-      backgroundColor: _warmCream,
+      backgroundColor: AppTheme.background,
       drawer: const AppDrawer(),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: Builder(
-          builder: (context) => IconButton(
-            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
-            onPressed: () => Scaffold.of(context).openDrawer(),
-          ),
-        ),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
-            const SizedBox(width: 6),
-            const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
-          ],
-        ),
-        centerTitle: false,
-        titleSpacing: 0,
-        actions: const [],
-      ),
+      appBar: const FamilyHubAppBar(),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
+        padding: const EdgeInsets.only(bottom: 32),
         children: [
-          // Page header
-          const PageHeader(
+          // ── Page Header ──
+          PageHeader(
             title: 'Prayer Wall',
             subtitle: 'Share gratitude, lift up prayers, and celebrate answered ones.',
-          ),
-
-          const SizedBox(height: 8),
-
-          // + New Post button
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _showAddSheet,
-              icon: const Icon(Icons.add_rounded, size: 20),
-              label: const Text('New Post',
-                  style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _warmIndigo,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                elevation: 0,
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 20),
-
-          // Stats row
-          Row(
-            children: [
-              _StatBox(
-                count: gratitudes.length,
-                label: 'GRATITUDES',
-                backgroundColor: const Color(0xFFFEF3C7),
-                textColor: _warmAmber,
-              ),
-              const SizedBox(width: 10),
-              _StatBox(
-                count: requests.length,
-                label: 'REQUESTS',
-                backgroundColor: const Color(0xFFEEF2FF),
-                textColor: _warmIndigo,
-              ),
-              const SizedBox(width: 10),
-              _StatBox(
-                count: answered.length,
-                label: 'ANSWERED',
-                backgroundColor: const Color(0xFFDCFCE7),
-                textColor: _warmGreen,
+            actions: [
+              ActionChipButton(
+                icon: Icons.add_rounded,
+                label: 'New Post',
+                onTap: _showAddSheet,
+                isPrimary: true,
               ),
             ],
           ),
 
-          const SizedBox(height: 20),
+          // ── Stat cards ──
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+            child: Row(children: [
+              _MiniStat(
+                icon: Icons.favorite_rounded,
+                iconColor: _warmAmber,
+                value: '${gratitudes.length}',
+                label: 'Gratitudes',
+              ),
+              const SizedBox(width: 10),
+              _MiniStat(
+                icon: Icons.front_hand_rounded,
+                iconColor: _warmIndigo,
+                value: '${requests.length}',
+                label: 'Requests',
+              ),
+              const SizedBox(width: 10),
+              _MiniStat(
+                icon: Icons.check_circle_rounded,
+                iconColor: _warmGreen,
+                value: '${answered.length}',
+                label: 'Answered',
+              ),
+            ]),
+          ),
 
-          // Filter chips
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _FilterChip(
-                  label: 'All',
-                  count: null,
-                  selected: _selectedFilter == 'all',
-                  onTap: () => setState(() => _selectedFilter = 'all'),
-                ),
-                const SizedBox(width: 8),
-                _FilterChip(
-                  label: 'Gratitude',
-                  count: gratitudes.length,
-                  selected: _selectedFilter == 'gratitude',
-                  onTap: () => setState(() => _selectedFilter = 'gratitude'),
-                ),
-                const SizedBox(width: 8),
-                _FilterChip(
-                  label: 'Requests',
-                  count: requests.length,
-                  selected: _selectedFilter == 'request',
-                  onTap: () => setState(() => _selectedFilter = 'request'),
-                ),
-                const SizedBox(width: 8),
-                _FilterChip(
-                  label: 'Answered',
-                  count: answered.length,
-                  selected: _selectedFilter == 'answered',
-                  onTap: () => setState(() => _selectedFilter = 'answered'),
-                ),
-              ],
+          // ── Filter chips ──
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _FilterChip(
+                    label: 'All',
+                    count: null,
+                    selected: _selectedFilter == 'all',
+                    onTap: () => setState(() => _selectedFilter = 'all'),
+                  ),
+                  const SizedBox(width: 8),
+                  _FilterChip(
+                    label: 'Gratitude',
+                    count: gratitudes.length,
+                    selected: _selectedFilter == 'gratitude',
+                    onTap: () => setState(() => _selectedFilter = 'gratitude'),
+                  ),
+                  const SizedBox(width: 8),
+                  _FilterChip(
+                    label: 'Requests',
+                    count: requests.length,
+                    selected: _selectedFilter == 'request',
+                    onTap: () => setState(() => _selectedFilter = 'request'),
+                  ),
+                  const SizedBox(width: 8),
+                  _FilterChip(
+                    label: 'Answered',
+                    count: answered.length,
+                    selected: _selectedFilter == 'answered',
+                    onTap: () => setState(() => _selectedFilter = 'answered'),
+                  ),
+                ],
+              ),
             ),
           ),
 
           const SizedBox(height: 12),
 
-          // Search
-          TextField(
-            onChanged: (v) => setState(() => _searchQuery = v),
-            decoration: InputDecoration(
-              hintText: 'Search prayers...',
-              hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
-              prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
-              suffixIcon: _searchQuery.isNotEmpty
-                  ? IconButton(icon: const Icon(Icons.close_rounded, size: 18), onPressed: () => setState(() => _searchQuery = ''))
-                  : null,
-              filled: true,
-              fillColor: Colors.white,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
-              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
-              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primary)),
+          // ── Search ──
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: TextField(
+              onChanged: (v) => setState(() => _searchQuery = v),
+              decoration: InputDecoration(
+                hintText: 'Search prayers...',
+                hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
+                prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(icon: const Icon(Icons.close_rounded, size: 18), onPressed: () => setState(() => _searchQuery = ''))
+                    : null,
+                filled: true,
+                fillColor: Colors.white,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primary)),
+              ),
             ),
           ),
           const SizedBox(height: 16),
 
-          // Posts
+          // ── Posts ──
           if (filtered.isEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 40),
@@ -320,7 +307,7 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
                         : _selectedFilter == 'answered'
                             ? 'No answered prayers yet'
                             : 'No posts yet',
-                subtitle: 'Tap "+ New Post" to share with your family',
+                subtitle: 'Tap "New Post" to share with your family',
               ),
             )
           else
@@ -328,7 +315,7 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
               final author = userMap[request.creatorId];
               final isGratitude = request.type == PrayerWallType.GRATITUDE;
               return Padding(
-                padding: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
                 child: _PrayerCard(
                   request: request,
                   userId: user.id,
@@ -338,7 +325,20 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
                       ? () => _markAnswered(request)
                       : null,
                   onReaction: (emoji) => _toggleReaction(request, emoji, user.id),
-                  onDelete: () => _deleteRequest(request.id),
+                  onDelete: () async {
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('Delete Prayer'),
+                        content: const Text('Remove this entry?'),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+                        ],
+                      ),
+                    );
+                    if (confirmed == true) _deleteRequest(request.id);
+                  },
                   authorName: author?.name ?? 'Family Member',
                   isGratitude: isGratitude,
                 ),
@@ -350,127 +350,7 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
   }
 }
 
-// ─── Stat Box ─────────────────────────────────────────────────────────────────
-
-class _StatBox extends StatelessWidget {
-  final int count;
-  final String label;
-  final Color backgroundColor;
-  final Color textColor;
-
-  const _StatBox({
-    required this.count,
-    required this.label,
-    required this.backgroundColor,
-    required this.textColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        decoration: BoxDecoration(
-          color: backgroundColor,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Column(
-          children: [
-            Text(
-              '$count',
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontWeight: FontWeight.w800,
-                fontSize: 24,
-                color: textColor,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontWeight: FontWeight.w700,
-                fontSize: 10,
-                letterSpacing: 0.8,
-                color: textColor.withValues(alpha: 0.7),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Filter Chip ──────────────────────────────────────────────────────────────
-
-class _FilterChip extends StatelessWidget {
-  final String label;
-  final int? count;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _FilterChip({
-    required this.label,
-    required this.count,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: selected ? _warmIndigo : Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: selected ? _warmIndigo : AppTheme.stone200,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontWeight: FontWeight.w600,
-                fontSize: 13,
-                color: selected ? Colors.white : AppTheme.stone600,
-              ),
-            ),
-            if (count != null) ...[
-              const SizedBox(width: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                decoration: BoxDecoration(
-                  color: selected ? Colors.white.withValues(alpha: 0.25) : AppTheme.stone100,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  '$count',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontWeight: FontWeight.w700,
-                    fontSize: 11,
-                    color: selected ? Colors.white : AppTheme.stone500,
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Card ─────────────────────────────────────────────────────────────────────
+// ─── Prayer Card ─────────────────────────────────────────────────────────────
 
 class _PrayerCard extends StatelessWidget {
   final PrayerRequest request;
@@ -503,271 +383,231 @@ class _PrayerCard extends StatelessWidget {
     final isAnswered = request.answered;
     final isOwner = request.userId == userId;
 
-    // Emoji avatar based on first letter of name
+    // Emoji avatar based on type
     final avatarEmoji = isGratitude ? '🌟' : '🙏';
 
-    return GestureDetector(
-      onLongPress: onAnswered,
-      child: Dismissible(
-        key: Key(request.id),
-        direction: DismissDirection.endToStart,
-        background: Container(
-          alignment: Alignment.centerRight,
-          padding: const EdgeInsets.only(right: 20),
-          decoration: BoxDecoration(
-            color: AppTheme.error,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: const Icon(Icons.delete_outline_rounded, color: Colors.white),
-        ),
-        confirmDismiss: (_) async => await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Delete Prayer'),
-            content: const Text('Remove this entry?'),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text('Cancel')),
-              TextButton(
-                  onPressed: () => Navigator.pop(ctx, true),
-                  child: const Text('Delete',
-                      style: TextStyle(color: AppTheme.error))),
-            ],
-          ),
-        ),
-        onDismissed: (_) => onDelete(),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isGratitude
+            ? const Color(0xFFFFFBEB)
+            : isAnswered
+                ? _warmGreen.withValues(alpha: 0.05)
+                : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
             color: isGratitude
-                ? const Color(0xFFFFFBEB)
+                ? const Color(0xFFFDE68A)
                 : isAnswered
-                    ? _warmGreen.withValues(alpha: 0.05)
-                    : Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-                color: isGratitude
-                    ? const Color(0xFFFDE68A)
-                    : isAnswered
-                        ? _warmGreen.withValues(alpha: 0.25)
-                        : accentColor.withValues(alpha: 0.2)),
-            boxShadow: [
-              BoxShadow(
-                color: accentColor.withValues(alpha: 0.07),
-                blurRadius: 10,
-                offset: const Offset(0, 3),
-              ),
-            ],
+                    ? _warmGreen.withValues(alpha: 0.25)
+                    : AppTheme.stone100),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // Header row: avatar + name + badge + timestamp + close button
+        Row(children: [
+          // Emoji avatar
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: isGratitude
+                  ? const Color(0xFFFEF3C7)
+                  : isAnswered
+                      ? _warmGreen.withValues(alpha: 0.1)
+                      : const Color(0xFFEEF2FF),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            alignment: Alignment.center,
+            child: Text(avatarEmoji, style: const TextStyle(fontSize: 18)),
           ),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            // Header row: avatar + name + badge + timestamp + close button
-            Row(children: [
-              // Emoji avatar
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: isGratitude
-                      ? const Color(0xFFFEF3C7)
-                      : isAnswered
-                          ? _warmGreen.withValues(alpha: 0.1)
-                          : const Color(0xFFEEF2FF),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                alignment: Alignment.center,
-                child: Text(avatarEmoji, style: const TextStyle(fontSize: 18)),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     children: [
-                      Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              authorName,
-                              style: const TextStyle(
-                                fontFamily: 'Inter',
-                                fontWeight: FontWeight.w700,
-                                fontSize: 14,
-                                color: AppTheme.stone900,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                      Flexible(
+                        child: Text(
+                          authorName,
+                          style: const TextStyle(
+                            fontFamily: 'Inter',
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                            color: AppTheme.stone900,
                           ),
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: isGratitude
-                                  ? const Color(0xFFFEF3C7)
-                                  : isAnswered
-                                      ? _warmGreen.withValues(alpha: 0.1)
-                                      : const Color(0xFFEEF2FF),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              isAnswered ? 'ANSWERED' : isGratitude ? 'GRATITUDE' : 'REQUEST',
-                              style: TextStyle(
-                                fontFamily: 'Inter',
-                                fontWeight: FontWeight.w700,
-                                fontSize: 9,
-                                letterSpacing: 0.5,
-                                color: isGratitude
-                                    ? _warmAmber
-                                    : isAnswered
-                                        ? _warmGreen
-                                        : _warmIndigo,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        _timeAgo(request.createdAt),
-                        style: const TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 11,
-                          color: AppTheme.stone400,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                    ]),
-              ),
-              if (isOwner)
-                GestureDetector(
-                  onTap: onDelete,
-                  child: const Icon(Icons.close_rounded,
-                      size: 18, color: AppTheme.stone300),
-                ),
-            ]),
-            // Title
-            const SizedBox(height: 12),
-            Text(
-              request.title,
-              style: const TextStyle(
-                fontFamily: 'Inter',
-                fontWeight: FontWeight.w700,
-                fontSize: 15,
-                color: AppTheme.stone900,
-              ),
-            ),
-            if (request.body != null && request.body!.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text(
-                request.body!,
-                style: const TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 13,
-                  color: AppTheme.stone600,
-                  height: 1.5,
-                ),
-              ),
-            ],
-            const SizedBox(height: 14),
-            // Reactions row
-            Row(children: [
-              // Emoji reactions
-              ..._reactionEmojis.map((emoji) {
-                final count = request.reactions.where((r) => r.emoji == emoji).length;
-                final hasReacted = request.reactions.any((r) => r.userId == userId && r.emoji == emoji);
-                return GestureDetector(
-                    onTap: () => onReaction(emoji),
-                    child: Container(
-                      margin: const EdgeInsets.only(right: 6),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 7, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: hasReacted
-                            ? accentColor.withValues(alpha: 0.12)
-                            : AppTheme.stone100,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                            color: hasReacted ? accentColor : Colors.transparent),
-                      ),
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        Text(emoji, style: const TextStyle(fontSize: 13)),
-                        if (count > 0) ...[
-                          const SizedBox(width: 3),
-                          Text('$count', style: TextStyle(
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: isGratitude
+                              ? const Color(0xFFFEF3C7)
+                              : isAnswered
+                                  ? _warmGreen.withValues(alpha: 0.1)
+                                  : const Color(0xFFEEF2FF),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          isAnswered ? 'ANSWERED' : isGratitude ? 'GRATITUDE' : 'REQUEST',
+                          style: TextStyle(
                             fontFamily: 'Inter',
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: hasReacted ? accentColor : AppTheme.stone500,
-                          )),
-                        ],
-                      ]),
+                            fontWeight: FontWeight.w700,
+                            fontSize: 9,
+                            letterSpacing: 0.5,
+                            color: isGratitude
+                                ? _warmAmber
+                                : isAnswered
+                                    ? _warmGreen
+                                    : _warmIndigo,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _timeAgo(request.createdAt),
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 11,
+                      color: AppTheme.stone400,
                     ),
-                  );
-              }),
-              const Spacer(),
-              // Prayed / 🙏 button
-              GestureDetector(
-                onTap: onPrayed,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 150),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  ),
+                ]),
+          ),
+          if (isOwner)
+            GestureDetector(
+              onTap: onDelete,
+              child: const Icon(Icons.close_rounded,
+                  size: 18, color: AppTheme.stone300),
+            ),
+        ]),
+        // Title
+        const SizedBox(height: 12),
+        Text(
+          request.title,
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            fontWeight: FontWeight.w700,
+            fontSize: 15,
+            color: AppTheme.stone900,
+          ),
+        ),
+        if (request.body != null && request.body!.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Text(
+            request.body!,
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 13,
+              color: AppTheme.stone600,
+              height: 1.5,
+            ),
+          ),
+        ],
+        const SizedBox(height: 14),
+        // Reactions row
+        Row(children: [
+          // Emoji reactions
+          ..._reactionEmojis.map((emoji) {
+            final count = request.reactions.where((r) => r.emoji == emoji).length;
+            final hasReacted = request.reactions.any((r) => r.userId == userId && r.emoji == emoji);
+            return GestureDetector(
+                onTap: () => onReaction(emoji),
+                child: Container(
+                  margin: const EdgeInsets.only(right: 6),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 7, vertical: 4),
                   decoration: BoxDecoration(
-                    color: hasPrayed
+                    color: hasReacted
                         ? accentColor.withValues(alpha: 0.12)
                         : AppTheme.stone100,
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                        color:
-                            hasPrayed ? accentColor : Colors.transparent),
+                        color: hasReacted ? accentColor : Colors.transparent),
                   ),
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    const Text('🙏', style: TextStyle(fontSize: 13)),
-                    const SizedBox(width: 4),
-                    Text(
-                      '${request.prayedByIds.length}',
-                      style: TextStyle(
+                    Text(emoji, style: const TextStyle(fontSize: 13)),
+                    if (count > 0) ...[
+                      const SizedBox(width: 3),
+                      Text('$count', style: TextStyle(
                         fontFamily: 'Inter',
                         fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color:
-                            hasPrayed ? accentColor : AppTheme.stone500,
-                      ),
-                    ),
+                        fontWeight: FontWeight.w600,
+                        color: hasReacted ? accentColor : AppTheme.stone500,
+                      )),
+                    ],
                   ]),
                 ),
+              );
+          }),
+          const Spacer(),
+          // Prayed button
+          GestureDetector(
+            onTap: onPrayed,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: hasPrayed
+                    ? accentColor.withValues(alpha: 0.12)
+                    : AppTheme.stone100,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                    color:
+                        hasPrayed ? accentColor : Colors.transparent),
               ),
-            ]),
-            // Mark answered hint (long-press)
-            if (!isAnswered && onAnswered != null) ...[
-              const SizedBox(height: 8),
-              GestureDetector(
-                onTap: onAnswered,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: _warmGreen.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Text(
-                    '✅ Mark as Answered',
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: _warmGreen,
-                    ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                const Text('🙏', style: TextStyle(fontSize: 13)),
+                const SizedBox(width: 4),
+                Text(
+                  '${request.prayedByIds.length}',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color:
+                        hasPrayed ? accentColor : AppTheme.stone500,
                   ),
                 ),
+              ]),
+            ),
+          ),
+        ]),
+        // Mark answered button
+        if (!isAnswered && onAnswered != null) ...[
+          const SizedBox(height: 8),
+          GestureDetector(
+            onTap: onAnswered,
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: _warmGreen.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(12),
               ),
-            ],
-          ]),
-        ),
-      ),
+              child: const Text(
+                'Mark as Answered',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: _warmGreen,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ]),
     );
   }
 }
 
-// ─── Add Sheet ────────────────────────────────────────────────────────────────
+// ─── Add Prayer Sheet ────────────────────────────────────────────────────────
 
 class _AddPrayerSheet extends StatefulWidget {
   final String initialType;
@@ -954,6 +794,129 @@ class _TypeChip extends StatelessWidget {
             fontSize: 13,
             color: selected ? color : AppTheme.stone500,
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Filter Chip ──────────────────────────────────────────────────────────────
+
+class _FilterChip extends StatelessWidget {
+  final String label;
+  final int? count;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _FilterChip({
+    required this.label,
+    required this.count,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? _warmIndigo : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: selected ? _warmIndigo : AppTheme.stone200,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: selected ? Colors.white : AppTheme.stone600,
+              ),
+            ),
+            if (count != null) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                decoration: BoxDecoration(
+                  color: selected ? Colors.white.withValues(alpha: 0.25) : AppTheme.stone100,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '$count',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontWeight: FontWeight.w700,
+                    fontSize: 11,
+                    color: selected ? Colors.white : AppTheme.stone500,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Mini Stat Card ──────────────────────────────────────────────────────────
+
+class _MiniStat extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String value;
+  final String label;
+
+  const _MiniStat({
+    required this.icon,
+    required this.iconColor,
+    required this.value,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppTheme.stone100),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 32, height: 32,
+              decoration: BoxDecoration(
+                color: iconColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Icon(icon, size: 16, color: iconColor),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(value, style: TextStyle(
+                    fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w900, color: iconColor,
+                  )),
+                  Text(label, style: const TextStyle(
+                    fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w500, color: AppTheme.stone400,
+                  )),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

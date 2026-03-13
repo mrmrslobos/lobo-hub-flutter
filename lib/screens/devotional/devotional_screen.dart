@@ -1,7 +1,9 @@
 // lib/screens/devotional/devotional_screen.dart
+// Devotional & reading-plan screen for FamilyHub
 import 'dart:convert';
 
 import 'package:flutter/material.dart' hide Visibility;
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
@@ -15,6 +17,16 @@ import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+void _showSnack(BuildContext context, String msg) {
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    content: Text(msg),
+    behavior: SnackBarBehavior.floating,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+  ));
+}
+
 /// Extract the reference portion from a combined scripture string.
 /// e.g. "For God so loved...\n— John 3:16" → "John 3:16"
 /// Falls back to the full string if no em-dash separator is found.
@@ -23,6 +35,8 @@ String _extractRef(String scripture) {
   if (idx >= 0) return scripture.substring(idx + 1).trim();
   return scripture;
 }
+
+// ─── Main Screen ─────────────────────────────────────────────────────────────
 
 class DevotionalScreen extends StatefulWidget {
   const DevotionalScreen({super.key});
@@ -113,61 +127,70 @@ class _DevotionalScreenState extends State<DevotionalScreen>
       );
     }
 
+    // ── Computed stats ──
+    final favCount = entries.where((e) => e.isFavorited).length;
+
     return Scaffold(
+      backgroundColor: AppTheme.background,
       drawer: const AppDrawer(),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: Builder(
-          builder: (context) => IconButton(
-            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
-            onPressed: () => Scaffold.of(context).openDrawer(),
-          ),
-        ),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
-            const SizedBox(width: 6),
-            const Text('FamilyHub', style: TextStyle(
-              fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary,
-            )),
-          ],
-        ),
-        centerTitle: false,
-        titleSpacing: 0,
-      ),
+      appBar: const FamilyHubAppBar(),
       body: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Page Header
+            // ── Page Header ──
             PageHeader(
               title: 'Spiritual Growth',
               subtitle: 'Reflect, pray, and grow as a family.',
             ),
 
-            // Tab chips
+            // ── Stat cards ──
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+              child: Row(children: [
+                _MiniStat(
+                  icon: Icons.menu_book_rounded,
+                  iconColor: AppTheme.primary,
+                  value: '${entries.length}',
+                  label: 'Devotionals',
+                ),
+                const SizedBox(width: 10),
+                _MiniStat(
+                  icon: Icons.bookmark_rounded,
+                  iconColor: const Color(0xFFF59E0B),
+                  value: '$favCount',
+                  label: 'Favorites',
+                ),
+                const SizedBox(width: 10),
+                _MiniStat(
+                  icon: Icons.calendar_month_rounded,
+                  iconColor: const Color(0xFF8B7BF7),
+                  value: '${plans.length}',
+                  label: 'Plans',
+                ),
+              ]),
+            ),
+
+            // ── Tab chips ──
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: AppTheme.stone100,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                padding: const EdgeInsets.all(3),
-                child: Row(
-                  children: [
-                    _tabChip(0, Icons.menu_book_outlined, 'Devotionals'),
-                    const SizedBox(width: 4),
-                    _tabChip(1, Icons.calendar_month_rounded, 'Reading Plans'),
-                  ],
-                ),
+              child: AppTabBar(
+                tabs: const ['Devotionals', 'Reading Plans'],
+                selectedIndex: _tabController.index,
+                onSelected: (i) => _tabController.animateTo(i),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
+
+            // ── AI TOOLS section header ──
+            const Padding(
+              padding: EdgeInsets.fromLTRB(24, 0, 20, 10),
+              child: Text('AI TOOLS', style: TextStyle(
+                fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800,
+                color: AppTheme.stone400, letterSpacing: 1.2,
+              )),
+            ),
 
             // Tab content
             if (_tabController.index == 0)
@@ -184,33 +207,6 @@ class _DevotionalScreenState extends State<DevotionalScreen>
                 onSelectPlan: (p) => setState(() => _selectedPlan = p),
               ),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _tabChip(int index, IconData icon, String label) {
-    final selected = _tabController.index == index;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => _tabController.animateTo(index),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            color: selected ? AppTheme.stone800 : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 16, color: selected ? Colors.white : AppTheme.stone500),
-              const SizedBox(width: 6),
-              Text(label, style: TextStyle(
-                fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13,
-                color: selected ? Colors.white : AppTheme.stone600,
-              )),
-            ],
-          ),
         ),
       ),
     );
@@ -273,14 +269,14 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
 
     final today = DateTime(now.year, now.month, now.day);
 
-    bool _hasTodaysDevotional() => provider.db.devotionalEntries.any((e) =>
+    bool hasTodaysDevotional() => provider.db.devotionalEntries.any((e) =>
       e.familyId == family.id &&
       e.tags.contains('daily-auto') &&
       DateTime(e.date.year, e.date.month, e.date.day) == today,
     );
 
     // Check local first
-    if (_hasTodaysDevotional()) return;
+    if (hasTodaysDevotional()) return;
 
     // Sync with cloud — the server may have already generated today's devotional
     try {
@@ -292,7 +288,7 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
     if (!mounted) return;
 
     // Re-check after cloud sync
-    if (_hasTodaysDevotional()) return;
+    if (hasTodaysDevotional()) return;
 
     // Fallback: generate client-side (server may not have run yet)
     // Use a flag to prevent concurrent generation
@@ -307,13 +303,14 @@ For "scripture", write out the FULL verse text (e.g. "For God so loved the world
 For "scriptureRef", provide only the reference (e.g. "John 3:16").
 Make the content warm, relatable, and suitable for children.''',
         feature: 'ai_devotional',
-        familyId: family.id,
+        familyId: widget.familyId,
         responseMimeType: 'application/json',
       );
 
       if (raw != null && mounted) {
+        provider.saveAiHistory(module: 'devotional', prompt: 'Generate daily family devotional', response: raw);
         // Final dedup check before inserting to prevent race with server cron
-        if (_hasTodaysDevotional()) return;
+        if (hasTodaysDevotional()) return;
         try {
           final data = jsonDecode(raw) as Map<String, dynamic>;
           final scriptureRef = data['scriptureRef'] as String?;
@@ -323,7 +320,7 @@ Make the content warm, relatable, and suitable for children.''',
               : scriptureText ?? scriptureRef;
           final entry = DevotionalEntry(
             id: const Uuid().v4(),
-            familyId: family.id,
+            familyId: widget.familyId,
             creatorId: provider.activeUser?.id ?? '',
             title: data['title'] as String? ?? 'Daily Devotional',
             scripture: scripture,
@@ -342,7 +339,7 @@ Make the content warm, relatable, and suitable for children.''',
         } catch (_) {
           final entry = DevotionalEntry(
             id: const Uuid().v4(),
-            familyId: family.id,
+            familyId: widget.familyId,
             creatorId: provider.activeUser?.id ?? '',
             title: 'Daily Devotional',
             content: raw,
@@ -360,9 +357,7 @@ Make the content warm, relatable, and suitable for children.''',
     } catch (e) {
       debugPrint('Daily devotional auto-generation failed: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not generate devotional. Pull down to retry.'), behavior: SnackBarBehavior.floating),
-        );
+        _showSnack(context, 'Could not generate devotional. Pull down to retry.');
       }
     } finally {
       if (mounted) setState(() => _isGenerating = false);
@@ -388,6 +383,7 @@ Make the content warm, relatable, and suitable for children.''';
       );
 
       if (raw != null && mounted) {
+        provider.saveAiHistory(module: 'devotional', prompt: 'Generate devotional on: $topic', response: raw);
         try {
           final data = jsonDecode(raw) as Map<String, dynamic>;
           final scriptureRef = data['scriptureRef'] as String?;
@@ -433,10 +429,7 @@ Make the content warm, relatable, and suitable for children.''';
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Failed to generate: $e'),
-          backgroundColor: AppTheme.error,
-        ));
+        _showSnack(context, 'Failed to generate: $e');
       }
     } finally {
       if (mounted) setState(() => _isGenerating = false);
@@ -451,65 +444,20 @@ Make the content warm, relatable, and suitable for children.''';
         // ── AI Faith Assistant Card ──
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFFF59E0B), Color(0xFFF97316)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          child: _AiFeatureCard(
+            icon: Icons.auto_awesome,
+            gradientColors: const [Color(0xFFF59E0B), Color(0xFFF97316)],
+            title: 'AI Faith Assistant',
+            hintText: 'e.g. Patience, Hope, Forgiveness...',
+            controller: _topicCtrl,
+            loading: _isGenerating,
+            buttonLabel: 'Generate Now',
+            onAction: _isGenerating ? null : _generate,
+            extraContent: Row(
               children: [
-                const Row(children: [
-                  Icon(Icons.auto_awesome, size: 18, color: Colors.white),
-                  SizedBox(width: 8),
-                  Text('AI Faith Assistant', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white)),
-                ]),
-                const SizedBox(height: 8),
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: TextField(
-                    controller: _topicCtrl,
-                    style: const TextStyle(color: Colors.white, fontFamily: 'Inter', fontSize: 14),
-                    decoration: const InputDecoration(
-                      hintText: 'e.g. Patience, Hope, Forgiveness...',
-                      hintStyle: TextStyle(color: Colors.white54, fontFamily: 'Inter'),
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                      filled: false,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    _toggleChip('Shared', _isShared, () => setState(() => _isShared = true)),
-                    const SizedBox(width: 8),
-                    _toggleChip('Private', !_isShared, () => setState(() => _isShared = false)),
-                    const Spacer(),
-                    GestureDetector(
-                      onTap: _isGenerating ? null : _generate,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: _isGenerating
-                            ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFF59E0B)))
-                            : const Text('Generate Now', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFFF59E0B))),
-                      ),
-                    ),
-                  ],
-                ),
+                _toggleChip('Shared', _isShared, () => setState(() => _isShared = true)),
+                const SizedBox(width: 8),
+                _toggleChip('Private', !_isShared, () => setState(() => _isShared = false)),
               ],
             ),
           ),
@@ -551,8 +499,8 @@ Make the content warm, relatable, and suitable for children.''';
                       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: AppTheme.stone200),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: AppTheme.stone100),
                       ),
                       child: Row(
                         children: [
@@ -789,9 +737,7 @@ class _ReadingPlansTabState extends State<_ReadingPlansTab> {
         ? _customTopicCtrl.text.trim()
         : _selectedTopic;
     if (topic == null || topic.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select or enter a topic'), behavior: SnackBarBehavior.floating),
-      );
+      _showSnack(context, 'Please select or enter a topic');
       return;
     }
 
@@ -812,6 +758,7 @@ Make it warm, kid-friendly, and relatable.''';
       );
 
       if (raw != null && mounted) {
+        provider.saveAiHistory(module: 'devotional', prompt: 'Generate $_duration-day Bible reading plan on "$topic"', response: raw);
         final data = jsonDecode(raw) as Map<String, dynamic>;
         final entriesData = (data['entries'] as List?) ?? [];
         final planId = const Uuid().v4();
@@ -861,10 +808,7 @@ Make it warm, kid-friendly, and relatable.''';
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Failed to generate plan: $e'),
-          backgroundColor: AppTheme.error,
-        ));
+        _showSnack(context, 'Failed to generate plan: $e');
       }
     } finally {
       if (mounted) setState(() => _isGenerating = false);
@@ -879,26 +823,20 @@ Make it warm, kid-friendly, and relatable.''';
         // ── Create a Reading Plan Card ──
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF8B7BF7), Color(0xFFB4A0FF)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Column(
+          child: _AiFeatureCard(
+            icon: Icons.auto_awesome,
+            gradientColors: const [Color(0xFF8B7BF7), Color(0xFFB4A0FF)],
+            title: 'Create a Reading Plan',
+            hintText: 'Or type your own theme...',
+            controller: _customTopicCtrl,
+            loading: _isGenerating,
+            buttonLabel: 'Generate Plan',
+            onAction: _isGenerating ? null : _generatePlan,
+            onTextChanged: (_) => setState(() => _selectedTopic = null),
+            extraContent: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Row(children: [
-                  Icon(Icons.auto_awesome, size: 18, color: Colors.white),
-                  SizedBox(width: 8),
-                  Text('Create a Reading Plan', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white)),
-                ]),
-                const SizedBox(height: 8),
+                // Topic chips
                 Wrap(
                   spacing: 8, runSpacing: 8,
                   children: _topics.map((t) {
@@ -924,24 +862,11 @@ Make it warm, kid-friendly, and relatable.''';
                   }).toList(),
                 ),
                 const SizedBox(height: 10),
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: TextField(
-                    controller: _customTopicCtrl,
-                    style: const TextStyle(color: Colors.white, fontFamily: 'Inter', fontSize: 14),
-                    onChanged: (_) => setState(() => _selectedTopic = null),
-                    decoration: const InputDecoration(
-                      hintText: 'Or type your own theme...',
-                      hintStyle: TextStyle(color: Colors.white54, fontFamily: 'Inter'),
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                      filled: false,
-                    ),
-                  ),
-                ),
+              ],
+            ),
+            extraContentAfterInput: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 const SizedBox(height: 10),
                 // Duration selector
                 Wrap(
@@ -965,26 +890,6 @@ Make it warm, kid-friendly, and relatable.''';
                     );
                   }).toList(),
                 ),
-                const SizedBox(height: 12),
-                // Generate button
-                SizedBox(
-                  width: double.infinity,
-                  child: GestureDetector(
-                    onTap: _isGenerating ? null : _generatePlan,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Center(
-                        child: _isGenerating
-                            ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF8B7BF7)))
-                            : const Text('Generate Plan', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF8B7BF7))),
-                      ),
-                    ),
-                  ),
-                ),
               ],
             ),
           ),
@@ -993,13 +898,14 @@ Make it warm, kid-friendly, and relatable.''';
 
         // ── Your Reading Plans ──
         if (widget.plans.isNotEmpty) ...[
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: const Text('Your Reading Plans', style: TextStyle(
-              fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 18, color: AppTheme.stone900,
+          const Padding(
+            padding: EdgeInsets.fromLTRB(24, 0, 20, 10),
+            child: Text('YOUR READING PLANS', style: TextStyle(
+              fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 11,
+              color: AppTheme.stone400, letterSpacing: 1.2,
             )),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 4),
           ...widget.plans.map((plan) {
             final totalDays = plan.entryIds.length;
             // Count completed days (entries that have userPrayer or are marked in some way)
@@ -1283,13 +1189,9 @@ class _EntryDetailView extends StatelessWidget {
                 Expanded(
                   child: OutlinedButton.icon(
                     onPressed: () {
+                      HapticFeedback.lightImpact();
                       onToggleFavorite();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(entry.isFavorited ? 'Removed from favorites' : 'Saved to favorites'),
-                          backgroundColor: AppTheme.success,
-                        ),
-                      );
+                      _showSnack(context, entry.isFavorited ? 'Removed from favorites' : 'Saved to favorites');
                     },
                     icon: Icon(entry.isFavorited ? Icons.bookmark_rounded : Icons.bookmark_outline_rounded, size: 18),
                     label: Text(entry.isFavorited ? 'Favorited' : 'Save to Favorites'),
@@ -1594,6 +1496,7 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
                   Expanded(
                     child: ElevatedButton.icon(
                       onPressed: () {
+                        HapticFeedback.lightImpact();
                         // Mark as complete (save a userPrayer marker)
                         final provider = context.read<AppProvider>();
                         final db = provider.db;
@@ -1608,10 +1511,7 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
                           ).toList(),
                         ));
                         setState(() {});
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                          content: Text('Day ${_currentDay + 1} complete!'),
-                          backgroundColor: AppTheme.success,
-                        ));
+                        _showSnack(context, 'Day ${_currentDay + 1} complete!');
                       },
                       icon: const Icon(Icons.check_rounded, size: 18),
                       label: Text('Mark Day ${_currentDay + 1}\nComplete', textAlign: TextAlign.center, style: const TextStyle(fontSize: 13, height: 1.3)),
@@ -1701,7 +1601,14 @@ class _DailyDevotionalCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(Icons.schedule_rounded, size: 18, color: Colors.white),
+                Container(
+                  width: 30, height: 30,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                  child: const Icon(Icons.schedule_rounded, size: 16, color: Colors.white),
+                ),
                 const SizedBox(width: 8),
                 const Expanded(
                   child: Text('Daily AI Devotional', style: TextStyle(
@@ -1846,6 +1753,186 @@ class _DailyDevotionalCard extends StatelessWidget {
       title: 'Daily Devotional Ready',
       body: 'Your family\u2019s AI devotional for today is here. Open to read and reflect together.',
       time: Time(hour, minute),
+    );
+  }
+}
+
+// ─── AI Feature Card (consistent with meals pattern) ─────────────────────────
+
+class _AiFeatureCard extends StatelessWidget {
+  final IconData icon;
+  final List<Color> gradientColors;
+  final String title;
+  final String hintText;
+  final TextEditingController controller;
+  final bool loading;
+  final String buttonLabel;
+  final VoidCallback? onAction;
+  final Widget? extraContent;
+  final Widget? extraContentAfterInput;
+  final ValueChanged<String>? onTextChanged;
+
+  const _AiFeatureCard({
+    required this.icon,
+    required this.gradientColors,
+    required this.title,
+    required this.hintText,
+    required this.controller,
+    required this.loading,
+    required this.buttonLabel,
+    this.onAction,
+    this.extraContent,
+    this.extraContentAfterInput,
+    this.onTextChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: gradientColors,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Container(
+              width: 30, height: 30,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Icon(icon, size: 16, color: Colors.white),
+            ),
+            const SizedBox(width: 10),
+            Text(title, style: const TextStyle(
+              fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white,
+            )),
+          ]),
+          const SizedBox(height: 10),
+          if (extraContent != null) extraContent!,
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: TextField(
+              controller: controller,
+              onChanged: onTextChanged,
+              style: const TextStyle(color: Colors.white, fontFamily: 'Inter', fontSize: 14),
+              decoration: InputDecoration(
+                hintText: hintText,
+                hintStyle: const TextStyle(color: Colors.white54, fontFamily: 'Inter'),
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                filled: false,
+              ),
+            ),
+          ),
+          if (extraContentAfterInput != null) extraContentAfterInput!,
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              if (extraContent != null && extraContentAfterInput == null) const Spacer(),
+              if (extraContentAfterInput != null)
+                Expanded(
+                  child: GestureDetector(
+                    onTap: onAction,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Center(
+                        child: loading
+                            ? SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: gradientColors.first))
+                            : Text(buttonLabel, style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: gradientColors.first)),
+                      ),
+                    ),
+                  ),
+                )
+              else
+                GestureDetector(
+                  onTap: onAction,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: loading
+                        ? SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: gradientColors.first))
+                        : Text(buttonLabel, style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: gradientColors.first)),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Mini Stat Card ──────────────────────────────────────────────────────────
+
+class _MiniStat extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String value;
+  final String label;
+
+  const _MiniStat({
+    required this.icon,
+    required this.iconColor,
+    required this.value,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppTheme.stone100),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 32, height: 32,
+              decoration: BoxDecoration(
+                color: iconColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Icon(icon, size: 16, color: iconColor),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(value, style: TextStyle(
+                    fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w900, color: iconColor,
+                  )),
+                  Text(label, style: const TextStyle(
+                    fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w500, color: AppTheme.stone400,
+                  )),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

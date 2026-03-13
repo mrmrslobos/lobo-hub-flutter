@@ -1,4 +1,5 @@
 // lib/screens/period_tracker/period_tracker_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -9,6 +10,140 @@ import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const _uuid = Uuid();
+
+// Theme colors for period tracker (pink palette)
+const _pink = Color(0xFFEC4899);
+const _pinkDark = Color(0xFFE11D48);
+const _pinkLight = Color(0xFFFCE7F3);
+const _pinkBg = Color(0xFFFDF2F8);
+
+const _symptomOptions = [
+  'Cramps 😣',
+  'Headache 🤕',
+  'Bloating 🤰',
+  'Fatigue 😴',
+  'Mood Swings 🌪️',
+  'Nausea 🤢',
+  'Backache 🦴',
+  'Spotting 🔴',
+  'Breast tenderness',
+  'Insomnia 😰',
+  'Cravings 🍫',
+  'Anxiety 😟',
+];
+
+const _periodLogSymptoms = [
+  'Cramps 😣',
+  'Headache 🤕',
+  'Bloating 🤰',
+  'Fatigue 😴',
+  'Mood Swings 🌪️',
+  'Nausea 🤢',
+  'Backache 🦴',
+  'Spotting 🔴',
+];
+
+const _moodEmojis = {
+  CycleMood.GREAT: '😄',
+  CycleMood.GOOD: '🙂',
+  CycleMood.OKAY: '😐',
+  CycleMood.LOW: '😔',
+  CycleMood.ROUGH: '😢',
+};
+
+const _periodMoodOptions = ['😊', '😐', '😢', '😤', '😴'];
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+void _showSnack(BuildContext context, String msg) {
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    content: Text(msg),
+    behavior: SnackBarBehavior.floating,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+  ));
+}
+
+Future<bool> _confirmRemove(BuildContext context, String title, String message) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      title: Row(children: [
+        Container(
+          width: 36, height: 36,
+          decoration: BoxDecoration(
+            color: AppTheme.error.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: const Icon(Icons.delete_outline_rounded, size: 18, color: AppTheme.error),
+        ),
+        const SizedBox(width: 10),
+        Expanded(child: Text(title, style: const TextStyle(fontFamily: 'Inter', fontSize: 17, fontWeight: FontWeight.w800))),
+      ]),
+      content: Text(message, style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone600)),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Cancel', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, color: AppTheme.stone500)),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('Remove', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, color: AppTheme.error)),
+        ),
+      ],
+    ),
+  );
+  return confirmed == true;
+}
+
+InputDecoration _styledInput(String hint, {IconData? icon}) => InputDecoration(
+  hintText: hint,
+  hintStyle: const TextStyle(color: AppTheme.stone300, fontFamily: 'Inter', fontSize: 13),
+  prefixIcon: icon != null ? Icon(icon, size: 20, color: AppTheme.stone400) : null,
+  filled: true,
+  fillColor: Colors.white,
+  isDense: true,
+  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+  border: OutlineInputBorder(
+    borderRadius: BorderRadius.circular(12),
+    borderSide: BorderSide(color: AppTheme.stone200),
+  ),
+  enabledBorder: OutlineInputBorder(
+    borderRadius: BorderRadius.circular(12),
+    borderSide: BorderSide(color: AppTheme.stone200),
+  ),
+  focusedBorder: OutlineInputBorder(
+    borderRadius: BorderRadius.circular(12),
+    borderSide: const BorderSide(color: _pink, width: 1.5),
+  ),
+);
+
+bool _isSameDay(DateTime a, DateTime b) =>
+    a.year == b.year && a.month == b.month && a.day == b.day;
+
+Widget _sectionLabel(String text) => Text(
+  text,
+  style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.8, color: AppTheme.stone400),
+);
+
+Widget _privacyNote() => Container(
+  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+  decoration: BoxDecoration(
+    color: _pinkLight.withValues(alpha: 0.5),
+    borderRadius: BorderRadius.circular(10),
+  ),
+  child: const Row(children: [
+    Icon(Icons.lock_outline_rounded, size: 14, color: _pink),
+    SizedBox(width: 8),
+    Expanded(child: Text('Only you can see this data', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w500, color: _pink))),
+  ]),
+);
+
+// ─── Period Tracker Screen ────────────────────────────────────────────────────
 
 class PeriodTrackerScreen extends StatefulWidget {
   const PeriodTrackerScreen({super.key});
@@ -98,7 +233,6 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     final db = provider.db;
     final dateOnly = DateTime(date.year, date.month, date.day);
 
-    // Check if a symptom log already exists for this day; if so, add to it
     final existing = db.periodSymptoms
         .where((s) => s.userId == user.id && _isSameDay(s.date, dateOnly))
         .toList();
@@ -124,7 +258,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
       }
     } else {
       final log = PeriodSymptomLog(
-        id: const Uuid().v4(),
+        id: _uuid.v4(),
         userId: user.id,
         familyId: family.id,
         date: dateOnly,
@@ -137,15 +271,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     }
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Logged intimate activity for ${DateFormat('MMM d').format(date)}'),
-          backgroundColor: const Color(0xFF9F1239),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          duration: const Duration(seconds: 2),
-        ),
-      );
+      _showSnack(context, 'Logged intimate activity for ${DateFormat('MMM d').format(date)}');
     }
   }
 
@@ -178,12 +304,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
               controller: ctrl,
               maxLines: 8,
               style: const TextStyle(fontFamily: 'Inter', fontSize: 13),
-              decoration: InputDecoration(
-                hintText: '2025-01-05 - 2025-01-10\n2025-02-03 - 2025-02-08',
-                hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone300),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                contentPadding: const EdgeInsets.all(14),
-              ),
+              decoration: _styledInput('2025-01-05 - 2025-01-10\n2025-02-03 - 2025-02-08'),
             ),
             const SizedBox(height: 16),
             SizedBox(
@@ -192,15 +313,12 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
                 onPressed: () async {
                   final text = ctrl.text.trim();
                   if (text.isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Please paste period data to import'), behavior: SnackBarBehavior.floating),
-                    );
+                    _showSnack(context, 'Please paste period data to import');
                     return;
                   }
                   final lines = text.split('\n').where((l) => l.trim().isNotEmpty);
                   final provider = context.read<AppProvider>();
                   final db = provider.db;
-                  final uuid = const Uuid();
                   final familyId = provider.activeFamily!.id;
                   final userId = provider.activeUser!.id;
                   final newEntries = <PeriodEntry>[];
@@ -212,7 +330,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
                       final start = DateTime.parse(parts[0].trim());
                       final end = parts.length > 1 ? DateTime.parse(parts[1].trim()) : null;
                       newEntries.add(PeriodEntry(
-                        id: uuid.v4(),
+                        id: _uuid.v4(),
                         familyId: familyId,
                         userId: userId,
                         startDate: start,
@@ -233,17 +351,14 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
 
                   if (ctx.mounted) Navigator.pop(ctx);
                   if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                      content: Text('Imported ${newEntries.length} entries${failed > 0 ? ' ($failed failed)' : ''}'),
-                      backgroundColor: newEntries.isNotEmpty ? AppTheme.success : AppTheme.error,
-                    ));
+                    _showSnack(context, 'Imported ${newEntries.length} entries${failed > 0 ? ' ($failed failed)' : ''}');
                   }
                 },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFE11D48),
+                  backgroundColor: _pinkDark,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 ),
                 child: const Text('Import', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700)),
               ),
@@ -254,16 +369,15 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     );
   }
 
-  Future<void> _deleteEntry(String id) async {
-    final provider = context.read<AppProvider>();
+  Future<void> _deleteEntry(BuildContext context, String id) async {
+    final ok = await _confirmRemove(context, 'Delete Entry', 'Delete this period log entry? This cannot be undone.');
+    if (!ok) return;
+    final provider = this.context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(db.copyWith(
       periodEntries: db.periodEntries.where((e) => e.id != id).toList(),
     ));
   }
-
-  bool _isSameDay(DateTime a, DateTime b) =>
-      a.year == b.year && a.month == b.month && a.day == b.day;
 
   int? _cycleLengthDays(List<PeriodEntry> entries) {
     if (entries.length < 2) return null;
@@ -283,7 +397,6 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     return nextDate.difference(DateTime.now()).inDays;
   }
 
-  /// Collect all dates that fall within a period entry range
   Set<DateTime> _periodDates(List<PeriodEntry> entries) {
     final dates = <DateTime>{};
     for (final entry in entries) {
@@ -306,7 +419,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    // Only show current user's data - PRIVATE
+    // Private data — only current user
     final entries = provider.db.periodEntries
         .where((e) => e.familyId == family.id && e.userId == user.id)
         .toList();
@@ -318,43 +431,15 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     return Scaffold(
       backgroundColor: AppTheme.background,
       drawer: const AppDrawer(),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: Builder(
-          builder: (context) => IconButton(
-            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
-            onPressed: () => Scaffold.of(context).openDrawer(),
-          ),
-        ),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
-            const SizedBox(width: 6),
-            const Text(
-              'FamilyHub',
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontWeight: FontWeight.w800,
-                fontSize: 18,
-                color: AppTheme.primary,
-              ),
-            ),
-          ],
-        ),
-        centerTitle: false,
-        titleSpacing: 0,
-        actions: const [],
-      ),
+      appBar: const FamilyHubAppBar(),
       body: SingleChildScrollView(
+        padding: const EdgeInsets.only(bottom: 32),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Page Header
+            // ── Page Header ──
             PageHeader(
-              title: 'Period Tracker',
+              title: '🌸 Period Tracker',
               subtitle: 'Track your cycle, symptoms & fertility.',
               actions: [
                 ActionChipButton(
@@ -367,22 +452,49 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
                 ActionChipButton(
                   emoji: '😣',
                   label: 'Log Symptoms',
-                  onTap: () => _showLogSheet(),
-                  backgroundColor: const Color(0xFFFCE7F3),
-                  foregroundColor: const Color(0xFFE11D48),
+                  onTap: () => _showSymptomsSheet(date: DateTime.now()),
+                  backgroundColor: _pinkLight,
+                  foregroundColor: _pinkDark,
                 ),
                 ActionChipButton(
                   icon: Icons.loop_rounded,
                   label: 'Log Period',
                   onTap: () => _showLogSheet(),
-                  backgroundColor: const Color(0xFFE11D48),
+                  backgroundColor: _pinkDark,
                   foregroundColor: Colors.white,
                   isPrimary: true,
                 ),
               ],
             ),
 
-            // Tab Bar
+            // ── Stats Row ──
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+              child: Row(children: [
+                _MiniStat(
+                  icon: Icons.calendar_today_rounded,
+                  iconColor: _pink,
+                  value: avgCycle != null ? '$avgCycle d' : '—',
+                  label: 'Avg Cycle',
+                ),
+                const SizedBox(width: 10),
+                _MiniStat(
+                  icon: Icons.schedule_rounded,
+                  iconColor: const Color(0xFFA855F7),
+                  value: daysUntil != null ? '${daysUntil.abs()}' : '—',
+                  label: daysUntil != null && daysUntil >= 0 ? 'Days Left' : 'Days Late',
+                ),
+                const SizedBox(width: 10),
+                _MiniStat(
+                  icon: Icons.auto_graph_rounded,
+                  iconColor: const Color(0xFF8B5CF6),
+                  value: '${entries.length}',
+                  label: 'Entries',
+                ),
+              ]),
+            ),
+
+            // ── Tab Bar ──
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: AppTabBar(
@@ -398,15 +510,13 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
             if (_selectedTab == 0) _buildCalendarTab(entries),
             if (_selectedTab == 1) _buildHistoryTab(entries),
             if (_selectedTab == 2) _buildInsightsTab(entries, avgCycle, daysUntil),
-
-            const SizedBox(height: 32),
           ],
         ),
       ),
     );
   }
 
-  // ─── Calendar Tab ─────────────────────────────────────────────────────────
+  // ─── Calendar Tab ───────────────────────────────────────────────────────────
   Widget _buildCalendarTab(List<PeriodEntry> entries) {
     final periodDates = _periodDates(entries);
     final now = DateTime.now();
@@ -414,7 +524,6 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     final provider = context.watch<AppProvider>();
     final user = provider.activeUser;
 
-    // Collect symptom log dates and intimate dates
     final symptomLogs = user != null
         ? provider.db.periodSymptoms.where((s) => s.userId == user.id).toList()
         : <PeriodSymptomLog>[];
@@ -426,71 +535,56 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Column(
-        children: [
-          _PeriodCalendar(
-            currentMonth: _currentMonth,
-            today: today,
-            periodDates: periodDates,
-            symptomDates: symptomDates,
-            intimateDates: intimateDates,
-            onPrevMonth: () {
-              setState(() {
-                _currentMonth = DateTime(_currentMonth.year, _currentMonth.month - 1);
-              });
-            },
-            onNextMonth: () {
-              setState(() {
-                _currentMonth = DateTime(_currentMonth.year, _currentMonth.month + 1);
-              });
-            },
-            onDayTap: (date) => _showDayActionSheet(date),
+      child: Column(children: [
+        _PeriodCalendar(
+          currentMonth: _currentMonth,
+          today: today,
+          periodDates: periodDates,
+          symptomDates: symptomDates,
+          intimateDates: intimateDates,
+          onPrevMonth: () => setState(() {
+            _currentMonth = DateTime(_currentMonth.year, _currentMonth.month - 1);
+          }),
+          onNextMonth: () => setState(() {
+            _currentMonth = DateTime(_currentMonth.year, _currentMonth.month + 1);
+          }),
+          onDayTap: (date) => _showDayActionSheet(date),
+        ),
+        const SizedBox(height: 16),
+        _buildLegend(),
+        const SizedBox(height: 12),
+        // Tap instruction
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: AppTheme.stone50,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppTheme.stone100),
           ),
-          const SizedBox(height: 16),
-          // Legend
-          _buildLegend(),
-          const SizedBox(height: 12),
-          // Tap instruction
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: AppTheme.stone50,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppTheme.stone100),
+          child: const Row(children: [
+            Icon(Icons.touch_app_rounded, size: 16, color: AppTheme.stone400),
+            SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Tap any day to log period, symptoms, or intimate activity',
+                style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500, fontWeight: FontWeight.w500),
+              ),
             ),
-            child: Row(
-              children: [
-                Icon(Icons.touch_app_rounded, size: 16, color: AppTheme.stone400),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text(
-                    'Tap any day to log period, symptoms, or intimate activity',
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 12,
-                      color: AppTheme.stone500,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          // Onboarding card
-          OnboardingCard(
-            emoji: '🌸',
-            title: 'Track your cycle with ease',
-            bullets: const [
-              'Tap any day and choose "Log Period Start" to begin',
-              'Log symptoms & mood daily for better insights',
-              'After 2+ cycles the app predicts your next period',
-              'All data is private to you — partners cannot see it',
-            ],
-          ),
-        ],
-      ),
+          ]),
+        ),
+        const SizedBox(height: 16),
+        const OnboardingCard(
+          emoji: '🌸',
+          title: 'Track your cycle with ease',
+          bullets: [
+            'Tap any day and choose "Log Period Start" to begin',
+            'Log symptoms & mood daily for better insights',
+            'After 2+ cycles the app predicts your next period',
+            'All data is private to you — partners cannot see it',
+          ],
+        ),
+      ]),
     );
   }
 
@@ -516,21 +610,13 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
       dot = Icon(Icons.star, size: 10, color: color);
     } else if (isOutline) {
       dot = Container(
-        width: 10,
-        height: 10,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: color, width: 1.5),
-        ),
+        width: 10, height: 10,
+        decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: color, width: 1.5)),
       );
     } else {
       dot = Container(
-        width: 10,
-        height: 10,
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-        ),
+        width: 10, height: 10,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
       );
     }
     return Row(
@@ -538,33 +624,29 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
       children: [
         dot,
         const SizedBox(width: 4),
-        Text(
-          label,
-          style: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 11,
-            color: AppTheme.stone500,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
+        Text(label, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone500, fontWeight: FontWeight.w500)),
       ],
     );
   }
 
-  // ─── History Tab ──────────────────────────────────────────────────────────
+  // ─── History Tab ────────────────────────────────────────────────────────────
   Widget _buildHistoryTab(List<PeriodEntry> entries) {
     if (entries.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
+      return const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 20),
         child: EmptyState(
           emoji: '🌸',
           title: 'No entries yet',
           subtitle: 'Track your period and symptoms privately.',
-          actionLabel: 'Log Period',
-          onAction: () => _showLogSheet(),
         ),
       );
     }
+
+    final provider = context.watch<AppProvider>();
+    final user = provider.activeUser;
+    final allSymptomLogs = user != null
+        ? provider.db.periodSymptoms.where((s) => s.userId == user.id).toList()
+        : <PeriodSymptomLog>[];
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -583,82 +665,83 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
             final duration = entry.endDate != null
                 ? entry.endDate!.difference(entry.startDate).inDays + 1
                 : null;
+
+            // Look up symptoms from PeriodSymptomLog for this entry's date range
+            final endDate = entry.endDate ?? entry.startDate;
+            final entrySymptoms = allSymptomLogs
+                .where((s) => !s.date.isBefore(entry.startDate) && !s.date.isAfter(endDate))
+                .expand((s) => s.symptoms)
+                .toSet()
+                .toList();
+
             return Padding(
               padding: const EdgeInsets.only(bottom: 8),
-              child: Dismissible(
-                key: Key(entry.id),
-                direction: DismissDirection.endToStart,
-                background: Container(
-                  alignment: Alignment.centerRight,
-                  padding: const EdgeInsets.only(right: 20),
-                  decoration: BoxDecoration(color: AppTheme.error, borderRadius: BorderRadius.circular(16)),
-                  child: const Icon(Icons.delete_outline_rounded, color: Colors.white),
-                ),
-                confirmDismiss: (_) async {
-                  return await showDialog<bool>(
-                    context: context,
-                    builder: (ctx) => AlertDialog(
-                      title: const Text('Delete Entry'),
-                      content: const Text('Delete this period log entry? This cannot be undone.'),
-                      actions: [
-                        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-                        TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
-                      ],
-                    ),
-                  ) ?? false;
-                },
-                onDismissed: (_) => _deleteEntry(entry.id),
-                child: GestureDetector(
-                  onTap: () => _showLogSheet(existing: entry),
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: AppTheme.surface,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppTheme.stone100),
-                    ),
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Row(children: [
-                        const Text('🌸', style: TextStyle(fontSize: 20)),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
+              child: GestureDetector(
+                onTap: () => _showLogSheet(existing: entry),
+                onLongPress: () => _deleteEntry(context, entry.id),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppTheme.surface,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppTheme.stone100),
+                  ),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Row(children: [
+                      Container(
+                        width: 40, height: 40,
+                        decoration: BoxDecoration(
+                          color: _pinkLight,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Center(child: Text('🌸', style: TextStyle(fontSize: 18))),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(
                             DateFormat('MMMM d, y').format(entry.startDate),
                             style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: AppTheme.stone900),
                           ),
-                        ),
-                        if (duration != null)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(color: const Color(0xFFFCE7F3), borderRadius: BorderRadius.circular(8)),
-                            child: Text('$duration days', style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFFEC4899))),
-                          ),
-                      ]),
-                      if (entry.symptoms.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Wrap(spacing: 6, runSpacing: 4, children: entry.symptoms.map((s) => Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(color: const Color(0xFFFDF4FF), borderRadius: BorderRadius.circular(8)),
-                          child: Text(s, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: Color(0xFFA855F7))),
-                        )).toList()),
-                      ],
-                      if (entry.flowLevel != null) ...[
-                        const SizedBox(height: 6),
-                        Row(children: [
-                          const Text('Flow: ', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500)),
-                          ...List.generate(5, (j) => Icon(
-                            j < (entry.flowLevel.index + 1) ? Icons.circle : Icons.circle_outlined,
-                            size: 10,
-                            color: const Color(0xFFEC4899),
-                          )),
+                          if (entry.endDate != null)
+                            Text(
+                              'to ${DateFormat('MMM d').format(entry.endDate!)}',
+                              style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
+                            ),
                         ]),
-                      ],
-                      if (entry.notes != null && entry.notes!.isNotEmpty) ...[
-                        const SizedBox(height: 6),
-                        Text(entry.notes!, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400), maxLines: 2, overflow: TextOverflow.ellipsis),
-                      ],
+                      ),
+                      if (duration != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(color: _pinkLight, borderRadius: BorderRadius.circular(8)),
+                          child: Text('$duration days', style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: _pink)),
+                        ),
                     ]),
-                  ),
+                    if (entrySymptoms.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Wrap(spacing: 6, runSpacing: 4, children: entrySymptoms.map((s) => Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(color: const Color(0xFFFDF4FF), borderRadius: BorderRadius.circular(8)),
+                        child: Text(s, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: Color(0xFFA855F7))),
+                      )).toList()),
+                    ],
+                    // Flow level indicator
+                    const SizedBox(height: 6),
+                    Row(children: [
+                      const Text('Flow: ', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500)),
+                      ...List.generate(3, (j) => Icon(
+                        j < (entry.flowLevel.index + 1) ? Icons.circle : Icons.circle_outlined,
+                        size: 10,
+                        color: _pink,
+                      )),
+                      const SizedBox(width: 4),
+                      Text(entry.flowLevel.name, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
+                    ]),
+                    if (entry.notes != null && entry.notes!.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(entry.notes!, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400), maxLines: 2, overflow: TextOverflow.ellipsis),
+                    ],
+                  ]),
                 ),
               ),
             );
@@ -668,66 +751,105 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     );
   }
 
-  // ─── Insights Tab ─────────────────────────────────────────────────────────
+  // ─── Insights Tab ───────────────────────────────────────────────────────────
   Widget _buildInsightsTab(List<PeriodEntry> entries, int? avgCycle, int? daysUntil) {
+    // Average period duration
+    final withEnd = entries.where((e) => e.endDate != null).toList();
+    final avgDuration = withEnd.isNotEmpty
+        ? (withEnd.fold<int>(0, (sum, e) => sum + e.endDate!.difference(e.startDate).inDays + 1) / withEnd.length).round()
+        : null;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Column(
-        children: [
-          Row(children: [
-            Expanded(child: StatCard(
-              label: 'Avg cycle length',
-              value: avgCycle != null ? '$avgCycle days' : '—',
-              emoji: '📅',
-              color: const Color(0xFFEC4899),
-            )),
-            const SizedBox(width: 10),
-            Expanded(child: StatCard(
-              label: daysUntil != null && daysUntil >= 0 ? 'Days until next' : 'Days since due',
-              value: daysUntil != null ? '${daysUntil.abs()}' : '—',
-              emoji: '🌸',
-              color: const Color(0xFFEC4899),
-            )),
-          ]),
-          const SizedBox(height: 10),
-          Row(children: [
-            Expanded(child: StatCard(
-              label: 'Entries logged',
-              value: '${entries.length}',
-              emoji: '📊',
-              color: const Color(0xFFA855F7),
-            )),
-            const SizedBox(width: 10),
-            const Expanded(child: SizedBox()),
-          ]),
-          const SizedBox(height: 16),
+      child: Column(children: [
+        Row(children: [
+          Expanded(child: StatCard(
+            label: 'Avg cycle length',
+            value: avgCycle != null ? '$avgCycle days' : '—',
+            emoji: '📅',
+            color: _pink,
+          )),
+          const SizedBox(width: 10),
+          Expanded(child: StatCard(
+            label: daysUntil != null && daysUntil >= 0 ? 'Days until next' : 'Days since due',
+            value: daysUntil != null ? '${daysUntil.abs()}' : '—',
+            emoji: '🌸',
+            color: _pink,
+          )),
+        ]),
+        const SizedBox(height: 10),
+        Row(children: [
+          Expanded(child: StatCard(
+            label: 'Entries logged',
+            value: '${entries.length}',
+            emoji: '📊',
+            color: const Color(0xFFA855F7),
+          )),
+          const SizedBox(width: 10),
+          Expanded(child: StatCard(
+            label: 'Avg period',
+            value: avgDuration != null ? '$avgDuration days' : '—',
+            emoji: '🩸',
+            color: const Color(0xFFEF4444),
+          )),
+        ]),
+        const SizedBox(height: 16),
+        _privacyNote(),
+      ]),
+    );
+  }
+}
+
+// ─── Mini Stat Card ───────────────────────────────────────────────────────────
+
+class _MiniStat extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String value;
+  final String label;
+
+  const _MiniStat({required this.icon, required this.iconColor, required this.value, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppTheme.stone100),
+        ),
+        child: Row(children: [
           Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            width: 32, height: 32,
             decoration: BoxDecoration(
-              color: const Color(0xFFFCE7F3).withValues(alpha: 0.5),
-              borderRadius: BorderRadius.circular(12),
+              color: iconColor.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(9),
             ),
-            child: Row(children: const [
-              Icon(Icons.lock_outline_rounded, size: 14, color: Color(0xFFEC4899)),
-              SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Your data is private to you',
-                  style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w500, color: Color(0xFFEC4899)),
-                ),
-              ),
-            ]),
+            child: Icon(icon, size: 16, color: iconColor),
           ),
-        ],
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(value, style: const TextStyle(
+                  fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.stone800,
+                ), overflow: TextOverflow.ellipsis),
+                Text(label, style: const TextStyle(
+                  fontFamily: 'Inter', fontSize: 9, fontWeight: FontWeight.w600, color: AppTheme.stone400,
+                )),
+              ],
+            ),
+          ),
+        ]),
       ),
     );
   }
 }
 
-// ─────────────────────────────────────────────
-// Calendar helper widget
-// ─────────────────────────────────────────────
+// ─── Calendar Widget ──────────────────────────────────────────────────────────
 
 class _PeriodCalendar extends StatelessWidget {
   final DateTime currentMonth;
@@ -762,7 +884,7 @@ class _PeriodCalendar extends StatelessWidget {
     final month = currentMonth.month;
     final firstDayOfMonth = DateTime(year, month, 1);
     final daysInMonth = DateTime(year, month + 1, 0).day;
-    final startWeekday = firstDayOfMonth.weekday % 7; // 0 = Sunday
+    final startWeekday = firstDayOfMonth.weekday % 7;
 
     const dayHeaders = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 
@@ -773,130 +895,107 @@ class _PeriodCalendar extends StatelessWidget {
         border: Border.all(color: AppTheme.stone100),
       ),
       padding: const EdgeInsets.all(16),
-      child: Column(
-        children: [
-          // Month header
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              IconButton(
-                onPressed: onPrevMonth,
-                icon: const Icon(Icons.chevron_left_rounded, color: AppTheme.stone600),
-                splashRadius: 20,
-              ),
-              Text(
-                DateFormat('MMMM yyyy').format(currentMonth),
-                style: const TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  color: AppTheme.stone900,
-                ),
-              ),
-              IconButton(
-                onPressed: onNextMonth,
-                icon: const Icon(Icons.chevron_right_rounded, color: AppTheme.stone600),
-                splashRadius: 20,
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          // Day-of-week headers
-          Row(
-            children: dayHeaders.map((d) => Expanded(
-              child: Center(
-                child: Text(
-                  d,
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.stone400,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              ),
-            )).toList(),
-          ),
-          const SizedBox(height: 8),
-          // Day grid
-          ...List.generate(
-            ((startWeekday + daysInMonth + 6) ~/ 7), // number of rows
-            (row) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 2),
-                child: Row(
-                  children: List.generate(7, (col) {
-                    final dayIndex = row * 7 + col - startWeekday + 1;
-                    if (dayIndex < 1 || dayIndex > daysInMonth) {
-                      return const Expanded(child: SizedBox(height: 40));
-                    }
+      child: Column(children: [
+        // Month header
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            IconButton(
+              onPressed: onPrevMonth,
+              icon: const Icon(Icons.chevron_left_rounded, color: AppTheme.stone600),
+              splashRadius: 20,
+            ),
+            Text(
+              DateFormat('MMMM yyyy').format(currentMonth),
+              style: const TextStyle(fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.stone900),
+            ),
+            IconButton(
+              onPressed: onNextMonth,
+              icon: const Icon(Icons.chevron_right_rounded, color: AppTheme.stone600),
+              splashRadius: 20,
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        // Day-of-week headers
+        Row(
+          children: dayHeaders.map((d) => Expanded(
+            child: Center(
+              child: Text(d, style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.stone400, letterSpacing: 0.5)),
+            ),
+          )).toList(),
+        ),
+        const SizedBox(height: 8),
+        // Day grid
+        ...List.generate(
+          ((startWeekday + daysInMonth + 6) ~/ 7),
+          (row) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: Row(
+                children: List.generate(7, (col) {
+                  final dayIndex = row * 7 + col - startWeekday + 1;
+                  if (dayIndex < 1 || dayIndex > daysInMonth) {
+                    return const Expanded(child: SizedBox(height: 40));
+                  }
 
-                    final date = DateTime(year, month, dayIndex);
-                    final isToday = date == today;
-                    final isPeriod = periodDates.contains(date);
-                    final hasSymptom = symptomDates.contains(date);
-                    final hasIntimate = intimateDates.contains(date);
+                  final date = DateTime(year, month, dayIndex);
+                  final isToday = date == today;
+                  final isPeriod = periodDates.contains(date);
+                  final hasSymptom = symptomDates.contains(date);
+                  final hasIntimate = intimateDates.contains(date);
 
-                    return Expanded(
-                      child: GestureDetector(
-                        onTap: () => onDayTap(date),
-                        child: Container(
-                          height: 44,
-                          margin: const EdgeInsets.all(1),
-                          decoration: BoxDecoration(
-                            color: isPeriod ? const Color(0xFFDC2626).withValues(alpha: 0.12) : null,
-                            shape: BoxShape.circle,
-                            border: isToday
-                                ? Border.all(color: const Color(0xFFE11D48), width: 2)
-                                : null,
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                '$dayIndex',
-                                style: TextStyle(
-                                  fontFamily: 'Inter',
-                                  fontSize: 13,
-                                  fontWeight: isToday ? FontWeight.w800 : FontWeight.w500,
-                                  color: isPeriod
-                                      ? const Color(0xFFDC2626)
-                                      : isToday
-                                          ? const Color(0xFFE11D48)
-                                          : AppTheme.stone700,
-                                ),
+                  return Expanded(
+                    child: GestureDetector(
+                      onTap: () => onDayTap(date),
+                      child: Container(
+                        height: 44,
+                        margin: const EdgeInsets.all(1),
+                        decoration: BoxDecoration(
+                          color: isPeriod ? const Color(0xFFDC2626).withValues(alpha: 0.12) : null,
+                          shape: BoxShape.circle,
+                          border: isToday ? Border.all(color: _pinkDark, width: 2) : null,
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              '$dayIndex',
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 13,
+                                fontWeight: isToday ? FontWeight.w800 : FontWeight.w500,
+                                color: isPeriod
+                                    ? const Color(0xFFDC2626)
+                                    : isToday ? _pinkDark : AppTheme.stone700,
                               ),
-                              const SizedBox(height: 1),
-                              // Indicator dots
-                              if (isPeriod || hasSymptom || hasIntimate)
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (isPeriod) _dot(const Color(0xFFDC2626)),
-                                    if (hasSymptom) _dot(const Color(0xFF8B5CF6)),
-                                    if (hasIntimate) _dot(const Color(0xFF991B1B)),
-                                  ],
-                                ),
-                            ],
-                          ),
+                            ),
+                            const SizedBox(height: 1),
+                            if (isPeriod || hasSymptom || hasIntimate)
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (isPeriod) _dot(const Color(0xFFDC2626)),
+                                  if (hasSymptom) _dot(const Color(0xFF8B5CF6)),
+                                  if (hasIntimate) _dot(const Color(0xFF991B1B)),
+                                ],
+                              ),
+                          ],
                         ),
                       ),
-                    );
-                  }),
-                ),
-              );
-            },
-          ),
-        ],
-      ),
+                    ),
+                  );
+                }),
+              ),
+            );
+          },
+        ),
+      ]),
     );
   }
 }
 
-// ─────────────────────────────────────────────
-// Log period sheet
-// ─────────────────────────────────────────────
+// ─── Period Log Sheet ─────────────────────────────────────────────────────────
 
 class _PeriodLogSheet extends StatefulWidget {
   final PeriodEntry? existing;
@@ -915,19 +1014,6 @@ class _PeriodLogSheetState extends State<_PeriodLogSheet> {
   FlowLevel? _flowLevel;
   final _notesCtrl = TextEditingController();
   bool _isSaving = false;
-  final _uuid = const Uuid();
-
-  static const _symptomOptions = [
-    'Cramps 😣',
-    'Headache 🤕',
-    'Bloating 🤰',
-    'Fatigue 😴',
-    'Mood Swings 🌪️',
-    'Nausea 🤢',
-    'Backache 🦴',
-    'Spotting 🔴',
-  ];
-  static const _moodOptions = ['😊', '😐', '😢', '😤', '😴'];
   String _mood = '😊';
 
   @override
@@ -939,7 +1025,6 @@ class _PeriodLogSheetState extends State<_PeriodLogSheet> {
     _symptoms = List.from(e?.symptoms ?? []);
     _flowLevel = e?.flowLevel;
     _notesCtrl.text = e?.notes ?? '';
-    // mood stored in notes with prefix if present
   }
 
   @override
@@ -965,9 +1050,7 @@ class _PeriodLogSheetState extends State<_PeriodLogSheet> {
 
   Future<void> _save() async {
     if (_endDate != null && _endDate!.isBefore(_startDate)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('End date cannot be before start date'), behavior: SnackBarBehavior.floating),
-      );
+      _showSnack(context, 'End date cannot be before start date');
       return;
     }
     setState(() => _isSaving = true);
@@ -1010,47 +1093,19 @@ class _PeriodLogSheetState extends State<_PeriodLogSheet> {
             child: ListView(controller: controller, padding: const EdgeInsets.fromLTRB(20, 12, 20, 32), children: [
               // Dates
               Row(children: [
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => _pickDate(true),
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(color: AppTheme.stone50, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.stone200)),
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        const Text('START DATE', style: TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.stone400, letterSpacing: 0.8)),
-                        const SizedBox(height: 4),
-                        Text(DateFormat('MMM d').format(_startDate), style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: Color(0xFFEC4899))),
-                      ]),
-                    ),
-                  ),
-                ),
+                Expanded(child: _dateCard('START DATE', _startDate, () => _pickDate(true))),
                 const SizedBox(width: 10),
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => _pickDate(false),
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(color: AppTheme.stone50, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.stone200)),
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        const Text('END DATE', style: TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.stone400, letterSpacing: 0.8)),
-                        const SizedBox(height: 4),
-                        Text(
-                          _endDate != null ? DateFormat('MMM d').format(_endDate!) : 'Ongoing',
-                          style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: _endDate != null ? const Color(0xFFEC4899) : AppTheme.stone400),
-                        ),
-                      ]),
-                    ),
-                  ),
-                ),
+                Expanded(child: _dateCard('END DATE', _endDate, () => _pickDate(false))),
               ]),
               if (_endDate != null)
                 Align(
                   alignment: Alignment.centerRight,
-                  child: TextButton(onPressed: () => setState(() => _endDate = null), child: const Text('Clear end date')),
+                  child: TextButton(onPressed: () => setState(() => _endDate = null), child: const Text('Clear end date', style: TextStyle(fontSize: 12))),
                 ),
               const SizedBox(height: 20),
+
               // Flow level
-              const Text('Flow Level', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13, color: AppTheme.stone600)),
+              _sectionLabel('FLOW LEVEL'),
               const SizedBox(height: 8),
               Row(children: FlowLevel.values.map((level) {
                 final isSelected = _flowLevel == level;
@@ -1063,23 +1118,25 @@ class _PeriodLogSheetState extends State<_PeriodLogSheet> {
                         duration: const Duration(milliseconds: 150),
                         height: 44,
                         decoration: BoxDecoration(
-                          color: isSelected ? const Color(0xFFEC4899).withValues(alpha: 0.15) : AppTheme.stone50,
+                          color: isSelected ? _pink.withValues(alpha: 0.15) : AppTheme.stone50,
                           borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: isSelected ? const Color(0xFFEC4899) : AppTheme.stone200, width: isSelected ? 2 : 1),
+                          border: Border.all(color: isSelected ? _pink : AppTheme.stone200, width: isSelected ? 2 : 1),
                         ),
-                        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                          Text(level.name, style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: isSelected ? const Color(0xFFEC4899) : AppTheme.stone500)),
-                        ]),
+                        child: Center(child: Text(
+                          level.name,
+                          style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: isSelected ? _pink : AppTheme.stone500),
+                        )),
                       ),
                     ),
                   ),
                 );
               }).toList()),
               const SizedBox(height: 20),
+
               // Symptoms
-              const Text('Symptoms', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13, color: AppTheme.stone600)),
+              _sectionLabel('SYMPTOMS'),
               const SizedBox(height: 8),
-              Wrap(spacing: 8, runSpacing: 8, children: _symptomOptions.map((s) {
+              Wrap(spacing: 8, runSpacing: 8, children: _periodLogSymptoms.map((s) {
                 final isSelected = _symptoms.contains(s);
                 return GestureDetector(
                   onTap: () => setState(() { isSelected ? _symptoms.remove(s) : _symptoms.add(s); }),
@@ -1087,21 +1144,22 @@ class _PeriodLogSheetState extends State<_PeriodLogSheet> {
                     duration: const Duration(milliseconds: 150),
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                     decoration: BoxDecoration(
-                      color: isSelected ? const Color(0xFFFCE7F3) : AppTheme.stone50,
+                      color: isSelected ? _pinkLight : AppTheme.stone50,
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: isSelected ? const Color(0xFFEC4899) : AppTheme.stone200, width: isSelected ? 1.5 : 1),
+                      border: Border.all(color: isSelected ? _pink : AppTheme.stone200, width: isSelected ? 1.5 : 1),
                     ),
-                    child: Text(s, style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: isSelected ? const Color(0xFFEC4899) : AppTheme.stone600)),
+                    child: Text(s, style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: isSelected ? _pink : AppTheme.stone600)),
                   ),
                 );
               }).toList()),
               const SizedBox(height: 20),
+
               // Mood
-              const Text('Mood', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13, color: AppTheme.stone600)),
+              _sectionLabel('MOOD'),
               const SizedBox(height: 10),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: _moodOptions.map((emoji) {
+                children: _periodMoodOptions.map((emoji) {
                   final selected = _mood == emoji;
                   return GestureDetector(
                     onTap: () => setState(() => _mood = emoji),
@@ -1109,9 +1167,9 @@ class _PeriodLogSheetState extends State<_PeriodLogSheet> {
                       duration: const Duration(milliseconds: 150),
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: selected ? const Color(0xFFFCE7F3) : AppTheme.stone50,
+                        color: selected ? _pinkLight : AppTheme.stone50,
                         shape: BoxShape.circle,
-                        border: Border.all(color: selected ? const Color(0xFFEC4899) : AppTheme.stone200),
+                        border: Border.all(color: selected ? _pink : AppTheme.stone200),
                       ),
                       child: Text(emoji, style: TextStyle(fontSize: selected ? 28 : 22)),
                     ),
@@ -1119,22 +1177,40 @@ class _PeriodLogSheetState extends State<_PeriodLogSheet> {
                 }).toList(),
               ),
               const SizedBox(height: 20),
+
               // Privacy note
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFCE7F3).withValues(alpha: 0.5),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Row(children: [
-                  Icon(Icons.lock_outline_rounded, size: 14, color: Color(0xFFEC4899)),
-                  SizedBox(width: 8),
-                  Expanded(child: Text('Only you can see this data', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w500, color: Color(0xFFEC4899)))),
-                ]),
-              ),
+              _privacyNote(),
               const SizedBox(height: 16),
-              TextField(controller: _notesCtrl, maxLines: 3, decoration: const InputDecoration(labelText: 'Notes (optional)', alignLabelWithHint: true)),
+
+              // Notes
+              TextField(
+                controller: _notesCtrl,
+                maxLines: 3,
+                decoration: _styledInput('Notes (optional)'),
+              ),
             ]),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _dateCard(String label, DateTime? date, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppTheme.stone50,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppTheme.stone200),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(label, style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.stone400, letterSpacing: 0.8)),
+          const SizedBox(height: 4),
+          Text(
+            date != null ? DateFormat('MMM d').format(date) : 'Ongoing',
+            style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: date != null ? _pink : AppTheme.stone400),
           ),
         ]),
       ),
@@ -1142,9 +1218,7 @@ class _PeriodLogSheetState extends State<_PeriodLogSheet> {
   }
 }
 
-// ─────────────────────────────────────────────
-// Day action sheet (tap a calendar date)
-// ─────────────────────────────────────────────
+// ─── Day Action Sheet ─────────────────────────────────────────────────────────
 
 class _DayActionSheet extends StatelessWidget {
   final DateTime date;
@@ -1164,77 +1238,49 @@ class _DayActionSheet extends StatelessWidget {
     final dayLabel = DateFormat('EEEE, MMMM d').format(date);
     return Container(
       decoration: const BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.surface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 36),
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 36),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Handle
-          Center(
-            child: Container(
-              width: 36, height: 4,
-              margin: const EdgeInsets.only(bottom: 16),
-              decoration: BoxDecoration(color: const Color(0xFFE5E7EB), borderRadius: BorderRadius.circular(2)),
-            ),
-          ),
+          const SheetHandle(),
+          const SizedBox(height: 4),
           // Header row
           Row(children: [
             Expanded(
-              child: Text(
-                dayLabel,
-                style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: Color(0xFF111827)),
-              ),
+              child: Text(dayLabel, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.stone900)),
             ),
             GestureDetector(
               onTap: () => Navigator.pop(context),
-              child: Container(
-                padding: const EdgeInsets.all(4),
-                child: const Icon(Icons.close, size: 20, color: Color(0xFF9CA3AF)),
-              ),
+              child: const Icon(Icons.close, size: 20, color: AppTheme.stone400),
             ),
           ]),
           const SizedBox(height: 20),
 
-          // Period Started button (red)
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              icon: const Text('\u{1F525}', style: TextStyle(fontSize: 18)),
-              label: const Text('Period Started', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16)),
-              onPressed: onPeriodStarted,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFE11D48),
-                foregroundColor: Colors.white,
-                elevation: 0,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              ),
-            ),
+          // Period Started
+          _actionButton(
+            emoji: '🔥',
+            label: 'Period Started',
+            bgColor: _pinkDark,
+            fgColor: Colors.white,
+            onTap: onPeriodStarted,
           ),
           const SizedBox(height: 10),
 
-          // Log Symptoms button (pink/light)
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              icon: const Text('\u{1F615}', style: TextStyle(fontSize: 18)),
-              label: const Text('Log Symptoms', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16)),
-              onPressed: onLogSymptoms,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFFCE7F3),
-                foregroundColor: const Color(0xFFE11D48),
-                elevation: 0,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              ),
-            ),
+          // Log Symptoms
+          _actionButton(
+            emoji: '😣',
+            label: 'Log Symptoms',
+            bgColor: _pinkLight,
+            fgColor: _pinkDark,
+            onTap: onLogSymptoms,
           ),
           const SizedBox(height: 10),
 
-          // Log Intimate button (light/white)
+          // Log Intimate
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
@@ -1242,13 +1288,13 @@ class _DayActionSheet extends StatelessWidget {
               label: const Text('Log Intimate', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16)),
               onPressed: onLogIntimate,
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFF9FAFB),
-                foregroundColor: const Color(0xFF374151),
+                backgroundColor: AppTheme.stone50,
+                foregroundColor: AppTheme.stone700,
                 elevation: 0,
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
-                  side: const BorderSide(color: Color(0xFFE5E7EB)),
+                  side: BorderSide(color: AppTheme.stone200),
                 ),
               ),
             ),
@@ -1257,11 +1303,27 @@ class _DayActionSheet extends StatelessWidget {
       ),
     );
   }
+
+  Widget _actionButton({required String emoji, required String label, required Color bgColor, required Color fgColor, required VoidCallback onTap}) {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        icon: Text(emoji, style: const TextStyle(fontSize: 18)),
+        label: Text(label, style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: fgColor)),
+        onPressed: onTap,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: bgColor,
+          foregroundColor: fgColor,
+          elevation: 0,
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        ),
+      ),
+    );
+  }
 }
 
-// ─────────────────────────────────────────────
-// Quick symptoms sheet
-// ─────────────────────────────────────────────
+// ─── Symptoms Sheet ───────────────────────────────────────────────────────────
 
 class _SymptomsSheet extends StatefulWidget {
   final DateTime date;
@@ -1280,12 +1342,6 @@ class _SymptomsSheetState extends State<_SymptomsSheet> {
   final _notesCtrl = TextEditingController();
   bool _isSaving = false;
 
-  static const _symptomOptions = [
-    'Cramps 😣', 'Headache 🤕', 'Bloating 🤰', 'Fatigue 😴',
-    'Mood Swings 🌪️', 'Nausea 🤢', 'Backache 🦴', 'Spotting 🔴',
-    'Breast tenderness', 'Insomnia 😰', 'Cravings 🍫', 'Anxiety 😟',
-  ];
-
   @override
   void dispose() {
     _notesCtrl.dispose();
@@ -1300,7 +1356,7 @@ class _SymptomsSheetState extends State<_SymptomsSheet> {
     setState(() => _isSaving = true);
     final provider = context.read<AppProvider>();
     final log = PeriodSymptomLog(
-      id: const Uuid().v4(),
+      id: _uuid.v4(),
       userId: provider.activeUser!.id,
       familyId: provider.activeFamily!.id,
       date: DateTime(widget.date.year, widget.date.month, widget.date.day),
@@ -1321,25 +1377,18 @@ class _SymptomsSheetState extends State<_SymptomsSheet> {
       initialChildSize: 0.75, maxChildSize: 0.92, minChildSize: 0.5, expand: false,
       builder: (_, controller) => Container(
         decoration: const BoxDecoration(
-          color: Colors.white,
+          color: AppTheme.surface,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
         child: Column(children: [
-          // Handle
-          Center(
-            child: Container(
-              width: 36, height: 4,
-              margin: const EdgeInsets.fromLTRB(0, 12, 0, 0),
-              decoration: BoxDecoration(color: const Color(0xFFE5E7EB), borderRadius: BorderRadius.circular(2)),
-            ),
-          ),
+          const SheetHandle(),
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
             child: Row(children: [
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Text('Log Symptoms', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 20, color: Color(0xFF1F2937))),
-                  Text(dayLabel, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: Color(0xFFEC4899))),
+                  const Text('Log Symptoms', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 20, color: AppTheme.stone900)),
+                  Text(dayLabel, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: _pink)),
                 ]),
               ),
               TextButton(
@@ -1353,7 +1402,7 @@ class _SymptomsSheetState extends State<_SymptomsSheet> {
           Expanded(
             child: ListView(controller: controller, padding: const EdgeInsets.fromLTRB(20, 16, 20, 32), children: [
               // Symptoms
-              const Text('Symptoms', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF6B7280))),
+              _sectionLabel('SYMPTOMS'),
               const SizedBox(height: 10),
               Wrap(spacing: 8, runSpacing: 8, children: _symptomOptions.map((s) {
                 final isSelected = _selected.contains(s);
@@ -1363,23 +1412,23 @@ class _SymptomsSheetState extends State<_SymptomsSheet> {
                     duration: const Duration(milliseconds: 150),
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                     decoration: BoxDecoration(
-                      color: isSelected ? const Color(0xFFFCE7F3) : const Color(0xFFF9FAFB),
+                      color: isSelected ? _pinkLight : AppTheme.stone50,
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: isSelected ? const Color(0xFFEC4899) : const Color(0xFFE5E7EB), width: isSelected ? 1.5 : 1),
+                      border: Border.all(color: isSelected ? _pink : AppTheme.stone200, width: isSelected ? 1.5 : 1),
                     ),
-                    child: Text(s, style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: isSelected ? const Color(0xFFEC4899) : const Color(0xFF6B7280))),
+                    child: Text(s, style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: isSelected ? _pink : AppTheme.stone600)),
                   ),
                 );
               }).toList()),
               const SizedBox(height: 20),
+
               // Mood
-              const Text('Mood', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF6B7280))),
+              _sectionLabel('MOOD'),
               const SizedBox(height: 10),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: CycleMood.values.map((mood) {
-                  final emojis = {'GREAT': '😄', 'GOOD': '🙂', 'OKAY': '😐', 'LOW': '😔', 'ROUGH': '😢'};
-                  final emoji = emojis[mood.name] ?? '😐';
+                  final emoji = _moodEmojis[mood] ?? '😐';
                   final selected = _mood == mood;
                   return GestureDetector(
                     onTap: () => setState(() => _mood = selected ? null : mood),
@@ -1387,9 +1436,9 @@ class _SymptomsSheetState extends State<_SymptomsSheet> {
                       duration: const Duration(milliseconds: 150),
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: selected ? const Color(0xFFFCE7F3) : const Color(0xFFF9FAFB),
+                        color: selected ? _pinkLight : AppTheme.stone50,
                         shape: BoxShape.circle,
-                        border: Border.all(color: selected ? const Color(0xFFEC4899) : const Color(0xFFE5E7EB)),
+                        border: Border.all(color: selected ? _pink : AppTheme.stone200),
                       ),
                       child: Text(emoji, style: TextStyle(fontSize: selected ? 26 : 20)),
                     ),
@@ -1397,8 +1446,9 @@ class _SymptomsSheetState extends State<_SymptomsSheet> {
                 }).toList(),
               ),
               const SizedBox(height: 20),
+
               // Pain level
-              const Text('Pain Level (1–10)', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF6B7280))),
+              _sectionLabel('PAIN LEVEL (1–10)'),
               const SizedBox(height: 10),
               Row(
                 children: List.generate(10, (i) {
@@ -1412,11 +1462,11 @@ class _SymptomsSheetState extends State<_SymptomsSheet> {
                         height: 32,
                         margin: const EdgeInsets.symmetric(horizontal: 2),
                         decoration: BoxDecoration(
-                          color: selected ? const Color(0xFFEC4899) : (level <= (_painLevel ?? 0) ? const Color(0xFFFCE7F3) : const Color(0xFFF3F4F6)),
+                          color: selected ? _pink : (level <= (_painLevel ?? 0) ? _pinkLight : AppTheme.stone100),
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Center(
-                          child: Text('$level', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: selected ? Colors.white : const Color(0xFF9CA3AF))),
+                          child: Text('$level', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: selected ? Colors.white : AppTheme.stone400)),
                         ),
                       ),
                     ),
@@ -1424,26 +1474,17 @@ class _SymptomsSheetState extends State<_SymptomsSheet> {
                 }),
               ),
               const SizedBox(height: 20),
+
               // Notes
               TextField(
                 controller: _notesCtrl,
                 maxLines: 3,
-                decoration: const InputDecoration(labelText: 'Notes (optional)', alignLabelWithHint: true),
+                decoration: _styledInput('Notes (optional)'),
               ),
               const SizedBox(height: 16),
+
               // Privacy note
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFCE7F3).withValues(alpha: 0.5),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Row(children: [
-                  Icon(Icons.lock_outline_rounded, size: 14, color: Color(0xFFEC4899)),
-                  SizedBox(width: 8),
-                  Expanded(child: Text('Only you can see this data', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w500, color: Color(0xFFEC4899)))),
-                ]),
-              ),
+              _privacyNote(),
             ]),
           ),
         ]),

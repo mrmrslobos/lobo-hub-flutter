@@ -6,6 +6,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart' hide Visibility;
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -158,6 +159,7 @@ Return a JSON object:
         if (mounted) setState(() => _monthlySummaryLoading = false);
         return;
       }
+      provider.saveAiHistory(module: 'dashboard', prompt: 'Generate monthly family summary', response: raw);
       var cleaned = raw.trim();
       if (cleaned.startsWith('```')) cleaned = cleaned.substring(cleaned.indexOf('\n') + 1);
       if (cleaned.endsWith('```')) cleaned = cleaned.substring(0, cleaned.lastIndexOf('```'));
@@ -240,6 +242,7 @@ Return ONLY the JSON array, no markdown.''',
       );
 
       if (raw != null && mounted) {
+        provider.saveAiHistory(module: 'dashboard', prompt: 'Generate daily AI suggestions', response: raw);
         try {
           final decoded = jsonDecode(raw);
           if (decoded is List) {
@@ -478,28 +481,7 @@ Return ONLY the JSON array, no markdown.''',
         return Scaffold(
           drawer: const AppDrawer(),
           backgroundColor: AppTheme.background,
-          appBar: AppBar(
-            backgroundColor: Colors.white,
-            elevation: 0,
-            scrolledUnderElevation: 0,
-            leading: Builder(
-              builder: (context) => IconButton(
-                icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
-                onPressed: () => Scaffold.of(context).openDrawer(),
-              ),
-            ),
-            title: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
-                const SizedBox(width: 6),
-                const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
-              ],
-            ),
-            centerTitle: false,
-            titleSpacing: 0,
-            actions: const [],
-          ),
+          appBar: const FamilyHubAppBar(),
           body: RefreshIndicator(
             onRefresh: _onRefresh,
             color: AppTheme.primary,
@@ -593,11 +575,11 @@ Return ONLY the JSON array, no markdown.''',
     return Scaffold(
       backgroundColor: AppTheme.background,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: AppTheme.surface,
         elevation: 0,
         scrolledUnderElevation: 0,
         title: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
+          Text(String.fromCharCode(0x2728), style: const TextStyle(fontSize: 18)),
           const SizedBox(width: 6),
           const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
         ]),
@@ -649,7 +631,7 @@ Return ONLY the JSON array, no markdown.''',
               child: Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: AppTheme.surface,
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(color: AppTheme.stone100),
                 ),
@@ -669,6 +651,7 @@ Return ONLY the JSON array, no markdown.''',
                         padding: const EdgeInsets.only(bottom: 8),
                         child: GestureDetector(
                           onTap: isDone ? null : () async {
+                            HapticFeedback.mediumImpact();
                             final completion = ChoreCompletion(
                               id: const Uuid().v4(),
                               choreId: chore.id,
@@ -686,7 +669,7 @@ Return ONLY the JSON array, no markdown.''',
                             decoration: BoxDecoration(
                               color: isDone ? const Color(0xFFDCFCE7) : AppTheme.stone50,
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: isDone ? const Color(0xFF86EFAC) : AppTheme.stone200),
+                              border: Border.all(color: isDone ? const Color(0xFF86EFAC) : AppTheme.stone100),
                             ),
                             child: Row(children: [
                               Container(
@@ -790,12 +773,13 @@ Return ONLY the JSON array, no markdown.''',
           Wrap(spacing: 8, runSpacing: 8, children: kids.map((kid) {
             return GestureDetector(
               onTap: () {
+                HapticFeedback.selectionClick();
                 provider.switchActiveUser(kid);
               },
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: AppTheme.surface,
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(color: const Color(0xFFBFDBFE)),
                 ),
@@ -857,7 +841,7 @@ Return ONLY the JSON array, no markdown.''',
           ElevatedButton.icon(
             icon: const Icon(Icons.add, size: 16),
             label: const Text('New Task'),
-            onPressed: () => context.go('/tasks'),
+            onPressed: () { HapticFeedback.lightImpact(); context.go('/tasks'); },
             style: ElevatedButton.styleFrom(
               backgroundColor: AppTheme.primary,
               foregroundColor: Colors.white,
@@ -876,10 +860,10 @@ Return ONLY the JSON array, no markdown.''',
 
   Widget _circleIconButton(IconData icon, {required VoidCallback onTap}) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: () { HapticFeedback.lightImpact(); onTap(); },
       child: Container(
         width: 42, height: 42,
-        decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle, border: Border.all(color: AppTheme.stone200)),
+        decoration: BoxDecoration(color: AppTheme.surface, shape: BoxShape.circle, border: Border.all(color: AppTheme.stone100)),
         child: Icon(icon, size: 18, color: AppTheme.stone600),
       ),
     );
@@ -888,13 +872,13 @@ Return ONLY the JSON array, no markdown.''',
   Widget _buildAnnouncementSection(BuildContext context, AppProvider provider, Family family) {
     final hasAnnouncement = family.announcement != null && family.announcement != _dismissedAnnouncement;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: AppTheme.surface,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: hasAnnouncement ? AppTheme.stone200 : AppTheme.primary.withValues(alpha: 0.25)),
+          border: Border.all(color: hasAnnouncement ? AppTheme.stone100 : AppTheme.primary.withValues(alpha: 0.25)),
         ),
         child: Row(children: [
           Icon(Icons.campaign_outlined, color: hasAnnouncement ? AppTheme.stone500 : AppTheme.stone400, size: 20),
@@ -907,7 +891,7 @@ Return ONLY the JSON array, no markdown.''',
           ),
           if (hasAnnouncement)
             GestureDetector(
-              onTap: () => _dismissAnnouncement(family.announcement!, family.id),
+              onTap: () { HapticFeedback.lightImpact(); _dismissAnnouncement(family.announcement!, family.id); },
               child: const Icon(Icons.close, size: 16, color: AppTheme.stone400),
             )
           else
@@ -945,7 +929,7 @@ Return ONLY the JSON array, no markdown.''',
     ];
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
       child: Container(
         decoration: BoxDecoration(
           gradient: const LinearGradient(
@@ -1070,7 +1054,7 @@ Return ONLY the JSON array, no markdown.''',
 
   Widget _buildAISuggestionsSection() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -1147,7 +1131,7 @@ Return ONLY the JSON array, no markdown.''',
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.surface,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFFFDE68A).withValues(alpha: 0.5)),
       ),
@@ -1200,7 +1184,7 @@ Return ONLY the JSON array, no markdown.''',
 
   Widget _buildMonthlySummarySection() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -1216,7 +1200,7 @@ Return ONLY the JSON array, no markdown.''',
               const Expanded(child: Text('Monthly Summary', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 15, color: Colors.white))),
               if (_monthlySummary == null)
                 GestureDetector(
-                  onTap: _monthlySummaryLoading ? null : _loadMonthlySummary,
+                  onTap: _monthlySummaryLoading ? null : () { HapticFeedback.lightImpact(); _loadMonthlySummary(); },
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(10)),
@@ -1290,7 +1274,7 @@ Return ONLY the JSON array, no markdown.''',
     required int habitsTotal,
   }) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
       child: Column(children: [
         Row(children: [
           Expanded(child: _miniStatCard(Icons.check_box_outlined, const Color(0xFF0D9488), tasksDue.toString(), 'Tasks Due')),
@@ -1316,7 +1300,7 @@ Return ONLY the JSON array, no markdown.''',
   Widget _miniStatCard(IconData icon, Color color, String value, String label, {double? progress}) {
     return Container(
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.stone100)),
+      decoration: BoxDecoration(color: AppTheme.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.stone100)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1339,7 +1323,7 @@ Return ONLY the JSON array, no markdown.''',
   Widget _buildRecapCard(DateTime now) {
     final monthName = DateFormat('MMMM').format(now);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -1361,7 +1345,7 @@ Return ONLY the JSON array, no markdown.''',
             ],
           )),
           GestureDetector(
-            onTap: _monthlySummaryLoading ? null : _loadMonthlySummary,
+            onTap: _monthlySummaryLoading ? null : () { HapticFeedback.lightImpact(); _loadMonthlySummary(); },
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(8)),
@@ -1415,7 +1399,7 @@ Return ONLY the JSON array, no markdown.''',
 
   Widget _buildUpcomingEvents(BuildContext context, List<CalendarEvent> events) {
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      margin: const EdgeInsets.fromLTRB(20, 14, 20, 0),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: const LinearGradient(colors: [Color(0xFF6366F1), Color(0xFF7C3AED)]),
@@ -1478,7 +1462,7 @@ Return ONLY the JSON array, no markdown.''',
     final dinner = meals.where((m) => m.mealType == 'dinner').toList();
 
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      margin: const EdgeInsets.fromLTRB(20, 14, 20, 0),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: const Color(0xFFF0FDF4),
@@ -1520,7 +1504,7 @@ Return ONLY the JSON array, no markdown.''',
 
   Widget _buildTodayChores(BuildContext context, List<Chore> chores, int completed) {
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      margin: const EdgeInsets.fromLTRB(20, 14, 20, 0),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: const Color(0xFFFFFBEB),
@@ -1551,7 +1535,7 @@ Return ONLY the JSON array, no markdown.''',
 
   Widget _buildDevotional(BuildContext context, List<DevotionalEntry> devotionals) {
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      margin: const EdgeInsets.fromLTRB(20, 14, 20, 0),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: const Color(0xFFF0F9FF),
@@ -1591,7 +1575,7 @@ Return ONLY the JSON array, no markdown.''',
     final progressValue = totalEntries > 0 ? completedEntries / totalEntries : 0.0;
 
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      margin: const EdgeInsets.fromLTRB(20, 14, 20, 0),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: const Color(0xFFF5F3FF),
@@ -1633,7 +1617,7 @@ Return ONLY the JSON array, no markdown.''',
 
   Widget _buildPrayerWall(BuildContext context, List<PrayerWallEntry> prayers) {
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      margin: const EdgeInsets.fromLTRB(20, 14, 20, 0),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: const Color(0xFFFFF1F2),
@@ -1739,7 +1723,7 @@ Return ONLY the JSON array, no markdown.''',
     upcoming.sort((a, b) => (a['daysUntil'] as int).compareTo(b['daysUntil'] as int));
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1774,7 +1758,7 @@ Return ONLY the JSON array, no markdown.''',
                     gradient: isToday
                         ? const LinearGradient(colors: [Color(0xFFFCE7F3), Color(0xFFFDF2F8)])
                         : null,
-                    color: isToday ? null : Colors.white,
+                    color: isToday ? null : AppTheme.surface,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: isToday ? const Color(0xFFF9A8D4) : AppTheme.stone100),
                   ),
@@ -1813,7 +1797,7 @@ Return ONLY the JSON array, no markdown.''',
     if (events.isEmpty) return const SizedBox.shrink();
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
       child: SizedBox(
         height: 80,
         child: ListView.separated(
@@ -1839,7 +1823,6 @@ Return ONLY the JSON array, no markdown.''',
                     colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
                   ),
                   borderRadius: BorderRadius.circular(16),
-                  boxShadow: [BoxShadow(color: const Color(0xFF6366F1).withValues(alpha: 0.3), blurRadius: 8, offset: const Offset(0, 3))],
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1893,10 +1876,10 @@ Return ONLY the JSON array, no markdown.''',
     };
 
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      margin: const EdgeInsets.fromLTRB(20, 14, 20, 0),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppTheme.stone100),
       ),
@@ -1985,7 +1968,7 @@ Return ONLY the JSON array, no markdown.''',
     final top5 = sorted.take(5).toList();
 
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      margin: const EdgeInsets.fromLTRB(20, 14, 20, 0),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: const Color(0xFFFFFBEB),
@@ -2045,10 +2028,10 @@ Return ONLY the JSON array, no markdown.''',
     required Widget child,
   }) {
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      margin: const EdgeInsets.fromLTRB(20, 14, 20, 0),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppTheme.stone100),
       ),
@@ -2069,6 +2052,17 @@ Return ONLY the JSON array, no markdown.''',
         ],
       ),
     );
+  }
+
+  void _showSnack(String msg) {
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(
+        content: Text(msg, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        duration: const Duration(seconds: 2),
+      ));
   }
 
   bool _isSameDay(DateTime a, DateTime b) =>

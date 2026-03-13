@@ -15,6 +15,16 @@ import '../../services/ai_service.dart';
 import '../../services/locale_service.dart';
 import '../../config/theme.dart';
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+void _showSnack(BuildContext context, String msg) {
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    content: Text(msg),
+    behavior: SnackBarBehavior.floating,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+  ));
+}
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const _mealTypes = ['breakfast', 'lunch', 'dinner', 'snack'];
@@ -89,7 +99,6 @@ class MealsScreen extends StatefulWidget {
 class _MealsScreenState extends State<MealsScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  bool _fabOpen = false;
 
   // AI Chef Suggestion
   final _chefController = TextEditingController();
@@ -184,6 +193,7 @@ Return a JSON array of exactly 3 objects, each with these fields:
         if (mounted) setState(() => _chefLoading = false);
         return;
       }
+      context.read<AppProvider>().saveAiHistory(module: 'meals', prompt: 'Generate chef meal suggestions', response: raw);
       final cleaned = _stripFences(raw);
       final decoded = jsonDecode(cleaned);
       if (decoded is List) {
@@ -299,6 +309,7 @@ Return a JSON array of 7 objects, each with:
         if (mounted) setState(() => _weekPlannerLoading = false);
         return;
       }
+      context.read<AppProvider>().saveAiHistory(module: 'meals', prompt: 'Generate weekly meal plan', response: raw);
       final cleaned = _stripFences(raw);
       final decoded = jsonDecode(cleaned);
       if (decoded is! List) {
@@ -529,6 +540,7 @@ Return a JSON array of 7 objects, each with:
         });
         return;
       }
+      context.read<AppProvider>().saveAiHistory(module: 'meals', prompt: 'Refine meal plan: "$request"', response: raw);
 
       final cleaned = _stripFences(raw);
       final decoded = jsonDecode(cleaned);
@@ -750,159 +762,102 @@ Return a JSON array of 7 objects, each with:
     final sunday = monday.add(const Duration(days: 6));
     final weekLabel = '${DateFormat('MMM d').format(monday)} - ${DateFormat('MMM d').format(sunday)}';
 
+    // ── Computed stats ──
+    final recipes = provider.db.recipes.where((r) => r.familyId == familyId).toList();
+    final mealsThisWeek = provider.db.mealPlans
+        .where((m) => m.familyId == familyId && m.date.isAfter(monday.subtract(const Duration(days: 1))) && m.date.isBefore(sunday.add(const Duration(days: 1))))
+        .length;
+
     return Scaffold(
       backgroundColor: AppTheme.background,
       drawer: const AppDrawer(),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: Builder(
-          builder: (context) => IconButton(
-            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
-            onPressed: () => Scaffold.of(context).openDrawer(),
-          ),
-        ),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
-            const SizedBox(width: 6),
-            const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
-          ],
-        ),
-        centerTitle: false,
-        titleSpacing: 0,
-        actions: const [],
-      ),
+      appBar: const FamilyHubAppBar(),
       body: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // ── Page Header ──
-            const PageHeader(
-              title: 'Meal Hub',
+            PageHeader(
+              title: '\u{1F37D}\u{FE0F} Meal Hub',
               subtitle: 'Plan nutrition and manage family recipes.',
+              actions: [
+                ActionChipButton(
+                  icon: Icons.add_rounded,
+                  label: 'Add Recipe',
+                  onTap: () => showModalBottomSheet(
+                    context: context,
+                    isScrollControlled: true,
+                    shape: const RoundedRectangleBorder(
+                      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                    ),
+                    builder: (_) => const _AddRecipeSheet(),
+                  ),
+                  isPrimary: true,
+                ),
+              ],
+            ),
+
+            // ── Stat cards ──
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+              child: Row(children: [
+                _MiniStat(
+                  icon: Icons.menu_book_rounded,
+                  iconColor: AppTheme.primary,
+                  value: '${recipes.length}',
+                  label: 'Recipes',
+                ),
+                const SizedBox(width: 10),
+                _MiniStat(
+                  icon: Icons.calendar_today_rounded,
+                  iconColor: AppTheme.success,
+                  value: '$mealsThisWeek',
+                  label: 'This Week',
+                ),
+                const SizedBox(width: 10),
+                _MiniStat(
+                  icon: Icons.restaurant_rounded,
+                  iconColor: const Color(0xFFF59E0B),
+                  value: '${recipes.where((r) => r.tags.contains('family-favorite')).length}',
+                  label: 'Favorites',
+                ),
+              ]),
             ),
 
             // ── Tab chips ──
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => _tabController.animateTo(0),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                        decoration: BoxDecoration(
-                          color: _tabController.index == 0 ? AppTheme.primary : Colors.transparent,
-                          borderRadius: BorderRadius.circular(10),
-                          border: _tabController.index == 0 ? null : Border.all(color: AppTheme.stone200),
-                        ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          'Weekly Plan',
-                          style: TextStyle(
-                            fontFamily: 'Inter',
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13,
-                            color: _tabController.index == 0 ? Colors.white : AppTheme.stone600,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => _tabController.animateTo(1),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                        decoration: BoxDecoration(
-                          color: _tabController.index == 1 ? AppTheme.primary : Colors.transparent,
-                          borderRadius: BorderRadius.circular(10),
-                          border: _tabController.index == 1 ? null : Border.all(color: AppTheme.stone200),
-                        ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          'Recipe Box',
-                          style: TextStyle(
-                            fontFamily: 'Inter',
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13,
-                            color: _tabController.index == 1 ? Colors.white : AppTheme.stone600,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+              child: AppTabBar(
+                tabs: const ['Weekly Plan', 'Recipe Box'],
+                selectedIndex: _tabController.index,
+                onSelected: (i) => _tabController.animateTo(i),
               ),
             ),
 
             const SizedBox(height: 16),
 
+            // ── AI Tools Section Header ──
+            const Padding(
+              padding: EdgeInsets.fromLTRB(24, 0, 20, 10),
+              child: Text('AI TOOLS', style: TextStyle(
+                fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800,
+                color: AppTheme.stone400, letterSpacing: 1.2,
+              )),
+            ),
+
             // ── AI Chef Suggestion card ──
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF16A34A), Color(0xFF0D9488)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Row(children: [
-                      Icon(Icons.restaurant_rounded, size: 18, color: Colors.white),
-                      SizedBox(width: 8),
-                      Text('AI Chef Suggestion', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white)),
-                    ]),
-                    const SizedBox(height: 8),
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: TextField(
-                        controller: _chefController,
-                        style: const TextStyle(color: Colors.white, fontFamily: 'Inter', fontSize: 14),
-                        decoration: const InputDecoration(
-                          hintText: 'e.g. Quick dinner for 4, vegetarian...',
-                          hintStyle: TextStyle(color: Colors.white54, fontFamily: 'Inter'),
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                          filled: false,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: GestureDetector(
-                        onTap: _chefLoading ? null : _generateChefSuggestion,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: _chefLoading
-                              ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF16A34A)))
-                              : const Text('Suggest Meals', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF16A34A))),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+              child: _AiFeatureCard(
+                icon: Icons.restaurant_rounded,
+                gradientColors: const [Color(0xFF16A34A), Color(0xFF0D9488)],
+                title: 'AI Chef Suggestion',
+                hintText: 'e.g. Quick dinner for 4, vegetarian...',
+                controller: _chefController,
+                loading: _chefLoading,
+                buttonLabel: 'Suggest Meals',
+                onAction: _chefLoading ? null : _generateChefSuggestion,
               ),
             ),
 
@@ -925,31 +880,49 @@ Return a JSON array of 7 objects, each with:
                       ),
                       child: Padding(
                         padding: const EdgeInsets.all(14),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        child: Row(
                           children: [
-                            Text(title, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone900)),
-                            if (summary.isNotEmpty) ...[
-                              const SizedBox(height: 4),
-                              Text(summary, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500), maxLines: 2, overflow: TextOverflow.ellipsis),
-                            ],
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Text('$ings ingredients', style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
-                                const Spacer(),
-                                GestureDetector(
-                                  onTap: () => _saveChefRecipe(s),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                    decoration: BoxDecoration(
-                                      color: AppTheme.primary,
-                                      borderRadius: BorderRadius.circular(8),
+                            Container(
+                              width: 44, height: 44,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF16A34A).withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Center(child: Text('🍽️', style: TextStyle(fontSize: 22))),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(title, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone900)),
+                                  if (summary.isNotEmpty)
+                                    Text(summary, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                  const SizedBox(height: 4),
+                                  Row(children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: AppTheme.stone100,
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Text('$ings items', style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w600, color: AppTheme.stone500)),
                                     ),
-                                    child: const Text('Save to Recipes', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 11, color: Colors.white)),
-                                  ),
-                                ),
-                              ],
+                                    const Spacer(),
+                                    GestureDetector(
+                                      onTap: () => _saveChefRecipe(s),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                                        decoration: BoxDecoration(
+                                          color: AppTheme.primary,
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: const Text('Save', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 11, color: Colors.white)),
+                                      ),
+                                    ),
+                                  ]),
+                                ],
+                              ),
                             ),
                           ],
                         ),
@@ -964,63 +937,16 @@ Return a JSON array of 7 objects, each with:
             // ── Import from URL card ──
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF0D9488), Color(0xFF06B6D4)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Row(children: [
-                      Icon(Icons.link_rounded, size: 18, color: Colors.white),
-                      SizedBox(width: 8),
-                      Text('Import from URL', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white)),
-                    ]),
-                    const SizedBox(height: 8),
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: TextField(
-                        controller: _importUrlController,
-                        style: const TextStyle(color: Colors.white, fontFamily: 'Inter', fontSize: 14),
-                        keyboardType: TextInputType.url,
-                        decoration: const InputDecoration(
-                          hintText: 'Paste recipe URL...',
-                          hintStyle: TextStyle(color: Colors.white54, fontFamily: 'Inter'),
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                          filled: false,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: GestureDetector(
-                        onTap: _importLoading ? null : _importFromUrl,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: _importLoading
-                              ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0D9488)))
-                              : const Text('Import Recipe', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF0D9488))),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+              child: _AiFeatureCard(
+                icon: Icons.link_rounded,
+                gradientColors: const [Color(0xFF0D9488), Color(0xFF06B6D4)],
+                title: 'Import from URL',
+                hintText: 'Paste recipe URL...',
+                controller: _importUrlController,
+                loading: _importLoading,
+                buttonLabel: 'Import Recipe',
+                onAction: _importLoading ? null : _importFromUrl,
+                keyboardType: TextInputType.url,
               ),
             ),
 
@@ -1029,62 +955,15 @@ Return a JSON array of 7 objects, each with:
             // ── AI Week Planner card ──
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF8B5CF6), Color(0xFF6366F1)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Row(children: [
-                      Icon(Icons.calendar_month_rounded, size: 18, color: Colors.white),
-                      SizedBox(width: 8),
-                      Text('AI Week Planner', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white)),
-                    ]),
-                    const SizedBox(height: 8),
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: TextField(
-                        controller: _weekPlannerController,
-                        style: const TextStyle(color: Colors.white, fontFamily: 'Inter', fontSize: 14),
-                        decoration: const InputDecoration(
-                          hintText: 'e.g. Healthy meals, budget-friendly...',
-                          hintStyle: TextStyle(color: Colors.white54, fontFamily: 'Inter'),
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                          filled: false,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: GestureDetector(
-                        onTap: _weekPlannerLoading ? null : _generateWeekPlan,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: _weekPlannerLoading
-                              ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF8B5CF6)))
-                              : const Text('Plan My Week + Shopping List', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF8B5CF6))),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+              child: _AiFeatureCard(
+                icon: Icons.calendar_month_rounded,
+                gradientColors: const [Color(0xFF8B5CF6), Color(0xFF6366F1)],
+                title: 'AI Week Planner',
+                hintText: 'e.g. Healthy meals, budget-friendly...',
+                controller: _weekPlannerController,
+                loading: _weekPlannerLoading,
+                buttonLabel: 'Plan My Week',
+                onAction: _weekPlannerLoading ? null : _generateWeekPlan,
               ),
             ),
 
@@ -1095,28 +974,32 @@ Return a JSON array of 7 objects, each with:
                 child: Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [const Color(0xFF6366F1).withValues(alpha: 0.08), const Color(0xFF8B5CF6).withValues(alpha: 0.08)],
-                    ),
+                    color: const Color(0xFF6366F1).withValues(alpha: 0.06),
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.2)),
+                    border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.15)),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Row(children: [
-                        Icon(Icons.auto_awesome, size: 14, color: Color(0xFF6366F1)),
-                        SizedBox(width: 6),
-                        Text('Refine your meal plan', style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF4338CA))),
+                      Row(children: [
+                        Container(
+                          width: 28, height: 28,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF6366F1).withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(Icons.auto_awesome, size: 14, color: Color(0xFF6366F1)),
+                        ),
+                        const SizedBox(width: 8),
+                        const Text('Refine your meal plan', style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF4338CA))),
                       ]),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 10),
                       // History thread
                       if (_refineHistory.isNotEmpty) ...[
                         ..._refineHistory.map((entry) {
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 6),
                             child: Column(children: [
-                              // User message
                               Align(
                                 alignment: Alignment.centerRight,
                                 child: Container(
@@ -1129,7 +1012,6 @@ Return a JSON array of 7 objects, each with:
                                 ),
                               ),
                               const SizedBox(height: 4),
-                              // AI response
                               Align(
                                 alignment: Alignment.centerLeft,
                                 child: Container(
@@ -1213,86 +1095,106 @@ Return a JSON array of 7 objects, each with:
 
             const SizedBox(height: 20),
 
-            // ── Week of [Date] section ──
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Text(
-                'Week of $weekLabel',
-                style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 16, color: AppTheme.stone800),
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            // ── Day-by-day meal plan (Sun-Sat) ──
-            ...List.generate(7, (i) {
-              final day = monday.add(Duration(days: i));
-              final dayName = DateFormat('EEEE').format(day);
-              final dayDate = DateFormat('MMM d').format(day);
-              final mealsForDay = provider.db.mealPlans
-                  .where((m) => m.familyId == familyId && m.date.year == day.year && m.date.month == day.month && m.date.day == day.day)
-                  .toList();
-
-              return Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: AppTheme.surface,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppTheme.stone100),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
-                        child: Row(
-                          children: [
-                            Text(dayName, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone800)),
-                            const SizedBox(width: 8),
-                            Text(dayDate, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
-                          ],
-                        ),
-                      ),
-                      const Divider(height: 1, color: AppTheme.stone100),
-                      ...['breakfast', 'lunch', 'dinner'].map((type) {
-                        final meal = mealsForDay.cast<MealPlan?>().firstWhere((m) => m?.mealType == type, orElse: () => null);
-                        final label = type[0].toUpperCase() + type.substring(1);
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                          child: Row(
-                            children: [
-                              SizedBox(
-                                width: 80,
-                                child: Text(label.toUpperCase(), style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.stone400, letterSpacing: 0.8)),
-                              ),
-                              Expanded(
-                                child: meal != null
-                                    ? Text(meal.title, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w500, color: AppTheme.stone700))
-                                    : Text('+ Add', style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w500, color: AppTheme.primary.withValues(alpha: 0.7))),
-                              ),
-                            ],
-                          ),
-                        );
-                      }),
-                    ],
-                  ),
-                ),
-              );
-            }),
-
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
 
             // ── Tab content ──
-            SizedBox(
-              height: MediaQuery.of(context).size.height * 0.5,
-              child: TabBarView(
-                controller: _tabController,
-                children: const [
-                  _MealPlanTab(),
-                  _RecipesTab(),
-                ],
+            if (_tabController.index == 0) ...[
+              // ── WEEKLY PLAN section ──
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 0, 20, 10),
+                child: Row(children: [
+                  Text('WEEK OF ${weekLabel.toUpperCase()}', style: const TextStyle(
+                    fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800,
+                    color: AppTheme.stone400, letterSpacing: 1.2,
+                  )),
+                ]),
               ),
-            ),
+
+              // ── Day-by-day meal plan ──
+              ...List.generate(7, (i) {
+                final day = monday.add(Duration(days: i));
+                final dayName = DateFormat('EEEE').format(day);
+                final dayDate = DateFormat('MMM d').format(day);
+                final isToday = day.year == now.year && day.month == now.month && day.day == now.day;
+                final mealsForDay = provider.db.mealPlans
+                    .where((m) => m.familyId == familyId && m.date.year == day.year && m.date.month == day.month && m.date.day == day.day)
+                    .toList();
+
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    decoration: BoxDecoration(
+                      color: AppTheme.surface,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: isToday ? AppTheme.primary.withValues(alpha: 0.3) : AppTheme.stone100,
+                        width: isToday ? 1.5 : 1,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+                          child: Row(
+                            children: [
+                              Text(dayName, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone800)),
+                              const SizedBox(width: 8),
+                              Text(dayDate, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
+                              if (isToday) ...[
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.primary.withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Text('Today', style: TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.primary)),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const Divider(height: 1, color: AppTheme.stone100),
+                        ...['breakfast', 'lunch', 'dinner'].map((type) {
+                          final meal = mealsForDay.cast<MealPlan?>().firstWhere((m) => m?.mealType == type, orElse: () => null);
+                          final emoji = _mealTypeEmojis[type] ?? '🍽️';
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                            child: Row(
+                              children: [
+                                Text(emoji, style: const TextStyle(fontSize: 16)),
+                                const SizedBox(width: 8),
+                                SizedBox(
+                                  width: 70,
+                                  child: Text(
+                                    type[0].toUpperCase() + type.substring(1),
+                                    style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.stone400),
+                                  ),
+                                ),
+                                Expanded(
+                                  child: meal != null
+                                      ? Text(meal.title, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w500, color: AppTheme.stone700))
+                                      : Text('+ Add', style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w500, color: AppTheme.primary.withValues(alpha: 0.6))),
+                                ),
+                              ],
+                            ),
+                          );
+                        }),
+                        const SizedBox(height: 4),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+
+              // ── Detailed day-by-day planner ──
+              const _MealPlanTab(),
+            ] else ...[
+              // ── RECIPE BOX section ──
+              const _RecipesTab(),
+            ],
           ],
         ),
       ),
@@ -1300,7 +1202,7 @@ Return a JSON array of 7 objects, each with:
   }
 }
 
-// ─── Tab 1: Meal Plan ────────────────────────────────────────────────────────
+// ─── Meal Plan Section ────────────────────────────────────────────────────────
 
 class _MealPlanTab extends StatefulWidget {
   const _MealPlanTab();
@@ -1357,27 +1259,37 @@ class _MealPlanTabState extends State<_MealPlanTab> {
         '${DateFormat('MMM d').format(_weekDays.first)} – ${DateFormat('MMM d').format(_weekDays.last)}';
 
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Section header
+        const Padding(
+          padding: EdgeInsets.fromLTRB(24, 16, 20, 10),
+          child: Text('DAILY PLANNER', style: TextStyle(
+            fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800,
+            color: AppTheme.stone400, letterSpacing: 1.2,
+          )),
+        ),
         // Week navigation header
         Padding(
-          padding: const EdgeInsets.fromLTRB(8, 12, 8, 0),
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               IconButton(
-                icon: const Icon(Icons.chevron_left),
+                icon: const Icon(Icons.chevron_left_rounded, color: AppTheme.stone500),
                 onPressed: _goToPreviousWeek,
               ),
               Text(
                 weekLabel,
                 style: const TextStyle(
-                  fontWeight: FontWeight.w600,
+                  fontFamily: 'Inter',
+                  fontWeight: FontWeight.w700,
                   color: AppTheme.stone700,
                   fontSize: 14,
                 ),
               ),
               IconButton(
-                icon: const Icon(Icons.chevron_right),
+                icon: const Icon(Icons.chevron_right_rounded, color: AppTheme.stone500),
                 onPressed: _goToNextWeek,
               ),
             ],
@@ -1388,7 +1300,7 @@ class _MealPlanTabState extends State<_MealPlanTab> {
           height: 76,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             itemCount: 7,
             itemBuilder: (context, i) {
               final day = _weekDays[i];
@@ -1397,7 +1309,7 @@ class _MealPlanTabState extends State<_MealPlanTab> {
               return GestureDetector(
                 onTap: () => setState(() => _selectedDay = day),
                 child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
+                  duration: const Duration(milliseconds: 150),
                   width: 48,
                   margin: const EdgeInsets.only(right: 6),
                   decoration: BoxDecoration(
@@ -1406,13 +1318,14 @@ class _MealPlanTabState extends State<_MealPlanTab> {
                         : isToday
                             ? AppTheme.primaryLight
                             : AppTheme.surface,
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(14),
                     border: Border.all(
                       color: isSelected
                           ? AppTheme.primary
                           : isToday
                               ? AppTheme.primary.withValues(alpha: 0.4)
                               : AppTheme.stone200,
+                      width: isSelected || isToday ? 1.5 : 1,
                     ),
                   ),
                   child: Column(
@@ -1421,6 +1334,7 @@ class _MealPlanTabState extends State<_MealPlanTab> {
                       Text(
                         DateFormat('E').format(day).substring(0, 1),
                         style: TextStyle(
+                          fontFamily: 'Inter',
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
                           color: isSelected ? Colors.white70 : AppTheme.stone500,
@@ -1430,6 +1344,7 @@ class _MealPlanTabState extends State<_MealPlanTab> {
                       Text(
                         day.day.toString(),
                         style: TextStyle(
+                          fontFamily: 'Inter',
                           fontSize: 16,
                           fontWeight: FontWeight.w700,
                           color: isSelected ? Colors.white : AppTheme.stone800,
@@ -1442,34 +1357,35 @@ class _MealPlanTabState extends State<_MealPlanTab> {
             },
           ),
         ),
-        // Meal slots
-        Expanded(
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              Text(
-                DateFormat('EEEE, MMMM d').format(_selectedDay),
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.stone800,
-                ),
-              ),
-              const SizedBox(height: 12),
-              ..._mealTypes.map((type) {
-                final meal = mealsForDay.cast<MealPlan?>().firstWhere(
-                      (m) => m?.mealType == type,
-                      orElse: () => null,
-                    );
-                return _MealSlotCard(
-                  mealType: type,
-                  meal: meal,
-                  day: _selectedDay,
-                );
-              }),
-            ],
+        // Selected day label
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+          child: Text(
+            DateFormat('EEEE, MMMM d').format(_selectedDay),
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: AppTheme.stone800,
+            ),
           ),
         ),
+        // Meal slots
+        ..._mealTypes.map((type) {
+          final meal = mealsForDay.cast<MealPlan?>().firstWhere(
+                (m) => m?.mealType == type,
+                orElse: () => null,
+              );
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+            child: _MealSlotCard(
+              mealType: type,
+              meal: meal,
+              day: _selectedDay,
+            ),
+          );
+        }),
+        const SizedBox(height: 16),
       ],
     );
   }
@@ -1493,125 +1409,173 @@ class _MealSlotCard extends StatelessWidget {
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: SectionCard(
-        padding: const EdgeInsets.all(14),
+      child: GestureDetector(
         onTap: meal != null
             ? () => _showMealOptions(context)
             : () => _openAddMealSheet(context, mealType, day),
-        child: Row(
-          children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: AppTheme.primaryLight,
-                borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: meal != null ? AppTheme.surface : AppTheme.stone50,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: meal != null ? AppTheme.stone100 : AppTheme.stone200),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: meal != null ? AppTheme.primaryLight : AppTheme.stone100,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Center(
+                  child: Text(emoji, style: const TextStyle(fontSize: 22)),
+                ),
               ),
-              child: Center(
-                child: Text(emoji, style: const TextStyle(fontSize: 22)),
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: AppTheme.stone500,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  if (meal != null) ...[
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      meal!.title,
+                      label,
                       style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.stone900,
+                        fontFamily: 'Inter',
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.stone400,
                       ),
                     ),
-                    if (meal!.notes != null && meal!.notes!.isNotEmpty)
+                    const SizedBox(height: 2),
+                    if (meal != null) ...[
                       Text(
-                        meal!.notes!,
+                        meal!.title,
                         style: const TextStyle(
-                          fontSize: 12,
-                          color: AppTheme.stone500,
+                          fontFamily: 'Inter',
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.stone900,
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                       ),
-                  ] else
-                    Text(
-                      '+ Add',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        color: AppTheme.primary.withValues(alpha: 0.7),
+                      if (meal!.notes != null && meal!.notes!.isNotEmpty)
+                        Text(
+                          meal!.notes!,
+                          style: const TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 12,
+                            color: AppTheme.stone500,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                    ] else
+                      Text(
+                        '+ Add meal',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: AppTheme.primary.withValues(alpha: 0.6),
+                        ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            if (meal != null)
-              const Icon(Icons.more_horiz, color: AppTheme.stone400, size: 20),
-          ],
+              if (meal != null)
+                const Icon(Icons.more_horiz_rounded, color: AppTheme.stone400, size: 20),
+            ],
+          ),
         ),
       ),
     );
   }
 
   void _showMealOptions(BuildContext context) {
+    final emoji = _mealTypeEmojis[mealType] ?? '🍽️';
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 36,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(
-                  color: AppTheme.stone300,
-                  borderRadius: BorderRadius.circular(2),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SheetHandle(),
+            // Header with meal info
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+              child: Row(children: [
+                Container(
+                  width: 40, height: 40,
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryLight,
+                    borderRadius: BorderRadius.circular(11),
+                  ),
+                  child: Center(child: Text(emoji, style: const TextStyle(fontSize: 20))),
                 ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(meal!.title, style: const TextStyle(fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.stone900)),
+                    Text(
+                      '${_mealTypeLabels[mealType] ?? mealType} · ${DateFormat('MMM d').format(day)}',
+                      style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
+                    ),
+                  ]),
+                ),
+              ]),
+            ),
+            const Divider(height: 1, color: AppTheme.stone100),
+            ListTile(
+              leading: Container(
+                width: 36, height: 36,
+                decoration: BoxDecoration(
+                  color: AppTheme.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.edit_outlined, size: 18, color: AppTheme.primary),
               ),
-              ListTile(
-                leading: const Icon(Icons.edit_outlined, color: AppTheme.primary),
-                title: const Text('Edit meal'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _openAddMealSheet(context, mealType, day, existingMeal: meal);
-                },
+              title: const Text('Edit Meal', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _openAddMealSheet(context, mealType, day, existingMeal: meal);
+              },
+            ),
+            ListTile(
+              leading: Container(
+                width: 36, height: 36,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF8B5CF6).withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.swap_horiz_rounded, size: 18, color: Color(0xFF8B5CF6)),
               ),
-              ListTile(
-                leading: const Icon(Icons.swap_horiz_rounded, color: Color(0xFF8B5CF6)),
-                title: const Text('AI Swap Meal'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _aiSwapMeal(context);
-                },
+              title: const Text('AI Swap Meal', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _aiSwapMeal(context);
+              },
+            ),
+            ListTile(
+              leading: Container(
+                width: 36, height: 36,
+                decoration: BoxDecoration(
+                  color: AppTheme.error.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.delete_outline_rounded, size: 18, color: AppTheme.error),
               ),
-              ListTile(
-                leading: const Icon(Icons.delete_outline, color: AppTheme.error),
-                title: const Text('Delete meal',
-                    style: TextStyle(color: AppTheme.error)),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _deleteMeal(context);
-                },
-              ),
-            ],
-          ),
+              title: const Text('Delete Meal', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.error)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _deleteMeal(context);
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
         ),
       ),
     );
@@ -1621,11 +1585,32 @@ class _MealSlotCard extends StatelessWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete Meal'),
-        content: const Text('Remove this meal from your plan?'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(children: [
+          Container(
+            width: 36, height: 36,
+            decoration: BoxDecoration(
+              color: AppTheme.error.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(Icons.delete_outline_rounded, size: 18, color: AppTheme.error),
+          ),
+          const SizedBox(width: 10),
+          const Text('Delete Meal', style: TextStyle(fontFamily: 'Inter', fontSize: 17, fontWeight: FontWeight.w800)),
+        ]),
+        content: Text(
+          'Remove "${meal!.title}" from your plan? This cannot be undone.',
+          style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone600),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, color: AppTheme.stone500)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, color: AppTheme.error)),
+          ),
         ],
       ),
     );
@@ -1634,6 +1619,7 @@ class _MealSlotCard extends StatelessWidget {
     final db = provider.db;
     final updated = db.mealPlans.where((m) => m.id != meal!.id).toList();
     provider.saveAndSync(db.copyWith(mealPlans: updated));
+    if (context.mounted) _showSnack(context, 'Meal removed');
   }
 
   Future<void> _aiSwapMeal(BuildContext context) async {
@@ -1649,9 +1635,16 @@ class _MealSlotCard extends StatelessWidget {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const CircularProgressIndicator(),
+            Container(
+              width: 48, height: 48,
+              decoration: BoxDecoration(
+                color: const Color(0xFF8B5CF6).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Center(child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.5, color: Color(0xFF8B5CF6)))),
+            ),
             const SizedBox(height: 16),
-            Text('Finding a swap for "$currentMealName"...', textAlign: TextAlign.center, style: const TextStyle(fontFamily: 'Inter', fontSize: 14)),
+            Text('Finding a swap for "$currentMealName"...', textAlign: TextAlign.center, style: const TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone700)),
           ],
         ),
       ),
@@ -1691,6 +1684,7 @@ The replacement should be similar in style but different. Keep it healthy and fa
         );
         return;
       }
+      context.read<AppProvider>().saveAiHistory(module: 'meals', prompt: 'Swap meal: "$currentMealName"', response: raw);
 
       var cleaned = raw.trim();
       if (cleaned.startsWith('```')) cleaned = cleaned.substring(cleaned.indexOf('\n') + 1);
@@ -1876,45 +1870,48 @@ class _AddMealSheetState extends State<_AddMealSheet> {
     if (mounted) Navigator.pop(context);
   }
 
+  InputDecoration _inputDecor(String label) => InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone500),
+        filled: true,
+        fillColor: AppTheme.stone50,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primary, width: 1.5)),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      );
+
   @override
   Widget build(BuildContext context) {
     final padding = MediaQuery.of(context).viewInsets.bottom + 16;
+    final emoji = _mealTypeEmojis[widget.mealType] ?? '🍽️';
     return Padding(
-      padding: EdgeInsets.fromLTRB(20, 20, 20, padding),
+      padding: EdgeInsets.fromLTRB(20, 0, 20, padding),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Handle
-          Center(
-            child: Container(
-              width: 36,
-              height: 4,
+          const SheetHandle(),
+          const SizedBox(height: 8),
+          // Header with icon badge
+          Row(children: [
+            Container(
+              width: 44, height: 44,
               decoration: BoxDecoration(
-                color: AppTheme.stone300,
-                borderRadius: BorderRadius.circular(2),
+                color: AppTheme.primaryLight,
+                borderRadius: BorderRadius.circular(12),
               ),
+              child: Center(child: Text(emoji, style: const TextStyle(fontSize: 22))),
             ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            widget.existingMeal != null ? 'Edit Meal' : 'Add Meal',
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: AppTheme.stone900,
+            const SizedBox(width: 12),
+            Text(
+              widget.existingMeal != null ? 'Edit Meal' : 'Add Meal',
+              style: const TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.stone900),
             ),
-          ),
-          const SizedBox(height: 16),
-          // Meal type selector
-          const Text(
-            'Meal Type',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: AppTheme.stone600,
-            ),
-          ),
+          ]),
+          const SizedBox(height: 18),
+          // Section label
+          const Text('MEAL TYPE', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.0)),
           const SizedBox(height: 8),
           SizedBox(
             height: 40,
@@ -1931,11 +1928,13 @@ class _AddMealSheetState extends State<_AddMealSheet> {
                     decoration: BoxDecoration(
                       color: selected ? AppTheme.primary : AppTheme.stone100,
                       borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: selected ? AppTheme.primary : AppTheme.stone200),
                     ),
                     alignment: Alignment.center,
                     child: Text(
                       '${_mealTypeEmojis[type]} ${_mealTypeLabels[type]}',
                       style: TextStyle(
+                        fontFamily: 'Inter',
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                         color: selected ? Colors.white : AppTheme.stone700,
@@ -1947,87 +1946,61 @@ class _AddMealSheetState extends State<_AddMealSheet> {
             ),
           ),
           const SizedBox(height: 16),
-          // Title field
+          // Section label
+          const Text('DETAILS', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.0)),
+          const SizedBox(height: 8),
           TextField(
             controller: _titleController,
-            decoration: InputDecoration(
-              labelText: 'Meal title',
-              filled: true,
-              fillColor: AppTheme.stone50,
-              border: OutlineInputBorder(
+            style: const TextStyle(fontFamily: 'Inter', fontSize: 15),
+            decoration: _inputDecor('Meal title'),
+          ),
+          const SizedBox(height: 10),
+          // Pick from recipes
+          GestureDetector(
+            onTap: _pickFromRecipes,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppTheme.primary.withValues(alpha: 0.06),
                 borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppTheme.stone200),
+                border: Border.all(color: AppTheme.primary.withValues(alpha: 0.2)),
               ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppTheme.stone200),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide:
-                    const BorderSide(color: AppTheme.primary, width: 1.5),
-              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Container(
+                  width: 28, height: 28,
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.menu_book_outlined, size: 14, color: AppTheme.primary),
+                ),
+                const SizedBox(width: 8),
+                const Text('Pick from Recipes', style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.primary)),
+              ]),
             ),
           ),
           const SizedBox(height: 10),
-          // Pick from recipes button
-          OutlinedButton.icon(
-            onPressed: _pickFromRecipes,
-            icon: const Icon(Icons.menu_book_outlined, size: 18),
-            label: const Text('Pick from Recipes'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppTheme.primary,
-              side: const BorderSide(color: AppTheme.primary),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10)),
-            ),
-          ),
-          const SizedBox(height: 10),
-          // Notes field
           TextField(
             controller: _notesController,
             maxLines: 2,
-            decoration: InputDecoration(
-              labelText: 'Notes (optional)',
-              filled: true,
-              fillColor: AppTheme.stone50,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppTheme.stone200),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppTheme.stone200),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide:
-                    const BorderSide(color: AppTheme.primary, width: 1.5),
-              ),
-            ),
+            style: const TextStyle(fontFamily: 'Inter', fontSize: 14),
+            decoration: _inputDecor('Notes (optional)'),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 18),
           SizedBox(
             width: double.infinity,
             child: FilledButton(
               onPressed: _saving ? null : _save,
               style: FilledButton.styleFrom(
                 backgroundColor: AppTheme.primary,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 padding: const EdgeInsets.symmetric(vertical: 14),
               ),
               child: _saving
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Text(
-                      'Save',
-                      style: TextStyle(
-                          fontSize: 15, fontWeight: FontWeight.w600),
+                  ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : Text(
+                      widget.existingMeal != null ? 'Update Meal' : 'Save Meal',
+                      style: const TextStyle(fontFamily: 'Inter', fontSize: 15, fontWeight: FontWeight.w700),
                     ),
             ),
           ),
@@ -2057,38 +2030,44 @@ class _RecipePickerSheetState extends State<_RecipePickerSheet> {
         .toList();
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
       child: Column(
         children: [
-          Center(
-            child: Container(
-              width: 36,
-              height: 4,
+          const SheetHandle(),
+          const SizedBox(height: 4),
+          Row(children: [
+            Container(
+              width: 40, height: 40,
               decoration: BoxDecoration(
-                color: AppTheme.stone300,
-                borderRadius: BorderRadius.circular(2),
+                color: AppTheme.primaryLight,
+                borderRadius: BorderRadius.circular(11),
               ),
+              child: const Center(child: Icon(Icons.menu_book_rounded, size: 20, color: AppTheme.primary)),
             ),
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            'Pick a Recipe',
-            style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: AppTheme.stone900),
-          ),
+            const SizedBox(width: 10),
+            const Text('Pick a Recipe', style: TextStyle(fontFamily: 'Inter', fontSize: 17, fontWeight: FontWeight.w800, color: AppTheme.stone900)),
+          ]),
           const SizedBox(height: 12),
           TextField(
             onChanged: (v) => setState(() => _query = v),
+            style: const TextStyle(fontFamily: 'Inter', fontSize: 14),
             decoration: InputDecoration(
               hintText: 'Search recipes...',
-              prefixIcon: const Icon(Icons.search, size: 20),
+              hintStyle: const TextStyle(fontFamily: 'Inter', color: AppTheme.stone400),
+              prefixIcon: const Icon(Icons.search, size: 20, color: AppTheme.stone400),
               filled: true,
-              fillColor: AppTheme.stone100,
+              fillColor: AppTheme.stone50,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
+                borderSide: const BorderSide(color: AppTheme.stone200),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppTheme.stone200),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
               ),
               contentPadding: const EdgeInsets.symmetric(vertical: 10),
             ),
@@ -2096,9 +2075,16 @@ class _RecipePickerSheetState extends State<_RecipePickerSheet> {
           const SizedBox(height: 8),
           Expanded(
             child: filtered.isEmpty
-                ? const Center(
-                    child: Text('No recipes found',
-                        style: TextStyle(color: AppTheme.stone400)))
+                ? Center(
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      const Text('🍽️', style: TextStyle(fontSize: 32)),
+                      const SizedBox(height: 8),
+                      Text(
+                        _query.isEmpty ? 'No recipes yet' : 'No matches',
+                        style: const TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone400),
+                      ),
+                    ]),
+                  )
                 : ListView.separated(
                     itemCount: filtered.length,
                     separatorBuilder: (_, __) =>
@@ -2111,22 +2097,15 @@ class _RecipePickerSheetState extends State<_RecipePickerSheet> {
                           height: 40,
                           decoration: BoxDecoration(
                             color: AppTheme.primaryLight,
-                            borderRadius: BorderRadius.circular(10),
+                            borderRadius: BorderRadius.circular(11),
                           ),
                           child: Center(
-                            child: Text(
-                              _recipeEmoji(r),
-                              style: const TextStyle(fontSize: 20),
-                            ),
+                            child: Text(_recipeEmoji(r), style: const TextStyle(fontSize: 20)),
                           ),
                         ),
-                        title: Text(r.title,
-                            style: const TextStyle(
-                                fontWeight: FontWeight.w600, fontSize: 14)),
+                        title: Text(r.title, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 14, color: AppTheme.stone800)),
                         subtitle: r.tags.isNotEmpty
-                            ? Text(r.tags.take(2).join(', '),
-                                style: const TextStyle(
-                                    fontSize: 12, color: AppTheme.stone400))
+                            ? Text(r.tags.take(2).join(', '), style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400))
                             : null,
                         onTap: () => Navigator.pop(ctx, r),
                       );
@@ -2139,7 +2118,7 @@ class _RecipePickerSheetState extends State<_RecipePickerSheet> {
   }
 }
 
-// ─── Tab 2: Recipes ───────────────────────────────────────────────────────────
+// ─── Recipe Box Section ───────────────────────────────────────────────────────
 
 class _RecipesTab extends StatefulWidget {
   const _RecipesTab();
@@ -2163,51 +2142,77 @@ class _RecipesTabState extends State<_RecipesTab> {
         .toList();
 
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Section header
+        const Padding(
+          padding: EdgeInsets.fromLTRB(24, 0, 20, 10),
+          child: Text('YOUR RECIPES', style: TextStyle(
+            fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800,
+            color: AppTheme.stone400, letterSpacing: 1.2,
+          )),
+        ),
         // Search bar
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
           child: TextField(
             onChanged: (v) => setState(() => _query = v),
+            style: const TextStyle(fontFamily: 'Inter', fontSize: 14),
             decoration: InputDecoration(
               hintText: 'Search recipes...',
-              hintStyle: const TextStyle(color: AppTheme.stone400),
-              prefixIcon:
-                  const Icon(Icons.search, color: AppTheme.stone400, size: 20),
+              hintStyle: const TextStyle(fontFamily: 'Inter', color: AppTheme.stone400),
+              prefixIcon: const Icon(Icons.search, color: AppTheme.stone400, size: 20),
               filled: true,
-              fillColor: AppTheme.stone100,
+              fillColor: AppTheme.stone50,
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide.none,
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: AppTheme.stone200),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: AppTheme.stone200),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
               ),
               contentPadding: const EdgeInsets.symmetric(vertical: 12),
             ),
           ),
         ),
         // Recipe grid
-        Expanded(
-          child: recipes.isEmpty
-              ? EmptyState(
-                  emoji: '🍽️',
-                  title: _query.isEmpty ? 'No recipes yet' : 'No matches',
-                  subtitle: _query.isEmpty
-                      ? 'Add your first recipe using the button below.'
-                      : 'Try a different search term.',
-                )
-              : GridView.builder(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 80),
-                  gridDelegate:
-                      const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
-                    childAspectRatio: 0.78,
-                  ),
-                  itemCount: recipes.length,
-                  itemBuilder: (ctx, i) =>
-                      _RecipeCard(recipe: recipes[i]),
-                ),
-        ),
+        if (recipes.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: OnboardingCard(
+              emoji: '🍽️',
+              title: _query.isEmpty ? 'No Recipes Yet' : 'No Matches',
+              bullets: _query.isEmpty
+                  ? const [
+                      'Save family recipes in one place',
+                      'Import from URLs or generate with AI',
+                      'Add recipes to your weekly meal plan',
+                    ]
+                  : const ['Try a different search term'],
+            ),
+          )
+        else
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+                childAspectRatio: 0.78,
+              ),
+              itemCount: recipes.length,
+              itemBuilder: (ctx, i) => _RecipeCard(recipe: recipes[i]),
+            ),
+          ),
+        const SizedBox(height: 32),
       ],
     );
   }
@@ -2245,7 +2250,7 @@ class _RecipeCard extends StatelessWidget {
       child: Container(
         decoration: BoxDecoration(
           color: AppTheme.surface,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(color: AppTheme.stone100),
         ),
         clipBehavior: Clip.hardEdge,
@@ -2254,7 +2259,7 @@ class _RecipeCard extends StatelessWidget {
           children: [
             // Image / placeholder
             SizedBox(
-              height: 110,
+              height: 100,
               width: double.infinity,
               child: recipe.imageUrl != null
                   ? CachedNetworkImage(
@@ -2263,9 +2268,7 @@ class _RecipeCard extends StatelessWidget {
                       errorWidget: (_, __, ___) => _EmojiPlaceholder(emoji),
                       placeholder: (_, __) => Container(
                         color: AppTheme.stone100,
-                        child: const Center(
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
+                        child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
                       ),
                     )
                   : _EmojiPlaceholder(emoji),
@@ -2279,6 +2282,7 @@ class _RecipeCard extends StatelessWidget {
                     Text(
                       recipe.title,
                       style: const TextStyle(
+                        fontFamily: 'Inter',
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
                         color: AppTheme.stone900,
@@ -2287,54 +2291,56 @@ class _RecipeCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                     const Spacer(),
-                    if (timeLabel.isNotEmpty)
-                      Container(
-                        margin: const EdgeInsets.only(bottom: 6),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: AppTheme.primaryLight,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.timer_outlined,
-                                size: 12, color: AppTheme.primary),
-                            const SizedBox(width: 3),
-                            Text(
-                              timeLabel,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: AppTheme.primary,
-                              ),
+                    Row(
+                      children: [
+                        if (timeLabel.isNotEmpty)
+                          Container(
+                            margin: const EdgeInsets.only(right: 4),
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppTheme.primaryLight,
+                              borderRadius: BorderRadius.circular(6),
                             ),
-                          ],
-                        ),
-                      ),
-                    if (recipe.tags.isNotEmpty)
-                      Wrap(
-                        spacing: 4,
-                        runSpacing: 2,
-                        children: recipe.tags.take(2).map((tag) {
-                          return Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.timer_outlined, size: 10, color: AppTheme.primary),
+                                const SizedBox(width: 2),
+                                Text(timeLabel, style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w600, color: AppTheme.primary)),
+                              ],
+                            ),
+                          ),
+                        if (recipe.servings != null && recipe.servings! > 0)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
                               color: AppTheme.stone100,
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
-                              tag,
-                              style: const TextStyle(
-                                fontSize: 10,
-                                color: AppTheme.stone600,
-                              ),
+                              '${recipe.servings} srv',
+                              style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w600, color: AppTheme.stone500),
                             ),
+                          ),
+                      ],
+                    ),
+                    if (recipe.tags.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Wrap(
+                        spacing: 4,
+                        runSpacing: 2,
+                        children: recipe.tags.take(2).map((tag) {
+                          return Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppTheme.stone100,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(tag, style: const TextStyle(fontFamily: 'Inter', fontSize: 10, color: AppTheme.stone500)),
                           );
                         }).toList(),
                       ),
+                    ],
                   ],
                 ),
               ),
@@ -2387,6 +2393,7 @@ class _RecipeDetailSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final provider = context.read<AppProvider>();
     return DraggableScrollableSheet(
       initialChildSize: 0.9,
       minChildSize: 0.5,
@@ -2395,20 +2402,7 @@ class _RecipeDetailSheet extends StatelessWidget {
       builder: (ctx, scrollController) {
         return Column(
           children: [
-            // Handle
-            Padding(
-              padding: const EdgeInsets.only(top: 12, bottom: 4),
-              child: Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppTheme.stone300,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-            ),
+            const SheetHandle(),
             Expanded(
               child: ListView(
                 controller: scrollController,
@@ -2424,28 +2418,102 @@ class _RecipeDetailSheet extends StatelessWidget {
                           ? CachedNetworkImage(
                               imageUrl: recipe.imageUrl!,
                               fit: BoxFit.cover,
-                              errorWidget: (_, __, ___) =>
-                                  _EmojiPlaceholder(_recipeEmoji(recipe)),
+                              errorWidget: (_, __, ___) => _EmojiPlaceholder(_recipeEmoji(recipe)),
                             )
                           : _EmojiPlaceholder(_recipeEmoji(recipe)),
                     ),
                   ),
                   const SizedBox(height: 16),
-                  Text(
-                    recipe.title,
-                    style: const TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                      color: AppTheme.stone900,
-                    ),
+                  // Title & edit/delete row
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          recipe.title,
+                          style: const TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800,
+                            color: AppTheme.stone900,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          showModalBottomSheet(
+                            context: context,
+                            isScrollControlled: true,
+                            shape: const RoundedRectangleBorder(
+                              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                            ),
+                            builder: (_) => _AddRecipeSheet(existingRecipe: recipe),
+                          );
+                        },
+                        child: Container(
+                          width: 36, height: 36,
+                          decoration: BoxDecoration(
+                            color: AppTheme.stone100,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.edit_outlined, size: 16, color: AppTheme.stone500),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      GestureDetector(
+                        onTap: () async {
+                          final confirmed = await showDialog<bool>(
+                            context: context,
+                            builder: (dCtx) => AlertDialog(
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                              title: Row(children: [
+                                Container(
+                                  width: 36, height: 36,
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.error.withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: const Icon(Icons.delete_outline_rounded, size: 18, color: AppTheme.error),
+                                ),
+                                const SizedBox(width: 10),
+                                const Text('Delete Recipe', style: TextStyle(fontFamily: 'Inter', fontSize: 17, fontWeight: FontWeight.w800)),
+                              ]),
+                              content: Text(
+                                'Delete "${recipe.title}"? This cannot be undone.',
+                                style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone600),
+                              ),
+                              actions: [
+                                TextButton(onPressed: () => Navigator.pop(dCtx, false), child: const Text('Cancel', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, color: AppTheme.stone500))),
+                                TextButton(onPressed: () => Navigator.pop(dCtx, true), child: const Text('Delete', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, color: AppTheme.error))),
+                              ],
+                            ),
+                          );
+                          if (confirmed == true && context.mounted) {
+                            final db = provider.db;
+                            final updated = db.recipes.where((r) => r.id != recipe.id).toList();
+                            provider.saveAndSync(db.copyWith(recipes: updated));
+                            if (ctx.mounted) Navigator.pop(ctx);
+                            if (context.mounted) _showSnack(context, 'Recipe deleted');
+                          }
+                        },
+                        child: Container(
+                          width: 36, height: 36,
+                          decoration: BoxDecoration(
+                            color: AppTheme.error.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.delete_outline_rounded, size: 16, color: AppTheme.error),
+                        ),
+                      ),
+                    ],
                   ),
-                  if (recipe.description != null &&
-                      recipe.description!.isNotEmpty) ...[
+                  if (recipe.description != null && recipe.description!.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     Text(
                       recipe.description!,
-                      style: const TextStyle(
-                          fontSize: 14, color: AppTheme.stone600, height: 1.5),
+                      style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone600, height: 1.5),
                     ),
                   ],
                   const SizedBox(height: 14),
@@ -2455,23 +2523,13 @@ class _RecipeDetailSheet extends StatelessWidget {
                     runSpacing: 8,
                     children: [
                       if (recipe.prepMinutes != null)
-                        _InfoChip(
-                            icon: Icons.hourglass_top_outlined,
-                            label: 'Prep: ${recipe.prepMinutes}m'),
+                        _InfoChip(icon: Icons.hourglass_top_outlined, label: 'Prep: ${recipe.prepMinutes}m'),
                       if (recipe.cookMinutes != null)
-                        _InfoChip(
-                            icon: Icons.local_fire_department_outlined,
-                            label: 'Cook: ${recipe.cookMinutes}m'),
-                      if ((recipe.prepMinutes ?? 0) +
-                              (recipe.cookMinutes ?? 0) >
-                          0)
-                        _InfoChip(
-                            icon: Icons.timer_outlined,
-                            label: 'Total: ${_totalTime()}'),
+                        _InfoChip(icon: Icons.local_fire_department_outlined, label: 'Cook: ${recipe.cookMinutes}m'),
+                      if ((recipe.prepMinutes ?? 0) + (recipe.cookMinutes ?? 0) > 0)
+                        _InfoChip(icon: Icons.timer_outlined, label: 'Total: ${_totalTime()}'),
                       if (recipe.servings != null)
-                        _InfoChip(
-                            icon: Icons.people_outline,
-                            label: '${recipe.servings} servings'),
+                        _InfoChip(icon: Icons.people_outline, label: '${recipe.servings} servings'),
                     ],
                   ),
                   if (recipe.tags.isNotEmpty) ...[
@@ -2481,54 +2539,34 @@ class _RecipeDetailSheet extends StatelessWidget {
                       runSpacing: 6,
                       children: recipe.tags.map((tag) {
                         return Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 4),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                           decoration: BoxDecoration(
                             color: AppTheme.primaryLight,
                             borderRadius: BorderRadius.circular(20),
                           ),
-                          child: Text(
-                            tag,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: AppTheme.primary,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
+                          child: Text(tag, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.primary, fontWeight: FontWeight.w600)),
                         );
                       }).toList(),
                     ),
                   ],
                   if (recipe.ingredients.isNotEmpty) ...[
                     const SizedBox(height: 20),
-                    const Text(
-                      'Ingredients',
-                      style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.stone900,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
+                    const Text('INGREDIENTS', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.2)),
+                    const SizedBox(height: 10),
                     ...recipe.ingredients.map((ing) => Padding(
-                          padding: const EdgeInsets.only(bottom: 6),
+                          padding: const EdgeInsets.only(bottom: 8),
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Container(
-                                width: 6,
-                                height: 6,
-                                margin: const EdgeInsets.only(top: 6, right: 10),
-                                decoration: const BoxDecoration(
-                                  color: AppTheme.primary,
-                                  shape: BoxShape.circle,
-                                ),
+                                width: 6, height: 6,
+                                margin: const EdgeInsets.only(top: 7, right: 10),
+                                decoration: const BoxDecoration(color: AppTheme.primary, shape: BoxShape.circle),
                               ),
                               Expanded(
                                 child: Text(
-                                  '${ing.amount}${ing.unit != null ? ' ${ing.unit}' : ''} ${ing.name}',
-                                  style: const TextStyle(
-                                      fontSize: 14, color: AppTheme.stone700),
+                                  '${ing.amount != null ? '${ing.amount} ' : ''}${ing.unit != null ? '${ing.unit} ' : ''}${ing.name}',
+                                  style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone700, height: 1.4),
                                 ),
                               ),
                             ],
@@ -2537,15 +2575,8 @@ class _RecipeDetailSheet extends StatelessWidget {
                   ],
                   if (recipe.steps.isNotEmpty) ...[
                     const SizedBox(height: 20),
-                    const Text(
-                      'Instructions',
-                      style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.stone900,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
+                    const Text('INSTRUCTIONS', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.2)),
+                    const SizedBox(height: 10),
                     ...recipe.steps.asMap().entries.map((entry) {
                       final idx = entry.key + 1;
                       final step = entry.value;
@@ -2555,32 +2586,18 @@ class _RecipeDetailSheet extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Container(
-                              width: 26,
-                              height: 26,
+                              width: 26, height: 26,
                               margin: const EdgeInsets.only(right: 12, top: 1),
-                              decoration: const BoxDecoration(
+                              decoration: BoxDecoration(
                                 color: AppTheme.primary,
-                                shape: BoxShape.circle,
+                                borderRadius: BorderRadius.circular(8),
                               ),
                               child: Center(
-                                child: Text(
-                                  '$idx',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.white,
-                                  ),
-                                ),
+                                child: Text('$idx', style: const TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white)),
                               ),
                             ),
                             Expanded(
-                              child: Text(
-                                step,
-                                style: const TextStyle(
-                                    fontSize: 14,
-                                    color: AppTheme.stone700,
-                                    height: 1.5),
-                              ),
+                              child: Text(step, style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone700, height: 1.5)),
                             ),
                           ],
                         ),
@@ -2598,8 +2615,7 @@ class _RecipeDetailSheet extends StatelessWidget {
                           context: context,
                           isScrollControlled: true,
                           shape: const RoundedRectangleBorder(
-                            borderRadius:
-                                BorderRadius.vertical(top: Radius.circular(24)),
+                            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
                           ),
                           builder: (c) => _AddMealSheet(
                             mealType: 'dinner',
@@ -2609,11 +2625,10 @@ class _RecipeDetailSheet extends StatelessWidget {
                         );
                       },
                       icon: const Icon(Icons.calendar_today_outlined, size: 18),
-                      label: const Text('Add to Meal Plan'),
+                      label: const Text('Add to Meal Plan', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700)),
                       style: FilledButton.styleFrom(
                         backgroundColor: AppTheme.primary,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         padding: const EdgeInsets.symmetric(vertical: 14),
                       ),
                     ),
@@ -2638,139 +2653,17 @@ class _InfoChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: AppTheme.stone100,
+        color: AppTheme.stone50,
         borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppTheme.stone200),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: AppTheme.stone600),
+          Icon(icon, size: 14, color: AppTheme.stone500),
           const SizedBox(width: 5),
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              color: AppTheme.stone700,
-            ),
-          ),
+          Text(label, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.stone600)),
         ],
-      ),
-    );
-  }
-}
-
-// ─── Recipes FAB ──────────────────────────────────────────────────────────────
-
-class _RecipesFab extends StatelessWidget {
-  final bool isOpen;
-  final VoidCallback onToggle;
-
-  const _RecipesFab({required this.isOpen, required this.onToggle});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        if (isOpen) ...[
-          _FabOption(
-            label: 'Import from URL',
-            icon: Icons.link,
-            onTap: () {
-              onToggle();
-              _showImportDialog(context);
-            },
-          ),
-          const SizedBox(height: 8),
-          _FabOption(
-            label: 'Add Recipe',
-            icon: Icons.add,
-            onTap: () {
-              onToggle();
-              showModalBottomSheet(
-                context: context,
-                isScrollControlled: true,
-                shape: const RoundedRectangleBorder(
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                ),
-                builder: (_) => const _AddRecipeSheet(),
-              );
-            },
-          ),
-          const SizedBox(height: 8),
-        ],
-        FloatingActionButton(
-          onPressed: onToggle,
-          backgroundColor: AppTheme.primary,
-          foregroundColor: Colors.white,
-          child: AnimatedRotation(
-            duration: const Duration(milliseconds: 200),
-            turns: isOpen ? 0.125 : 0,
-            child: const Icon(Icons.add, size: 28),
-          ),
-        ),
-      ],
-    );
-  }
-
-  void _showImportDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (_) => const _ImportUrlDialog(),
-    );
-  }
-}
-
-class _FabOption extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final VoidCallback onTap;
-
-  const _FabOption(
-      {required this.label, required this.icon, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: AppTheme.surface,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppTheme.stone200),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.06),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: AppTheme.stone800,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: const BoxDecoration(
-                color: AppTheme.primary,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, color: Colors.white, size: 16),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -2890,11 +2783,18 @@ class _ImportUrlDialogState extends State<_ImportUrlDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      title: const Row(
+      title: Row(
         children: [
-          Icon(Icons.link, color: AppTheme.primary),
-          SizedBox(width: 10),
-          Text('Import Recipe from URL'),
+          Container(
+            width: 36, height: 36,
+            decoration: BoxDecoration(
+              color: AppTheme.primary.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(Icons.link_rounded, size: 18, color: AppTheme.primary),
+          ),
+          const SizedBox(width: 10),
+          const Text('Import Recipe', style: TextStyle(fontFamily: 'Inter', fontSize: 17, fontWeight: FontWeight.w800)),
         ],
       ),
       content: Column(
@@ -3114,19 +3014,20 @@ class _AddRecipeSheetState extends State<_AddRecipeSheet> {
 
   InputDecoration _fieldDecoration(String label) => InputDecoration(
         labelText: label,
+        labelStyle: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone500),
         filled: true,
         fillColor: AppTheme.stone50,
         isDense: true,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: AppTheme.stone200),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: AppTheme.stone200),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
         ),
       );
@@ -3142,35 +3043,30 @@ class _AddRecipeSheetState extends State<_AddRecipeSheet> {
         return Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
               child: Column(
                 children: [
-                  Center(
-                    child: Container(
-                      width: 36,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: AppTheme.stone300,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
+                  const SheetHandle(),
+                  const SizedBox(height: 4),
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        widget.existingRecipe != null
-                            ? 'Edit Recipe'
-                            : 'Add Recipe',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.stone900,
+                      Container(
+                        width: 44, height: 44,
+                        decoration: BoxDecoration(
+                          color: AppTheme.primaryLight,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Center(child: Text('🍽️', style: TextStyle(fontSize: 22))),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          widget.existingRecipe != null ? 'Edit Recipe' : 'Add Recipe',
+                          style: const TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.stone900),
                         ),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.close, color: AppTheme.stone500),
+                        icon: const Icon(Icons.close_rounded, color: AppTheme.stone400),
                         onPressed: () => Navigator.pop(context),
                       ),
                     ],
@@ -3184,21 +3080,25 @@ class _AddRecipeSheetState extends State<_AddRecipeSheet> {
                 padding: EdgeInsets.fromLTRB(20, 8, 20, padding),
                 children: [
                   // Title
+                  const Text('BASIC INFO', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.0)),
+                  const SizedBox(height: 8),
                   TextField(
                     controller: _titleController,
                     decoration: _fieldDecoration('Recipe Title *'),
-                    style: const TextStyle(
-                        fontSize: 15, fontWeight: FontWeight.w600),
+                    style: const TextStyle(fontFamily: 'Inter', fontSize: 15, fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(height: 10),
                   // Description
                   TextField(
                     controller: _descController,
                     maxLines: 2,
+                    style: const TextStyle(fontFamily: 'Inter', fontSize: 14),
                     decoration: _fieldDecoration('Description'),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 14),
                   // Time & servings row
+                  const Text('TIMING', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.0)),
+                  const SizedBox(height: 8),
                   Row(
                     children: [
                       Expanded(
@@ -3226,19 +3126,12 @@ class _AddRecipeSheetState extends State<_AddRecipeSheet> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 18),
                   // Ingredients section
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'Ingredients',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.stone900,
-                        ),
-                      ),
+                      const Text('INGREDIENTS', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.0)),
                       TextButton.icon(
                         onPressed: _addIngredient,
                         icon: const Icon(Icons.add, size: 16),
@@ -3292,19 +3185,12 @@ class _AddRecipeSheetState extends State<_AddRecipeSheet> {
                       ),
                     );
                   }),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 18),
                   // Steps section
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'Steps',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.stone900,
-                        ),
-                      ),
+                      const Text('STEPS', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.0)),
                       TextButton.icon(
                         onPressed: _addStep,
                         icon: const Icon(Icons.add, size: 16),
@@ -3327,9 +3213,9 @@ class _AddRecipeSheetState extends State<_AddRecipeSheet> {
                             width: 24,
                             height: 24,
                             margin: const EdgeInsets.only(top: 10, right: 8),
-                            decoration: const BoxDecoration(
+                            decoration: BoxDecoration(
                               color: AppTheme.primary,
-                              shape: BoxShape.circle,
+                              borderRadius: BorderRadius.circular(7),
                             ),
                             child: Center(
                               child: Text(
@@ -3362,22 +3248,16 @@ class _AddRecipeSheetState extends State<_AddRecipeSheet> {
                       ),
                     );
                   }),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 18),
                   // Tags section
-                  const Text(
-                    'Tags',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.stone900,
-                    ),
-                  ),
+                  const Text('TAGS', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.0)),
                   const SizedBox(height: 8),
                   Wrap(
                     spacing: 6,
                     runSpacing: 6,
                     children: _availableTags.map((tag) {
                       final selected = _selectedTags.contains(tag);
+                      final tagEmoji = _tagEmojis[tag];
                       return GestureDetector(
                         onTap: () => setState(() {
                           if (selected) {
@@ -3388,22 +3268,19 @@ class _AddRecipeSheetState extends State<_AddRecipeSheet> {
                         }),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 150),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 6),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                           decoration: BoxDecoration(
-                            color: selected
-                                ? AppTheme.primary
-                                : AppTheme.stone100,
+                            color: selected ? AppTheme.primary : AppTheme.stone50,
                             borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: selected ? AppTheme.primary : AppTheme.stone200),
                           ),
                           child: Text(
-                            tag,
+                            '${tagEmoji != null ? '$tagEmoji ' : ''}$tag',
                             style: TextStyle(
+                              fontFamily: 'Inter',
                               fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                              color: selected
-                                  ? Colors.white
-                                  : AppTheme.stone700,
+                              fontWeight: FontWeight.w600,
+                              color: selected ? Colors.white : AppTheme.stone600,
                             ),
                           ),
                         ),
@@ -3423,16 +3300,10 @@ class _AddRecipeSheetState extends State<_AddRecipeSheet> {
                         padding: const EdgeInsets.symmetric(vertical: 14),
                       ),
                       child: _saving
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white),
-                            )
-                          : const Text(
-                              'Save Recipe',
-                              style: TextStyle(
-                                  fontSize: 15, fontWeight: FontWeight.w600),
+                          ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : Text(
+                              widget.existingRecipe != null ? 'Update Recipe' : 'Save Recipe',
+                              style: const TextStyle(fontFamily: 'Inter', fontSize: 15, fontWeight: FontWeight.w700),
                             ),
                     ),
                   ),
@@ -3458,4 +3329,155 @@ class _IngredientRow {
     required this.amountController,
     required this.unitController,
   });
+}
+
+// ─── Mini Stat Card ───────────────────────────────────────────────────────────
+
+class _MiniStat extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String value;
+  final String label;
+
+  const _MiniStat({
+    required this.icon,
+    required this.iconColor,
+    required this.value,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppTheme.stone100),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 32, height: 32,
+              decoration: BoxDecoration(
+                color: iconColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Icon(icon, size: 16, color: iconColor),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(value, style: TextStyle(
+                    fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w900, color: iconColor,
+                  )),
+                  Text(label, style: const TextStyle(
+                    fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w500, color: AppTheme.stone400,
+                  )),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── AI Feature Card ──────────────────────────────────────────────────────────
+
+class _AiFeatureCard extends StatelessWidget {
+  final IconData icon;
+  final List<Color> gradientColors;
+  final String title;
+  final String hintText;
+  final TextEditingController controller;
+  final bool loading;
+  final String buttonLabel;
+  final VoidCallback? onAction;
+  final TextInputType? keyboardType;
+
+  const _AiFeatureCard({
+    required this.icon,
+    required this.gradientColors,
+    required this.title,
+    required this.hintText,
+    required this.controller,
+    required this.loading,
+    required this.buttonLabel,
+    this.onAction,
+    this.keyboardType,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: gradientColors,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Container(
+              width: 30, height: 30,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Icon(icon, size: 16, color: Colors.white),
+            ),
+            const SizedBox(width: 10),
+            Text(title, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white)),
+          ]),
+          const SizedBox(height: 10),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: TextField(
+              controller: controller,
+              style: const TextStyle(color: Colors.white, fontFamily: 'Inter', fontSize: 14),
+              keyboardType: keyboardType,
+              decoration: InputDecoration(
+                hintText: hintText,
+                hintStyle: const TextStyle(color: Colors.white54, fontFamily: 'Inter'),
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                filled: false,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerRight,
+            child: GestureDetector(
+              onTap: onAction,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: loading
+                    ? SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: gradientColors.first))
+                    : Text(buttonLabel, style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: gradientColors.first)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

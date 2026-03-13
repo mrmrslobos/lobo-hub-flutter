@@ -1,5 +1,7 @@
 // lib/screens/rewards/rewards_screen.dart
+// Rewards & savings goals screen for FamilyHub
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
@@ -8,6 +10,18 @@ import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+void _showSnack(BuildContext context, String msg) {
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    content: Text(msg),
+    behavior: SnackBarBehavior.floating,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+  ));
+}
+
+// ─── Main Screen ─────────────────────────────────────────────────────────────
 
 class RewardsScreen extends StatefulWidget {
   const RewardsScreen({super.key});
@@ -33,6 +47,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
   }
 
   Future<void> _addFunds(SavingsGoal goal, double amount) async {
+    HapticFeedback.lightImpact();
     final provider = context.read<AppProvider>();
     final db = provider.db;
     final newSaved = goal.savedAmount + amount;
@@ -61,22 +76,23 @@ class _RewardsScreenState extends State<RewardsScreen> {
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            style: TextButton.styleFrom(foregroundColor: AppTheme.error),
             child: const Text('Delete'),
           ),
         ],
       ),
     );
     if (confirmed != true) return;
+    HapticFeedback.lightImpact();
     final provider = context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(db.copyWith(
       savingsGoals: db.savingsGoals.where((g) => g.id != goalId).toList(),
     ));
+    if (mounted) _showSnack(context, 'Goal removed');
   }
 
   Future<void> _redeemReward(Reward reward, String userId) async {
-    // Confirmation dialog
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -92,13 +108,14 @@ class _RewardsScreenState extends State<RewardsScreen> {
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(backgroundColor: AppTheme.success),
-            child: const Text('Redeem 🎉'),
+            child: const Text('Redeem'),
           ),
         ],
       ),
     );
     if (confirmed != true) return;
 
+    HapticFeedback.mediumImpact();
     final provider = context.read<AppProvider>();
     final db = provider.db;
     final updated = db.rewards.map((r) {
@@ -115,12 +132,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
       return r;
     }).toList();
     await provider.saveAndSync(db.copyWith(rewards: updated));
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('${reward.title} redeemed! 🎉'),
-        backgroundColor: AppTheme.success,
-      ));
-    }
+    if (mounted) _showSnack(context, '${reward.title} redeemed!');
   }
 
   Future<void> _deleteReward(String rewardId) async {
@@ -133,18 +145,20 @@ class _RewardsScreenState extends State<RewardsScreen> {
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            style: TextButton.styleFrom(foregroundColor: AppTheme.error),
             child: const Text('Delete'),
           ),
         ],
       ),
     );
     if (confirmed != true) return;
+    HapticFeedback.lightImpact();
     final provider = context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(db.copyWith(
       rewards: db.rewards.where((r) => r.id != rewardId).toList(),
     ));
+    if (mounted) _showSnack(context, 'Reward removed');
   }
 
   void _showAddRewardSheet({Reward? editReward}) {
@@ -183,41 +197,21 @@ class _RewardsScreenState extends State<RewardsScreen> {
     final savingsGoals = provider.db.savingsGoals.where((g) => g.familyId == family.id).toList();
     final myPoints = provider.chorePointsForUser(user.id);
     final isOwner = user.id == family.ownerId;
+    final completedGoals = savingsGoals.where((g) => g.savedAmount >= g.targetAmount).length;
 
     return Scaffold(
       backgroundColor: AppTheme.background,
       drawer: const AppDrawer(),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: Builder(
-          builder: (context) => IconButton(
-            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
-            onPressed: () => Scaffold.of(context).openDrawer(),
-          ),
-        ),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
-            const SizedBox(width: 6),
-            const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
-          ],
-        ),
-        centerTitle: false,
-        titleSpacing: 0,
-        actions: const [],
-      ),
+      appBar: const FamilyHubAppBar(),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.only(bottom: 40),
+        padding: const EdgeInsets.only(bottom: 32),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // ── Page Header ──
             PageHeader(
               title: 'Reward Store',
-              subtitle: 'Manage rewards, savings goals, and approve requests',
+              subtitle: 'Manage rewards, savings goals, and approve requests.',
               actions: isOwner
                   ? [
                       ActionChipButton(
@@ -236,18 +230,37 @@ class _RewardsScreenState extends State<RewardsScreen> {
                   : null,
             ),
 
-            // ── Kids' Balances Section ──
+            // ── Stat Cards ──
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-              child: const Text(
-                "Kids' Balances",
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.stone900,
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+              child: Row(children: [
+                _MiniStat(
+                  icon: Icons.star_rounded,
+                  iconColor: const Color(0xFFF59E0B),
+                  value: '$myPoints',
+                  label: 'My Points',
                 ),
-              ),
+                const SizedBox(width: 10),
+                _MiniStat(
+                  icon: Icons.card_giftcard_rounded,
+                  iconColor: AppTheme.primary,
+                  value: '${rewards.length}',
+                  label: 'Rewards',
+                ),
+                const SizedBox(width: 10),
+                _MiniStat(
+                  icon: Icons.check_circle_rounded,
+                  iconColor: AppTheme.success,
+                  value: '$completedGoals',
+                  label: 'Goals Met',
+                ),
+              ]),
+            ),
+
+            // ── Kids' Balances Section ──
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: SectionHeader(title: "KIDS' BALANCES"),
             ),
             ...members.map((member) {
               final pts = provider.chorePointsForUser(member.id);
@@ -257,7 +270,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
                 child: Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: AppTheme.surface,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: AppTheme.stone100),
                   ),
@@ -284,7 +297,6 @@ class _RewardsScreenState extends State<RewardsScreen> {
                               style: const TextStyle(
                                 fontFamily: 'Inter',
                                 fontSize: 13,
-                                fontWeight: FontWeight.w400,
                                 color: AppTheme.stone500,
                               ),
                             ),
@@ -309,7 +321,6 @@ class _RewardsScreenState extends State<RewardsScreen> {
                             style: TextStyle(
                               fontFamily: 'Inter',
                               fontSize: 11,
-                              fontWeight: FontWeight.w400,
                               color: AppTheme.stone400,
                             ),
                           ),
@@ -324,17 +335,9 @@ class _RewardsScreenState extends State<RewardsScreen> {
             const SizedBox(height: 12),
 
             // ── Reward Catalog Section ──
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-              child: const Text(
-                'Reward Catalog',
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.stone900,
-                ),
-              ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: SectionHeader(title: 'REWARD CATALOG'),
             ),
 
             if (rewards.isEmpty)
@@ -383,16 +386,13 @@ class _RewardsScreenState extends State<RewardsScreen> {
                   },
                 ),
               ),
+
             // ── Savings Goals Section ──
             const SizedBox(height: 16),
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
               child: Row(children: [
-                const Text(
-                  'Savings Goals',
-                  style: TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w700, color: AppTheme.stone900),
-                ),
-                const Spacer(),
+                const Expanded(child: SectionHeader(title: 'SAVINGS GOALS')),
                 GestureDetector(
                   onTap: _showAddGoalSheet,
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -411,16 +411,16 @@ class _RewardsScreenState extends State<RewardsScreen> {
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(vertical: 24),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: AppTheme.surface,
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppTheme.stone200, style: BorderStyle.solid),
+                    border: Border.all(color: AppTheme.stone100),
                   ),
-                  child: Column(children: [
-                    const Text('\u{1F3AF}', style: TextStyle(fontSize: 28)),
-                    const SizedBox(height: 8),
-                    const Text('No savings goals yet', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone400)),
-                    const SizedBox(height: 2),
-                    const Text('Set a target and save up for something special!', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
+                  child: const Column(children: [
+                    Text('\u{1F3AF}', style: TextStyle(fontSize: 28)),
+                    SizedBox(height: 8),
+                    Text('No savings goals yet', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone400)),
+                    SizedBox(height: 2),
+                    Text('Set a target and save up for something special!', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
                   ]),
                 ),
               )
@@ -435,7 +435,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
                   child: Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: AppTheme.surface,
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: isComplete ? AppTheme.success.withValues(alpha: 0.4) : AppTheme.stone100, width: isComplete ? 2 : 1),
                     ),
@@ -451,7 +451,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(color: AppTheme.success.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
-                            child: const Text('\u2705 Complete!', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.success)),
+                            child: const Text('Complete!', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.success)),
                           )
                         else
                           GestureDetector(
@@ -541,6 +541,81 @@ class _RewardsScreenState extends State<RewardsScreen> {
   }
 }
 
+// ─── Reward Card ─────────────────────────────────────────────────────────────
+
+class _RewardCard extends StatelessWidget {
+  final Reward reward;
+  final bool canRedeem;
+  final bool alreadyRedeemed;
+  final VoidCallback? onRedeem;
+  final VoidCallback onDelete;
+  final VoidCallback onEdit;
+
+  const _RewardCard({
+    required this.reward,
+    required this.canRedeem,
+    required this.alreadyRedeemed,
+    required this.onRedeem,
+    required this.onDelete,
+    required this.onEdit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: alreadyRedeemed ? AppTheme.success.withValues(alpha: 0.05) : AppTheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: alreadyRedeemed ? AppTheme.success.withValues(alpha: 0.3) : AppTheme.stone100),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          const Text('🎁', style: TextStyle(fontSize: 28)),
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            GestureDetector(
+              onTap: onEdit,
+              child: const Icon(Icons.edit_outlined, size: 16, color: AppTheme.stone300),
+            ),
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: onDelete,
+              child: const Icon(Icons.close_rounded, size: 16, color: AppTheme.stone300),
+            ),
+          ]),
+        ]),
+        const SizedBox(height: 6),
+        Text(reward.title, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: AppTheme.stone900), maxLines: 2, overflow: TextOverflow.ellipsis),
+        const Spacer(),
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+            decoration: BoxDecoration(color: AppTheme.warning.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(6)),
+            child: Text('${reward.pointCost} pts', style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.warning)),
+          ),
+          if (alreadyRedeemed)
+            const Icon(Icons.check_circle_rounded, color: AppTheme.success, size: 18)
+          else
+            GestureDetector(
+              onTap: onRedeem,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: canRedeem ? AppTheme.primary : AppTheme.stone200,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text('Redeem', style: TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: canRedeem ? Colors.white : AppTheme.stone400)),
+              ),
+            ),
+        ]),
+      ]),
+    );
+  }
+}
+
+// ─── Savings Goal Sheet ──────────────────────────────────────────────────────
+
 class _SavingsGoalSheet extends StatefulWidget {
   final Function(SavingsGoal) onSave;
   const _SavingsGoalSheet({required this.onSave});
@@ -578,16 +653,13 @@ class _SavingsGoalSheetState extends State<_SavingsGoalSheet> {
 
     return Container(
       decoration: const BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.surface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      padding: EdgeInsets.fromLTRB(24, 16, 24, MediaQuery.of(context).viewInsets.bottom + 24),
+      padding: EdgeInsets.fromLTRB(24, 0, 24, MediaQuery.of(context).viewInsets.bottom + 24),
       child: SingleChildScrollView(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-          Center(
-            child: Container(width: 36, height: 4, decoration: BoxDecoration(color: AppTheme.stone300, borderRadius: BorderRadius.circular(2))),
-          ),
-          const SizedBox(height: 16),
+          const SheetHandle(),
           const Text('New Savings Goal', style: TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.stone900)),
           const SizedBox(height: 16),
 
@@ -721,76 +793,7 @@ class _SavingsGoalSheetState extends State<_SavingsGoalSheet> {
   }
 }
 
-class _RewardCard extends StatelessWidget {
-  final Reward reward;
-  final bool canRedeem;
-  final bool alreadyRedeemed;
-  final VoidCallback? onRedeem;
-  final VoidCallback onDelete;
-  final VoidCallback onEdit;
-
-  const _RewardCard({
-    required this.reward,
-    required this.canRedeem,
-    required this.alreadyRedeemed,
-    required this.onRedeem,
-    required this.onDelete,
-    required this.onEdit,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: alreadyRedeemed ? AppTheme.success.withValues(alpha: 0.05) : AppTheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: alreadyRedeemed ? AppTheme.success.withValues(alpha: 0.3) : AppTheme.stone100),
-      ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          const Text('🎁', style: TextStyle(fontSize: 28)),
-          Row(mainAxisSize: MainAxisSize.min, children: [
-            GestureDetector(
-              onTap: onEdit,
-              child: const Icon(Icons.edit_outlined, size: 16, color: AppTheme.stone300),
-            ),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: onDelete,
-              child: const Icon(Icons.close_rounded, size: 16, color: AppTheme.stone300),
-            ),
-          ]),
-        ]),
-        const SizedBox(height: 6),
-        Text(reward.title, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: AppTheme.stone900), maxLines: 2, overflow: TextOverflow.ellipsis),
-        const Spacer(),
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-            decoration: BoxDecoration(color: AppTheme.warning.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(6)),
-            child: Text('${reward.pointCost} pts', style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.warning)),
-          ),
-          if (alreadyRedeemed)
-            const Icon(Icons.check_circle_rounded, color: AppTheme.success, size: 18)
-          else
-            GestureDetector(
-              onTap: onRedeem,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: canRedeem ? AppTheme.primary : AppTheme.stone200,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text('Redeem', style: TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: canRedeem ? Colors.white : AppTheme.stone400)),
-              ),
-            ),
-        ]),
-      ]),
-    );
-  }
-}
+// ─── Reward Form Sheet ───────────────────────────────────────────────────────
 
 class _RewardFormSheet extends StatefulWidget {
   final Future<void> Function(Reward) onSave;
@@ -819,7 +822,6 @@ class _RewardFormSheetState extends State<_RewardFormSheet> {
     super.initState();
     final r = widget.editReward;
     if (r != null) {
-      // Extract icon from title (first character if emoji)
       final title = r.title;
       final iconMatch = RegExp(r'^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F?)\s*', unicode: true).firstMatch(title);
       if (iconMatch != null) {
@@ -885,9 +887,9 @@ class _RewardFormSheetState extends State<_RewardFormSheet> {
           ]),
           const SizedBox(height: 12),
           // Icon picker
-          Align(
+          const Align(
             alignment: Alignment.centerLeft,
-            child: Text('Choose Icon', style: const TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.stone500)),
+            child: Text('Choose Icon', style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.stone500)),
           ),
           const SizedBox(height: 8),
           SizedBox(
@@ -939,6 +941,62 @@ class _RewardFormSheetState extends State<_RewardFormSheet> {
             decoration: const InputDecoration(labelText: 'Points Cost', prefixIcon: Icon(Icons.star_rounded)),
           ),
         ]),
+      ),
+    );
+  }
+}
+
+// ─── Mini Stat Card ──────────────────────────────────────────────────────────
+
+class _MiniStat extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String value;
+  final String label;
+
+  const _MiniStat({
+    required this.icon,
+    required this.iconColor,
+    required this.value,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppTheme.stone100),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 32, height: 32,
+              decoration: BoxDecoration(
+                color: iconColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Icon(icon, size: 16, color: iconColor),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(value, style: TextStyle(
+                    fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w900, color: iconColor,
+                  )),
+                  Text(label, style: const TextStyle(
+                    fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w500, color: AppTheme.stone400,
+                  )),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

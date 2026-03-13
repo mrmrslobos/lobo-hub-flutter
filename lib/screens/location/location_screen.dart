@@ -15,7 +15,23 @@ import '../../providers/app_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 
-/// Haversine distance in metres between two lat/lng pairs.
+// ─── Place emoji presets ──────────────────────────────────────────────────────
+
+const _placeEmojis = [
+  '\u{1F3E0}', // house
+  '\u{1F3EB}', // school
+  '\u{1F4BC}', // briefcase (work)
+  '\u{1F3E5}', // hospital
+  '\u{1F6D2}', // shopping cart
+  '\u{26EA}',  // church
+  '\u{1F3CB}\u{FE0F}', // gym
+  '\u{1F333}', // park
+  '\u{1F355}', // pizza (restaurant)
+  '\u{2B50}',  // star (other)
+];
+
+// ─── Haversine helpers ────────────────────────────────────────────────────────
+
 double _haversine(double lat1, double lon1, double lat2, double lon2) {
   const r = 6371000.0;
   final phi1 = lat1 * pi / 180;
@@ -27,13 +43,11 @@ double _haversine(double lat1, double lon1, double lat2, double lon2) {
   return r * 2 * atan2(sqrt(a), sqrt(1 - a));
 }
 
-/// Format distance for display.
 String _formatDistance(double metres) {
   if (metres < 1000) return '${metres.round()} m away';
   return '${(metres / 1000).toStringAsFixed(1)} km away';
 }
 
-/// Find the nearest saved place within its radius.
 String? _nearestPlace(double lat, double lon, List<SavedPlace> places) {
   SavedPlace? best;
   double bestDist = double.infinity;
@@ -47,6 +61,8 @@ String? _nearestPlace(double lat, double lon, List<SavedPlace> places) {
   if (best == null) return null;
   return '${best.emoji ?? ''} ${best.name}'.trim();
 }
+
+// ─── Location Screen ──────────────────────────────────────────────────────────
 
 class LocationScreen extends StatefulWidget {
   const LocationScreen({super.key});
@@ -66,14 +82,12 @@ class _LocationScreenState extends State<LocationScreen> {
     super.dispose();
   }
 
+  // ─── Permission ─────────────────────────────────────────────────────────────
+
   Future<bool> _ensureLocationPermission() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please enable location services')),
-        );
-      }
+      if (mounted) _showSnack('Please enable location services');
       return false;
     }
 
@@ -81,22 +95,14 @@ class _LocationScreenState extends State<LocationScreen> {
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Location permission denied')),
-          );
-        }
+        if (mounted) _showSnack('Location permission denied');
         setState(() => _permissionDenied = true);
         return false;
       }
     }
 
     if (permission == LocationPermission.deniedForever) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Location permission permanently denied. Please enable in Settings.')),
-        );
-      }
+      if (mounted) _showSnack('Location permission permanently denied. Please enable in Settings.');
       setState(() => _permissionDenied = true);
       return false;
     }
@@ -104,6 +110,8 @@ class _LocationScreenState extends State<LocationScreen> {
     setState(() => _permissionDenied = false);
     return true;
   }
+
+  // ─── Location Updates ───────────────────────────────────────────────────────
 
   Future<void> _updateLocation() async {
     final provider = context.read<AppProvider>();
@@ -130,7 +138,6 @@ class _LocationScreenState extends State<LocationScreen> {
         }
       } catch (_) {}
 
-      // Check if near a saved place
       final savedPlaces = provider.db.savedPlaces
           .where((p) => p.familyId == family.id)
           .toList();
@@ -178,6 +185,8 @@ class _LocationScreenState extends State<LocationScreen> {
     _locationTimer?.cancel();
     _locationTimer = null;
   }
+
+  // ─── Sharing Toggle ─────────────────────────────────────────────────────────
 
   Future<void> _toggleSharing(LocationShare? current, bool sharing) async {
     final provider = context.read<AppProvider>();
@@ -249,10 +258,14 @@ class _LocationScreenState extends State<LocationScreen> {
 
     if (sharing) {
       _startLocationUpdates();
+      if (mounted) _showSnack('Location sharing started');
     } else {
       _stopLocationUpdates();
+      if (mounted) _showSnack('Location sharing stopped');
     }
   }
+
+  // ─── Maps ───────────────────────────────────────────────────────────────────
 
   Future<void> _openInMaps(double lat, double lng) async {
     final uri = Uri.parse('https://maps.google.com/?q=$lat,$lng');
@@ -261,44 +274,148 @@ class _LocationScreenState extends State<LocationScreen> {
     }
   }
 
-  Future<void> _deletePlace(String placeId) async {
+  // ─── Place CRUD ─────────────────────────────────────────────────────────────
+
+  Future<void> _deletePlace(SavedPlace place) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete Place'),
-        content: const Text('Remove this saved place?'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(children: [
+          Container(
+            width: 36, height: 36,
+            decoration: BoxDecoration(
+              color: AppTheme.error.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(Icons.delete_outline_rounded, size: 18, color: AppTheme.error),
+          ),
+          const SizedBox(width: 10),
+          const Text('Delete Place', style: TextStyle(fontFamily: 'Inter', fontSize: 17, fontWeight: FontWeight.w800)),
+        ]),
+        content: Text('Remove "${place.name}" from saved places?', style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone600)),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, color: AppTheme.stone500)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, color: AppTheme.error)),
+          ),
         ],
       ),
     );
-    if (confirmed != true) return;
+    if (confirmed != true || !mounted) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(db.copyWith(
-      savedPlaces: db.savedPlaces.where((p) => p.id != placeId).toList(),
+      savedPlaces: db.savedPlaces.where((p) => p.id != place.id).toList(),
     ));
+    if (mounted) _showSnack('Place deleted');
   }
 
-  void _showAddPlaceSheet() {
+  void _showAddPlaceSheet({SavedPlace? editing}) {
     final pos = _lastPosition;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
       builder: (_) => _AddPlaceSheet(
         currentPosition: pos != null ? (lat: pos.latitude, lng: pos.longitude) : null,
-        onSave: (place) async {
-          final provider = context.read<AppProvider>();
-          final db = provider.db;
-          await provider.saveAndSync(db.copyWith(
-            savedPlaces: [...db.savedPlaces, place],
-          ));
-        },
+        editing: editing,
       ),
     );
   }
+
+  void _showPlaceActions(SavedPlace place) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SheetHandle(),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+              child: Row(children: [
+                Container(
+                  width: 36, height: 36,
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Center(child: Text(place.emoji ?? '\u{1F4CD}', style: const TextStyle(fontSize: 18))),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    place.name,
+                    style: const TextStyle(fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.stone900),
+                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ]),
+            ),
+            const Divider(height: 1, color: AppTheme.stone100),
+            ListTile(
+              leading: Container(
+                width: 36, height: 36,
+                decoration: BoxDecoration(
+                  color: AppTheme.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.edit_outlined, size: 18, color: AppTheme.primary),
+              ),
+              title: const Text('Edit Place', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600)),
+              onTap: () {
+                Navigator.pop(context);
+                _showAddPlaceSheet(editing: place);
+              },
+            ),
+            ListTile(
+              leading: Container(
+                width: 36, height: 36,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF3B82F6).withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.navigation_rounded, size: 18, color: Color(0xFF3B82F6)),
+              ),
+              title: const Text('Open in Maps', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600)),
+              onTap: () {
+                Navigator.pop(context);
+                _openInMaps(place.latitude, place.longitude);
+              },
+            ),
+            ListTile(
+              leading: Container(
+                width: 36, height: 36,
+                decoration: BoxDecoration(
+                  color: AppTheme.error.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.delete_outline_rounded, size: 18, color: AppTheme.error),
+              ),
+              title: const Text('Delete Place', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.error)),
+              onTap: () {
+                Navigator.pop(context);
+                _deletePlace(place);
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ─── Helpers ────────────────────────────────────────────────────────────────
 
   String _timeAgo(DateTime dt) {
     final diff = DateTime.now().difference(dt);
@@ -307,6 +424,16 @@ class _LocationScreenState extends State<LocationScreen> {
     if (diff.inHours < 24) return '${diff.inHours}h ago';
     return '${diff.inDays}d ago';
   }
+
+  void _showSnack(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    ));
+  }
+
+  // ─── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -332,74 +459,83 @@ class _LocationScreenState extends State<LocationScreen> {
         .where((p) => p.familyId == family.id)
         .toList();
 
+    final sharingCount = locationShares.where((l) => l.isSharing).length;
+
     return Scaffold(
       backgroundColor: AppTheme.background,
       drawer: const AppDrawer(),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: Builder(
-          builder: (context) => IconButton(
-            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
-            onPressed: () => Scaffold.of(context).openDrawer(),
-          ),
-        ),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
-            const SizedBox(width: 6),
-            const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
-          ],
-        ),
-        centerTitle: false,
-        titleSpacing: 0,
-        actions: const [],
-      ),
+      appBar: const FamilyHubAppBar(),
       body: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // ─── Header ──────────────────────────────────────────
             PageHeader(
-              title: 'Family Location',
-              subtitle: 'See where everyone is, safely and privately.',
+              title: '\u{1F4CD} Family Location',
+              subtitle: 'See where everyone is, safely and privately',
               actions: [
                 ActionChipButton(
                   icon: Icons.add_location_alt_outlined,
                   label: 'Add Place',
-                  onTap: _showAddPlaceSheet,
-                  backgroundColor: AppTheme.stone100,
-                  foregroundColor: AppTheme.stone700,
+                  onTap: () => _showAddPlaceSheet(),
+                  isPrimary: true,
                 ),
               ],
             ),
 
-            // ── Sharing Toggle ──
+            // ─── Stat cards ──────────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+              child: Row(children: [
+                _MiniStat(
+                  icon: Icons.people_rounded,
+                  iconColor: AppTheme.primary,
+                  value: '${members.length}',
+                  label: 'Members',
+                ),
+                const SizedBox(width: 10),
+                _MiniStat(
+                  icon: Icons.share_location_rounded,
+                  iconColor: AppTheme.success,
+                  value: '$sharingCount',
+                  label: 'Sharing',
+                ),
+                const SizedBox(width: 10),
+                _MiniStat(
+                  icon: Icons.place_rounded,
+                  iconColor: const Color(0xFFD97706),
+                  value: '${savedPlaces.length}',
+                  label: 'Places',
+                ),
+              ]),
+            ),
+
+            // ─── Sharing Toggle ──────────────────────────────────
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Container(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: isSharing ? const Color(0xFFF0FDF4) : Colors.white,
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
                     color: isSharing ? const Color(0xFF86EFAC) : AppTheme.stone200,
-                    width: 2,
+                    width: isSharing ? 1.5 : 1,
                   ),
                 ),
                 child: Row(children: [
                   Container(
-                    width: 50, height: 50,
+                    width: 48, height: 48,
                     decoration: BoxDecoration(
-                      color: isSharing ? AppTheme.success : AppTheme.stone200,
-                      borderRadius: BorderRadius.circular(16),
+                      color: isSharing ? AppTheme.success.withValues(alpha: 0.15) : AppTheme.stone100,
+                      borderRadius: BorderRadius.circular(14),
                     ),
                     child: Icon(
-                      Icons.navigation_rounded,
-                      color: isSharing ? Colors.white : AppTheme.stone400,
-                      size: 24,
+                      isSharing ? Icons.navigation_rounded : Icons.navigation_outlined,
+                      color: isSharing ? AppTheme.success : AppTheme.stone400,
+                      size: 22,
                     ),
                   ),
                   const SizedBox(width: 14),
@@ -420,26 +556,34 @@ class _LocationScreenState extends State<LocationScreen> {
                         maxLines: 1, overflow: TextOverflow.ellipsis,
                       )
                     else
-                      const Text('Only you can see your location when off', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
+                      const Text('Only visible to your family circle', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
                   ])),
                   const SizedBox(width: 8),
                   GestureDetector(
                     onTap: () => _toggleSharing(myShare, !isSharing),
-                    child: Container(
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                       decoration: BoxDecoration(
-                        color: isSharing ? AppTheme.stone200 : AppTheme.success,
-                        borderRadius: BorderRadius.circular(16),
+                        color: isSharing ? AppTheme.stone100 : AppTheme.success,
+                        borderRadius: BorderRadius.circular(14),
                         boxShadow: isSharing ? null : [
                           BoxShadow(color: AppTheme.success.withValues(alpha: 0.3), blurRadius: 8, offset: const Offset(0, 2)),
                         ],
                       ),
                       child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        Icon(Icons.power_settings_new_rounded, size: 16, color: isSharing ? AppTheme.stone700 : Colors.white),
+                        Icon(
+                          isSharing ? Icons.stop_rounded : Icons.play_arrow_rounded,
+                          size: 16,
+                          color: isSharing ? AppTheme.stone600 : Colors.white,
+                        ),
                         const SizedBox(width: 4),
                         Text(
                           isSharing ? 'Stop' : 'Share',
-                          style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: isSharing ? AppTheme.stone700 : Colors.white),
+                          style: TextStyle(
+                            fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13,
+                            color: isSharing ? AppTheme.stone600 : Colors.white,
+                          ),
                         ),
                       ]),
                     ),
@@ -448,15 +592,62 @@ class _LocationScreenState extends State<LocationScreen> {
               ),
             ),
 
-            // ── Family Members ──
+            // ─── Permission denied banner ────────────────────────
+            if (_permissionDenied)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF3C7),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFFDE68A)),
+                  ),
+                  child: Row(children: [
+                    const Icon(Icons.warning_amber_rounded, size: 18, color: Color(0xFFD97706)),
+                    const SizedBox(width: 10),
+                    const Expanded(child: Text(
+                      'Location permission denied. Enable it in your device settings to share your location.',
+                      style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFF92400E), height: 1.3),
+                    )),
+                  ]),
+                ),
+              ),
+
+            // ─── Family Members ──────────────────────────────────
             const Padding(
-              padding: EdgeInsets.fromLTRB(20, 20, 20, 8),
-              child: Text('FAMILY', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1)),
+              padding: EdgeInsets.fromLTRB(24, 20, 24, 10),
+              child: Text('FAMILY MEMBERS', style: TextStyle(
+                fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800,
+                color: AppTheme.stone400, letterSpacing: 1.1,
+              )),
             ),
             if (members.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 20),
-                child: Text('No family members found.', style: TextStyle(color: AppTheme.stone400)),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 32),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppTheme.stone100),
+                  ),
+                  child: Column(children: [
+                    Container(
+                      width: 56, height: 56,
+                      decoration: BoxDecoration(
+                        color: AppTheme.stone100,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.people_outline_rounded, size: 28, color: AppTheme.stone300),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text('No family members', style: TextStyle(fontFamily: 'Inter', fontSize: 15, fontWeight: FontWeight.w700, color: AppTheme.stone700)),
+                    const SizedBox(height: 4),
+                    const Text('Invite family members to see their locations', style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400)),
+                  ]),
+                ),
               )
             else
               Padding(
@@ -467,7 +658,6 @@ class _LocationScreenState extends State<LocationScreen> {
                     final isMe = member.id == user.id;
                     final memberName = provider.memberDisplayName(member);
 
-                    // Distance calculation
                     String? distLabel;
                     if (!isMe && share?.isSharing == true && _lastPosition != null) {
                       final dist = _haversine(
@@ -477,41 +667,53 @@ class _LocationScreenState extends State<LocationScreen> {
                       distLabel = _formatDistance(dist);
                     }
 
-                    return Container(
+                    return AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
                       margin: const EdgeInsets.only(bottom: 8),
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: AppTheme.surface,
+                        color: Colors.white,
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(color: AppTheme.stone100),
                       ),
                       child: Row(children: [
+                        // Avatar with status dot
                         Stack(children: [
-                          UserAvatarWidget(name: memberName, radius: 22),
+                          AvatarInitials(name: memberName, size: 44),
                           Positioned(
                             bottom: 0, right: 0,
                             child: Container(
-                              width: 12, height: 12,
+                              width: 14, height: 14,
                               decoration: BoxDecoration(
                                 color: share?.isSharing == true ? AppTheme.success : AppTheme.stone300,
                                 shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white, width: 2),
+                                border: Border.all(color: Colors.white, width: 2.5),
                               ),
                             ),
                           ),
                         ]),
                         const SizedBox(width: 12),
+                        // Info
                         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                           Row(children: [
                             Text(
                               memberName,
                               style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone900),
                             ),
-                            if (isMe)
-                              const Text(' (You)', style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400)),
+                            if (isMe) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.primaryLight,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: const Text('You', style: TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.primary)),
+                              ),
+                            ],
                           ]),
+                          const SizedBox(height: 3),
                           if (share?.isSharing == true) ...[
-                            const SizedBox(height: 2),
                             Text(
                               share?.nearPlace != null
                                   ? '\u{1F4CD} ${share!.nearPlace}'
@@ -521,13 +723,13 @@ class _LocationScreenState extends State<LocationScreen> {
                               style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
                               maxLines: 1, overflow: TextOverflow.ellipsis,
                             ),
-                            if (distLabel != null || share != null)
+                            if (share != null)
                               Padding(
                                 padding: const EdgeInsets.only(top: 2),
                                 child: Row(children: [
                                   const Icon(Icons.schedule_rounded, size: 11, color: AppTheme.stone400),
                                   const SizedBox(width: 3),
-                                  Text(_timeAgo(share!.updatedAt), style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
+                                  Text(_timeAgo(share.updatedAt), style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
                                   if (distLabel != null) ...[
                                     const Text(' \u00B7 ', style: TextStyle(fontSize: 11, color: AppTheme.stone400)),
                                     Text(distLabel, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
@@ -537,17 +739,17 @@ class _LocationScreenState extends State<LocationScreen> {
                           ] else
                             const Text('Not sharing location', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
                         ])),
-                        // Google Maps navigation button
+                        // Navigate button
                         if (share?.isSharing == true && !isMe)
                           GestureDetector(
                             onTap: () => _openInMaps(share!.latitude, share.longitude),
                             child: Container(
-                              padding: const EdgeInsets.all(8),
+                              width: 40, height: 40,
                               decoration: BoxDecoration(
-                                color: AppTheme.primaryLight,
-                                borderRadius: BorderRadius.circular(10),
+                                color: AppTheme.primary.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(12),
                               ),
-                              child: Icon(Icons.navigation_rounded, size: 18, color: AppTheme.primary),
+                              child: const Icon(Icons.navigation_rounded, size: 18, color: AppTheme.primary),
                             ),
                           ),
                       ]),
@@ -556,14 +758,17 @@ class _LocationScreenState extends State<LocationScreen> {
                 ),
               ),
 
-            // ── Saved Places ──
+            // ─── Saved Places ────────────────────────────────────
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+              padding: const EdgeInsets.fromLTRB(24, 16, 20, 10),
               child: Row(children: [
-                const Text('SAVED PLACES', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1)),
+                const Text('SAVED PLACES', style: TextStyle(
+                  fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800,
+                  color: AppTheme.stone400, letterSpacing: 1.1,
+                )),
                 const Spacer(),
                 GestureDetector(
-                  onTap: _showAddPlaceSheet,
+                  onTap: () => _showAddPlaceSheet(),
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
                     Icon(Icons.add_rounded, size: 14, color: AppTheme.primary),
                     const SizedBox(width: 2),
@@ -577,54 +782,73 @@ class _LocationScreenState extends State<LocationScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 24),
+                  padding: const EdgeInsets.symmetric(vertical: 32),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppTheme.stone200, style: BorderStyle.solid),
+                    border: Border.all(color: AppTheme.stone100),
                   ),
                   child: Column(children: [
-                    Icon(Icons.location_on_outlined, size: 28, color: AppTheme.stone200),
-                    const SizedBox(height: 8),
-                    const Text('No saved places yet.', style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.stone400)),
-                    const SizedBox(height: 2),
-                    const Text('Add Home, School or Work to see when family arrives.', style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
+                    Container(
+                      width: 56, height: 56,
+                      decoration: BoxDecoration(
+                        color: AppTheme.stone100,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.place_outlined, size: 28, color: AppTheme.stone300),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text('No saved places', style: TextStyle(fontFamily: 'Inter', fontSize: 15, fontWeight: FontWeight.w700, color: AppTheme.stone700)),
+                    const SizedBox(height: 4),
+                    const Text('Add Home, School or Work to see when family arrives', style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400)),
                   ]),
                 ),
               )
             else
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: savedPlaces.map((p) => Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppTheme.stone100),
-                    ),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      Text(p.emoji ?? '\u{1F4CD}', style: const TextStyle(fontSize: 20)),
-                      const SizedBox(width: 8),
-                      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(p.name, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: AppTheme.stone800)),
-                        Text('${p.radiusMetres.round()} m radius', style: const TextStyle(fontFamily: 'Inter', fontSize: 10, color: AppTheme.stone400)),
-                      ]),
-                      if (p.creatorId == user.id) ...[
-                        const SizedBox(width: 8),
-                        GestureDetector(
-                          onTap: () => _deletePlace(p.id),
-                          child: const Icon(Icons.close_rounded, size: 16, color: AppTheme.stone300),
+                child: Column(
+                  children: savedPlaces.map((place) {
+                    return GestureDetector(
+                      onLongPress: () => _showPlaceActions(place),
+                      onTap: () => _showPlaceActions(place),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: AppTheme.stone100),
                         ),
-                      ],
-                    ]),
-                  )).toList(),
+                        child: Row(children: [
+                          Container(
+                            width: 44, height: 44,
+                            decoration: BoxDecoration(
+                              color: AppTheme.primary.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Center(child: Text(place.emoji ?? '\u{1F4CD}', style: const TextStyle(fontSize: 22))),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text(place.name, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone800)),
+                            const SizedBox(height: 2),
+                            Row(children: [
+                              Icon(Icons.radar_rounded, size: 11, color: AppTheme.stone400),
+                              const SizedBox(width: 4),
+                              Text('${place.radiusMetres.round()} m radius', style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
+                            ]),
+                          ])),
+                          const Icon(Icons.chevron_right_rounded, size: 20, color: AppTheme.stone300),
+                        ]),
+                      ),
+                    );
+                  }).toList(),
                 ),
               ),
 
-            // ── Privacy Notice ──
+            // ─── Privacy Notice ───────────────────────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
               child: Container(
@@ -632,17 +856,24 @@ class _LocationScreenState extends State<LocationScreen> {
                 decoration: BoxDecoration(
                   color: AppTheme.stone50,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppTheme.stone200),
+                  border: Border.all(color: AppTheme.stone100),
                 ),
                 child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Icon(Icons.visibility_outlined, size: 16, color: AppTheme.stone400),
-                  const SizedBox(width: 10),
+                  Container(
+                    width: 32, height: 32,
+                    decoration: BoxDecoration(
+                      color: AppTheme.stone200,
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    child: const Icon(Icons.shield_outlined, size: 16, color: AppTheme.stone500),
+                  ),
+                  const SizedBox(width: 12),
                   Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: const [
-                    Text('Privacy', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12, color: AppTheme.stone600)),
-                    SizedBox(height: 2),
+                    Text('Privacy & Security', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: AppTheme.stone700)),
+                    SizedBox(height: 4),
                     Text(
                       'Location is only visible to your family circle. You can stop sharing at any time. Locations update every 60 seconds while sharing is active.',
-                      style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone500, height: 1.4),
+                      style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500, height: 1.4),
                     ),
                   ])),
                 ]),
@@ -655,15 +886,62 @@ class _LocationScreenState extends State<LocationScreen> {
   }
 }
 
-// ─────────────────────────────────────────────
-// Add Place Bottom Sheet
-// ─────────────────────────────────────────────
+// ─── Mini Stat Card ───────────────────────────────────────────────────────────
+
+class _MiniStat extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String value;
+  final String label;
+
+  const _MiniStat({required this.icon, required this.iconColor, required this.value, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppTheme.stone100),
+        ),
+        child: Row(children: [
+          Container(
+            width: 32, height: 32,
+            decoration: BoxDecoration(
+              color: iconColor.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: Icon(icon, size: 16, color: iconColor),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(value, style: const TextStyle(
+                  fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.stone800,
+                )),
+                Text(label, style: const TextStyle(
+                  fontFamily: 'Inter', fontSize: 9, fontWeight: FontWeight.w600, color: AppTheme.stone400,
+                )),
+              ],
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+// ─── Add / Edit Place Sheet ──────────────────────────────────────────────────
 
 class _AddPlaceSheet extends StatefulWidget {
   final ({double lat, double lng})? currentPosition;
-  final Future<void> Function(SavedPlace place) onSave;
+  final SavedPlace? editing;
 
-  const _AddPlaceSheet({required this.currentPosition, required this.onSave});
+  const _AddPlaceSheet({required this.currentPosition, this.editing});
 
   @override
   State<_AddPlaceSheet> createState() => _AddPlaceSheetState();
@@ -671,13 +949,24 @@ class _AddPlaceSheet extends StatefulWidget {
 
 class _AddPlaceSheetState extends State<_AddPlaceSheet> {
   final _nameCtrl = TextEditingController();
-  String _emoji = '\u{1F3E0}';
-  double _radius = 200;
+  late String _emoji;
+  late double _radius;
+  bool _saving = false;
 
-  static const _emojis = [
-    '\u{1F3E0}', '\u{1F3EB}', '\u{1F4BC}', '\u{1F3E5}', '\u{1F6D2}',
-    '\u{26EA}', '\u{1F3CB}\u{FE0F}', '\u{1F333}', '\u{1F355}', '\u{2B50}',
-  ];
+  bool get _isEditing => widget.editing != null;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_isEditing) {
+      _nameCtrl.text = widget.editing!.name;
+      _emoji = widget.editing!.emoji ?? '\u{1F3E0}';
+      _radius = widget.editing!.radiusMetres;
+    } else {
+      _emoji = '\u{1F3E0}';
+      _radius = 200;
+    }
+  }
 
   @override
   void dispose() {
@@ -685,181 +974,265 @@ class _AddPlaceSheetState extends State<_AddPlaceSheet> {
     super.dispose();
   }
 
-  void _save() {
+  Future<void> _save() async {
     if (_nameCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a place name'), behavior: SnackBarBehavior.floating),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('Please enter a place name'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ));
       return;
     }
-    if (widget.currentPosition == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Location not available. Enable location services.'), behavior: SnackBarBehavior.floating),
-      );
+
+    final pos = widget.currentPosition;
+    if (pos == null && !_isEditing) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('Location not available. Start sharing first.'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ));
       return;
     }
+
+    setState(() => _saving = true);
     final provider = context.read<AppProvider>();
-    final place = SavedPlace(
-      id: const Uuid().v4(),
-      familyId: provider.activeFamily!.id,
-      creatorId: provider.activeUser!.id,
-      name: _nameCtrl.text.trim(),
-      emoji: _emoji,
-      latitude: widget.currentPosition!.lat,
-      longitude: widget.currentPosition!.lng,
-      radiusMetres: _radius,
-      createdAt: DateTime.now(),
-    );
-    widget.onSave(place);
-    Navigator.pop(context);
+    final db = provider.db;
+
+    if (_isEditing) {
+      final updated = db.savedPlaces.map((p) {
+        if (p.id != widget.editing!.id) return p;
+        return SavedPlace(
+          id: p.id,
+          familyId: p.familyId,
+          creatorId: p.creatorId,
+          name: _nameCtrl.text.trim(),
+          emoji: _emoji,
+          latitude: pos?.lat ?? p.latitude,
+          longitude: pos?.lng ?? p.longitude,
+          radiusMetres: _radius,
+          createdAt: p.createdAt,
+        );
+      }).toList();
+      await provider.saveAndSync(db.copyWith(savedPlaces: updated));
+    } else {
+      final place = SavedPlace(
+        id: const Uuid().v4(),
+        familyId: provider.activeFamily!.id,
+        creatorId: provider.activeUser!.id,
+        name: _nameCtrl.text.trim(),
+        emoji: _emoji,
+        latitude: pos!.lat,
+        longitude: pos.lng,
+        radiusMetres: _radius,
+        createdAt: DateTime.now(),
+      );
+      await provider.saveAndSync(db.copyWith(savedPlaces: [...db.savedPlaces, place]));
+    }
+
+    if (mounted) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_isEditing ? 'Place updated' : 'Place saved!'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return DraggableScrollableSheet(
-      initialChildSize: 0.7,
-      maxChildSize: 0.9,
-      minChildSize: 0.4,
-      expand: false,
-      builder: (_, controller) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: Column(children: [
-          const SheetHandle(),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-            child: Row(children: [
-              const Icon(Icons.add_location_alt_rounded, color: AppTheme.stone700, size: 22),
-              const SizedBox(width: 8),
-              const Expanded(child: Text('Save a Place', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 20, color: AppTheme.stone900))),
-              GestureDetector(
-                onTap: () => Navigator.pop(context),
-                child: const Icon(Icons.close, size: 22, color: AppTheme.stone400),
-              ),
-            ]),
-          ),
-          Expanded(
-            child: ListView(controller: controller, padding: const EdgeInsets.fromLTRB(20, 8, 20, 40), children: [
-              // Emoji picker
-              const Text('Icon', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone700)),
-              const SizedBox(height: 8),
-              Wrap(spacing: 8, runSpacing: 8, children: _emojis.map((e) => GestureDetector(
-                onTap: () => setState(() => _emoji = e),
-                child: Container(
-                  width: 44, height: 44,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: _emoji == e ? AppTheme.primary : AppTheme.stone200,
-                      width: _emoji == e ? 2 : 1,
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SheetHandle(),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Header with icon badge
+                  Row(children: [
+                    Container(
+                      width: 36, height: 36,
+                      decoration: BoxDecoration(
+                        color: AppTheme.primary.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.add_location_alt_rounded, size: 18, color: AppTheme.primary),
                     ),
-                    color: _emoji == e ? AppTheme.primaryLight : Colors.white,
-                  ),
-                  child: Center(child: Text(e, style: const TextStyle(fontSize: 20))),
-                ),
-              )).toList()),
-              const SizedBox(height: 20),
+                    const SizedBox(width: 10),
+                    Text(
+                      _isEditing ? 'Edit Place' : 'Save a Place',
+                      style: const TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.stone900),
+                    ),
+                  ]),
+                  const SizedBox(height: 20),
 
-              // Name
-              const Text('Place Name', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone700)),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _nameCtrl,
-                decoration: InputDecoration(
-                  hintText: 'e.g. Home, School, Work',
-                  filled: true,
-                  fillColor: AppTheme.stone50,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppTheme.stone200)),
-                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppTheme.stone200)),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              // Location status
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppTheme.stone50,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: widget.currentPosition != null
-                    ? Row(children: [
-                        const Icon(Icons.check_circle_rounded, size: 16, color: AppTheme.success),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Using your current location (${widget.currentPosition!.lat.toStringAsFixed(4)}, ${widget.currentPosition!.lng.toStringAsFixed(4)})',
-                          style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.success),
+                  // Icon selector
+                  const Text('Icon', style: TextStyle(
+                    fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.stone700,
+                  )),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8, runSpacing: 8,
+                    children: _placeEmojis.map((e) {
+                      final isSelected = _emoji == e;
+                      return GestureDetector(
+                        onTap: () => setState(() => _emoji = e),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          width: 48, height: 48,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isSelected ? AppTheme.primary : AppTheme.stone200,
+                              width: isSelected ? 2 : 1,
+                            ),
+                            color: isSelected ? AppTheme.primaryLight : AppTheme.stone50,
+                          ),
+                          child: Center(child: Text(e, style: const TextStyle(fontSize: 22))),
                         ),
-                      ])
-                    : Row(children: const [
-                        Icon(Icons.warning_amber_rounded, size: 16, color: Color(0xFFD97706)),
-                        SizedBox(width: 8),
-                        Expanded(child: Text(
-                          'Start sharing your location first, then add a place while you\'re there.',
-                          style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFFD97706)),
-                        )),
-                      ]),
-              ),
-              const SizedBox(height: 20),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 20),
 
-              // Radius slider
-              Row(children: [
-                const Text('Detection Radius: ', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone700)),
-                Text('${_radius.round()} m', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.primary)),
-              ]),
-              const SizedBox(height: 8),
-              Slider(
-                value: _radius,
-                min: 50,
-                max: 1000,
-                divisions: 19,
-                activeColor: AppTheme.primary,
-                onChanged: (v) => setState(() => _radius = v),
-              ),
-              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: const [
-                Text('50 m (precise)', style: TextStyle(fontFamily: 'Inter', fontSize: 10, color: AppTheme.stone400)),
-                Text('1 km (loose)', style: TextStyle(fontFamily: 'Inter', fontSize: 10, color: AppTheme.stone400)),
-              ]),
-              const SizedBox(height: 24),
-
-              // Buttons
-              Row(children: [
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => Navigator.pop(context),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      decoration: BoxDecoration(
-                        color: AppTheme.stone100,
-                        borderRadius: BorderRadius.circular(16),
+                  // Place name
+                  const Text('Place Name', style: TextStyle(
+                    fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.stone700,
+                  )),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: _nameCtrl,
+                    autofocus: !_isEditing,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: InputDecoration(
+                      hintText: 'e.g. Home, School, Work',
+                      hintStyle: const TextStyle(color: AppTheme.stone300),
+                      filled: true,
+                      fillColor: AppTheme.stone50,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: AppTheme.stone200),
                       ),
-                      child: const Center(child: Text('Cancel', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone700))),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: AppTheme.stone200),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: GestureDetector(
-                    onTap: _save,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
+                  const SizedBox(height: 20),
+
+                  // Location status
+                  if (!_isEditing)
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      margin: const EdgeInsets.only(bottom: 20),
                       decoration: BoxDecoration(
-                        color: widget.currentPosition != null && _nameCtrl.text.trim().isNotEmpty
-                            ? AppTheme.primary
-                            : AppTheme.primary.withValues(alpha: 0.4),
-                        borderRadius: BorderRadius.circular(16),
+                        color: widget.currentPosition != null
+                            ? const Color(0xFFF0FDF4)
+                            : const Color(0xFFFEF3C7),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: widget.currentPosition != null
+                              ? const Color(0xFFBBF7D0)
+                              : const Color(0xFFFDE68A),
+                        ),
                       ),
-                      child: const Center(child: Text('Save Place', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: Colors.white))),
+                      child: widget.currentPosition != null
+                          ? Row(children: [
+                              const Icon(Icons.check_circle_rounded, size: 16, color: AppTheme.success),
+                              const SizedBox(width: 8),
+                              Expanded(child: Text(
+                                'Using your current location (${widget.currentPosition!.lat.toStringAsFixed(4)}, ${widget.currentPosition!.lng.toStringAsFixed(4)})',
+                                style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.success),
+                              )),
+                            ])
+                          : Row(children: const [
+                              Icon(Icons.warning_amber_rounded, size: 16, color: Color(0xFFD97706)),
+                              SizedBox(width: 8),
+                              Expanded(child: Text(
+                                'Start sharing your location first, then add a place while you\'re there.',
+                                style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFF92400E)),
+                              )),
+                            ]),
+                    ),
+
+                  // Radius slider
+                  const Text('Detection Radius', style: TextStyle(
+                    fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.stone700,
+                  )),
+                  const SizedBox(height: 4),
+                  Row(children: [
+                    Expanded(
+                      child: SliderTheme(
+                        data: SliderThemeData(
+                          activeTrackColor: AppTheme.primary,
+                          inactiveTrackColor: AppTheme.stone200,
+                          thumbColor: AppTheme.primary,
+                          overlayColor: AppTheme.primary.withValues(alpha: 0.1),
+                        ),
+                        child: Slider(
+                          value: _radius,
+                          min: 50,
+                          max: 1000,
+                          divisions: 19,
+                          onChanged: (v) => setState(() => _radius = v),
+                        ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppTheme.primaryLight,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        '${_radius.round()} m',
+                        style: const TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.primary),
+                      ),
+                    ),
+                  ]),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: const [
+                      Text('50 m (precise)', style: TextStyle(fontFamily: 'Inter', fontSize: 10, color: AppTheme.stone400)),
+                      Text('1 km (loose)', style: TextStyle(fontFamily: 'Inter', fontSize: 10, color: AppTheme.stone400)),
+                    ]),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Save button
+                  SizedBox(
+                    height: 52,
+                    child: ElevatedButton(
+                      onPressed: _saving ? null : _save,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primary,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      ),
+                      child: _saving
+                          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(Colors.white)))
+                          : Text(
+                              _isEditing ? 'Save Changes' : 'Save Place',
+                              style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15),
+                            ),
                     ),
                   ),
-                ),
-              ]),
-            ]),
-          ),
-        ]),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

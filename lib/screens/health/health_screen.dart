@@ -16,18 +16,86 @@ String _uid() => _uuid.v4().substring(0, 9);
 String _bloodTypeLabel(BloodType bt) {
   switch (bt) {
     case BloodType.Aplus: return 'A+';
-    case BloodType.Aminus: return 'A-';
+    case BloodType.Aminus: return 'A\u2212';
     case BloodType.Bplus: return 'B+';
-    case BloodType.Bminus: return 'B-';
+    case BloodType.Bminus: return 'B\u2212';
     case BloodType.ABplus: return 'AB+';
-    case BloodType.ABminus: return 'AB-';
+    case BloodType.ABminus: return 'AB\u2212';
     case BloodType.Oplus: return 'O+';
-    case BloodType.Ominus: return 'O-';
-    case BloodType.Unknown: return 'Unknown';
+    case BloodType.Ominus: return 'O\u2212';
+    case BloodType.Unknown: return '?';
   }
 }
 
 const _bloodTypes = BloodType.values;
+
+// ─── Shared helper: styled remove confirmation ────────────────────────────────
+
+Future<bool> _confirmRemove(BuildContext context, String title, String message) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      title: Row(children: [
+        Container(
+          width: 36, height: 36,
+          decoration: BoxDecoration(
+            color: AppTheme.error.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: const Icon(Icons.delete_outline_rounded, size: 18, color: AppTheme.error),
+        ),
+        const SizedBox(width: 10),
+        Expanded(child: Text(title, style: const TextStyle(fontFamily: 'Inter', fontSize: 17, fontWeight: FontWeight.w800))),
+      ]),
+      content: Text(message, style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone600)),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Cancel', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, color: AppTheme.stone500)),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('Remove', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, color: AppTheme.error)),
+        ),
+      ],
+    ),
+  );
+  return confirmed == true;
+}
+
+void _showSnack(BuildContext context, String msg) {
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    content: Text(msg),
+    behavior: SnackBarBehavior.floating,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+  ));
+}
+
+// ─── Styled input decoration ──────────────────────────────────────────────────
+
+InputDecoration _styledInput(String hint) => InputDecoration(
+  hintText: hint,
+  hintStyle: const TextStyle(color: AppTheme.stone300, fontFamily: 'Inter', fontSize: 13),
+  filled: true,
+  fillColor: Colors.white,
+  isDense: true,
+  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+  border: OutlineInputBorder(
+    borderRadius: BorderRadius.circular(12),
+    borderSide: BorderSide(color: AppTheme.stone200),
+  ),
+  enabledBorder: OutlineInputBorder(
+    borderRadius: BorderRadius.circular(12),
+    borderSide: BorderSide(color: AppTheme.stone200),
+  ),
+  focusedBorder: OutlineInputBorder(
+    borderRadius: BorderRadius.circular(12),
+    borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
+  ),
+);
+
+// ─── Health Screen ────────────────────────────────────────────────────────────
 
 class HealthScreen extends StatefulWidget {
   const HealthScreen({super.key});
@@ -49,7 +117,6 @@ class _HealthScreenState extends State<HealthScreen> {
     }
   }
 
-  /// Get or create a stable health record for a member.
   HealthRecord _getRecord(AppProvider provider, String memberId) {
     final family = provider.activeFamily;
     final user = provider.activeUser;
@@ -124,43 +191,54 @@ class _HealthScreenState extends State<HealthScreen> {
       members.firstWhere((m) => m.id == _selectedMemberId, orElse: () => members.first),
     );
 
+    // Stats
+    final totalItems = record.allergies.length + record.medications.length +
+        record.conditions.length + record.immunizations.length;
+    final emergencyCount = record.emergencyContacts.length;
+
     return Scaffold(
       backgroundColor: AppTheme.background,
       drawer: const AppDrawer(),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: Builder(
-          builder: (context) => IconButton(
-            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
-            onPressed: () => Scaffold.of(context).openDrawer(),
-          ),
-        ),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
-            const SizedBox(width: 6),
-            const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
-          ],
-        ),
-        centerTitle: false,
-        titleSpacing: 0,
-        actions: const [],
-      ),
+      appBar: const FamilyHubAppBar(),
       body: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Header ──
+            // ─── Header ──────────────────────────────────────────
             const PageHeader(
-              title: 'Health Records',
+              title: '\u{1FA7A} Health Records',
               subtitle: 'Allergies, medications & emergency info',
             ),
 
-            // ── Member selector ──
+            // ─── Stat cards ──────────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+              child: Row(children: [
+                _MiniStat(
+                  icon: Icons.favorite_rounded,
+                  iconColor: const Color(0xFFF43F5E),
+                  value: _bloodTypeLabel(record.bloodType),
+                  label: 'Blood Type',
+                ),
+                const SizedBox(width: 10),
+                _MiniStat(
+                  icon: Icons.medical_services_rounded,
+                  iconColor: AppTheme.primary,
+                  value: '$totalItems',
+                  label: 'Records',
+                ),
+                const SizedBox(width: 10),
+                _MiniStat(
+                  icon: Icons.emergency_rounded,
+                  iconColor: const Color(0xFFD97706),
+                  value: '$emergencyCount',
+                  label: 'Contacts',
+                ),
+              ]),
+            ),
+
+            // ─── Member selector ─────────────────────────────────
             if (members.length > 1)
               SizedBox(
                 height: 90,
@@ -175,7 +253,8 @@ class _HealthScreenState extends State<HealthScreen> {
                       child: Padding(
                         padding: const EdgeInsets.only(right: 12),
                         child: Column(children: [
-                          Container(
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 150),
                             padding: const EdgeInsets.all(3),
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
@@ -205,44 +284,52 @@ class _HealthScreenState extends State<HealthScreen> {
 
             const SizedBox(height: 8),
 
-            // ── Blood Type ──
+            // ─── Blood Type ──────────────────────────────────────
             _buildSection(
               icon: Icons.bloodtype_rounded,
+              iconColor: const Color(0xFFF43F5E),
               title: 'Blood Type',
               section: 'blood',
               initiallyExpanded: true,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                padding: const EdgeInsets.fromLTRB(14, 4, 14, 14),
                 child: Wrap(
                   spacing: 8,
                   runSpacing: 8,
                   children: _bloodTypes.map((bt) {
                     final isSelected = record.bloodType == bt;
                     return GestureDetector(
-                      onTap: () => _saveRecord(HealthRecord(
-                        id: record.id, familyId: record.familyId, userId: record.userId,
-                        updatedBy: user.id, bloodType: bt,
-                        allergies: record.allergies, medications: record.medications,
-                        conditions: record.conditions, immunizations: record.immunizations,
-                        emergencyContacts: record.emergencyContacts,
-                        doctorName: record.doctorName, doctorPhone: record.doctorPhone,
-                        insuranceProvider: record.insuranceProvider,
-                        insurancePolicyNumber: record.insurancePolicyNumber,
-                        notes: record.notes,
-                      )),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      onTap: () {
+                        final r = record;
+                        _saveRecord(HealthRecord(
+                          id: r.id, familyId: r.familyId, userId: r.userId,
+                          updatedBy: user.id, bloodType: bt,
+                          allergies: r.allergies, medications: r.medications,
+                          conditions: r.conditions, immunizations: r.immunizations,
+                          emergencyContacts: r.emergencyContacts,
+                          doctorName: r.doctorName, doctorPhone: r.doctorPhone,
+                          insuranceProvider: r.insuranceProvider,
+                          insurancePolicyNumber: r.insurancePolicyNumber,
+                          notes: r.notes,
+                        ));
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                         decoration: BoxDecoration(
                           color: isSelected ? const Color(0xFFF43F5E) : AppTheme.stone50,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: isSelected ? const Color(0xFFF43F5E) : AppTheme.stone200),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: isSelected ? const Color(0xFFF43F5E) : AppTheme.stone200,
+                            width: isSelected ? 1.5 : 1,
+                          ),
                         ),
                         child: Text(
                           _bloodTypeLabel(bt),
                           style: TextStyle(
                             fontFamily: 'Inter',
                             fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                            fontSize: 13,
+                            fontSize: 14,
                             color: isSelected ? Colors.white : AppTheme.stone600,
                           ),
                         ),
@@ -253,65 +340,84 @@ class _HealthScreenState extends State<HealthScreen> {
               ),
             ),
 
-            // ── Allergies ──
+            // ─── Allergies ───────────────────────────────────────
             _buildSection(
               icon: Icons.warning_amber_rounded,
+              iconColor: const Color(0xFFF59E0B),
               title: 'Allergies',
               section: 'allergies',
               count: record.allergies.length,
               child: _AllergiesSection(record: record, onSave: _saveRecord),
             ),
 
-            // ── Medications ──
+            // ─── Medications ─────────────────────────────────────
             _buildSection(
               icon: Icons.medication_rounded,
+              iconColor: const Color(0xFF3B82F6),
               title: 'Medications',
               section: 'medications',
               count: record.medications.length,
               child: _MedicationsSection(record: record, onSave: _saveRecord),
             ),
 
-            // ── Medical Conditions ──
+            // ─── Medical Conditions ──────────────────────────────
             _buildSection(
               icon: Icons.local_hospital_rounded,
+              iconColor: const Color(0xFF8B5CF6),
               title: 'Medical Conditions',
               section: 'conditions',
               count: record.conditions.length,
               child: _ConditionsSection(record: record, onSave: _saveRecord),
             ),
 
-            // ── Immunizations ──
+            // ─── Immunizations ───────────────────────────────────
             _buildSection(
               icon: Icons.vaccines_rounded,
+              iconColor: const Color(0xFF22C55E),
               title: 'Immunizations',
               section: 'immunizations',
               count: record.immunizations.length,
               child: _ImmunizationsSection(record: record, onSave: _saveRecord),
             ),
 
-            // ── Emergency Contacts ──
+            // ─── Emergency Contacts ──────────────────────────────
             _buildSection(
               icon: Icons.emergency_rounded,
+              iconColor: const Color(0xFFEF4444),
               title: 'Emergency Contacts',
               section: 'emergency',
               count: record.emergencyContacts.length,
               child: _EmergencySection(record: record, onSave: _saveRecord),
             ),
 
-            // ── Doctor & Insurance ──
+            // ─── Doctor & Insurance ──────────────────────────────
             _buildSection(
               icon: Icons.medical_information_rounded,
+              iconColor: const Color(0xFF0EA5E9),
               title: 'Doctor & Insurance',
               section: 'info',
               child: _DoctorInsuranceSection(record: record, onSave: _saveRecord),
             ),
 
-            // ── Last updated ──
+            // ─── Footer ─────────────────────────────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-              child: Text(
-                'Viewing: $selectedName \u00B7 Updated ${DateFormat('MMM d, y').format(record.updatedAt)}',
-                style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: AppTheme.stone50,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(children: [
+                  const Icon(Icons.person_outline_rounded, size: 14, color: AppTheme.stone400),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Viewing: $selectedName \u00B7 Updated ${DateFormat('MMM d, y').format(record.updatedAt)}',
+                      style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
+                    ),
+                  ),
+                ]),
               ),
             ),
           ],
@@ -322,6 +428,7 @@ class _HealthScreenState extends State<HealthScreen> {
 
   Widget _buildSection({
     required IconData icon,
+    required Color iconColor,
     required String title,
     required String section,
     int? count,
@@ -331,25 +438,27 @@ class _HealthScreenState extends State<HealthScreen> {
     final isExpanded = _expandedSections.contains(section);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
         decoration: BoxDecoration(
           color: AppTheme.surface,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppTheme.stone100),
+          border: Border.all(color: isExpanded ? AppTheme.primary.withValues(alpha: 0.2) : AppTheme.stone100),
         ),
         child: Column(children: [
           GestureDetector(
             onTap: () => _toggleSection(section),
-            child: Container(
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
               child: Row(children: [
                 Container(
-                  width: 32, height: 32,
+                  width: 34, height: 34,
                   decoration: BoxDecoration(
-                    color: AppTheme.primaryLight,
-                    borderRadius: BorderRadius.circular(8),
+                    color: iconColor.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Icon(icon, size: 18, color: AppTheme.primary),
+                  child: Icon(icon, size: 18, color: iconColor),
                 ),
                 const SizedBox(width: 10),
                 Text(title, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone800)),
@@ -358,30 +467,86 @@ class _HealthScreenState extends State<HealthScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
-                      color: AppTheme.primaryLight,
+                      color: iconColor.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: Text('$count', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.primary)),
+                    child: Text('$count', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: iconColor)),
                   ),
                 ],
                 const Spacer(),
-                Icon(isExpanded ? Icons.expand_less_rounded : Icons.expand_more_rounded, size: 20, color: AppTheme.stone400),
+                AnimatedRotation(
+                  turns: isExpanded ? 0.5 : 0,
+                  duration: const Duration(milliseconds: 200),
+                  child: const Icon(Icons.expand_more_rounded, size: 20, color: AppTheme.stone400),
+                ),
               ]),
             ),
           ),
-          if (isExpanded) ...[
-            const Divider(height: 1, color: AppTheme.stone100),
-            child,
-          ],
+          AnimatedCrossFade(
+            firstChild: const SizedBox(width: double.infinity),
+            secondChild: Column(children: [
+              const Divider(height: 1, color: AppTheme.stone100),
+              child,
+            ]),
+            crossFadeState: isExpanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+            duration: const Duration(milliseconds: 200),
+          ),
         ]),
       ),
     );
   }
 }
 
-// ─────────────────────────────────────────────
-// Allergies Section
-// ─────────────────────────────────────────────
+// ─── Mini Stat Card ───────────────────────────────────────────────────────────
+
+class _MiniStat extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String value;
+  final String label;
+
+  const _MiniStat({required this.icon, required this.iconColor, required this.value, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppTheme.stone100),
+        ),
+        child: Row(children: [
+          Container(
+            width: 32, height: 32,
+            decoration: BoxDecoration(
+              color: iconColor.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: Icon(icon, size: 16, color: iconColor),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(value, style: const TextStyle(
+                  fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.stone800,
+                )),
+                Text(label, style: const TextStyle(
+                  fontFamily: 'Inter', fontSize: 9, fontWeight: FontWeight.w600, color: AppTheme.stone400,
+                )),
+              ],
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+// ─── Allergies Section ────────────────────────────────────────────────────────
 
 class _AllergiesSection extends StatefulWidget {
   final HealthRecord record;
@@ -402,9 +567,7 @@ class _AllergiesSectionState extends State<_AllergiesSection> {
 
   void _add() {
     if (_nameCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter an allergy name'), behavior: SnackBarBehavior.floating),
-      );
+      _showSnack(context, 'Please enter an allergy name');
       return;
     }
     final allergy = HealthAllergy(
@@ -427,18 +590,7 @@ class _AllergiesSectionState extends State<_AllergiesSection> {
   }
 
   Future<void> _remove(String id) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Remove Allergy'),
-        content: const Text('Remove this allergy from the health record?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Remove', style: TextStyle(color: AppTheme.error))),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
+    if (!await _confirmRemove(context, 'Remove Allergy', 'Remove this allergy from the health record?')) return;
     final r = widget.record;
     widget.onSave(HealthRecord(
       id: r.id, familyId: r.familyId, userId: r.userId, updatedBy: r.updatedBy,
@@ -464,12 +616,20 @@ class _AllergiesSectionState extends State<_AllergiesSection> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
       child: Column(children: [
+        // Existing items
         ...widget.record.allergies.map((a) => Container(
           margin: const EdgeInsets.only(bottom: 8),
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(color: AppTheme.stone50, borderRadius: BorderRadius.circular(12)),
           child: Row(children: [
-            const Text('\u{1F33F}', style: TextStyle(fontSize: 18)),
+            Container(
+              width: 34, height: 34,
+              decoration: BoxDecoration(
+                color: _severityColor(a.severity).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: const Center(child: Text('\u{1F33F}', style: TextStyle(fontSize: 16))),
+            ),
             const SizedBox(width: 10),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(a.name, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 14, color: AppTheme.stone800)),
@@ -479,33 +639,46 @@ class _AllergiesSectionState extends State<_AllergiesSection> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
-                color: _severityColor(a.severity).withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(6),
+                color: _severityColor(a.severity).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
               ),
               child: Text(a.severity.name, style: TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: _severityColor(a.severity))),
             ),
             const SizedBox(width: 8),
             GestureDetector(
               onTap: () => _remove(a.id),
-              child: const Icon(Icons.close_rounded, size: 16, color: AppTheme.stone300),
+              child: Container(
+                width: 28, height: 28,
+                decoration: BoxDecoration(
+                  color: AppTheme.stone100,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.close_rounded, size: 14, color: AppTheme.stone400),
+              ),
             ),
           ]),
         )),
+        if (widget.record.allergies.isEmpty)
+          _emptyHint('No allergies recorded'),
         // Add form
         Container(
           padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(color: AppTheme.stone50, borderRadius: BorderRadius.circular(12), border: Border.all(color: AppTheme.stone200, style: BorderStyle.solid)),
+          decoration: BoxDecoration(
+            color: AppTheme.stone50,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppTheme.stone200),
+          ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             TextField(
               controller: _nameCtrl,
-              decoration: const InputDecoration(hintText: 'Allergy name', isDense: true, border: InputBorder.none, contentPadding: EdgeInsets.zero),
+              decoration: _styledInput('Allergy name'),
               style: const TextStyle(fontFamily: 'Inter', fontSize: 14),
             ),
             const SizedBox(height: 8),
             TextField(
               controller: _reactionCtrl,
-              decoration: const InputDecoration(hintText: 'Reaction (optional)', isDense: true, border: InputBorder.none, contentPadding: EdgeInsets.zero),
-              style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone500),
+              decoration: _styledInput('Reaction (optional)'),
+              style: const TextStyle(fontFamily: 'Inter', fontSize: 13),
             ),
             const SizedBox(height: 10),
             Row(children: [
@@ -513,26 +686,23 @@ class _AllergiesSectionState extends State<_AllergiesSection> {
                 padding: const EdgeInsets.only(right: 6),
                 child: GestureDetector(
                   onTap: () => setState(() => _severity = s),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
-                      color: _severity == s ? _severityColor(s).withValues(alpha: 0.15) : Colors.white,
+                      color: _severity == s ? _severityColor(s).withValues(alpha: 0.12) : Colors.white,
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: _severity == s ? _severityColor(s) : AppTheme.stone200),
+                      border: Border.all(
+                        color: _severity == s ? _severityColor(s) : AppTheme.stone200,
+                        width: _severity == s ? 1.5 : 1,
+                      ),
                     ),
                     child: Text(s.name, style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w600, color: _severity == s ? _severityColor(s) : AppTheme.stone500)),
                   ),
                 ),
               )),
               const Spacer(),
-              GestureDetector(
-                onTap: _add,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                  decoration: BoxDecoration(color: AppTheme.primary, borderRadius: BorderRadius.circular(8)),
-                  child: const Text('Add', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12, color: Colors.white)),
-                ),
-              ),
+              _addButton(onTap: _add),
             ]),
           ]),
         ),
@@ -541,9 +711,7 @@ class _AllergiesSectionState extends State<_AllergiesSection> {
   }
 }
 
-// ─────────────────────────────────────────────
-// Medications Section
-// ─────────────────────────────────────────────
+// ─── Medications Section ──────────────────────────────────────────────────────
 
 class _MedicationsSection extends StatefulWidget {
   final HealthRecord record;
@@ -564,9 +732,7 @@ class _MedicationsSectionState extends State<_MedicationsSection> {
 
   void _add() {
     if (_nameCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a medication name'), behavior: SnackBarBehavior.floating),
-      );
+      _showSnack(context, 'Please enter a medication name');
       return;
     }
     final med = HealthMedication(
@@ -588,18 +754,7 @@ class _MedicationsSectionState extends State<_MedicationsSection> {
   }
 
   Future<void> _remove(String id) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Remove Medication'),
-        content: const Text('Remove this medication from the health record?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Remove', style: TextStyle(color: AppTheme.error))),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
+    if (!await _confirmRemove(context, 'Remove Medication', 'Remove this medication from the health record?')) return;
     final r = widget.record;
     widget.onSave(HealthRecord(
       id: r.id, familyId: r.familyId, userId: r.userId, updatedBy: r.updatedBy,
@@ -623,7 +778,14 @@ class _MedicationsSectionState extends State<_MedicationsSection> {
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(color: AppTheme.stone50, borderRadius: BorderRadius.circular(12)),
           child: Row(children: [
-            const Text('\u{1F48A}', style: TextStyle(fontSize: 18)),
+            Container(
+              width: 34, height: 34,
+              decoration: BoxDecoration(
+                color: const Color(0xFF3B82F6).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: const Center(child: Text('\u{1F48A}', style: TextStyle(fontSize: 16))),
+            ),
             const SizedBox(width: 10),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(m.name, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 14, color: AppTheme.stone800)),
@@ -633,20 +795,21 @@ class _MedicationsSectionState extends State<_MedicationsSection> {
             ])),
             GestureDetector(
               onTap: () => _remove(m.id),
-              child: const Icon(Icons.close_rounded, size: 16, color: AppTheme.stone300),
+              child: Container(
+                width: 28, height: 28,
+                decoration: BoxDecoration(color: AppTheme.stone100, borderRadius: BorderRadius.circular(8)),
+                child: const Icon(Icons.close_rounded, size: 14, color: AppTheme.stone400),
+              ),
             ),
           ]),
         )),
         if (widget.record.medications.isEmpty)
-          const Padding(
-            padding: EdgeInsets.only(bottom: 8),
-            child: Text('No medications recorded.', style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400)),
-          ),
+          _emptyHint('No medications recorded'),
         _InlineAddRow(
           fields: [
             _InlineField(controller: _nameCtrl, hint: 'Medication name'),
-            _InlineField(controller: _doseCtrl, hint: 'Dose'),
-            _InlineField(controller: _freqCtrl, hint: 'Frequency'),
+            _InlineField(controller: _doseCtrl, hint: 'Dose (optional)'),
+            _InlineField(controller: _freqCtrl, hint: 'Frequency (optional)'),
           ],
           onAdd: _add,
         ),
@@ -655,9 +818,7 @@ class _MedicationsSectionState extends State<_MedicationsSection> {
   }
 }
 
-// ─────────────────────────────────────────────
-// Conditions Section
-// ─────────────────────────────────────────────
+// ─── Conditions Section ───────────────────────────────────────────────────────
 
 class _ConditionsSection extends StatefulWidget {
   final HealthRecord record;
@@ -677,9 +838,7 @@ class _ConditionsSectionState extends State<_ConditionsSection> {
 
   void _add() {
     if (_nameCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a condition name'), behavior: SnackBarBehavior.floating),
-      );
+      _showSnack(context, 'Please enter a condition name');
       return;
     }
     final cond = HealthCondition(
@@ -700,18 +859,7 @@ class _ConditionsSectionState extends State<_ConditionsSection> {
   }
 
   Future<void> _remove(String id) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Remove Condition'),
-        content: const Text('Remove this condition from the health record?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Remove', style: TextStyle(color: AppTheme.error))),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
+    if (!await _confirmRemove(context, 'Remove Condition', 'Remove this condition from the health record?')) return;
     final r = widget.record;
     widget.onSave(HealthRecord(
       id: r.id, familyId: r.familyId, userId: r.userId, updatedBy: r.updatedBy,
@@ -734,7 +882,14 @@ class _ConditionsSectionState extends State<_ConditionsSection> {
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(color: AppTheme.stone50, borderRadius: BorderRadius.circular(12)),
           child: Row(children: [
-            const Text('\u{1F3E5}', style: TextStyle(fontSize: 18)),
+            Container(
+              width: 34, height: 34,
+              decoration: BoxDecoration(
+                color: const Color(0xFF8B5CF6).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: const Center(child: Text('\u{1F3E5}', style: TextStyle(fontSize: 16))),
+            ),
             const SizedBox(width: 10),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(c.name, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 14, color: AppTheme.stone800)),
@@ -743,15 +898,16 @@ class _ConditionsSectionState extends State<_ConditionsSection> {
             ])),
             GestureDetector(
               onTap: () => _remove(c.id),
-              child: const Icon(Icons.close_rounded, size: 16, color: AppTheme.stone300),
+              child: Container(
+                width: 28, height: 28,
+                decoration: BoxDecoration(color: AppTheme.stone100, borderRadius: BorderRadius.circular(8)),
+                child: const Icon(Icons.close_rounded, size: 14, color: AppTheme.stone400),
+              ),
             ),
           ]),
         )),
         if (widget.record.conditions.isEmpty)
-          const Padding(
-            padding: EdgeInsets.only(bottom: 8),
-            child: Text('No conditions recorded.', style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400)),
-          ),
+          _emptyHint('No conditions recorded'),
         _InlineAddRow(
           fields: [
             _InlineField(controller: _nameCtrl, hint: 'Condition name'),
@@ -764,9 +920,7 @@ class _ConditionsSectionState extends State<_ConditionsSection> {
   }
 }
 
-// ─────────────────────────────────────────────
-// Immunizations Section
-// ─────────────────────────────────────────────
+// ─── Immunizations Section ────────────────────────────────────────────────────
 
 class _ImmunizationsSection extends StatefulWidget {
   final HealthRecord record;
@@ -779,21 +933,29 @@ class _ImmunizationsSection extends StatefulWidget {
 
 class _ImmunizationsSectionState extends State<_ImmunizationsSection> {
   final _nameCtrl = TextEditingController();
-  final _dateCtrl = TextEditingController();
+  DateTime? _selectedDate;
 
   @override
-  void dispose() { _nameCtrl.dispose(); _dateCtrl.dispose(); super.dispose(); }
+  void dispose() { _nameCtrl.dispose(); super.dispose(); }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate ?? DateTime.now(),
+      firstDate: DateTime(2000),
+      lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
+    );
+    if (picked != null) setState(() => _selectedDate = picked);
+  }
 
   void _add() {
     if (_nameCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter an immunization name'), behavior: SnackBarBehavior.floating),
-      );
+      _showSnack(context, 'Please enter an immunization name');
       return;
     }
     final immu = HealthImmunization(
       id: _uid(), name: _nameCtrl.text.trim(),
-      date: DateTime.tryParse(_dateCtrl.text.trim()),
+      date: _selectedDate,
     );
     final r = widget.record;
     widget.onSave(HealthRecord(
@@ -805,22 +967,12 @@ class _ImmunizationsSectionState extends State<_ImmunizationsSection> {
       insuranceProvider: r.insuranceProvider, insurancePolicyNumber: r.insurancePolicyNumber,
       notes: r.notes,
     ));
-    _nameCtrl.clear(); _dateCtrl.clear();
+    _nameCtrl.clear();
+    setState(() => _selectedDate = null);
   }
 
   Future<void> _remove(String id) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Remove Immunization'),
-        content: const Text('Remove this immunization from the health record?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Remove', style: TextStyle(color: AppTheme.error))),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
+    if (!await _confirmRemove(context, 'Remove Immunization', 'Remove this immunization from the health record?')) return;
     final r = widget.record;
     widget.onSave(HealthRecord(
       id: r.id, familyId: r.familyId, userId: r.userId, updatedBy: r.updatedBy,
@@ -844,39 +996,84 @@ class _ImmunizationsSectionState extends State<_ImmunizationsSection> {
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(color: AppTheme.stone50, borderRadius: BorderRadius.circular(12)),
           child: Row(children: [
-            const Text('\u{1F489}', style: TextStyle(fontSize: 18)),
+            Container(
+              width: 34, height: 34,
+              decoration: BoxDecoration(
+                color: const Color(0xFF22C55E).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: const Center(child: Text('\u{1F489}', style: TextStyle(fontSize: 16))),
+            ),
             const SizedBox(width: 10),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(i.name, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 14, color: AppTheme.stone800)),
               if (i.date != null)
-                Text(DateFormat('MMM d, y').format(i.date!), style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500)),
+                Row(children: [
+                  const Icon(Icons.calendar_today_rounded, size: 11, color: AppTheme.stone400),
+                  const SizedBox(width: 4),
+                  Text(DateFormat('MMM d, y').format(i.date!), style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500)),
+                ]),
             ])),
             GestureDetector(
               onTap: () => _remove(i.id),
-              child: const Icon(Icons.close_rounded, size: 16, color: AppTheme.stone300),
+              child: Container(
+                width: 28, height: 28,
+                decoration: BoxDecoration(color: AppTheme.stone100, borderRadius: BorderRadius.circular(8)),
+                child: const Icon(Icons.close_rounded, size: 14, color: AppTheme.stone400),
+              ),
             ),
           ]),
         )),
         if (widget.record.immunizations.isEmpty)
-          const Padding(
-            padding: EdgeInsets.only(bottom: 8),
-            child: Text('No immunizations recorded.', style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400)),
+          _emptyHint('No immunizations recorded'),
+        // Add form with date picker
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppTheme.stone50,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppTheme.stone200),
           ),
-        _InlineAddRow(
-          fields: [
-            _InlineField(controller: _nameCtrl, hint: 'Vaccine name'),
-            _InlineField(controller: _dateCtrl, hint: 'Date (YYYY-MM-DD)'),
-          ],
-          onAdd: _add,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            TextField(
+              controller: _nameCtrl,
+              decoration: _styledInput('Vaccine name'),
+              style: const TextStyle(fontFamily: 'Inter', fontSize: 13),
+            ),
+            const SizedBox(height: 8),
+            GestureDetector(
+              onTap: _pickDate,
+              behavior: HitTestBehavior.opaque,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppTheme.stone200),
+                ),
+                child: Row(children: [
+                  Icon(Icons.calendar_today_rounded, size: 14, color: _selectedDate != null ? AppTheme.primary : AppTheme.stone400),
+                  const SizedBox(width: 8),
+                  Text(
+                    _selectedDate != null ? DateFormat('MMM d, yyyy').format(_selectedDate!) : 'Date (optional)',
+                    style: TextStyle(
+                      fontFamily: 'Inter', fontSize: 13,
+                      color: _selectedDate != null ? AppTheme.stone800 : AppTheme.stone300,
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Align(alignment: Alignment.centerRight, child: _addButton(onTap: _add)),
+          ]),
         ),
       ]),
     );
   }
 }
 
-// ─────────────────────────────────────────────
-// Emergency Contacts Section
-// ─────────────────────────────────────────────
+// ─── Emergency Contacts Section ───────────────────────────────────────────────
 
 class _EmergencySection extends StatefulWidget {
   final HealthRecord record;
@@ -897,15 +1094,11 @@ class _EmergencySectionState extends State<_EmergencySection> {
 
   void _add() {
     if (_nameCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a contact name'), behavior: SnackBarBehavior.floating),
-      );
+      _showSnack(context, 'Please enter a contact name');
       return;
     }
     if (_phoneCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a phone number'), behavior: SnackBarBehavior.floating),
-      );
+      _showSnack(context, 'Please enter a phone number');
       return;
     }
     final ec = EmergencyContact(
@@ -926,18 +1119,7 @@ class _EmergencySectionState extends State<_EmergencySection> {
   }
 
   Future<void> _remove(String id) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Remove Contact'),
-        content: const Text('Remove this emergency contact?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Remove', style: TextStyle(color: AppTheme.error))),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
+    if (!await _confirmRemove(context, 'Remove Contact', 'Remove this emergency contact?')) return;
     final r = widget.record;
     widget.onSave(HealthRecord(
       id: r.id, familyId: r.familyId, userId: r.userId, updatedBy: r.updatedBy,
@@ -960,20 +1142,37 @@ class _EmergencySectionState extends State<_EmergencySection> {
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(color: AppTheme.stone50, borderRadius: BorderRadius.circular(12)),
           child: Row(children: [
-            const Text('\u{1F6A8}', style: TextStyle(fontSize: 18)),
+            Container(
+              width: 34, height: 34,
+              decoration: BoxDecoration(
+                color: const Color(0xFFEF4444).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: const Center(child: Text('\u{1F6A8}', style: TextStyle(fontSize: 16))),
+            ),
             const SizedBox(width: 10),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(e.name, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 14, color: AppTheme.stone800)),
-              Text(e.phone, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500)),
+              Row(children: [
+                const Icon(Icons.phone_rounded, size: 11, color: AppTheme.stone400),
+                const SizedBox(width: 4),
+                Text(e.phone, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500)),
+              ]),
               if (e.relation != null)
                 Text(e.relation!, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
             ])),
             GestureDetector(
               onTap: () => _remove(e.id),
-              child: const Icon(Icons.close_rounded, size: 16, color: AppTheme.stone300),
+              child: Container(
+                width: 28, height: 28,
+                decoration: BoxDecoration(color: AppTheme.stone100, borderRadius: BorderRadius.circular(8)),
+                child: const Icon(Icons.close_rounded, size: 14, color: AppTheme.stone400),
+              ),
             ),
           ]),
         )),
+        if (widget.record.emergencyContacts.isEmpty)
+          _emptyHint('No emergency contacts'),
         _InlineAddRow(
           fields: [
             _InlineField(controller: _nameCtrl, hint: 'Contact name'),
@@ -987,9 +1186,7 @@ class _EmergencySectionState extends State<_EmergencySection> {
   }
 }
 
-// ─────────────────────────────────────────────
-// Doctor & Insurance Section
-// ─────────────────────────────────────────────
+// ─── Doctor & Insurance Section ───────────────────────────────────────────────
 
 class _DoctorInsuranceSection extends StatefulWidget {
   final HealthRecord record;
@@ -1045,23 +1242,26 @@ class _DoctorInsuranceSectionState extends State<_DoctorInsuranceSection> {
       insurancePolicyNumber: _policyCtrl.text.trim().isEmpty ? null : _policyCtrl.text.trim(),
       notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
     ));
+    _showSnack(context, 'Info saved');
   }
 
-  Widget _infoField(String label, TextEditingController ctrl) => Padding(
-    padding: const EdgeInsets.only(bottom: 12),
+  Widget _infoField(String label, TextEditingController ctrl, {TextInputType? keyboardType}) => Padding(
+    padding: const EdgeInsets.only(bottom: 14),
     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(label, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.stone400, letterSpacing: 0.5)),
-      const SizedBox(height: 4),
+      Text(label, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.stone700)),
+      const SizedBox(height: 6),
       TextField(
         controller: ctrl,
+        keyboardType: keyboardType,
         onEditingComplete: _flush,
         decoration: InputDecoration(
           filled: true,
-          fillColor: Colors.white,
+          fillColor: AppTheme.stone50,
           isDense: true,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: AppTheme.stone200)),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: AppTheme.stone200)),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: AppTheme.stone200)),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: AppTheme.stone200)),
+          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppTheme.primary, width: 1.5)),
         ),
         style: const TextStyle(fontFamily: 'Inter', fontSize: 14),
       ),
@@ -1074,19 +1274,22 @@ class _DoctorInsuranceSectionState extends State<_DoctorInsuranceSection> {
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
       child: Column(children: [
         _infoField('Doctor Name', _doctorNameCtrl),
-        _infoField('Doctor Phone', _doctorPhoneCtrl),
+        _infoField('Doctor Phone', _doctorPhoneCtrl, keyboardType: TextInputType.phone),
         _infoField('Insurance Provider', _insurerCtrl),
         _infoField('Policy Number', _policyCtrl),
         _infoField('Notes', _notesCtrl),
-        Align(
-          alignment: Alignment.centerRight,
-          child: GestureDetector(
-            onTap: _flush,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(color: AppTheme.primary, borderRadius: BorderRadius.circular(10)),
-              child: const Text('Save', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Colors.white)),
+        SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: ElevatedButton(
+            onPressed: _flush,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primary,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             ),
+            child: const Text('Save Info', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14)),
           ),
         ),
       ]),
@@ -1094,9 +1297,41 @@ class _DoctorInsuranceSectionState extends State<_DoctorInsuranceSection> {
   }
 }
 
-// ─────────────────────────────────────────────
-// Inline Add Row helper
-// ─────────────────────────────────────────────
+// ─── Shared Helpers ───────────────────────────────────────────────────────────
+
+Widget _emptyHint(String text) => Padding(
+  padding: const EdgeInsets.only(bottom: 10),
+  child: Row(children: [
+    Container(
+      width: 28, height: 28,
+      decoration: BoxDecoration(
+        color: AppTheme.stone100,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: const Icon(Icons.info_outline_rounded, size: 14, color: AppTheme.stone300),
+    ),
+    const SizedBox(width: 8),
+    Text(text, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w500, color: AppTheme.stone400)),
+  ]),
+);
+
+Widget _addButton({required VoidCallback onTap}) => GestureDetector(
+  onTap: onTap,
+  child: Container(
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    decoration: BoxDecoration(
+      color: AppTheme.primary,
+      borderRadius: BorderRadius.circular(10),
+    ),
+    child: const Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(Icons.add_rounded, size: 14, color: Colors.white),
+      SizedBox(width: 4),
+      Text('Add', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12, color: Colors.white)),
+    ]),
+  ),
+);
+
+// ─── Inline Add Row helper ────────────────────────────────────────────────────
 
 class _InlineField {
   final TextEditingController controller;
@@ -1115,28 +1350,21 @@ class _InlineAddRow extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: AppTheme.stone50,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.stone200, style: BorderStyle.solid),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.stone200),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         ...fields.map((f) => Padding(
-          padding: const EdgeInsets.only(bottom: 6),
+          padding: const EdgeInsets.only(bottom: 8),
           child: TextField(
             controller: f.controller,
-            decoration: InputDecoration(hintText: f.hint, isDense: true, border: InputBorder.none, contentPadding: EdgeInsets.zero),
+            decoration: _styledInput(f.hint),
             style: const TextStyle(fontFamily: 'Inter', fontSize: 13),
           ),
         )),
         Align(
           alignment: Alignment.centerRight,
-          child: GestureDetector(
-            onTap: onAdd,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-              decoration: BoxDecoration(color: AppTheme.primary, borderRadius: BorderRadius.circular(8)),
-              child: const Text('Add', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12, color: Colors.white)),
-            ),
-          ),
+          child: _addButton(onTap: onAdd),
         ),
       ]),
     );

@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 
@@ -19,6 +20,9 @@ class PollsScreen extends StatefulWidget {
 
 class _PollsScreenState extends State<PollsScreen> {
   String? _expandedPollId;
+  int _selectedFilter = 0; // 0=Open, 1=Closed, 2=All
+
+  // ── Data helpers ───────────────────────────────────────────────────────────
 
   Future<void> _vote(Poll poll, String optionId) async {
     final provider = context.read<AppProvider>();
@@ -26,7 +30,6 @@ class _PollsScreenState extends State<PollsScreen> {
     if (userId == null) return;
     final db = provider.db;
 
-    // Remove existing vote from all options first (no multi-vote in this impl)
     final updatedOptions = poll.options.map((o) {
       if (o.id == optionId) {
         if (o.voterIds.contains(userId)) {
@@ -51,6 +54,14 @@ class _PollsScreenState extends State<PollsScreen> {
     await provider.saveAndSync(db.copyWith(
       polls: db.polls.map((p) => p.id == poll.id ? updatedPoll : p).toList(),
     ));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('Poll closed'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        duration: const Duration(seconds: 2),
+      ));
+    }
   }
 
   Future<void> _deletePoll(String pollId) async {
@@ -81,12 +92,18 @@ class _PollsScreenState extends State<PollsScreen> {
           final provider = context.read<AppProvider>();
           final db = provider.db;
           await provider.saveAndSync(db.copyWith(polls: [...db.polls, poll]));
+          NotificationService.notifyFamilyActivity(
+            title: 'New Poll',
+            body: '${provider.activeUser?.name ?? "Someone"} asks: ${poll.question}',
+            familyId: provider.activeFamily?.id,
+            excludeUserId: provider.activeUser?.id,
+          );
         },
       ),
     );
   }
 
-  int _selectedFilter = 0; // 0=Open, 1=Closed, 2=All
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -121,11 +138,8 @@ class _PollsScreenState extends State<PollsScreen> {
 
     final openPolls = polls.where((p) => p.status == PollStatus.open).toList();
     final closedPolls = polls.where((p) => p.status == PollStatus.closed).toList();
-
-    // My votes count
     final myVotes = polls.where((p) => p.options.any((o) => o.voterIds.contains(user.id))).length;
 
-    // Filtered polls based on selected filter
     final filteredPolls = _selectedFilter == 0
         ? openPolls
         : _selectedFilter == 1
@@ -135,38 +149,17 @@ class _PollsScreenState extends State<PollsScreen> {
     return Scaffold(
       drawer: const AppDrawer(),
       backgroundColor: AppTheme.background,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: Builder(
-          builder: (context) => IconButton(
-            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
-            onPressed: () => Scaffold.of(context).openDrawer(),
-          ),
-        ),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
-            const SizedBox(width: 6),
-            const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
-          ],
-        ),
-        centerTitle: false,
-        titleSpacing: 0,
-        actions: const [],
-      ),
+      appBar: const FamilyHubAppBar(),
       body: ListView(
         padding: EdgeInsets.zero,
         children: [
-          // Page Header
+          // ── Page Header ──
           PageHeader(
             title: 'Family Polls',
-            subtitle: 'Decide things together',
+            subtitle: 'Decide things together.',
             actions: [
               ActionChipButton(
-                icon: Icons.add,
+                icon: Icons.add_rounded,
                 label: 'New Poll',
                 onTap: _showCreatePollSheet,
                 isPrimary: true,
@@ -174,64 +167,58 @@ class _PollsScreenState extends State<PollsScreen> {
             ],
           ),
 
-          // Stats Row
+          // ── Stat Cards ──
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
               children: [
-                Expanded(
-                  child: _buildStatCard(
-                    icon: Icons.poll_outlined,
-                    iconBgColor: const Color(0xFFDBEAFE),
-                    iconColor: const Color(0xFF3B82F6),
-                    value: '${polls.length}',
-                    label: 'Total Polls',
-                  ),
+                _StatCard(
+                  icon: Icons.poll_outlined,
+                  label: 'Total',
+                  value: '${polls.length}',
+                  color: AppTheme.primary,
                 ),
                 const SizedBox(width: 10),
-                Expanded(
-                  child: _buildStatCard(
-                    icon: Icons.check_circle_outline,
-                    iconBgColor: const Color(0xFFD1FAE5),
-                    iconColor: const Color(0xFF10B981),
-                    value: '${openPolls.length}',
-                    label: 'Open Now',
-                  ),
+                _StatCard(
+                  icon: Icons.how_to_vote_outlined,
+                  label: 'Open',
+                  value: '${openPolls.length}',
+                  color: AppTheme.success,
                 ),
                 const SizedBox(width: 10),
-                Expanded(
-                  child: _buildStatCard(
-                    icon: Icons.bar_chart_rounded,
-                    iconBgColor: const Color(0xFFEDE9FE),
-                    iconColor: const Color(0xFF8B5CF6),
-                    value: '$myVotes',
-                    label: 'My Votes',
-                  ),
+                _StatCard(
+                  icon: Icons.bar_chart_rounded,
+                  label: 'My Votes',
+                  value: '$myVotes',
+                  color: const Color(0xFFF59E0B),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 16),
 
-          // Filter chips
+          // ── Filter Chips ──
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
               children: [
-                IndigoChip(
-                  label: 'Open (${openPolls.length})',
+                _FilterChip(
+                  label: 'Open',
+                  count: openPolls.length,
                   selected: _selectedFilter == 0,
                   onTap: () => setState(() => _selectedFilter = 0),
                 ),
                 const SizedBox(width: 8),
-                IndigoChip(
-                  label: 'Closed (${closedPolls.length})',
+                _FilterChip(
+                  label: 'Closed',
+                  count: closedPolls.length,
                   selected: _selectedFilter == 1,
                   onTap: () => setState(() => _selectedFilter = 1),
                 ),
                 const SizedBox(width: 8),
-                IndigoChip(
-                  label: 'All (${polls.length})',
+                _FilterChip(
+                  label: 'All',
+                  count: polls.length,
                   selected: _selectedFilter == 2,
                   onTap: () => setState(() => _selectedFilter = 2),
                 ),
@@ -240,34 +227,9 @@ class _PollsScreenState extends State<PollsScreen> {
           ),
           const SizedBox(height: 16),
 
-          // Poll cards or empty state
+          // ── Poll cards or empty state ──
           if (filteredPolls.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Container(
-                padding: const EdgeInsets.all(32),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppTheme.stone100),
-                ),
-                child: Column(
-                  children: [
-                    Icon(Icons.poll_outlined, size: 40, color: AppTheme.stone300),
-                    const SizedBox(height: 12),
-                    const Text(
-                      'No open polls',
-                      style: TextStyle(fontFamily: 'Inter', fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.stone600),
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'Create one to get the family voting!',
-                      style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400),
-                    ),
-                  ],
-                ),
-              ),
-            )
+            _buildEmptyState()
           else
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -295,57 +257,156 @@ class _PollsScreenState extends State<PollsScreen> {
     );
   }
 
-  Widget _buildStatCard({
-    required IconData icon,
-    required Color iconBgColor,
-    required Color iconColor,
-    required String value,
-    required String label,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.stone100),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              color: iconBgColor,
-              borderRadius: BorderRadius.circular(8),
+  Widget _buildEmptyState() {
+    final labels = ['open polls', 'closed polls', 'polls'];
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 32),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppTheme.stone100),
+        ),
+        child: Column(
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: const BoxDecoration(
+                color: AppTheme.stone50,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.poll_outlined, size: 28, color: AppTheme.stone300),
             ),
-            child: Icon(icon, size: 18, color: iconColor),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            value,
-            style: const TextStyle(fontFamily: 'Inter', fontSize: 22, fontWeight: FontWeight.w900, color: AppTheme.stone900),
-          ),
-          Text(
-            label,
-            style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone500),
-          ),
-        ],
+            const SizedBox(height: 12),
+            Text(
+              'No ${labels[_selectedFilter]}',
+              style: const TextStyle(fontFamily: 'Inter', fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.stone500),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _selectedFilter == 0
+                  ? 'Tap "New Poll" to get the family voting!'
+                  : _selectedFilter == 1
+                      ? 'No polls have been closed yet'
+                      : 'Create your first poll to decide together',
+              style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _SectionLabel extends StatelessWidget {
+// ─── Stat Card ───────────────────────────────────────────────────────────────
+
+class _StatCard extends StatelessWidget {
+  final IconData icon;
   final String label;
-  const _SectionLabel({required this.label});
+  final String value;
+  final Color color;
+
+  const _StatCard({required this.icon, required this.label, required this.value, required this.color});
 
   @override
-  Widget build(BuildContext context) => Text(
-    label,
-    style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1),
-  );
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppTheme.stone100),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, size: 16, color: color),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(value, style: TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w800, color: color)),
+                  Text(label, style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w600, color: AppTheme.stone400)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
+
+// ─── Filter Chip ─────────────────────────────────────────────────────────────
+
+class _FilterChip extends StatelessWidget {
+  final String label;
+  final int count;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _FilterChip({required this.label, required this.count, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? AppTheme.primary : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: selected ? AppTheme.primary : AppTheme.stone200,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600,
+                color: selected ? Colors.white : AppTheme.stone600,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+              decoration: BoxDecoration(
+                color: selected ? Colors.white.withValues(alpha: 0.2) : AppTheme.stone100,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '$count',
+                style: TextStyle(
+                  fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700,
+                  color: selected ? Colors.white : AppTheme.stone500,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Poll Card ───────────────────────────────────────────────────────────────
 
 class _PollCard extends StatelessWidget {
   final Poll poll;
@@ -366,59 +427,167 @@ class _PollCard extends StatelessWidget {
     required this.onDelete,
   });
 
-  bool get _hasVoted => poll.options.any((o) => o.voterIds.contains(userId));
   bool get _isOpen => poll.status == PollStatus.open;
 
   @override
   Widget build(BuildContext context) {
     final totalVotes = poll.totalVotes;
-    final userVotedOption = poll.options.where(
-        (o) => o.voterIds.contains(userId)).firstOrNull;
+    final hasVoted = poll.options.any((o) => o.voterIds.contains(userId));
+
+    // Find the winning option
+    PollOption? winningOption;
+    if (totalVotes > 0) {
+      winningOption = poll.options.reduce((a, b) => a.voterIds.length >= b.voterIds.length ? a : b);
+    }
 
     return GestureDetector(
       onTap: onTap,
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
         decoration: BoxDecoration(
-          color: AppTheme.surface,
+          color: Colors.white,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: _isOpen ? AppTheme.primary.withValues(alpha: 0.2) : AppTheme.stone100),
+          border: Border.all(
+            color: _isOpen
+                ? (isExpanded ? AppTheme.primary.withValues(alpha: 0.3) : AppTheme.primary.withValues(alpha: 0.15))
+                : AppTheme.stone100,
+          ),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          // Header
+          // ── Header ──
           Padding(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.all(16),
             child: Row(children: [
+              // Status indicator
               Container(
-                width: 8, height: 8,
+                width: 36,
+                height: 36,
                 decoration: BoxDecoration(
-                  color: _isOpen ? AppTheme.success : AppTheme.stone300,
-                  shape: BoxShape.circle,
+                  color: _isOpen
+                      ? AppTheme.success.withValues(alpha: 0.1)
+                      : AppTheme.stone50,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  _isOpen ? Icons.how_to_vote_outlined : Icons.lock_outline_rounded,
+                  size: 18,
+                  color: _isOpen ? AppTheme.success : AppTheme.stone400,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      poll.question,
+                      style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: AppTheme.stone900),
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Text(
+                          '$totalVotes vote${totalVotes == 1 ? '' : 's'}',
+                          style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
+                        ),
+                        if (poll.anonymous) ...[
+                          const SizedBox(width: 6),
+                          Container(width: 3, height: 3, decoration: const BoxDecoration(color: AppTheme.stone300, shape: BoxShape.circle)),
+                          const SizedBox(width: 6),
+                          Icon(Icons.visibility_off_rounded, size: 12, color: AppTheme.stone400),
+                          const SizedBox(width: 3),
+                          const Text('Anonymous', style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
+                        ],
+                        if (hasVoted) ...[
+                          const SizedBox(width: 6),
+                          Container(width: 3, height: 3, decoration: const BoxDecoration(color: AppTheme.stone300, shape: BoxShape.circle)),
+                          const SizedBox(width: 6),
+                          const Icon(Icons.check_circle_rounded, size: 12, color: AppTheme.primary),
+                          const SizedBox(width: 3),
+                          const Text('Voted', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.primary)),
+                        ],
+                      ],
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(width: 8),
-              Expanded(
-                child: Text(poll.question, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: AppTheme.stone900)),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: _isOpen
+                      ? AppTheme.success.withValues(alpha: 0.1)
+                      : AppTheme.stone50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  _isOpen ? 'Open' : 'Closed',
+                  style: TextStyle(
+                    fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700,
+                    color: _isOpen ? AppTheme.success : AppTheme.stone400,
+                  ),
+                ),
               ),
-              if (poll.anonymous) ...[
-                Icon(Icons.visibility_off_rounded, size: 12, color: AppTheme.stone400),
-                const SizedBox(width: 4),
-              ],
-              Text('$totalVotes vote${totalVotes == 1 ? '' : 's'}',
-                  style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
-              const SizedBox(width: 8),
-              Icon(isExpanded ? Icons.expand_less_rounded : Icons.expand_more_rounded,
-                  color: AppTheme.stone400, size: 20),
+              const SizedBox(width: 4),
+              AnimatedRotation(
+                turns: isExpanded ? 0.5 : 0,
+                duration: const Duration(milliseconds: 200),
+                child: const Icon(Icons.expand_more_rounded, color: AppTheme.stone400, size: 22),
+              ),
             ]),
           ),
-          // Options (expanded)
-          if (isExpanded) ...[
-            const Divider(height: 1),
+
+          // ── Quick preview bar (collapsed) ──
+          if (!isExpanded && totalVotes > 0) ...[
             Padding(
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(3),
+                      child: SizedBox(
+                        height: 4,
+                        child: Row(
+                          children: poll.options.map((o) {
+                            final pct = totalVotes > 0 ? o.voterIds.length / totalVotes : 0.0;
+                            return Expanded(
+                              flex: (pct * 100).round().clamp(1, 100),
+                              child: Container(
+                                color: o.id == winningOption?.id
+                                    ? AppTheme.primary
+                                    : AppTheme.primary.withValues(alpha: 0.15 + (pct * 0.3)),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  if (winningOption != null)
+                    Text(
+                      winningOption.text.length > 15
+                          ? '${winningOption.text.substring(0, 15)}...'
+                          : winningOption.text,
+                      style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.stone400),
+                    ),
+                ],
+              ),
+            ),
+          ],
+
+          // ── Options (expanded) ──
+          if (isExpanded) ...[
+            const Divider(height: 1, color: AppTheme.stone100),
+            Padding(
+              padding: const EdgeInsets.all(16),
               child: Column(children: [
                 ...poll.options.map((option) {
                   final isVotedOption = option.voterIds.contains(userId);
                   final pct = totalVotes > 0 ? option.voterIds.length / totalVotes : 0.0;
+                  final isWinning = option.id == winningOption?.id && totalVotes > 0;
+
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 8),
                     child: GestureDetector(
@@ -427,61 +596,158 @@ class _PollCard extends StatelessWidget {
                         duration: const Duration(milliseconds: 200),
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: isVotedOption ? AppTheme.primaryLight : AppTheme.stone50,
+                          color: isVotedOption
+                              ? AppTheme.primary.withValues(alpha: 0.06)
+                              : AppTheme.stone50,
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: isVotedOption ? AppTheme.primary : AppTheme.stone200, width: isVotedOption ? 2 : 1),
+                          border: Border.all(
+                            color: isVotedOption ? AppTheme.primary : AppTheme.stone200,
+                            width: isVotedOption ? 1.5 : 1,
+                          ),
                         ),
                         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                           Row(children: [
-                            if (isVotedOption) const Icon(Icons.check_circle_rounded, size: 16, color: AppTheme.primary),
-                            if (!isVotedOption) const Icon(Icons.circle_outlined, size: 16, color: AppTheme.stone300),
-                            const SizedBox(width: 8),
-                            Expanded(child: Text(option.text, style: TextStyle(fontFamily: 'Inter', fontWeight: isVotedOption ? FontWeight.w700 : FontWeight.w500, fontSize: 14, color: isVotedOption ? AppTheme.primary : AppTheme.stone800))),
-                            Text('${(pct * 100).round()}%', style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w700, color: isVotedOption ? AppTheme.primary : AppTheme.stone400)),
+                            AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              width: 20, height: 20,
+                              decoration: BoxDecoration(
+                                color: isVotedOption ? AppTheme.primary : Colors.transparent,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: isVotedOption ? AppTheme.primary : AppTheme.stone300,
+                                  width: 2,
+                                ),
+                              ),
+                              child: isVotedOption
+                                  ? const Icon(Icons.check_rounded, size: 12, color: Colors.white)
+                                  : null,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(child: Text(
+                              option.text,
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                fontWeight: isVotedOption || isWinning ? FontWeight.w700 : FontWeight.w500,
+                                fontSize: 14,
+                                color: isVotedOption ? AppTheme.primary : AppTheme.stone800,
+                              ),
+                            )),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: isVotedOption
+                                    ? AppTheme.primary.withValues(alpha: 0.1)
+                                    : AppTheme.stone100,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                '${(pct * 100).round()}%',
+                                style: TextStyle(
+                                  fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w700,
+                                  color: isVotedOption ? AppTheme.primary : AppTheme.stone500,
+                                ),
+                              ),
+                            ),
                           ]),
-                          const SizedBox(height: 6),
+                          const SizedBox(height: 8),
                           ClipRRect(
                             borderRadius: BorderRadius.circular(4),
                             child: LinearProgressIndicator(
                               value: pct,
-                              minHeight: 4,
+                              minHeight: 5,
                               backgroundColor: AppTheme.stone100,
-                              valueColor: AlwaysStoppedAnimation<Color>(isVotedOption ? AppTheme.primary : AppTheme.stone300),
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                isVotedOption ? AppTheme.primary : (isWinning ? AppTheme.primary.withValues(alpha: 0.5) : AppTheme.stone300),
+                              ),
                             ),
                           ),
                           if (option.voterIds.isNotEmpty) ...[
                             const SizedBox(height: 4),
-                            Text('${option.voterIds.length} vote${option.voterIds.length == 1 ? '' : 's'}',
-                                style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
+                            Text(
+                              '${option.voterIds.length} vote${option.voterIds.length == 1 ? '' : 's'}',
+                              style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400),
+                            ),
                           ],
                         ]),
                       ),
                     ),
                   );
                 }),
-                if (poll.expiresAt != null) ...[
+
+                // Deadline info
+                if (poll.deadline != null) ...[
                   const SizedBox(height: 4),
-                  Row(children: [
-                    const Icon(Icons.timer_outlined, size: 14, color: AppTheme.stone400),
-                    const SizedBox(width: 4),
-                    Text('Ends ${DateFormat('MMM d').format(poll.expiresAt!)}',
-                        style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
-                  ]),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AppTheme.stone50,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.timer_outlined, size: 14, color: AppTheme.stone400),
+                        const SizedBox(width: 6),
+                        Text(
+                          _isOpen
+                              ? 'Ends ${DateFormat('MMM d, y').format(poll.deadline!)}'
+                              : 'Ended ${DateFormat('MMM d, y').format(poll.deadline!)}',
+                          style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
-                if (_isOpen && onClose != null || onDelete != null) ...[
+
+                // Action buttons
+                if ((_isOpen && onClose != null) || onDelete != null) ...[
+                  const SizedBox(height: 12),
+                  const Divider(height: 1, color: AppTheme.stone100),
                   const SizedBox(height: 8),
                   Row(children: [
                     if (_isOpen && onClose != null)
-                      TextButton(
-                        onPressed: onClose,
-                        style: TextButton.styleFrom(foregroundColor: AppTheme.stone500, padding: const EdgeInsets.symmetric(horizontal: 8)),
-                        child: const Text('Close Poll'),
+                      GestureDetector(
+                        onTap: onClose,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: AppTheme.stone50,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: AppTheme.stone200),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.lock_outline_rounded, size: 14, color: AppTheme.stone600),
+                              SizedBox(width: 6),
+                              Text('Close Poll', style: TextStyle(
+                                fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.stone600,
+                              )),
+                            ],
+                          ),
+                        ),
                       ),
                     const Spacer(),
-                    TextButton(
-                      onPressed: onDelete,
-                      style: TextButton.styleFrom(foregroundColor: AppTheme.error, padding: const EdgeInsets.symmetric(horizontal: 8)),
-                      child: const Text('Delete'),
+                    GestureDetector(
+                      onTap: onDelete,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: AppTheme.error.withValues(alpha: 0.05),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: AppTheme.error.withValues(alpha: 0.2)),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.delete_outline_rounded, size: 14, color: AppTheme.error),
+                            SizedBox(width: 6),
+                            Text('Delete', style: TextStyle(
+                              fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.error,
+                            )),
+                          ],
+                        ),
+                      ),
                     ),
                   ]),
                 ],
@@ -494,9 +760,7 @@ class _PollCard extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────
-// Create poll bottom sheet
-// ─────────────────────────────────────────────
+// ─── Create Poll Sheet ───────────────────────────────────────────────────────
 
 class _CreatePollSheet extends StatefulWidget {
   final Future<void> Function(Poll) onSave;
@@ -530,6 +794,7 @@ class _CreatePollSheetState extends State<_CreatePollSheet> {
 
   void _removeOption(int i) {
     if (_optionCtrls.length <= 2) return;
+    _optionCtrls[i].dispose();
     setState(() => _optionCtrls.removeAt(i));
   }
 
@@ -545,16 +810,20 @@ class _CreatePollSheetState extends State<_CreatePollSheet> {
 
   Future<void> _save() async {
     if (_questionCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a question'), behavior: SnackBarBehavior.floating),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('Please enter a question'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ));
       return;
     }
     final validOptions = _optionCtrls.map((c) => c.text.trim()).where((t) => t.isNotEmpty).toList();
     if (validOptions.length < 2) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Add at least 2 options'), behavior: SnackBarBehavior.floating),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('Add at least 2 options'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ));
       return;
     }
     setState(() => _isSaving = true);
@@ -579,106 +848,260 @@ class _CreatePollSheetState extends State<_CreatePollSheet> {
     return DraggableScrollableSheet(
       initialChildSize: 0.85, maxChildSize: 0.95, minChildSize: 0.5, expand: false,
       builder: (_, controller) => Container(
-        decoration: const BoxDecoration(color: AppTheme.surface, borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
         child: Column(children: [
           const SheetHandle(),
+          // Header
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
-            child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              const Text('New Poll', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 20, color: AppTheme.stone900)),
-              TextButton(
-                onPressed: _isSaving ? null : _save,
-                child: _isSaving
-                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Text('Create', style: TextStyle(fontWeight: FontWeight.w700)),
-              ),
-            ]),
+            child: Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.poll_outlined, size: 18, color: AppTheme.primary),
+                ),
+                const SizedBox(width: 12),
+                const Text('New Poll', style: TextStyle(
+                  fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.stone900,
+                )),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded, color: AppTheme.stone400),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
           ),
+          const SizedBox(height: 8),
           Expanded(
-            child: ListView(controller: controller, padding: const EdgeInsets.fromLTRB(20, 12, 20, 32), children: [
-              TextField(
-                controller: _questionCtrl,
-                autofocus: true,
-                textCapitalization: TextCapitalization.sentences,
-                maxLines: 2,
-                decoration: const InputDecoration(labelText: 'Question *', alignLabelWithHint: true, prefixIcon: Icon(Icons.help_outline_rounded)),
-              ),
-              const SizedBox(height: 20),
-              const Text('Options', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13, color: AppTheme.stone600)),
-              const SizedBox(height: 8),
-              ...List.generate(_optionCtrls.length, (i) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Row(children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _optionCtrls[i],
-                          textCapitalization: TextCapitalization.sentences,
-                          decoration: InputDecoration(
-                            labelText: 'Option ${i + 1}',
-                            prefixIcon: const Icon(Icons.circle_outlined, size: 16),
-                          ),
+            child: ListView(
+              controller: controller,
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+              children: [
+                // Question
+                _sectionLabel('Question'),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _questionCtrl,
+                  autofocus: true,
+                  textCapitalization: TextCapitalization.sentences,
+                  maxLines: 2,
+                  decoration: InputDecoration(
+                    hintText: 'What would you like to ask?',
+                    hintStyle: const TextStyle(color: AppTheme.stone300),
+                    alignLabelWithHint: true,
+                    filled: true,
+                    fillColor: AppTheme.stone50,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primary, width: 2)),
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // Options
+                Row(
+                  children: [
+                    _sectionLabel('Options'),
+                    const Spacer(),
+                    GestureDetector(
+                      onTap: _addOption,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primary.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.add_rounded, size: 14, color: AppTheme.primary),
+                            SizedBox(width: 4),
+                            Text('Add', style: TextStyle(
+                              fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.primary,
+                            )),
+                          ],
                         ),
                       ),
-                      if (_optionCtrls.length > 2)
-                        IconButton(
-                          onPressed: () => _removeOption(i),
-                          icon: const Icon(Icons.close_rounded, size: 18),
-                          color: AppTheme.stone400,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                ...List.generate(_optionCtrls.length, (i) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(children: [
+                    Container(
+                      width: 24, height: 24,
+                      decoration: BoxDecoration(
+                        color: AppTheme.stone50,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: AppTheme.stone200),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text('${i + 1}', style: const TextStyle(
+                        fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.stone400,
+                      )),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: TextField(
+                        controller: _optionCtrls[i],
+                        textCapitalization: TextCapitalization.sentences,
+                        decoration: InputDecoration(
+                          hintText: 'Option ${i + 1}',
+                          hintStyle: const TextStyle(color: AppTheme.stone300),
+                          filled: true,
+                          fillColor: AppTheme.stone50,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+                          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+                          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primary, width: 2)),
                         ),
+                      ),
+                    ),
+                    if (_optionCtrls.length > 2)
+                      IconButton(
+                        onPressed: () => _removeOption(i),
+                        icon: const Icon(Icons.close_rounded, size: 18),
+                        color: AppTheme.stone400,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                  ]),
+                )),
+                const SizedBox(height: 16),
+
+                // Deadline
+                _sectionLabel('Settings'),
+                const SizedBox(height: 8),
+                GestureDetector(
+                  onTap: _pickDeadline,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: AppTheme.stone50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppTheme.stone200),
+                    ),
+                    child: Row(children: [
+                      Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: AppTheme.primary.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.timer_outlined, size: 16, color: AppTheme.primary),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Deadline', style: TextStyle(
+                              fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone800,
+                            )),
+                            Text(
+                              _expiresAt != null
+                                  ? 'Closes ${DateFormat('MMM d, y').format(_expiresAt!)}'
+                                  : 'No deadline (optional)',
+                              style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: _expiresAt != null ? AppTheme.stone600 : AppTheme.stone400),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (_expiresAt != null)
+                        GestureDetector(
+                          onTap: () => setState(() => _expiresAt = null),
+                          child: const Icon(Icons.close_rounded, size: 16, color: AppTheme.stone400),
+                        )
+                      else
+                        const Icon(Icons.edit_outlined, size: 14, color: AppTheme.stone400),
                     ]),
-                  )),
-              TextButton.icon(
-                onPressed: _addOption,
-                icon: const Icon(Icons.add_rounded, size: 16),
-                label: const Text('Add Option'),
-              ),
-              const SizedBox(height: 12),
-              GestureDetector(
-                onTap: _pickDeadline,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  decoration: BoxDecoration(color: AppTheme.stone50, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.stone200)),
-                  child: Row(children: [
-                    const Icon(Icons.timer_outlined, size: 18, color: AppTheme.stone500),
-                    const SizedBox(width: 10),
-                    Text(
-                      _expiresAt != null ? 'Expires ${DateFormat('MMM d, y').format(_expiresAt!)}' : 'No deadline (optional)',
-                      style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: _expiresAt != null ? AppTheme.stone800 : AppTheme.stone400),
-                    ),
-                    const Spacer(),
-                    if (_expiresAt != null)
-                      GestureDetector(onTap: () => setState(() => _expiresAt = null), child: const Icon(Icons.close_rounded, size: 16, color: AppTheme.stone400)),
-                  ]),
-                ),
-              ),
-              const SizedBox(height: 12),
-              GestureDetector(
-                onTap: () => setState(() => _anonymous = !_anonymous),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 150),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  decoration: BoxDecoration(
-                    color: _anonymous ? AppTheme.primary.withValues(alpha: 0.05) : AppTheme.stone50,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: _anonymous ? AppTheme.primary.withValues(alpha: 0.3) : AppTheme.stone200),
                   ),
-                  child: Row(children: [
-                    Icon(Icons.visibility_off_rounded, size: 18, color: _anonymous ? AppTheme.primary : AppTheme.stone500),
-                    const SizedBox(width: 10),
-                    Text(
-                      'Anonymous voting',
-                      style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: _anonymous ? FontWeight.w600 : FontWeight.w400, color: _anonymous ? AppTheme.primary : AppTheme.stone400),
-                    ),
-                    const Spacer(),
-                    if (_anonymous)
-                      Icon(Icons.check_rounded, size: 18, color: AppTheme.primary),
-                  ]),
                 ),
-              ),
-            ]),
+                const SizedBox(height: 10),
+
+                // Anonymous toggle
+                GestureDetector(
+                  onTap: () => setState(() => _anonymous = !_anonymous),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: _anonymous ? AppTheme.primary.withValues(alpha: 0.05) : AppTheme.stone50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: _anonymous ? AppTheme.primary.withValues(alpha: 0.3) : AppTheme.stone200,
+                      ),
+                    ),
+                    child: Row(children: [
+                      Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: (_anonymous ? AppTheme.primary : AppTheme.stone400).withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(Icons.visibility_off_rounded, size: 16, color: _anonymous ? AppTheme.primary : AppTheme.stone400),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Anonymous Voting', style: TextStyle(
+                              fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600,
+                              color: _anonymous ? AppTheme.primary : AppTheme.stone800,
+                            )),
+                            Text(
+                              'Votes are hidden from other members',
+                              style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: _anonymous ? AppTheme.primary.withValues(alpha: 0.7) : AppTheme.stone400),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (_anonymous)
+                        const Icon(Icons.check_circle_rounded, size: 20, color: AppTheme.primary),
+                    ]),
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                // Create button
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton(
+                    onPressed: _isSaving ? null : _save,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.primary,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      elevation: 0,
+                    ),
+                    child: _isSaving
+                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                        : const Text('Create Poll', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16)),
+                  ),
+                ),
+              ],
+            ),
           ),
         ]),
       ),
     );
   }
+
+  Widget _sectionLabel(String label) => Text(
+    label,
+    style: const TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.stone700),
+  );
 }

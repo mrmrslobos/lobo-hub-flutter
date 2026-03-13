@@ -1,7 +1,7 @@
 // lib/screens/ai_history/ai_history_screen.dart
 // ignore_for_file: use_build_context_synchronously
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData, HapticFeedback;
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
@@ -21,12 +21,25 @@ class AIHistoryScreen extends StatefulWidget {
 class _AIHistoryScreenState extends State<AIHistoryScreen> {
   String? _selectedModule; // null = show all
 
+  void _showSnack(String msg) {
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(
+        content: Text(msg, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        duration: const Duration(seconds: 2),
+      ));
+  }
+
   Future<void> _deleteEntry(String id) async {
+    HapticFeedback.mediumImpact();
     final provider = context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(db.copyWith(
       aiHistory: db.aiHistory.where((e) => e.id != id).toList(),
     ));
+    if (mounted) _showSnack('Entry deleted');
   }
 
   void _openDetail(BuildContext context, AIHistoryEntry entry, Color color) {
@@ -78,28 +91,7 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
     return Scaffold(
       backgroundColor: AppTheme.background,
       drawer: const AppDrawer(),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: Builder(
-          builder: (context) => IconButton(
-            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
-            onPressed: () => Scaffold.of(context).openDrawer(),
-          ),
-        ),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
-            const SizedBox(width: 6),
-            const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
-          ],
-        ),
-        centerTitle: false,
-        titleSpacing: 0,
-        actions: const [],
-      ),
+      appBar: const FamilyHubAppBar(),
       body: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
         child: Column(
@@ -114,6 +106,7 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
                     icon: Icons.delete_sweep_rounded,
                     label: 'Clear All',
                     onTap: () async {
+                      HapticFeedback.mediumImpact();
                       final confirm = await showDialog<bool>(
                         context: context,
                         builder: (ctx) => AlertDialog(
@@ -131,6 +124,7 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
                         await prov.saveAndSync(db.copyWith(
                           aiHistory: db.aiHistory.where((e) => e.userId != user.id).toList(),
                         ));
+                        if (mounted) _showSnack('History cleared');
                       }
                     },
                     backgroundColor: AppTheme.error.withValues(alpha: 0.1),
@@ -138,20 +132,37 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
                   ),
               ],
             ),
+            // Stats row
+            if (allEntries.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                child: Row(children: [
+                  _MiniStat(icon: Icons.auto_awesome_rounded, color: AppTheme.primary, value: '${allEntries.length}', label: 'Prompts'),
+                  const SizedBox(width: 10),
+                  _MiniStat(icon: Icons.category_rounded, color: const Color(0xFF8B5CF6), value: '${modules.length}', label: 'Modules'),
+                  const SizedBox(width: 10),
+                  _MiniStat(
+                    icon: Icons.calendar_today_rounded,
+                    color: const Color(0xFF0EA5E9),
+                    value: '${allEntries.where((e) => e.createdAt.month == DateTime.now().month && e.createdAt.year == DateTime.now().year).length}',
+                    label: 'This Month',
+                  ),
+                ]),
+              ),
             // Module filter chips
             if (modules.isNotEmpty)
               SizedBox(
                 height: 48,
                 child: ListView(
                   scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
                   children: [
                     Padding(
                       padding: const EdgeInsets.only(right: 8),
                       child: FilterChip(
                         label: const Text('All'),
                         selected: _selectedModule == null,
-                        onSelected: (_) => setState(() => _selectedModule = null),
+                        onSelected: (_) { HapticFeedback.selectionClick(); setState(() => _selectedModule = null); },
                         showCheckmark: false,
                       ),
                     ),
@@ -160,13 +171,14 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
                           child: FilterChip(
                             label: Text(m),
                             selected: _selectedModule == m,
-                            onSelected: (_) => setState(() => _selectedModule = m),
+                            onSelected: (_) { HapticFeedback.selectionClick(); setState(() => _selectedModule = m); },
                             showCheckmark: false,
                           ),
                         )),
                   ],
                 ),
               ),
+            const SectionHeader(title: 'History'),
             if (shown.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -349,6 +361,7 @@ class _EntryDetailSheet extends StatelessWidget {
                 icon: const Icon(Icons.delete_outline_rounded,
                     color: AppTheme.error),
                 onPressed: () async {
+                  HapticFeedback.mediumImpact();
                   final confirmed = await showDialog<bool>(
                     context: context,
                     builder: (ctx) => AlertDialog(
@@ -443,13 +456,17 @@ class _EntryDetailSheet extends StatelessWidget {
                               // Copy button
                               GestureDetector(
                                 onTap: () {
+                                  HapticFeedback.lightImpact();
                                   Clipboard.setData(ClipboardData(
                                       text: entry.response));
                                   ScaffoldMessenger.of(context)
-                                      .showSnackBar(const SnackBar(
-                                    content: Text('Response copied!'),
-                                    duration: Duration(seconds: 2),
-                                  ));
+                                    ..clearSnackBars()
+                                    ..showSnackBar(SnackBar(
+                                      content: const Text('Response copied!', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+                                      behavior: SnackBarBehavior.floating,
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                      duration: const Duration(seconds: 2),
+                                    ));
                                 },
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(
@@ -493,6 +510,40 @@ class _EntryDetailSheet extends StatelessWidget {
                   ]),
             ),
           ),
+        ]),
+      ),
+    );
+  }
+}
+
+class _MiniStat extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String value;
+  final String label;
+  const _MiniStat({required this.icon, required this.color, required this.value, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppTheme.stone100),
+        ),
+        child: Row(children: [
+          Container(
+            width: 32, height: 32,
+            decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(9)),
+            child: Icon(icon, size: 16, color: color),
+          ),
+          const SizedBox(width: 8),
+          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(value, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 15, color: AppTheme.stone900)),
+            Text(label, style: const TextStyle(fontFamily: 'Inter', fontSize: 10, color: AppTheme.stone500)),
+          ]),
         ]),
       ),
     );

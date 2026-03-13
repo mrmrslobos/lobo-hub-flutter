@@ -2,7 +2,9 @@
 // Calendar screen for FamilyHub
 // ignore_for_file: use_build_context_synchronously
 
+import 'dart:convert';
 import 'package:flutter/material.dart' hide Visibility;
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:table_calendar/table_calendar.dart';
@@ -33,6 +35,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   CalendarFormat _calFormat = CalendarFormat.month;
   bool _isSyncing = false;
   String _searchQuery = '';
+  final _searchCtrl = TextEditingController();
 
   // AI Event Strategist
   final _aiController = TextEditingController();
@@ -42,6 +45,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   @override
   void dispose() {
     _aiController.dispose();
+    _searchCtrl.dispose();
     super.dispose();
   }
 
@@ -77,6 +81,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
         });
         return;
       }
+      provider.saveAiHistory(module: 'calendar', prompt: 'Generate event itinerary: "$input"', response: jsonEncode(result));
 
       final itinerary = result['itinerary'] as String? ?? '';
       final checklist = (result['checklist'] as List<dynamic>?)
@@ -443,31 +448,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
     );
   }
 
-  Future<void> _deleteEvent(
-      BuildContext context, AppProvider provider, CalendarEvent event) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete event'),
-        content: Text('Delete "${event.title}"?'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete',
-                style: TextStyle(color: AppTheme.error)),
-          ),
-        ],
-      ),
-    );
-    if (confirmed == true) {
-      final db = provider.db;
-      final events =
-          db.events.where((e) => e.id != event.id).toList();
-      await provider.saveAndSync(db.copyWith(events: events));
-    }
+  Future<void> _deleteEvent(AppProvider provider, CalendarEvent event) async {
+    final db = provider.db;
+    final events = db.events.where((e) => e.id != event.id).toList();
+    await provider.saveAndSync(db.copyWith(events: events));
   }
 
   @override
@@ -512,15 +496,14 @@ class _CalendarScreenState extends State<CalendarScreen> {
             ),
             centerTitle: false,
             titleSpacing: 0,
-            actions: const [],
           ),
           body: ListView(
             padding: EdgeInsets.zero,
             children: [
               // Page Header
               PageHeader(
-                title: 'Family Calendar',
-                subtitle: 'Coordinate schedules and plan life together.',
+                title: 'Calendar',
+                subtitle: 'Stay in sync with your family.',
                 actions: [
                   ActionChipButton(
                     icon: Icons.calendar_month_outlined,
@@ -535,32 +518,69 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     onTap: _isSyncing ? () {} : _connectGoogleCalendar,
                     isPrimary: true,
                   ),
-                  ActionChipButton(
-                    icon: Icons.auto_awesome,
-                    label: 'Plan Event',
-                    onTap: _showEventPlannerWizard,
-                    backgroundColor: const Color(0xFF7C3AED),
-                  ),
-                  ActionChipButton(
-                    icon: Icons.add,
-                    label: 'Add Event',
-                    onTap: () => _showAddEventSheet(context),
-                    backgroundColor: AppTheme.stone800,
-                  ),
                 ],
               ),
 
+              // Add event + AI plan row
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => _showAddEventSheet(context),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          decoration: BoxDecoration(
+                            color: AppTheme.stone800,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.add_rounded, size: 18, color: Colors.white),
+                              SizedBox(width: 8),
+                              Text('New Event', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    GestureDetector(
+                      onTap: _showEventPlannerWizard,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(colors: [Color(0xFF7C3AED), Color(0xFFC026D3)]),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(Icons.auto_awesome, size: 16, color: Colors.white),
+                            SizedBox(width: 6),
+                            Text('AI Plan', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
               // Event search
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: TextField(
+                  controller: _searchCtrl,
                   onChanged: (v) => setState(() => _searchQuery = v),
                   decoration: InputDecoration(
                     hintText: 'Search events...',
                     hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
                     prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
                     suffixIcon: _searchQuery.isNotEmpty
-                        ? IconButton(icon: const Icon(Icons.close_rounded, size: 18), onPressed: () => setState(() => _searchQuery = ''))
+                        ? IconButton(icon: const Icon(Icons.close_rounded, size: 18), onPressed: () { _searchCtrl.clear(); setState(() => _searchQuery = ''); })
                         : null,
                     filled: true,
                     fillColor: Colors.white,
@@ -571,6 +591,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   ),
                 ),
               ),
+              const SizedBox(height: 12),
 
               // AI Event Strategist card
               Padding(
@@ -706,8 +727,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 16),
-
               // Calendar in a white card
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -717,7 +736,38 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: AppTheme.stone100),
                   ),
-                  child: ClipRRect(
+                  child: Column(
+                    children: [
+                      // Today button row
+                      if (!isSameDay(_focusedDay, DateTime.now()))
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: GestureDetector(
+                              onTap: () => setState(() {
+                                _focusedDay = DateTime.now();
+                                _selectedDay = DateTime.now();
+                              }),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.primary.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.today_rounded, size: 14, color: AppTheme.primary),
+                                    SizedBox(width: 4),
+                                    Text('Today', style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.primary)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ClipRRect(
                     borderRadius: BorderRadius.circular(16),
                     child: TableCalendar<CalendarEvent>(
                       firstDay: DateTime.utc(2020, 1, 1),
@@ -821,6 +871,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       ),
                     ),
                   ),
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(height: 20),
@@ -867,40 +919,35 @@ class _CalendarScreenState extends State<CalendarScreen> {
               ),
               const SizedBox(height: 20),
 
-              // Coming Up section
+              // Selected day events
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+                child: Row(
                   children: [
-                    Row(
-                      children: [
-                        Text(
-                          DateFormat('EEEE, MMM d').format(_selectedDay),
-                          style: const TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.stone700,
-                          ),
-                        ),
-                        const Spacer(),
-                        if (selectedEvents.isNotEmpty)
-                          Text(
-                            '${selectedEvents.length} event${selectedEvents.length == 1 ? '' : 's'}',
-                            style: const TextStyle(
-                              fontFamily: 'Inter',
-                              fontSize: 12,
-                              color: AppTheme.stone400,
-                            ),
-                          ),
-                      ],
+                    Text(
+                      isSameDay(_selectedDay, DateTime.now())
+                          ? 'TODAY'
+                          : DateFormat('EEEE, MMM d').format(_selectedDay).toUpperCase(),
+                      style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(width: 8),
+                    if (selectedEvents.isNotEmpty)
+                      Text(
+                        '${selectedEvents.length}',
+                        style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.stone300),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  children: [
                     if (selectedEvents.isEmpty)
                       Container(
                         width: double.infinity,
-                        padding: const EdgeInsets.all(24),
+                        padding: const EdgeInsets.symmetric(vertical: 32),
                         decoration: BoxDecoration(
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(16),
@@ -908,17 +955,24 @@ class _CalendarScreenState extends State<CalendarScreen> {
                         ),
                         child: Column(
                           children: [
-                            const Text('📅', style: TextStyle(fontSize: 32)),
-                            const SizedBox(height: 8),
+                            Container(
+                              width: 52,
+                              height: 52,
+                              decoration: BoxDecoration(
+                                color: AppTheme.stone50,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.event_available_rounded, size: 24, color: AppTheme.stone300),
+                            ),
+                            const SizedBox(height: 12),
                             const Text(
                               'Nothing scheduled',
-                              style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone500),
+                              style: TextStyle(fontFamily: 'Inter', fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.stone500),
                             ),
                             const SizedBox(height: 4),
                             const Text(
-                              'Tap + Add Event to add an event for this day',
-                              style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
-                              textAlign: TextAlign.center,
+                              'Tap "New Event" to plan something',
+                              style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400),
                             ),
                           ],
                         ),
@@ -928,7 +982,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                         event: event,
                         provider: provider,
                         onEdit: () => _showAddEventSheet(context, event: event),
-                        onDelete: () => _deleteEvent(context, provider, event),
+                        onDelete: () => _deleteEvent(provider, event),
                       )),
                   ],
                 ),
@@ -939,9 +993,18 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 const SizedBox(height: 20),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: const Text(
-                    'COMING UP',
-                    style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1),
+                  child: Row(
+                    children: [
+                      const Text(
+                        'COMING UP',
+                        style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${upcomingEvents.length}',
+                        style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.stone300),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -952,13 +1015,14 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       event: event,
                       provider: provider,
                       onEdit: () => _showAddEventSheet(context, event: event),
-                      onDelete: () => _deleteEvent(context, provider, event),
+                      onDelete: () => _deleteEvent(provider, event),
+                      showDate: true,
                     )).toList(),
                   ),
                 ),
               ],
 
-              const SizedBox(height: 32),
+              const SizedBox(height: 100),
             ],
           ),
         );
@@ -1090,15 +1154,18 @@ class _EventCard extends StatelessWidget {
   final AppProvider provider;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final bool showDate;
 
   const _EventCard({
     required this.event,
     required this.provider,
     required this.onEdit,
     required this.onDelete,
+    this.showDate = false,
   });
 
   Color _visibilityColor() {
+    if (event.externalCalendarId != null) return const Color(0xFF4285F4);
     return event.visibility == Visibility.PRIVATE
         ? AppTheme.primary
         : const Color(0xFF8B5CF6);
@@ -1109,7 +1176,7 @@ class _EventCard extends StatelessWidget {
     final start = DateFormat('h:mm a').format(event.startDate);
     if (isSameDay(event.startDate, event.endDate)) {
       final end = DateFormat('h:mm a').format(event.endDate);
-      return '$start – $end';
+      return '$start - $end';
     }
     return start;
   }
@@ -1118,150 +1185,163 @@ class _EventCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final creator = provider.userById(event.createdBy);
     final color = _visibilityColor();
+    final isExternal = event.externalCalendarId != null;
 
-    return GestureDetector(
-      onLongPress: onEdit,
-      child: Dismissible(
-        key: Key(event.id),
-        direction: DismissDirection.endToStart,
-        background: Container(
-          alignment: Alignment.centerRight,
-          padding: const EdgeInsets.only(right: 20),
-          margin: const EdgeInsets.only(bottom: 10),
-          decoration: BoxDecoration(
-            color: AppTheme.error.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child:
-              const Icon(Icons.delete_outline, color: AppTheme.error),
+    return Dismissible(
+      key: Key(event.id),
+      direction: isExternal ? DismissDirection.none : DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        margin: const EdgeInsets.only(bottom: 10),
+        decoration: BoxDecoration(
+          color: AppTheme.error.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(16),
         ),
-        confirmDismiss: (_) async {
-          onDelete();
-          return false;
-        },
+        child: const Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            Text('Delete', style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.error)),
+            SizedBox(width: 8),
+            Icon(Icons.delete_outline_rounded, color: AppTheme.error),
+          ],
+        ),
+      ),
+      confirmDismiss: (_) async {
+        return await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Delete Event'),
+            content: Text('Delete "${event.title}"?'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+            ],
+          ),
+        );
+      },
+      onDismissed: (_) => onDelete(),
+      child: GestureDetector(
+        onTap: isExternal ? null : onEdit,
         child: Container(
           margin: const EdgeInsets.only(bottom: 10),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(16),
             border: Border.all(color: AppTheme.stone100),
           ),
-          child: Row(
-            children: [
-              // Color bar
-              Container(
-                width: 5,
-                height: 80,
-                decoration: BoxDecoration(
-                  color: color,
-                  borderRadius: const BorderRadius.horizontal(
-                      left: Radius.circular(20)),
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              event.title,
-                              style: const TextStyle(
-                                fontFamily: 'Inter',
-                                fontSize: 15,
-                                fontWeight: FontWeight.w700,
-                                color: AppTheme.stone900,
-                              ),
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: color.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              event.visibility ==
-                                      Visibility.PRIVATE
-                                  ? 'Personal'
-                                  : 'Family',
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                                color: color,
-                                fontFamily: 'Inter',
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          const Icon(Icons.access_time_outlined,
-                              size: 13, color: AppTheme.stone400),
-                          const SizedBox(width: 4),
-                          Text(
-                            _timeLabel(),
-                            style: const TextStyle(
-                              fontFamily: 'Inter',
-                              fontSize: 12,
-                              color: AppTheme.stone500,
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (event.location != null) ...[
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            const Icon(Icons.location_on_outlined,
-                                size: 13,
-                                color: AppTheme.stone400),
-                            const SizedBox(width: 4),
-                            Expanded(
-                              child: Text(
-                                event.location!,
-                                style: const TextStyle(
-                                  fontFamily: 'Inter',
-                                  fontSize: 12,
-                                  color: AppTheme.stone500,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                      if (creator != null) ...[
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            AvatarInitials(
-                                name: creator.name, size: 18),
-                            const SizedBox(width: 6),
-                            Text(
-                              creator.name.split(' ').first,
-                              style: const TextStyle(
-                                fontFamily: 'Inter',
-                                fontSize: 11,
-                                color: AppTheme.stone400,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ],
+          child: IntrinsicHeight(
+            child: Row(
+              children: [
+                // Color bar
+                Container(
+                  width: 4,
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: const BorderRadius.horizontal(left: Radius.circular(16)),
                   ),
                 ),
-              ),
-              const SizedBox(width: 14),
-            ],
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                event.title,
+                                style: const TextStyle(fontFamily: 'Inter', fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.stone900),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: color.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                isExternal
+                                    ? 'Synced'
+                                    : event.visibility == Visibility.PRIVATE ? 'Personal' : 'Family',
+                                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: color, fontFamily: 'Inter'),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 4,
+                          children: [
+                            if (showDate)
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.calendar_today_outlined, size: 12, color: AppTheme.stone400),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    DateFormat('MMM d').format(event.startDate),
+                                    style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
+                                  ),
+                                ],
+                              ),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.access_time_rounded, size: 12, color: AppTheme.stone400),
+                                const SizedBox(width: 4),
+                                Text(_timeLabel(), style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500)),
+                              ],
+                            ),
+                            if (event.location != null)
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.location_on_outlined, size: 12, color: AppTheme.stone400),
+                                  const SizedBox(width: 4),
+                                  Flexible(
+                                    child: Text(
+                                      event.location!,
+                                      style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                          ],
+                        ),
+                        if (event.description != null && event.description!.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            event.description!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
+                          ),
+                        ],
+                        if (creator != null && !isExternal) ...[
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              AvatarInitials(name: creator.name, size: 16),
+                              const SizedBox(width: 6),
+                              Text(
+                                creator.name.split(' ').first,
+                                style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 14),
+              ],
+            ),
           ),
         ),
       ),
@@ -1440,36 +1520,46 @@ class _EventFormSheetState extends State<_EventFormSheet> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text(
-                      widget.editEvent != null
-                          ? 'Edit Event'
-                          : 'New Event',
-                      style: const TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                        color: AppTheme.stone900,
-                      ),
+                    Row(
+                      children: [
+                        Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: AppTheme.primary.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(
+                            widget.editEvent != null ? Icons.edit_outlined : Icons.event_rounded,
+                            size: 18,
+                            color: AppTheme.primary,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          widget.editEvent != null ? 'Edit Event' : 'New Event',
+                          style: const TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.stone900),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 20),
 
                     TextFormField(
                       controller: _titleCtrl,
-                      autofocus: true,
-                      validator: (v) =>
-                          (v == null || v.trim().isEmpty)
-                              ? 'Title is required'
-                              : null,
-                      decoration: const InputDecoration(
-                          labelText: 'Event title *'),
+                      autofocus: widget.editEvent == null,
+                      textCapitalization: TextCapitalization.sentences,
+                      validator: (v) => (v == null || v.trim().isEmpty) ? 'Title is required' : null,
+                      decoration: const InputDecoration(labelText: 'Event title'),
                     ),
                     const SizedBox(height: 12),
 
                     TextFormField(
                       controller: _descCtrl,
                       maxLines: 2,
+                      textCapitalization: TextCapitalization.sentences,
                       decoration: const InputDecoration(
                         labelText: 'Description',
+                        hintText: 'What is this event about?',
                         alignLabelWithHint: true,
                       ),
                     ),
@@ -1477,29 +1567,40 @@ class _EventFormSheetState extends State<_EventFormSheet> {
 
                     TextFormField(
                       controller: _locationCtrl,
+                      textCapitalization: TextCapitalization.words,
                       decoration: const InputDecoration(
                         labelText: 'Location',
-                        prefixIcon: Icon(Icons.location_on_outlined),
+                        hintText: 'Where is it?',
+                        prefixIcon: Icon(Icons.location_on_outlined, size: 20),
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 20),
+
+                    // Schedule section
+                    const Text('Schedule', style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.stone700)),
+                    const SizedBox(height: 8),
 
                     // All day toggle
-                    Row(
-                      children: [
-                        const Text('All day',
-                            style: TextStyle(
-                                fontFamily: 'Inter',
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: AppTheme.stone700)),
-                        const Spacer(),
-                        Switch(
-                          value: _allDay,
-                          onChanged: (v) => setState(() => _allDay = v),
-                          activeColor: AppTheme.primary,
-                        ),
-                      ],
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppTheme.stone50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppTheme.stone200),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.wb_sunny_outlined, size: 16, color: AppTheme.stone500),
+                          const SizedBox(width: 8),
+                          const Text('All day', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w500, color: AppTheme.stone700)),
+                          const Spacer(),
+                          Switch(
+                            value: _allDay,
+                            onChanged: (v) => setState(() => _allDay = v),
+                            activeColor: AppTheme.primary,
+                          ),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 8),
 
@@ -1520,7 +1621,11 @@ class _EventFormSheetState extends State<_EventFormSheet> {
                       ),
                     const SizedBox(height: 16),
 
-                    // Share with
+                    const SizedBox(height: 12),
+
+                    // Visibility section
+                    const Text('Visibility', style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.stone700)),
+                    const SizedBox(height: 8),
                     SharePicker(
                       members: context.read<AppProvider>().familyMembers
                           .map((m) => SharePickerMember(id: m.id, name: m.name))
@@ -1546,9 +1651,7 @@ class _EventFormSheetState extends State<_EventFormSheet> {
                                     Colors.white),
                               ),
                             )
-                          : Text(widget.editEvent != null
-                              ? 'Save Changes'
-                              : 'Add Event'),
+                          : Text(widget.editEvent != null ? 'Save Changes' : 'Create Event'),
                     ),
                   ],
                 ),
@@ -1565,43 +1668,36 @@ class _EventFormSheetState extends State<_EventFormSheet> {
     required DateTime dateTime,
     required VoidCallback onTap,
   }) {
-    final dateStr = DateFormat('EEE, MMM d yyyy').format(dateTime);
-    final timeStr =
-        _allDay ? '' : '  ·  ${DateFormat('h:mm a').format(dateTime)}';
+    final dateStr = DateFormat('EEE, MMM d').format(dateTime);
+    final timeStr = _allDay ? '' : DateFormat('h:mm a').format(dateTime);
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(
-            horizontal: 16, vertical: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
           color: AppTheme.stone50,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(color: AppTheme.stone200),
         ),
         child: Row(
           children: [
+            Icon(
+              label == 'Start' ? Icons.play_circle_outline_rounded : Icons.stop_circle_outlined,
+              size: 16, color: AppTheme.stone500,
+            ),
+            const SizedBox(width: 8),
             Text(
               label,
-              style: const TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: AppTheme.stone600,
-              ),
+              style: const TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.stone600),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                '$dateStr$timeStr',
-                style: const TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 13,
-                  color: AppTheme.stone800,
-                ),
+                _allDay ? dateStr : '$dateStr at $timeStr',
+                style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone800),
               ),
             ),
-            const Icon(Icons.edit_outlined,
-                size: 16, color: AppTheme.stone400),
+            const Icon(Icons.edit_outlined, size: 14, color: AppTheme.stone400),
           ],
         ),
       ),
@@ -2183,6 +2279,7 @@ class _EventPlannerWizardState extends State<_EventPlannerWizard> {
         });
         return;
       }
+      provider.saveAiHistory(module: 'calendar', prompt: 'Plan event: "${_nameCtrl.text.trim()}"', response: jsonEncode(result));
 
       // Create calendar event
       final eventDate = DateTime(_eventDate.year, _eventDate.month, _eventDate.day, 12);
