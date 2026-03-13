@@ -1512,8 +1512,10 @@ class DailyHabit {
   );
 
   Map<String, dynamic> toJson() => {
-    'id': id, 'user_id': userId, 'label': label,
-    'icon': icon ?? '', 'color': color ?? '#6366f1',
+    'id': id, 'user_id': userId, 'family_id': familyId,
+    'label': label, 'icon': icon ?? '', 'color': color ?? '#6366f1',
+    'description': description, 'is_shared': isShared,
+    'frequency': frequency, 'target_value': targetValue, 'target_unit': targetUnit,
     'created_at': createdAt.toIso8601String(), 'order': order,
   };
 }

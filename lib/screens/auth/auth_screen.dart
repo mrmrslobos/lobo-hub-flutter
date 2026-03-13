@@ -1,9 +1,12 @@
 // lib/screens/auth/auth_screen.dart
 // Authentication and onboarding flow for FamilyHub
 
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 
@@ -87,6 +90,7 @@ class _AuthScreenState extends State<AuthScreen> {
   String? _error;
   bool _resetSent = false;
   bool _passwordUpdated = false;
+  bool _staySignedIn = true;
 
   @override
   void initState() {
@@ -94,6 +98,19 @@ class _AuthScreenState extends State<AuthScreen> {
     if (widget.showResetPassword) {
       _view = _AuthView.resetPassword;
     }
+    _loadStaySignedIn();
+    _passwordCtrl.addListener(() => setState(() {}));
+  }
+
+  Future<void> _loadStaySignedIn() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() => _staySignedIn = prefs.getBool('stay_signed_in') ?? true);
+  }
+
+  Future<void> _saveStaySignedIn(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('stay_signed_in', value);
+    setState(() => _staySignedIn = value);
   }
 
   // Pending data accumulated across steps
@@ -631,16 +648,34 @@ class _AuthScreenState extends State<AuthScreen> {
           const SizedBox(height: 12),
           _passwordField(),
           const SizedBox(height: 4),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
-              onPressed: () {
-                _resetSent = false;
-                _setView(_AuthView.forgotPassword);
-              },
-              child: const Text('Forgot password?',
-                  style: TextStyle(fontSize: 13)),
-            ),
+          Row(
+            children: [
+              SizedBox(
+                height: 24,
+                width: 24,
+                child: Checkbox(
+                  value: _staySignedIn,
+                  onChanged: (v) => _saveStaySignedIn(v ?? true),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  activeColor: AppTheme.primary,
+                ),
+              ),
+              const SizedBox(width: 6),
+              GestureDetector(
+                onTap: () => _saveStaySignedIn(!_staySignedIn),
+                child: const Text('Stay signed in',
+                    style: TextStyle(fontSize: 13, fontFamily: 'Inter', color: AppTheme.stone600)),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: () {
+                  _resetSent = false;
+                  _setView(_AuthView.forgotPassword);
+                },
+                child: const Text('Forgot password?',
+                    style: TextStyle(fontSize: 13)),
+              ),
+            ],
           ),
           if (_error != null) _errorBanner(_error!),
           const SizedBox(height: 8),
@@ -705,7 +740,9 @@ class _AuthScreenState extends State<AuthScreen> {
           const SizedBox(height: 12),
           _emailField(),
           const SizedBox(height: 12),
-          _passwordField(),
+          _passwordField(isNewPassword: true),
+          const SizedBox(height: 6),
+          _PasswordStrengthBar(password: _passwordCtrl.text),
           if (_error != null) ...[
             const SizedBox(height: 12),
             _errorBanner(_error!),
@@ -721,7 +758,17 @@ class _AuthScreenState extends State<AuthScreen> {
             const SizedBox(height: 16),
             _oauthButtons(),
           ],
-          const SizedBox(height: 20),
+          const SizedBox(height: 12),
+          Text(
+            'By creating an account, you agree to our Terms of Service and Privacy Policy.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 11,
+              fontFamily: 'Inter',
+              color: AppTheme.stone400,
+            ),
+          ),
+          const SizedBox(height: 12),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -1321,16 +1368,20 @@ class _AuthScreenState extends State<AuthScreen> {
         validator: _emailValidator,
         keyboardType: TextInputType.emailAddress,
         autocorrect: false,
+        autofillHints: const [AutofillHints.email],
+        textInputAction: TextInputAction.next,
         decoration: const InputDecoration(
           hintText: 'Email Address',
           prefixIcon: Icon(Icons.email_outlined),
         ),
       );
 
-  Widget _passwordField() => TextFormField(
+  Widget _passwordField({bool isNewPassword = false}) => TextFormField(
         controller: _passwordCtrl,
         validator: _passwordValidator,
         obscureText: _obscurePassword,
+        autofillHints: [isNewPassword ? AutofillHints.newPassword : AutofillHints.password],
+        textInputAction: TextInputAction.done,
         decoration: InputDecoration(
           hintText: 'Password',
           prefixIcon: const Icon(Icons.lock_outline),
@@ -1364,27 +1415,39 @@ class _AuthScreenState extends State<AuthScreen> {
         ],
       );
 
-  Widget _oauthButtons() => Column(
-        children: [
-          _oauthBtn(
-            label: 'Continue with Google',
-            leading: _googleIcon(),
-            onTap: () => _oauthSignIn('google'),
-          ),
-          const SizedBox(height: 8),
-          _oauthBtn(
-            label: 'Continue with Apple',
-            leading: const Icon(Icons.apple, size: 20, color: AppTheme.stone800),
-            onTap: () => _oauthSignIn('apple'),
-          ),
-          const SizedBox(height: 8),
-          _oauthBtn(
-            label: 'Continue with Microsoft',
-            leading: _microsoftIcon(),
-            onTap: () => _oauthSignIn('microsoft'),
-          ),
-        ],
-      );
+  Widget _oauthButtons() {
+    final isApplePlatform = !kIsWeb && Platform.isIOS;
+    final buttons = <Widget>[
+      if (isApplePlatform) ...[
+        _oauthBtn(
+          label: 'Continue with Apple',
+          leading: const Icon(Icons.apple, size: 20, color: AppTheme.stone800),
+          onTap: () => _oauthSignIn('apple'),
+        ),
+        const SizedBox(height: 8),
+      ],
+      _oauthBtn(
+        label: 'Continue with Google',
+        leading: _googleIcon(),
+        onTap: () => _oauthSignIn('google'),
+      ),
+      if (!isApplePlatform) ...[
+        const SizedBox(height: 8),
+        _oauthBtn(
+          label: 'Continue with Apple',
+          leading: const Icon(Icons.apple, size: 20, color: AppTheme.stone800),
+          onTap: () => _oauthSignIn('apple'),
+        ),
+      ],
+      const SizedBox(height: 8),
+      _oauthBtn(
+        label: 'Continue with Microsoft',
+        leading: _microsoftIcon(),
+        onTap: () => _oauthSignIn('microsoft'),
+      ),
+    ];
+    return Column(children: buttons);
+  }
 
   Widget _googleIcon() => SizedBox(
         width: 20,
@@ -1534,4 +1597,49 @@ class _GoogleLogoPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+// ─── Password Strength Indicator ────────────────────────────────────────────
+
+class _PasswordStrengthBar extends StatelessWidget {
+  final String password;
+  const _PasswordStrengthBar({required this.password});
+
+  @override
+  Widget build(BuildContext context) {
+    if (password.isEmpty) return const SizedBox.shrink();
+
+    final strength = _calculateStrength(password);
+    final label = strength <= 1 ? 'Weak' : strength == 2 ? 'Fair' : strength == 3 ? 'Good' : 'Strong';
+    final color = strength <= 1 ? AppTheme.error : strength == 2 ? const Color(0xFFF59E0B) : strength == 3 ? const Color(0xFF10B981) : AppTheme.success;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: List.generate(4, (i) => Expanded(
+            child: Container(
+              height: 3,
+              margin: EdgeInsets.only(right: i < 3 ? 4 : 0),
+              decoration: BoxDecoration(
+                color: i < strength ? color : AppTheme.stone200,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          )),
+        ),
+        const SizedBox(height: 4),
+        Text(label, style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w600, color: color)),
+      ],
+    );
+  }
+
+  static int _calculateStrength(String password) {
+    int score = 0;
+    if (password.length >= 6) score++;
+    if (password.length >= 10) score++;
+    if (RegExp(r'[A-Z]').hasMatch(password) && RegExp(r'[a-z]').hasMatch(password)) score++;
+    if (RegExp(r'[0-9]').hasMatch(password) || RegExp(r'[^a-zA-Z0-9]').hasMatch(password)) score++;
+    return score;
+  }
 }

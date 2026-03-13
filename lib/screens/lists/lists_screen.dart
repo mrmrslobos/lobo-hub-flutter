@@ -168,7 +168,10 @@ class _ListsScreenState extends State<ListsScreen> {
             ),
             const SizedBox(height: 16),
             SharePicker(
-              members: members.map((m) => SharePickerMember(id: m.id, name: m.name)).toList(),
+              members: members.map((m) {
+                final user = provider.userById(m.userId);
+                return SharePickerMember(id: m.id, name: user?.name ?? m.name);
+              }).toList(),
               onChanged: (result) => shareResult = result,
             ),
             const SizedBox(height: 20),
