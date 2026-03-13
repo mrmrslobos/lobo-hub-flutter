@@ -189,20 +189,23 @@ class DatabaseService {
   }
 
   /// Merge two lists by [id], with cloud items winning on conflict.
+  static String _mergeKeyOf(dynamic item) {
+    try { return item.mergeKey as String; } catch (_) {}
+    return item.id as String;
+  }
+
   static List<T> _mergeById<T>(List<T> local, List<T> cloud) {
     if (cloud.isEmpty) return local;
     if (local.isEmpty) return cloud;
     final map = <String, T>{};
     for (final item in local) {
       try {
-        final id = (item as dynamic).id as String;
-        map[id] = item;
+        map[_mergeKeyOf(item)] = item;
       } catch (_) {}
     }
     for (final item in cloud) {
       try {
-        final id = (item as dynamic).id as String;
-        map[id] = item; // cloud wins on conflict
+        map[_mergeKeyOf(item)] = item; // cloud wins on conflict
       } catch (_) {}
     }
     return map.values.toList();

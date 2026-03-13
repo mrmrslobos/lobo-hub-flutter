@@ -1077,6 +1077,7 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
     final provider = context.read<AppProvider>();
     final db = provider.db;
     final familyId = provider.activeFamily?.id;
+    if (familyId == null) return;
 
     // Build updated familyMembers list
     final updated = db.familyMembers.map((m) {
@@ -1086,14 +1087,37 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
       return FamilyMember(
         userId: m.userId,
         familyId: m.familyId,
-        role: m.role,
+        role: edited.role,
         moduleAccess: edited.moduleAccess,
-        displayName: m.displayName,
+        displayName: edited.displayName,
       );
     }).toList();
 
-    await provider.saveAndSync(db.copyWith(familyMembers: updated));
-    if (mounted) Navigator.pop(context);
+    try {
+      await provider.saveAndSync(db.copyWith(familyMembers: updated));
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(SnackBar(
+            content: const Text('Member settings saved', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            duration: const Duration(seconds: 2),
+          ));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(SnackBar(
+            content: const Text('Failed to save — please try again', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            backgroundColor: AppTheme.error,
+          ));
+      }
+    }
   }
 
   Future<void> _removeMember(int index) async {

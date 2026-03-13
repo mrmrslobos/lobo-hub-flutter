@@ -419,6 +419,8 @@ class FamilyMember {
 
   // Convenience getters
   String get id => userId;
+  /// Composite key for dedup in merge operations.
+  String get mergeKey => '${userId}_$familyId';
   String get name => displayName ?? userId;
 
   factory FamilyMember.fromJson(Map<String, dynamic> j) => FamilyMember(
