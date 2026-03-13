@@ -38,13 +38,16 @@ let tokenExpirationTime = 0; // ms since epoch
 // ---------------------------------------------------------------------------
 function parseJsonSecret(raw: string): Record<string, string> {
   let cleaned = raw.trim();
-  // Strip surrounding double-quotes added by the secrets store
-  if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
-    cleaned = cleaned.slice(1, -1);
+  // Log first 80 chars + char codes for debugging secret encoding issues
+  console.log('[parseJsonSecret] length:', cleaned.length,
+    'first80:', cleaned.slice(0, 80),
+    'charCodes:', [...cleaned.slice(0, 10)].map(c => c.charCodeAt(0)));
+  // Peel away layers of quoting — Supabase may double- or triple-encode
+  while (cleaned.startsWith('"') && cleaned.endsWith('"')) {
+    cleaned = JSON.parse(cleaned) as string;
+    if (typeof cleaned !== 'string') break;
   }
-  // Un-escape any escaped characters (e.g. \" → ", \\\n → \n)
-  cleaned = cleaned.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
-  return JSON.parse(cleaned);
+  return typeof cleaned === 'string' ? JSON.parse(cleaned) : cleaned as unknown as Record<string, string>;
 }
 
 // ---------------------------------------------------------------------------
