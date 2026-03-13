@@ -38,10 +38,6 @@ let tokenExpirationTime = 0; // ms since epoch
 // ---------------------------------------------------------------------------
 function parseJsonSecret(raw: string): Record<string, string> {
   let cleaned = raw.trim();
-  // Log first 80 chars + char codes for debugging secret encoding issues
-  console.log('[parseJsonSecret] length:', cleaned.length,
-    'first80:', cleaned.slice(0, 80),
-    'charCodes:', [...cleaned.slice(0, 10)].map(c => c.charCodeAt(0)));
   // Peel away layers of quoting — Supabase may double- or triple-encode
   while (cleaned.startsWith('"') && cleaned.endsWith('"')) {
     cleaned = JSON.parse(cleaned) as string;
