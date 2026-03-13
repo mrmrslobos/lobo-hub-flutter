@@ -191,6 +191,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
             NotificationService.notifyFamilyActivity(
               title: 'New Chore Added',
               body: '${provider.activeUser?.name ?? "Someone"} added: ${chore.title}',
+              path: '/chores',
               familyId: provider.activeFamily?.id,
               excludeUserId: provider.activeUser?.id,
             );

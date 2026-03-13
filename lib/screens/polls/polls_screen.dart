@@ -95,6 +95,7 @@ class _PollsScreenState extends State<PollsScreen> {
           NotificationService.notifyFamilyActivity(
             title: 'New Poll',
             body: '${provider.activeUser?.name ?? "Someone"} asks: ${poll.question}',
+            path: '/polls',
             familyId: provider.activeFamily?.id,
             excludeUserId: provider.activeUser?.id,
           );
