@@ -19,6 +19,129 @@ import '../../services/locale_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const _uuid = Uuid();
+
+const _activitySuggestions = [
+  'Running',
+  'Walking',
+  'Swimming',
+  'Cycling',
+  'Yoga',
+  'Weight Training',
+  'HIIT',
+  'Hiking',
+];
+
+const _activityEmojis = {
+  'run': '🏃',
+  'walk': '🚶',
+  'swim': '🏊',
+  'bike': '🚴',
+  'cycl': '🚴',
+  'yoga': '🧘',
+  'weight': '🏋️',
+  'lift': '🏋️',
+  'hike': '🥾',
+  'hiit': '🔥',
+};
+
+const _homeEquipment = [
+  'Dumbbells',
+  'Resistance Bands',
+  'Barbell & Plates',
+  'Pull-up Bar',
+  'Kettlebell',
+  'Bench',
+  'Jump Rope',
+  'Bodyweight Only',
+];
+
+const _fitnessLevels = ['Beginner', 'Intermediate', 'Advanced'];
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+void _showSnack(BuildContext context, String msg) {
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    content: Text(msg),
+    behavior: SnackBarBehavior.floating,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+  ));
+}
+
+Future<bool> _confirmRemove(BuildContext context, String title, String message) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      title: Row(children: [
+        Container(
+          width: 36, height: 36,
+          decoration: BoxDecoration(
+            color: AppTheme.error.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: const Icon(Icons.delete_outline_rounded, size: 18, color: AppTheme.error),
+        ),
+        const SizedBox(width: 10),
+        Expanded(child: Text(title, style: const TextStyle(fontFamily: 'Inter', fontSize: 17, fontWeight: FontWeight.w800))),
+      ]),
+      content: Text(message, style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone600)),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Cancel', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, color: AppTheme.stone500)),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('Remove', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, color: AppTheme.error)),
+        ),
+      ],
+    ),
+  );
+  return confirmed == true;
+}
+
+InputDecoration _styledInput(String hint, {IconData? icon}) => InputDecoration(
+  hintText: hint,
+  hintStyle: const TextStyle(color: AppTheme.stone300, fontFamily: 'Inter', fontSize: 13),
+  prefixIcon: icon != null ? Icon(icon, size: 20, color: AppTheme.stone400) : null,
+  filled: true,
+  fillColor: Colors.white,
+  isDense: true,
+  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+  border: OutlineInputBorder(
+    borderRadius: BorderRadius.circular(12),
+    borderSide: BorderSide(color: AppTheme.stone200),
+  ),
+  enabledBorder: OutlineInputBorder(
+    borderRadius: BorderRadius.circular(12),
+    borderSide: BorderSide(color: AppTheme.stone200),
+  ),
+  focusedBorder: OutlineInputBorder(
+    borderRadius: BorderRadius.circular(12),
+    borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
+  ),
+);
+
+String _activityEmoji(String activity) {
+  final a = activity.toLowerCase();
+  for (final entry in _activityEmojis.entries) {
+    if (a.contains(entry.key)) return entry.value;
+  }
+  return '💪';
+}
+
+String _stripFences(String raw) {
+  var s = raw.trim();
+  if (s.startsWith('```')) s = s.substring(s.indexOf('\n') + 1);
+  if (s.endsWith('```')) s = s.substring(0, s.lastIndexOf('```'));
+  return s.trim();
+}
+
+// ─── Fitness Screen ───────────────────────────────────────────────────────────
+
 class FitnessScreen extends StatefulWidget {
   const FitnessScreen({super.key});
 
@@ -26,7 +149,7 @@ class FitnessScreen extends StatefulWidget {
   State<FitnessScreen> createState() => _FitnessScreenState();
 }
 
-enum _FitnessFilter { all, mine }
+enum _FitnessFilter { mine, family }
 
 class _FitnessScreenState extends State<FitnessScreen> {
   _FitnessFilter _filter = _FitnessFilter.mine;
@@ -76,8 +199,7 @@ class _FitnessScreenState extends State<FitnessScreen> {
         onSave: (log) async {
           final provider = context.read<AppProvider>();
           final db = provider.db;
-          await provider
-              .saveAndSync(db.copyWith(fitnessLogs: [...db.fitnessLogs, log]));
+          await provider.saveAndSync(db.copyWith(fitnessLogs: [...db.fitnessLogs, log]));
         },
       ),
     );
@@ -109,7 +231,6 @@ class _FitnessScreenState extends State<FitnessScreen> {
           final db = provider.db;
           final userId = provider.activeUser?.id;
           if (userId == null) return;
-          // Replace existing plan for this user, or add new
           final plans = db.fitnessPlans.toList();
           plans.removeWhere((p) => p is Map && p['userId'] == userId);
           plans.add({...planMap, 'userId': userId, 'createdAt': DateTime.now().toIso8601String()});
@@ -119,23 +240,13 @@ class _FitnessScreenState extends State<FitnessScreen> {
     );
   }
 
-  Future<void> _deleteLog(String id) async {
-    final provider = context.read<AppProvider>();
+  Future<void> _deleteLog(BuildContext context, String id) async {
+    final ok = await _confirmRemove(context, 'Delete Log', 'Remove this fitness log?');
+    if (!ok) return;
+    final provider = this.context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(db.copyWith(
         fitnessLogs: db.fitnessLogs.where((l) => l.id != id).toList()));
-  }
-
-  String _activityEmoji(String activity) {
-    final a = activity.toLowerCase();
-    if (a.contains('run')) return '🏃';
-    if (a.contains('walk')) return '🚶';
-    if (a.contains('swim')) return '🏊';
-    if (a.contains('bike') || a.contains('cycl')) return '🚴';
-    if (a.contains('yoga')) return '🧘';
-    if (a.contains('weight') || a.contains('lift')) return '🏋️';
-    if (a.contains('hike')) return '🥾';
-    return '💪';
   }
 
   @override
@@ -147,22 +258,21 @@ class _FitnessScreenState extends State<FitnessScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    final allLogs =
-        provider.db.fitnessLogs.where((l) => l.familyId == family.id).toList();
+    final locale = context.read<LocaleService>().config;
+    final unit = locale.useMetric ? 'kg' : 'lbs';
 
-    final shown = _filter == _FitnessFilter.mine
-        ? allLogs.where((l) => l.userId == user.id).toList()
-        : allLogs;
+    final allLogs = provider.db.fitnessLogs.where((l) => l.familyId == family.id).toList();
+    final myLogs = allLogs.where((l) => l.userId == user.id).toList();
+    final shown = _filter == _FitnessFilter.mine ? myLogs : allLogs;
     shown.sort((a, b) => b.date.compareTo(a.date));
 
     final now = DateTime.now();
-    final weekStart = now.subtract(Duration(days: now.weekday - 1));
-    final weekLogs = shown
-        .where((l) =>
-            l.date.isAfter(weekStart.subtract(const Duration(days: 1))))
-        .toList();
 
-    // Calculate active streak (consecutive days with logs)
+    // Weekly logs
+    final weekStart = now.subtract(Duration(days: now.weekday - 1));
+    final weekLogs = shown.where((l) => l.date.isAfter(weekStart.subtract(const Duration(days: 1)))).toList();
+
+    // Active streak
     int streak = 0;
     DateTime checkDate = DateTime(now.year, now.month, now.day);
     while (true) {
@@ -175,14 +285,14 @@ class _FitnessScreenState extends State<FitnessScreen> {
       checkDate = checkDate.subtract(const Duration(days: 1));
     }
 
-    // Find stored AI fitness plan for current user
+    // Stored AI fitness plan
     final storedPlan = provider.db.fitnessPlans
         .whereType<Map>()
         .where((p) => p['userId'] == user.id)
         .toList();
     final latestPlan = storedPlan.isNotEmpty ? storedPlan.last : null;
 
-    // Weight data from FitnessMetric records
+    // Weight data
     final weightMetrics = provider.db.fitness
         .where((m) => m.type == 'WEIGHT' && m.userId == user.id)
         .toList()
@@ -192,56 +302,32 @@ class _FitnessScreenState extends State<FitnessScreen> {
     if (weightMetrics.length >= 2) {
       final diff = weightMetrics.last.value - weightMetrics.first.value;
       final sign = diff >= 0 ? '+' : '';
-      weightProgress = '$sign${diff.toStringAsFixed(1)} kg';
+      weightProgress = '$sign${diff.toStringAsFixed(1)} $unit';
     } else if (weightMetrics.length == 1) {
-      weightProgress = '${weightMetrics.first.value.toStringAsFixed(1)} kg';
+      weightProgress = '${weightMetrics.first.value.toStringAsFixed(1)} $unit';
     } else {
       weightProgress = 'No data';
     }
 
+    // Total minutes this week
+    final weekMinutes = weekLogs.fold<int>(0, (sum, l) => sum + l.durationMinutes);
+
     return Scaffold(
+      backgroundColor: AppTheme.background,
       drawer: const AppDrawer(),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: Builder(
-          builder: (context) => IconButton(
-            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
-            onPressed: () => Scaffold.of(context).openDrawer(),
-          ),
-        ),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
-            const SizedBox(width: 6),
-            const Text('FamilyHub',
-                style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontWeight: FontWeight.w800,
-                    fontSize: 18,
-                    color: AppTheme.primary)),
-          ],
-        ),
-        centerTitle: false,
-        titleSpacing: 0,
-        actions: const [],
-      ),
+      appBar: const FamilyHubAppBar(),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 32),
         children: [
           // ── Page Header ──
           PageHeader(
-            title: 'Fitness & Health',
-            subtitle: 'Track your vitals and stay active together.',
+            title: '💪 Fitness',
+            subtitle: 'Track workouts, weight & stay active together.',
             actions: [
               ActionChipButton(
                 icon: Icons.fitness_center_rounded,
                 label: 'Log Exercise',
                 onTap: _showAddSheet,
-                backgroundColor: AppTheme.stone100,
-                foregroundColor: AppTheme.stone700,
               ),
               ActionChipButton(
                 icon: Icons.monitor_weight_outlined,
@@ -250,6 +336,33 @@ class _FitnessScreenState extends State<FitnessScreen> {
                 isPrimary: true,
               ),
             ],
+          ),
+
+          // ── Stats Row ──
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+            child: Row(children: [
+              _MiniStat(
+                icon: Icons.monitor_weight_outlined,
+                iconColor: AppTheme.primary,
+                value: weightProgress,
+                label: 'Weight',
+              ),
+              const SizedBox(width: 10),
+              _MiniStat(
+                icon: Icons.local_fire_department_rounded,
+                iconColor: const Color(0xFFF97316),
+                value: '$streak',
+                label: 'Day Streak',
+              ),
+              const SizedBox(width: 10),
+              _MiniStat(
+                icon: Icons.timer_outlined,
+                iconColor: const Color(0xFF22C55E),
+                value: '${weekMinutes}m',
+                label: 'This Week',
+              ),
+            ]),
           ),
 
           // ── AI Health Coach Card ──
@@ -268,19 +381,12 @@ class _FitnessScreenState extends State<FitnessScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Icon(Icons.auto_awesome_rounded,
-                          color: Colors.white.withValues(alpha: 0.9), size: 20),
-                      const SizedBox(width: 8),
-                      const Text('AI Health Coach',
-                          style: TextStyle(
-                              fontFamily: 'Inter',
-                              fontWeight: FontWeight.w800,
-                              fontSize: 16,
-                              color: Colors.white)),
-                    ],
-                  ),
+                  Row(children: [
+                    Icon(Icons.auto_awesome_rounded, color: Colors.white.withValues(alpha: 0.9), size: 20),
+                    const SizedBox(width: 8),
+                    const Text('AI Health Coach',
+                        style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 16, color: Colors.white)),
+                  ]),
                   const SizedBox(height: 10),
                   if (_motivation != null) ...[
                     Container(
@@ -291,132 +397,44 @@ class _FitnessScreenState extends State<FitnessScreen> {
                       ),
                       child: Text('"$_motivation"',
                           style: TextStyle(
-                              fontFamily: 'Inter',
-                              fontSize: 14,
-                              fontStyle: FontStyle.italic,
-                              color: Colors.white.withValues(alpha: 0.95),
-                              height: 1.5)),
+                              fontFamily: 'Inter', fontSize: 14, fontStyle: FontStyle.italic,
+                              color: Colors.white.withValues(alpha: 0.95), height: 1.5)),
                     ),
                     const SizedBox(height: 10),
                   ] else
                     Text(
-                      'Get a motivation boost or generate a personalized fitness plan.',
-                      style: TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 13,
-                          color: Colors.white.withValues(alpha: 0.85),
-                          height: 1.5),
+                      'Get a motivation boost or generate a personalised fitness plan.',
+                      style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: Colors.white.withValues(alpha: 0.85), height: 1.5),
                     ),
                   const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      GestureDetector(
-                        onTap: _motivationLoading ? null : _getMotivation,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: _motivationLoading
-                              ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF6366F1)))
-                              : const Text('Motivate Me',
-                                  style: TextStyle(
-                                      fontFamily: 'Inter',
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 13,
-                                      color: Color(0xFF6366F1))),
-                        ),
+                  Row(children: [
+                    GestureDetector(
+                      onTap: _motivationLoading ? null : _getMotivation,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10)),
+                        child: _motivationLoading
+                            ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF6366F1)))
+                            : const Text('Motivate Me',
+                                style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF6366F1))),
                       ),
-                      const SizedBox(width: 8),
-                      GestureDetector(
-                        onTap: _showAiPlanSheet,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Text('New Plan',
-                              style: TextStyle(
-                                  fontFamily: 'Inter',
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 13,
-                                  color: Colors.white)),
+                    ),
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: _showAiPlanSheet,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(10),
                         ),
+                        child: const Text('New Plan',
+                            style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Colors.white)),
                       ),
-                    ],
-                  ),
+                    ),
+                  ]),
                 ],
               ),
-            ),
-          ),
-
-          // ── Stats Row ──
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: AppTheme.primaryLight,
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('WEIGHT PROGRESS',
-                            style: TextStyle(
-                                fontFamily: 'Inter',
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                                color: AppTheme.stone400,
-                                letterSpacing: 0.8)),
-                        const SizedBox(height: 6),
-                        Text(weightProgress,
-                            style: const TextStyle(
-                                fontFamily: 'Inter',
-                                fontSize: 22,
-                                fontWeight: FontWeight.w900,
-                                color: AppTheme.primary)),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: AppTheme.primaryLight,
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('ACTIVE STREAK',
-                            style: TextStyle(
-                                fontFamily: 'Inter',
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                                color: AppTheme.stone400,
-                                letterSpacing: 0.8)),
-                        const SizedBox(height: 6),
-                        Text('$streak days',
-                            style: const TextStyle(
-                                fontFamily: 'Inter',
-                                fontSize: 22,
-                                fontWeight: FontWeight.w900,
-                                color: AppTheme.primary)),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
             ),
           ),
 
@@ -428,20 +446,25 @@ class _FitnessScreenState extends State<FitnessScreen> {
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: AppTheme.stone200),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppTheme.stone100),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.monitor_weight_outlined, size: 18, color: AppTheme.stone400),
-                        const SizedBox(width: 6),
-                        const Text('Weight Trends',
-                            style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 16, color: AppTheme.stone800)),
-                      ],
-                    ),
+                    Row(children: [
+                      Container(
+                        width: 32, height: 32,
+                        decoration: BoxDecoration(
+                          color: AppTheme.primary.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(9),
+                        ),
+                        child: const Icon(Icons.monitor_weight_outlined, size: 16, color: AppTheme.primary),
+                      ),
+                      const SizedBox(width: 8),
+                      const Text('Weight Trends',
+                          style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 15, color: AppTheme.stone800)),
+                    ]),
                     const SizedBox(height: 16),
                     SizedBox(
                       height: 200,
@@ -451,10 +474,7 @@ class _FitnessScreenState extends State<FitnessScreen> {
                             show: true,
                             drawVerticalLine: false,
                             horizontalInterval: 5,
-                            getDrawingHorizontalLine: (value) => FlLine(
-                              color: AppTheme.stone100,
-                              strokeWidth: 1,
-                            ),
+                            getDrawingHorizontalLine: (value) => FlLine(color: AppTheme.stone100, strokeWidth: 1),
                           ),
                           titlesData: FlTitlesData(
                             topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
@@ -512,7 +532,7 @@ class _FitnessScreenState extends State<FitnessScreen> {
                             touchTooltipData: LineTouchTooltipData(
                               getTooltipItems: (spots) => spots.map((s) =>
                                 LineTooltipItem(
-                                  '${s.y.toStringAsFixed(1)} kg',
+                                  '${s.y.toStringAsFixed(1)} $unit',
                                   const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12, color: Colors.white),
                                 ),
                               ).toList(),
@@ -529,27 +549,32 @@ class _FitnessScreenState extends State<FitnessScreen> {
           // ── AI Fitness Plan Section ──
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-            child: Row(
-              children: [
-                const Icon(Icons.auto_awesome_rounded, size: 18, color: AppTheme.primary),
-                const SizedBox(width: 6),
-                const Text('AI Fitness Plan',
-                    style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 16, color: AppTheme.stone900)),
-                const Spacer(),
-                GestureDetector(
-                  onTap: _showAiPlanSheet,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(color: AppTheme.primary, borderRadius: BorderRadius.circular(10)),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: const [
-                      Icon(Icons.auto_awesome_rounded, size: 14, color: Colors.white),
-                      SizedBox(width: 4),
-                      Text('New Plan', style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white)),
-                    ]),
-                  ),
+            child: Row(children: [
+              Container(
+                width: 32, height: 32,
+                decoration: BoxDecoration(
+                  color: AppTheme.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(9),
                 ),
-              ],
-            ),
+                child: const Icon(Icons.auto_awesome_rounded, size: 16, color: AppTheme.primary),
+              ),
+              const SizedBox(width: 8),
+              const Text('AI Fitness Plan',
+                  style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 15, color: AppTheme.stone900)),
+              const Spacer(),
+              GestureDetector(
+                onTap: _showAiPlanSheet,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(color: AppTheme.primary, borderRadius: BorderRadius.circular(10)),
+                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.auto_awesome_rounded, size: 14, color: Colors.white),
+                    SizedBox(width: 4),
+                    Text('New Plan', style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white)),
+                  ]),
+                ),
+              ),
+            ]),
           ),
           if (latestPlan != null)
             _StoredPlanView(plan: latestPlan)
@@ -569,7 +594,7 @@ class _FitnessScreenState extends State<FitnessScreen> {
                   child: Column(children: [
                     Icon(Icons.fitness_center_rounded, size: 32, color: AppTheme.primary.withValues(alpha: 0.5)),
                     const SizedBox(height: 8),
-                    const Text("Click 'New Plan' to get a personalised AI fitness plan based on your profile.",
+                    const Text("Tap 'New Plan' to get a personalised AI fitness plan based on your profile.",
                         textAlign: TextAlign.center,
                         style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400, height: 1.5)),
                   ]),
@@ -579,26 +604,22 @@ class _FitnessScreenState extends State<FitnessScreen> {
 
           // ── Filter Tabs ──
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
             child: AppTabBar(
               tabs: const ['My Logs', 'Family'],
               selectedIndex: _filter.index,
-              onSelected: (i) =>
-                  setState(() => _filter = _FitnessFilter.values[i]),
+              onSelected: (i) => setState(() => _filter = _FitnessFilter.values[i]),
             ),
           ),
 
           // ── Workout Logs ──
           if (shown.isEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-              child: EmptyState(
-                emoji: '💪',
-                title: 'No fitness logs',
-                subtitle: 'Track your workouts and activities.',
-                actionLabel: 'Add Log',
-                onAction: _showAddSheet,
-              ),
+            EmptyState(
+              emoji: '💪',
+              title: 'No fitness logs yet',
+              subtitle: 'Track your workouts and activities to see them here.',
+              actionLabel: 'Log Exercise',
+              onAction: _showAddSheet,
             )
           else
             ...shown.map((log) => Padding(
@@ -606,9 +627,8 @@ class _FitnessScreenState extends State<FitnessScreen> {
                   child: _LogCard(
                     log: log,
                     emoji: _activityEmoji(log.activity),
-                    memberName:
-                        provider.userById(log.userId)?.name ?? 'Member',
-                    onDelete: () => _deleteLog(log.id),
+                    memberName: provider.userById(log.userId)?.name ?? 'Member',
+                    onDelete: () => _deleteLog(context, log.id),
                   ),
                 )),
         ],
@@ -617,9 +637,56 @@ class _FitnessScreenState extends State<FitnessScreen> {
   }
 }
 
-// ─────────────────────────────────────────────
-// Stored Plan View (inline on fitness page)
-// ─────────────────────────────────────────────
+// ─── Mini Stat Card ───────────────────────────────────────────────────────────
+
+class _MiniStat extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String value;
+  final String label;
+
+  const _MiniStat({required this.icon, required this.iconColor, required this.value, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppTheme.stone100),
+        ),
+        child: Row(children: [
+          Container(
+            width: 32, height: 32,
+            decoration: BoxDecoration(
+              color: iconColor.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: Icon(icon, size: 16, color: iconColor),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(value, style: const TextStyle(
+                  fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.stone800,
+                ), overflow: TextOverflow.ellipsis),
+                Text(label, style: const TextStyle(
+                  fontFamily: 'Inter', fontSize: 9, fontWeight: FontWeight.w600, color: AppTheme.stone400,
+                )),
+              ],
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+// ─── Stored Plan View ─────────────────────────────────────────────────────────
 
 class _StoredPlanView extends StatefulWidget {
   final Map plan;
@@ -643,9 +710,7 @@ class _StoredPlanViewState extends State<_StoredPlanView> {
   Future<void> _refinePlan() async {
     final request = _refineController.text.trim();
     if (request.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please describe how to refine the plan'), behavior: SnackBarBehavior.floating),
-      );
+      _showSnack(context, 'Please describe how to refine the plan');
       return;
     }
     setState(() => _refining = true);
@@ -681,14 +746,9 @@ Apply the requested change while keeping everything else sensible.
         if (mounted) setState(() => _refining = false);
         return;
       }
-      var cleaned = raw.trim();
-      if (cleaned.startsWith('```')) cleaned = cleaned.substring(cleaned.indexOf('\n') + 1);
-      if (cleaned.endsWith('```')) cleaned = cleaned.substring(0, cleaned.lastIndexOf('```'));
-      cleaned = cleaned.trim();
-
+      final cleaned = _stripFences(raw);
       final decoded = jsonDecode(cleaned);
       if (decoded is Map<String, dynamic>) {
-        // Save the refined plan
         final provider = context.read<AppProvider>();
         final db = provider.db;
         final userId = provider.activeUser?.id ?? '';
@@ -700,9 +760,7 @@ Apply the requested change while keeping everything else sensible.
         if (mounted) {
           _refineController.clear();
           setState(() => _refining = false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Plan refined successfully!'), behavior: SnackBarBehavior.floating),
-          );
+          _showSnack(context, 'Plan refined successfully!');
         }
       } else {
         if (mounted) setState(() => _refining = false);
@@ -711,9 +769,7 @@ Apply the requested change while keeping everything else sensible.
       debugPrint('[Fitness] refine error: $e');
       if (mounted) {
         setState(() => _refining = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not refine plan. Please try again.'), behavior: SnackBarBehavior.floating),
-        );
+        _showSnack(context, 'Could not refine plan. Please try again.');
       }
     }
   }
@@ -734,7 +790,7 @@ Apply the requested change while keeping everything else sensible.
             width: double.infinity,
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              gradient: LinearGradient(colors: [const Color(0xFFEEF2FF), const Color(0xFFF5F3FF)]),
+              gradient: const LinearGradient(colors: [Color(0xFFEEF2FF), Color(0xFFF5F3FF)]),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: const Color(0xFFC7D2FE)),
             ),
@@ -799,7 +855,11 @@ Apply the requested change while keeping everything else sensible.
                           Text(duration, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
                         ]),
                       ])),
-                      Icon(isExpanded ? Icons.expand_less_rounded : Icons.expand_more_rounded, color: AppTheme.stone400),
+                      AnimatedRotation(
+                        turns: isExpanded ? 0.5 : 0,
+                        duration: const Duration(milliseconds: 200),
+                        child: const Icon(Icons.expand_more_rounded, color: AppTheme.stone400),
+                      ),
                     ]),
                   ),
                   if (isExpanded && exercises.isNotEmpty)
@@ -844,7 +904,7 @@ Apply the requested change while keeping everything else sensible.
               border: Border.all(color: const Color(0xFFFDE68A)),
             ),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: const [
+              const Row(children: [
                 Icon(Icons.auto_awesome_rounded, size: 16, color: Color(0xFFD97706)),
                 SizedBox(width: 6),
                 Text('Pro Tips', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: Color(0xFF92400E))),
@@ -853,7 +913,7 @@ Apply the requested change while keeping everything else sensible.
               ...tips.map((t) => Padding(
                 padding: const EdgeInsets.only(bottom: 4),
                 child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Text('- ', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFFB45309))),
+                  const Text('• ', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFFB45309))),
                   Expanded(child: Text(t, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFF92400E), height: 1.4))),
                 ]),
               )),
@@ -886,9 +946,9 @@ Apply the requested change while keeping everything else sensible.
                 hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
                 filled: true,
                 fillColor: Colors.white,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFC7D2FE))),
-                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFC7D2FE))),
-                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF6366F1), width: 1.5)),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFC7D2FE))),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFC7D2FE))),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF6366F1), width: 1.5)),
                 contentPadding: const EdgeInsets.all(10),
               ),
             ),
@@ -901,7 +961,7 @@ Apply the requested change while keeping everything else sensible.
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   decoration: BoxDecoration(
                     color: const Color(0xFF6366F1),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   child: _refining
                       ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
@@ -926,9 +986,7 @@ Apply the requested change while keeping everything else sensible.
   );
 }
 
-// ─────────────────────────────────────────────
-// AI Fitness Plan Sheet (Vite-style form)
-// ─────────────────────────────────────────────
+// ─── AI Fitness Plan Sheet ────────────────────────────────────────────────────
 
 class _AiFitnessPlanSheet extends StatefulWidget {
   final Future<void> Function(Map<String, dynamic>) onSavePlan;
@@ -948,12 +1006,6 @@ class _AiFitnessPlanSheetState extends State<_AiFitnessPlanSheet> {
   int _daysPerWeek = 5;
   bool _isGenerating = false;
   String? _error;
-
-  static const _levels = ['Beginner', 'Intermediate', 'Advanced'];
-  static const _homeEquipment = [
-    'Dumbbells', 'Resistance Bands', 'Barbell & Plates', 'Pull-up Bar',
-    'Kettlebell', 'Bench', 'Jump Rope', 'Bodyweight Only',
-  ];
 
   @override
   void dispose() {
@@ -1037,15 +1089,9 @@ Return ONLY valid JSON (no markdown) with this structure:
       );
 
       if (raw != null && mounted) {
-        // Try to parse as JSON
         try {
-          // Strip markdown code fences if present
-          String cleaned = raw.trim();
-          if (cleaned.startsWith('```')) {
-            cleaned = cleaned.replaceFirst(RegExp(r'^```\w*\n?'), '').replaceFirst(RegExp(r'\n?```$'), '');
-          }
+          final cleaned = _stripFences(raw);
           final parsed = jsonDecode(cleaned) as Map<String, dynamic>;
-          // Save the plan with profile info
           parsed['profile'] = {
             'gender': _gender,
             'height': height,
@@ -1059,7 +1105,6 @@ Return ONLY valid JSON (no markdown) with this structure:
           if (mounted) Navigator.pop(context);
           return;
         } catch (_) {
-          // If JSON parse fails, save as plain text summary
           await widget.onSavePlan({
             'summary': raw,
             'weeklyPlan': <Map>[],
@@ -1102,7 +1147,6 @@ Return ONLY valid JSON (no markdown) with this structure:
           ),
           Expanded(
             child: ListView(controller: controller, padding: const EdgeInsets.fromLTRB(20, 8, 20, 40), children: [
-              // Intro
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(color: AppTheme.stone50, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.stone100)),
@@ -1123,9 +1167,9 @@ Return ONLY valid JSON (no markdown) with this structure:
                   // Fitness Level
                   _sectionLabel('FITNESS LEVEL'),
                   const SizedBox(height: 8),
-                  Row(children: _levels.map((l) => Expanded(
+                  Row(children: _fitnessLevels.map((l) => Expanded(
                     child: Padding(
-                      padding: EdgeInsets.only(right: l != _levels.last ? 8 : 0),
+                      padding: EdgeInsets.only(right: l != _fitnessLevels.last ? 8 : 0),
                       child: _toggleButton(l, _level == l, () => setState(() => _level = l)),
                     ),
                   )).toList()),
@@ -1137,14 +1181,7 @@ Return ONLY valid JSON (no markdown) with this structure:
                   TextField(
                     controller: _heightCtrl,
                     keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      hintText: 'e.g. 175',
-                      filled: true,
-                      fillColor: Colors.white,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppTheme.stone200)),
-                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppTheme.stone200)),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                    ),
+                    decoration: _styledInput('e.g. 175'),
                   ),
                   const SizedBox(height: 20),
 
@@ -1154,14 +1191,7 @@ Return ONLY valid JSON (no markdown) with this structure:
                   TextField(
                     controller: _weightCtrl,
                     keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      hintText: 'e.g. 80',
-                      filled: true,
-                      fillColor: Colors.white,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppTheme.stone200)),
-                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppTheme.stone200)),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                    ),
+                    decoration: _styledInput('e.g. 80'),
                   ),
                   const SizedBox(height: 20),
 
@@ -1183,7 +1213,8 @@ Return ONLY valid JSON (no markdown) with this structure:
                       final selected = _equipment.contains(e);
                       return GestureDetector(
                         onTap: () => _toggleEquipment(e),
-                        child: Container(
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                           decoration: BoxDecoration(
                             color: selected ? AppTheme.primary : Colors.white,
@@ -1209,7 +1240,8 @@ Return ONLY valid JSON (no markdown) with this structure:
                         padding: const EdgeInsets.symmetric(horizontal: 3),
                         child: GestureDetector(
                           onTap: () => setState(() => _daysPerWeek = d),
-                          child: Container(
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 150),
                             height: 48,
                             decoration: BoxDecoration(
                               color: selected ? AppTheme.primary : Colors.white,
@@ -1269,7 +1301,8 @@ Return ONLY valid JSON (no markdown) with this structure:
   Widget _toggleButton(String label, bool selected, VoidCallback onTap) {
     return GestureDetector(
       onTap: onTap,
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
           color: selected ? AppTheme.primary : Colors.white,
@@ -1284,7 +1317,8 @@ Return ONLY valid JSON (no markdown) with this structure:
   Widget _locationButton(String emoji, String title, String subtitle, bool selected, VoidCallback onTap) {
     return GestureDetector(
       onTap: onTap,
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
         decoration: BoxDecoration(
           color: selected ? AppTheme.primary : Colors.white,
@@ -1303,9 +1337,7 @@ Return ONLY valid JSON (no markdown) with this structure:
   }
 }
 
-// ─────────────────────────────────────────────
-// Log Card
-// ─────────────────────────────────────────────
+// ─── Log Card ─────────────────────────────────────────────────────────────────
 
 class _LogCard extends StatelessWidget {
   final FitnessLog log;
@@ -1313,41 +1345,12 @@ class _LogCard extends StatelessWidget {
   final String memberName;
   final VoidCallback onDelete;
 
-  const _LogCard(
-      {required this.log,
-      required this.emoji,
-      required this.memberName,
-      required this.onDelete});
+  const _LogCard({required this.log, required this.emoji, required this.memberName, required this.onDelete});
 
   @override
   Widget build(BuildContext context) {
-    return Dismissible(
-      key: Key(log.id),
-      direction: DismissDirection.endToStart,
-      background: Container(
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 20),
-        decoration: BoxDecoration(
-            color: AppTheme.error, borderRadius: BorderRadius.circular(16)),
-        child: const Icon(Icons.delete_outline_rounded, color: Colors.white),
-      ),
-      confirmDismiss: (_) async => await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Delete Log'),
-          content: const Text('Remove this fitness log?'),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Cancel')),
-            TextButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Delete',
-                    style: TextStyle(color: AppTheme.error))),
-          ],
-        ),
-      ),
-      onDismissed: (_) => onDelete(),
+    return GestureDetector(
+      onLongPress: onDelete,
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
@@ -1357,63 +1360,44 @@ class _LogCard extends StatelessWidget {
         ),
         child: Row(children: [
           Container(
-            width: 46,
-            height: 46,
+            width: 46, height: 46,
             decoration: BoxDecoration(
-                color: AppTheme.primaryLight,
-                borderRadius: BorderRadius.circular(12)),
-            child: Center(
-                child: Text(emoji, style: const TextStyle(fontSize: 22))),
+              color: AppTheme.primaryLight,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Center(child: Text(emoji, style: const TextStyle(fontSize: 22))),
           ),
           const SizedBox(width: 12),
-          Expanded(
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(log.activity,
-                style: const TextStyle(
-                    fontFamily: 'Inter',
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15,
-                    color: AppTheme.stone900)),
+                style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: AppTheme.stone900)),
             const SizedBox(height: 4),
             Wrap(spacing: 6, runSpacing: 4, children: [
               _Chip(label: '${log.durationMinutes} min', color: AppTheme.primary),
               if (log.caloriesBurned != null)
-                _Chip(
-                    label: '${log.caloriesBurned} cal', color: AppTheme.error),
-              _Chip(
-                  label: memberName.split(' ').first,
-                  color: AppTheme.stone500),
+                _Chip(label: '${log.caloriesBurned} cal', color: const Color(0xFFF97316)),
+              _Chip(label: memberName.split(' ').first, color: AppTheme.stone500),
             ]),
             if (log.notes != null && log.notes!.isNotEmpty) ...[
               const SizedBox(height: 4),
               Text(log.notes!,
-                  style: const TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 12,
-                      color: AppTheme.stone400),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis),
+                  style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
+                  maxLines: 1, overflow: TextOverflow.ellipsis),
             ],
           ])),
           Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
             Text(DateFormat('MMM d').format(log.date),
-                style: const TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 12,
-                    color: AppTheme.stone400)),
+                style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
             Text(DateFormat('h:mm a').format(log.date),
-                style: const TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 11,
-                    color: AppTheme.stone300)),
+                style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone300)),
           ]),
         ]),
       ),
     );
   }
 }
+
+// ─── Chip ─────────────────────────────────────────────────────────────────────
 
 class _Chip extends StatelessWidget {
   final String label;
@@ -1422,22 +1406,17 @@ class _Chip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-        decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(6)),
-        child: Text(label,
-            style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: color)),
-      );
+    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.1),
+      borderRadius: BorderRadius.circular(6),
+    ),
+    child: Text(label,
+        style: TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: color)),
+  );
 }
 
-// ─────────────────────────────────────────────
-// Fitness Log Sheet (unchanged)
-// ─────────────────────────────────────────────
+// ─── Fitness Log Sheet ────────────────────────────────────────────────────────
 
 class _FitnessLogSheet extends StatefulWidget {
   final Future<void> Function(FitnessLog) onSave;
@@ -1454,18 +1433,12 @@ class _FitnessLogSheetState extends State<_FitnessLogSheet> {
   final _notesCtrl = TextEditingController();
   DateTime _date = DateTime.now();
   bool _isSaving = false;
-  final _uuid = const Uuid();
 
-  static const _suggestions = [
-    'Running',
-    'Walking',
-    'Swimming',
-    'Cycling',
-    'Yoga',
-    'Weight Training',
-    'HIIT',
-    'Hiking'
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _activityCtrl.addListener(() => setState(() {}));
+  }
 
   @override
   void dispose() {
@@ -1488,22 +1461,16 @@ class _FitnessLogSheetState extends State<_FitnessLogSheet> {
 
   Future<void> _save() async {
     if (_activityCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter an activity name'), behavior: SnackBarBehavior.floating),
-      );
+      _showSnack(context, 'Please enter an activity name');
       return;
     }
     if (_durationCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a duration'), behavior: SnackBarBehavior.floating),
-      );
+      _showSnack(context, 'Please enter a duration');
       return;
     }
     final duration = int.tryParse(_durationCtrl.text);
     if (duration == null || duration <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Duration must be a positive number'), behavior: SnackBarBehavior.floating),
-      );
+      _showSnack(context, 'Duration must be a positive number');
       return;
     }
     setState(() => _isSaving = true);
@@ -1525,10 +1492,7 @@ class _FitnessLogSheetState extends State<_FitnessLogSheet> {
   @override
   Widget build(BuildContext context) {
     return DraggableScrollableSheet(
-      initialChildSize: 0.8,
-      maxChildSize: 0.95,
-      minChildSize: 0.5,
-      expand: false,
+      initialChildSize: 0.8, maxChildSize: 0.95, minChildSize: 0.5, expand: false,
       builder: (_, controller) => Container(
         decoration: const BoxDecoration(
             color: AppTheme.surface,
@@ -1537,125 +1501,96 @@ class _FitnessLogSheetState extends State<_FitnessLogSheet> {
           const SheetHandle(),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
-            child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Log Workout',
-                      style: TextStyle(
-                          fontFamily: 'Inter',
-                          fontWeight: FontWeight.w700,
-                          fontSize: 20,
-                          color: AppTheme.stone900)),
-                  TextButton(
-                    onPressed: _isSaving ? null : _save,
-                    child: _isSaving
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Text('Save',
-                            style: TextStyle(fontWeight: FontWeight.w700)),
-                  ),
-                ]),
+            child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+              const Text('Log Workout',
+                  style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 20, color: AppTheme.stone900)),
+              TextButton(
+                onPressed: _isSaving ? null : _save,
+                child: _isSaving
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Text('Save', style: TextStyle(fontWeight: FontWeight.w700)),
+              ),
+            ]),
           ),
           Expanded(
-            child: ListView(
-                controller: controller,
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
-                children: [
-                  TextField(
-                    controller: _activityCtrl,
-                    autofocus: true,
-                    textCapitalization: TextCapitalization.words,
-                    decoration: const InputDecoration(
-                        labelText: 'Activity *',
-                        prefixIcon: Icon(Icons.fitness_center_rounded)),
-                  ),
-                  const SizedBox(height: 8),
-                  // Quick suggestions
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: _suggestions
-                          .map((s) => Padding(
-                                padding: const EdgeInsets.only(right: 6),
-                                child: GestureDetector(
-                                  onTap: () =>
-                                      setState(() => _activityCtrl.text = s),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 10, vertical: 6),
-                                    decoration: BoxDecoration(
-                                      color: _activityCtrl.text == s
-                                          ? AppTheme.primaryLight
-                                          : AppTheme.stone100,
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    child: Text(s,
-                                        style: const TextStyle(
-                                            fontFamily: 'Inter',
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w600,
-                                            color: AppTheme.stone700)),
-                                  ),
-                                ),
-                              ))
-                          .toList(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _durationCtrl,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                            labelText: 'Duration (min) *',
-                            prefixIcon: Icon(Icons.timer_outlined)),
+            child: ListView(controller: controller, padding: const EdgeInsets.fromLTRB(20, 12, 20, 32), children: [
+              TextField(
+                controller: _activityCtrl,
+                autofocus: true,
+                textCapitalization: TextCapitalization.words,
+                decoration: _styledInput('Activity *', icon: Icons.fitness_center_rounded),
+              ),
+              const SizedBox(height: 8),
+              // Quick suggestions
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: _activitySuggestions.map((s) => Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: GestureDetector(
+                      onTap: () => _activityCtrl.text = s,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: _activityCtrl.text == s ? AppTheme.primary.withValues(alpha: 0.1) : AppTheme.stone100,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: _activityCtrl.text == s ? AppTheme.primary.withValues(alpha: 0.4) : Colors.transparent,
+                          ),
+                        ),
+                        child: Text(s,
+                            style: TextStyle(
+                                fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600,
+                                color: _activityCtrl.text == s ? AppTheme.primary : AppTheme.stone700)),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextField(
-                        controller: _caloriesCtrl,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                            labelText: 'Calories (optional)',
-                            prefixIcon:
-                                Icon(Icons.local_fire_department_rounded)),
-                      ),
-                    ),
+                  )).toList(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(children: [
+                Expanded(
+                  child: TextField(
+                    controller: _durationCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: _styledInput('Duration (min) *', icon: Icons.timer_outlined),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: _caloriesCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: _styledInput('Calories (optional)', icon: Icons.local_fire_department_rounded),
+                  ),
+                ),
+              ]),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _notesCtrl,
+                maxLines: 2,
+                decoration: _styledInput('Notes (optional)'),
+              ),
+              const SizedBox(height: 12),
+              GestureDetector(
+                onTap: _pickDate,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: AppTheme.stone50,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppTheme.stone200),
+                  ),
+                  child: Row(children: [
+                    const Icon(Icons.calendar_today_outlined, size: 18, color: AppTheme.stone500),
+                    const SizedBox(width: 10),
+                    Text(DateFormat('EEE, MMM d, y').format(_date),
+                        style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone800)),
                   ]),
-                  const SizedBox(height: 12),
-                  TextField(
-                      controller: _notesCtrl,
-                      maxLines: 2,
-                      decoration: const InputDecoration(
-                          labelText: 'Notes (optional)',
-                          alignLabelWithHint: true)),
-                  const SizedBox(height: 12),
-                  GestureDetector(
-                    onTap: _pickDate,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 14),
-                      decoration: BoxDecoration(
-                          color: AppTheme.stone50,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: AppTheme.stone200)),
-                      child: Row(children: [
-                        const Icon(Icons.calendar_today_outlined,
-                            size: 18, color: AppTheme.stone500),
-                        const SizedBox(width: 10),
-                        Text(DateFormat('EEE, MMM d, y').format(_date),
-                            style: const TextStyle(
-                                fontFamily: 'Inter',
-                                fontSize: 14,
-                                color: AppTheme.stone800)),
-                      ]),
-                    ),
-                  ),
-                ]),
+                ),
+              ),
+            ]),
           ),
         ]),
       ),
@@ -1678,6 +1613,22 @@ class _LogWeightSheetState extends State<_LogWeightSheet> {
   final _notesCtrl = TextEditingController();
   DateTime _date = DateTime.now();
   bool _isSaving = false;
+  FitnessMetric? _lastWeight;
+  late String _unit;
+
+  @override
+  void initState() {
+    super.initState();
+    final provider = context.read<AppProvider>();
+    final locale = context.read<LocaleService>().config;
+    _unit = locale.useMetric ? 'kg' : 'lbs';
+    final userId = provider.activeUser?.id;
+    final weightMetrics = provider.db.fitness
+        .where((m) => m.type == 'WEIGHT' && m.userId == userId)
+        .toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
+    _lastWeight = weightMetrics.isNotEmpty ? weightMetrics.first : null;
+  }
 
   @override
   void dispose() {
@@ -1688,12 +1639,15 @@ class _LogWeightSheetState extends State<_LogWeightSheet> {
 
   Future<void> _save() async {
     final weight = double.tryParse(_weightCtrl.text.trim());
-    if (weight == null || weight <= 0) return;
+    if (weight == null || weight <= 0) {
+      _showSnack(context, 'Please enter a valid weight');
+      return;
+    }
 
     setState(() => _isSaving = true);
     final provider = context.read<AppProvider>();
     final metric = FitnessMetric(
-      id: const Uuid().v4(),
+      id: _uuid.v4(),
       userId: provider.activeUser?.id ?? '',
       type: 'WEIGHT',
       value: weight,
@@ -1716,18 +1670,6 @@ class _LogWeightSheetState extends State<_LogWeightSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final locale = context.read<LocaleService>().config;
-    final unit = locale.useMetric ? 'kg' : 'lbs';
-
-    // Get last recorded weight for reference
-    final provider = context.read<AppProvider>();
-    final userId = provider.activeUser?.id;
-    final weightMetrics = provider.db.fitness
-        .where((m) => m.type == 'WEIGHT' && m.userId == userId)
-        .toList()
-      ..sort((a, b) => b.date.compareTo(a.date));
-    final lastWeight = weightMetrics.isNotEmpty ? weightMetrics.first : null;
-
     return Container(
       decoration: const BoxDecoration(
         color: AppTheme.surface,
@@ -1741,22 +1683,23 @@ class _LogWeightSheetState extends State<_LogWeightSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Center(
-            child: Container(
-              margin: const EdgeInsets.symmetric(vertical: 12),
-              width: 40, height: 4,
-              decoration: BoxDecoration(color: AppTheme.stone200, borderRadius: BorderRadius.circular(2)),
-            ),
-          ),
+          const SheetHandle(),
           Row(children: [
-            const Icon(Icons.monitor_weight_outlined, color: AppTheme.primary, size: 20),
+            Container(
+              width: 32, height: 32,
+              decoration: BoxDecoration(
+                color: AppTheme.primary.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: const Icon(Icons.monitor_weight_outlined, size: 16, color: AppTheme.primary),
+            ),
             const SizedBox(width: 8),
             const Text('Log Weight', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 18, color: AppTheme.stone900)),
           ]),
           const SizedBox(height: 6),
-          if (lastWeight != null)
+          if (_lastWeight != null)
             Text(
-              'Last: ${lastWeight.value.toStringAsFixed(1)} $unit on ${DateFormat('MMM d').format(lastWeight.date)}',
+              'Last: ${_lastWeight!.value.toStringAsFixed(1)} $_unit on ${DateFormat('MMM d').format(_lastWeight!.date)}',
               style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400),
             ),
           const SizedBox(height: 20),
@@ -1771,8 +1714,8 @@ class _LogWeightSheetState extends State<_LogWeightSheet> {
             textAlign: TextAlign.center,
             decoration: InputDecoration(
               hintText: '0.0',
-              hintStyle: TextStyle(fontFamily: 'Inter', fontSize: 32, fontWeight: FontWeight.w800, color: AppTheme.stone200),
-              suffixText: unit,
+              hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 32, fontWeight: FontWeight.w800, color: AppTheme.stone200),
+              suffixText: _unit,
               suffixStyle: const TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w600, color: AppTheme.stone400),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: AppTheme.stone200)),
               enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: AppTheme.stone200)),
@@ -1786,12 +1729,7 @@ class _LogWeightSheetState extends State<_LogWeightSheet> {
           TextField(
             controller: _notesCtrl,
             maxLines: 1,
-            decoration: InputDecoration(
-              labelText: 'Notes (optional)',
-              labelStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            ),
+            decoration: _styledInput('Notes (optional)'),
           ),
           const SizedBox(height: 12),
 
