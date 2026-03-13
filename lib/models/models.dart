@@ -433,6 +433,20 @@ class FamilyMember {
     displayName: (j['display_name'] ?? j['displayName'] ?? j['name']) as String?,
   );
 
+  FamilyMember copyWith({
+    String? userId,
+    String? familyId,
+    Role? role,
+    List<String>? moduleAccess,
+    String? displayName,
+  }) => FamilyMember(
+    userId: userId ?? this.userId,
+    familyId: familyId ?? this.familyId,
+    role: role ?? this.role,
+    moduleAccess: moduleAccess ?? this.moduleAccess,
+    displayName: displayName ?? this.displayName,
+  );
+
   Map<String, dynamic> toJson() => {
     'user_id': userId,
     'family_id': familyId,
