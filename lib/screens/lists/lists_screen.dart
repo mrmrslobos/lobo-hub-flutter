@@ -42,6 +42,7 @@ class _ListsScreenState extends State<ListsScreen> {
       NotificationService.notifyFamilyActivity(
         title: 'New List Created',
         body: '${provider.activeUser?.name ?? "Someone"} created: ${list.title}',
+        path: '/lists',
         familyId: provider.activeFamily?.id,
         excludeUserId: provider.activeUser?.id,
       );
@@ -70,6 +71,7 @@ class _ListsScreenState extends State<ListsScreen> {
       NotificationService.notifyFamilyActivity(
         title: 'Item Added to ${list.title}',
         body: '${provider.activeUser?.name ?? "Someone"} added: $name',
+        path: '/lists',
         familyId: provider.activeFamily?.id,
         excludeUserId: provider.activeUser?.id,
       );
@@ -88,6 +90,7 @@ class _ListsScreenState extends State<ListsScreen> {
       NotificationService.notifyFamilyActivity(
         title: '${list.title} Updated',
         body: '${provider.activeUser?.name ?? "Someone"} checked off: ${item.text}',
+        path: '/lists',
         familyId: provider.activeFamily?.id,
         excludeUserId: provider.activeUser?.id,
       );

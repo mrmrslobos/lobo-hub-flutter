@@ -30,6 +30,24 @@ let cachedAccessToken: string | null = null;
 let tokenExpirationTime = 0; // ms since epoch
 
 // ---------------------------------------------------------------------------
+// Parse a JSON secret that may have been double-quoted by Supabase's secret
+// store.  e.g. the env var may arrive as:
+//   '"{\"type\":\"service_account\",...}"'   (string-wrapped JSON)
+// or with literal escaped quotes.  This helper peels away one layer of quoting
+// if present and then parses the result.
+// ---------------------------------------------------------------------------
+function parseJsonSecret(raw: string): Record<string, string> {
+  let cleaned = raw.trim();
+  // Strip surrounding double-quotes added by the secrets store
+  if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
+    cleaned = cleaned.slice(1, -1);
+  }
+  // Un-escape any escaped characters (e.g. \" → ", \\\n → \n)
+  cleaned = cleaned.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+  return JSON.parse(cleaned);
+}
+
+// ---------------------------------------------------------------------------
 // CORS headers
 // ---------------------------------------------------------------------------
 const CORS = {
@@ -617,6 +635,92 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // ── Direct notification from the app ──────────────────────────────
+    if (body.action === 'notify' && body.familyId && body.title && body.body) {
+      const notification: NotificationContent = {
+        familyId: body.familyId,
+        actorId: body.excludeUserId ?? '',
+        title: body.title,
+        body: body.body,
+        path: body.path ?? '/',
+      };
+
+      let fcmSent = 0;
+      let fcmPruned = 0;
+      const serviceAccountRaw = Deno.env.get('FIREBASE_SERVICE_ACCOUNT');
+      if (serviceAccountRaw) {
+        const serviceAccount = parseJsonSecret(serviceAccountRaw);
+        const projectId = serviceAccount.project_id;
+        const accessToken = await getFcmAccessToken(serviceAccount);
+
+        const tokenQuery = supabaseClient
+          .from('device_tokens')
+          .select('token, userId')
+          .eq('familyId', notification.familyId)
+          .neq('userId', notification.actorId);
+        const { data: tokens } = await tokenQuery;
+
+        if (tokens && tokens.length > 0) {
+          const tokenRows = tokens as Array<{ token: string; userId: string }>;
+          const results = await Promise.all(
+            tokenRows.map((row) =>
+              sendFcmMessage(projectId, accessToken, {
+                token: row.token,
+                title: notification.title,
+                body: notification.body,
+                path: notification.path,
+              })
+            ),
+          );
+          const staleTokens = tokenRows.filter((_, i) => results[i]).map((r) => r.token);
+          if (staleTokens.length > 0) {
+            await supabaseClient.from('device_tokens').delete().in('token', staleTokens);
+          }
+          fcmSent = results.filter((s) => !s).length;
+          fcmPruned = staleTokens.length;
+        }
+      }
+
+      let webPushSent = 0;
+      let webPushPruned = 0;
+      const vpubKey = Deno.env.get('VAPID_PUBLIC_KEY');
+      const vprivKey = Deno.env.get('VAPID_PRIVATE_KEY');
+      if (vpubKey && vprivKey) {
+        const webSubQuery = supabaseClient
+          .from('web_push_subscriptions')
+          .select('endpoint, p256dh, auth, userId')
+          .eq('familyId', notification.familyId)
+          .neq('userId', notification.actorId);
+        const { data: webSubs } = await webSubQuery;
+
+        if (webSubs && webSubs.length > 0) {
+          const subRows = webSubs as Array<{ endpoint: string; p256dh: string; auth: string }>;
+          const tag = `lobohub-${notification.path.replace('/', '') || 'general'}`;
+          const results = await Promise.all(
+            subRows.map((sub) =>
+              sendWebPushNotification(sub, {
+                title: notification.title,
+                body: notification.body,
+                path: notification.path,
+                tag,
+              }, vprivKey, vpubKey)
+            ),
+          );
+          const staleEndpoints = subRows.filter((_, i) => results[i]).map((r) => r.endpoint);
+          if (staleEndpoints.length > 0) {
+            await supabaseClient.from('web_push_subscriptions').delete().in('endpoint', staleEndpoints);
+          }
+          webPushSent = results.filter((s) => !s).length;
+          webPushPruned = staleEndpoints.length;
+        }
+      }
+
+      return new Response(
+        JSON.stringify({ fcmSent, fcmPruned, webPushSent, webPushPruned }),
+        { headers: { ...CORS, 'Content-Type': 'application/json' } },
+      );
+    }
+
     // ── Webhook notification flow ───────────────────────────────────────
     const payload: WebhookPayload = body;
 
@@ -636,7 +740,7 @@ Deno.serve(async (req: Request) => {
 
     const serviceAccountRaw = Deno.env.get('FIREBASE_SERVICE_ACCOUNT');
     if (serviceAccountRaw) {
-      const serviceAccount = JSON.parse(serviceAccountRaw) as Record<string, string>;
+      const serviceAccount = parseJsonSecret(serviceAccountRaw);
       const projectId = serviceAccount.project_id;
       const accessToken = await getFcmAccessToken(serviceAccount);
 

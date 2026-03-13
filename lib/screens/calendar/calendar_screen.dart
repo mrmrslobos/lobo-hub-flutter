@@ -1493,6 +1493,7 @@ class _EventFormSheetState extends State<_EventFormSheet> {
         NotificationService.notifyFamilyActivity(
           title: 'New Calendar Event',
           body: '${provider.activeUser?.name ?? "Someone"} added: ${event.title}',
+          path: '/calendar',
           familyId: provider.activeFamily?.id,
           excludeUserId: provider.activeUser?.id,
         );

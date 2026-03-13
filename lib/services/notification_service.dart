@@ -35,7 +35,7 @@ class NotificationService {
 
   /// Called when a FCM notification is tapped (background/terminated).
   static void _onFcmMessageTap(RemoteMessage message) {
-    final route = message.data['route'] as String?;
+    final route = (message.data['path'] ?? message.data['route']) as String?;
     if (route != null && route.isNotEmpty) {
       pendingRoute = route;
     }
@@ -84,7 +84,7 @@ class NotificationService {
             id: notification.hashCode,
             title: notification.title ?? '',
             body: notification.body ?? '',
-            payload: message.data['route'] as String?,
+            payload: (message.data['path'] ?? message.data['route']) as String?,
           );
         }
       });
@@ -269,7 +269,7 @@ class NotificationService {
     required String body,
     String? familyId,
     String? excludeUserId,
-    String? payload,
+    String? path,
   }) async {
     // Send push notification to other family members via edge function
     try {
@@ -292,6 +292,7 @@ class NotificationService {
             'excludeUserId': excludeUserId,
             'title': title,
             'body': body,
+            'path': path ?? '/',
           }),
         );
       }
@@ -313,7 +314,11 @@ class NotificationService {
       String familyId, String userId) async {
     try {
       final token = await getFcmToken();
-      if (token == null) return;
+      if (token == null) {
+        debugPrint('[NotificationService] FCM token is null — skipping registration');
+        return;
+      }
+      debugPrint('[NotificationService] Registering device token for user=$userId family=$familyId');
 
       final restUrl = Supabase.instance.client.rest.url;
       final supabaseUrl = restUrl.replaceAll('/rest/v1', '');

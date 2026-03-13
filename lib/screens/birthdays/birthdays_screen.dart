@@ -115,6 +115,7 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
             NotificationService.notifyFamilyActivity(
               title: 'New Occasion Added',
               body: '${provider.activeUser?.name ?? "Someone"} added: ${occasion.title}',
+              path: '/birthdays',
               familyId: provider.activeFamily?.id,
               excludeUserId: provider.activeUser?.id,
             );
