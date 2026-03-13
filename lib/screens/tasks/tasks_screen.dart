@@ -1547,30 +1547,36 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
         await provider.saveAndSync(db.copyWith(tasks: tasks));
 
         // Notify family about new shared task
-        if (_assigneeIds.length > 1 || (_assigneeIds.isNotEmpty && _assigneeIds.first != userId)) {
-          NotificationService.notifyFamilyActivity(
-            title: 'New Task Assigned',
-            body: '${provider.activeUser?.name ?? 'Someone'} created: ${savedTask.title}',
-            path: '/tasks',
-            familyId: provider.activeFamily?.id,
-            excludeUserId: provider.activeUser?.id,
-          );
-        }
+        try {
+          if (_assigneeIds.length > 1 || (_assigneeIds.isNotEmpty && _assigneeIds.first != userId)) {
+            NotificationService.notifyFamilyActivity(
+              title: 'New Task Assigned',
+              body: '${provider.activeUser?.name ?? 'Someone'} created: ${savedTask.title}',
+              path: '/tasks',
+              familyId: provider.activeFamily?.id,
+              excludeUserId: provider.activeUser?.id,
+            );
+          }
+        } catch (_) {}
       }
 
       // Schedule reminder notification if configured
-      if (savedTask.dueDate != null && dueTimeStr != null && _reminderMinutes != null) {
-        await NotificationService.scheduleTaskReminder(
-          taskId: savedTask.id,
-          taskTitle: savedTask.title,
-          dueDate: savedTask.dueDate!,
-          dueTime: dueTimeStr,
-          reminderMinutes: _reminderMinutes!,
-        );
-      } else {
-        await NotificationService.cancelTaskReminder(savedTask.id);
-      }
+      try {
+        if (savedTask.dueDate != null && dueTimeStr != null && _reminderMinutes != null) {
+          await NotificationService.scheduleTaskReminder(
+            taskId: savedTask.id,
+            taskTitle: savedTask.title,
+            dueDate: savedTask.dueDate!,
+            dueTime: dueTimeStr,
+            reminderMinutes: _reminderMinutes!,
+          );
+        } else {
+          await NotificationService.cancelTaskReminder(savedTask.id);
+        }
+      } catch (_) {}
 
+      if (mounted) Navigator.pop(context);
+    } catch (_) {
       if (mounted) Navigator.pop(context);
     } finally {
       if (mounted) setState(() => _loading = false);

@@ -133,8 +133,8 @@ class _LocationScreenState extends State<LocationScreen> {
         );
         if (placemarks.isNotEmpty) {
           final p = placemarks.first;
-          placeName = [p.street, p.locality].where((s) => s != null && s.isNotEmpty).join(', ');
-          nearPlace = [p.subLocality, p.administrativeArea].where((s) => s != null && s.isNotEmpty).join(', ');
+          placeName = [p.name, p.street, p.subLocality, p.locality].where((s) => s != null && s.isNotEmpty).toSet().join(', ');
+          nearPlace = [p.locality, p.administrativeArea, p.postalCode].where((s) => s != null && s.isNotEmpty).join(', ');
         }
       } catch (_) {}
 
@@ -217,8 +217,8 @@ class _LocationScreenState extends State<LocationScreen> {
             final placemarks = await geo.placemarkFromCoordinates(lat, lng);
             if (placemarks.isNotEmpty) {
               final p = placemarks.first;
-              placeName = [p.street, p.locality].where((s) => s != null && s.isNotEmpty).join(', ');
-              nearPlace = [p.subLocality, p.administrativeArea].where((s) => s != null && s.isNotEmpty).join(', ');
+              placeName = [p.name, p.street, p.subLocality, p.locality].where((s) => s != null && s.isNotEmpty).toSet().join(', ');
+              nearPlace = [p.locality, p.administrativeArea, p.postalCode].where((s) => s != null && s.isNotEmpty).join(', ');
             }
           } catch (_) {}
         } catch (_) {}
@@ -547,10 +547,10 @@ class _LocationScreenState extends State<LocationScreen> {
                     const SizedBox(height: 2),
                     if (isSharing && myShare != null)
                       Text(
-                        myShare.nearPlace != null
-                            ? '\u{1F4CD} ${myShare.nearPlace}'
-                            : myShare.placeName != null
-                                ? '\u{1F4CD} ${myShare.placeName}'
+                        myShare.placeName != null
+                            ? '\u{1F4CD} ${myShare.placeName}'
+                            : myShare.nearPlace != null
+                                ? '\u{1F4CD} ${myShare.nearPlace}'
                                 : 'Getting your location...',
                         style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
                         maxLines: 1, overflow: TextOverflow.ellipsis,
@@ -715,10 +715,10 @@ class _LocationScreenState extends State<LocationScreen> {
                           const SizedBox(height: 3),
                           if (share?.isSharing == true) ...[
                             Text(
-                              share?.nearPlace != null
-                                  ? '\u{1F4CD} ${share!.nearPlace}'
-                                  : share?.placeName != null
-                                      ? '\u{1F4CD} ${share!.placeName}'
+                              share?.placeName != null
+                                  ? '\u{1F4CD} ${share!.placeName}'
+                                  : share?.nearPlace != null
+                                      ? '\u{1F4CD} ${share!.nearPlace}'
                                       : 'Location shared',
                               style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
                               maxLines: 1, overflow: TextOverflow.ellipsis,
