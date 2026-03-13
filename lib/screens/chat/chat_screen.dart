@@ -13,6 +13,17 @@ import '../../providers/app_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+void _showSnack(BuildContext context, String msg) {
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    content: Text(msg),
+    behavior: SnackBarBehavior.floating,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    duration: const Duration(seconds: 1),
+  ));
+}
+
 // ─── Chat screen ──────────────────────────────────────────────────────────────
 
 class ChatScreen extends StatefulWidget {
@@ -68,6 +79,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (text.isEmpty) return;
     if (provider.activeUser == null || provider.activeFamily == null) return;
 
+    HapticFeedback.lightImpact();
     setState(() => _sending = true);
     try {
       const uuid = Uuid();
@@ -94,6 +106,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _addReaction(
       AppProvider provider, ChatMessage msg, String emoji) async {
+    HapticFeedback.selectionClick();
     final userId = provider.activeUser!.id;
     final reactions = Map<String, List<String>>.from(
       msg.reactions.map((k, v) => MapEntry(k, List<String>.from(v))),
@@ -134,6 +147,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _showMessageActions(AppProvider provider, ChatMessage msg) {
+    HapticFeedback.mediumImpact();
     final isMe = msg.senderId == provider.activeUser?.id;
     showModalBottomSheet(
       context: context,
@@ -169,9 +183,7 @@ class _ChatScreenState extends State<ChatScreen> {
               onTap: () {
                 Clipboard.setData(ClipboardData(text: msg.content));
                 Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Copied to clipboard'), duration: Duration(seconds: 1)),
-                );
+                _showSnack(context, 'Copied to clipboard');
               },
             ),
             if (isMe)
@@ -272,7 +284,7 @@ class _ChatScreenState extends State<ChatScreen> {
           resizeToAvoidBottomInset: true,
           drawer: const AppDrawer(),
           appBar: AppBar(
-            backgroundColor: Colors.white,
+            backgroundColor: AppTheme.surface,
             elevation: 0,
             scrolledUnderElevation: 0,
             leading: Builder(
@@ -284,7 +296,7 @@ class _ChatScreenState extends State<ChatScreen> {
             title: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
+                Text(String.fromCharCode(0x2728), style: const TextStyle(fontSize: 18)),
                 const SizedBox(width: 6),
                 const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
               ],
@@ -306,7 +318,7 @@ class _ChatScreenState extends State<ChatScreen> {
               // ─── Search bar ────────────────────────────────────────────
               if (_showSearch)
                 Container(
-                  color: Colors.white,
+                  color: AppTheme.surface,
                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
                   child: TextField(
                     autofocus: true,
@@ -449,7 +461,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
               // ─── Input bar ────────────────────────────────────────────
               Container(
-                color: Colors.white,
+                color: AppTheme.surface,
                 padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
                 child: SafeArea(
                   top: false,
@@ -550,7 +562,7 @@ class _MessageBubble extends StatelessWidget {
   });
 
   Color get _bubbleColor =>
-      isMe ? AppTheme.primary : Colors.white;
+      isMe ? AppTheme.primary : AppTheme.surface;
 
   Color get _textColor =>
       isMe ? Colors.white : AppTheme.stone900;
@@ -618,14 +630,7 @@ class _MessageBubble extends StatelessWidget {
                       ),
                       border: isMe
                           ? null
-                          : Border.all(color: AppTheme.stone200),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.04),
-                          blurRadius: 4,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
+                          : Border.all(color: AppTheme.stone100),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -838,8 +843,7 @@ class _ReactionChip extends StatelessWidget {
               : AppTheme.stone100,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: reacted ? AppTheme.primary : AppTheme.stone200,
-            width: 1,
+            color: reacted ? AppTheme.primary : AppTheme.stone100,
           ),
         ),
         child: Row(
