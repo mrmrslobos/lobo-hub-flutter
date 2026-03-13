@@ -42,7 +42,7 @@ class _NavSection {
 // AppDrawer widget
 // ─────────────────────────────────────────────
 
-class AppDrawer extends StatelessWidget {
+class AppDrawer extends StatefulWidget {
   const AppDrawer({super.key});
 
   static const List<_NavSection> _sections = [
@@ -71,6 +71,13 @@ class AppDrawer extends StatelessWidget {
       _NavItem(icon: Icons.card_giftcard_rounded, label: 'Rewards', route: '/rewards'),
     ]),
   ];
+
+  @override
+  State<AppDrawer> createState() => _AppDrawerState();
+}
+
+class _AppDrawerState extends State<AppDrawer> {
+  final Set<String> _collapsedSections = {};
 
   void _showManageMembersSheet(BuildContext context) {
     Navigator.pop(context); // close drawer
@@ -104,7 +111,14 @@ class AppDrawer extends StatelessWidget {
         child: Column(
           children: [
             // ── Header ──────────────────────────────
-            _DrawerHeader(user: user, family: family),
+            _DrawerHeader(
+              user: user,
+              family: family,
+              onAvatarTap: () {
+                Navigator.of(context).pop();
+                _showSettingsSheet(context);
+              },
+            ),
             const Divider(height: 1),
 
             // ── Nav items ───────────────────────────
@@ -122,20 +136,34 @@ class AppDrawer extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
 
-                  // Sections — hide inaccessible modules entirely
-                  for (final section in _sections) ...[
+                  // Sections — collapsible, hide inaccessible modules
+                  for (final section in AppDrawer._sections) ...[
                     if (section.items.any((item) => provider.canAccess(item.route))) ...[
-                      _SectionHeader(title: section.title),
-                      for (final item in section.items)
-                        if (provider.canAccess(item.route))
-                          _NavTile(
-                            icon: item.icon,
-                            label: item.label,
-                            route: item.route,
-                            isActive: currentRoute == item.route,
-                            canAccess: true,
-                            unreadCount: item.unreadCount,
-                          ),
+                      _CollapsibleSectionHeader(
+                        title: section.title,
+                        isCollapsed: _collapsedSections.contains(section.title),
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          setState(() {
+                            if (_collapsedSections.contains(section.title)) {
+                              _collapsedSections.remove(section.title);
+                            } else {
+                              _collapsedSections.add(section.title);
+                            }
+                          });
+                        },
+                      ),
+                      if (!_collapsedSections.contains(section.title))
+                        for (final item in section.items)
+                          if (provider.canAccess(item.route))
+                            _NavTile(
+                              icon: item.icon,
+                              label: item.label,
+                              route: item.route,
+                              isActive: currentRoute == item.route,
+                              canAccess: true,
+                              unreadCount: item.unreadCount,
+                            ),
                       const SizedBox(height: 4),
                     ],
                   ],
@@ -651,11 +679,19 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
 // Drawer Header
 // ─────────────────────────────────────────────
 
-class _DrawerHeader extends StatelessWidget {
+class _DrawerHeader extends StatefulWidget {
   final dynamic user;
   final dynamic family;
+  final VoidCallback? onAvatarTap;
 
-  const _DrawerHeader({required this.user, required this.family});
+  const _DrawerHeader({required this.user, required this.family, this.onAvatarTap});
+
+  @override
+  State<_DrawerHeader> createState() => _DrawerHeaderState();
+}
+
+class _DrawerHeaderState extends State<_DrawerHeader> {
+  bool _showCode = false;
 
   @override
   Widget build(BuildContext context) {
@@ -666,15 +702,21 @@ class _DrawerHeader extends StatelessWidget {
         children: [
           Row(
             children: [
-              // Avatar
-              _UserAvatar(user: user),
+              // Avatar — tappable to open settings
+              GestureDetector(
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  widget.onAvatarTap?.call();
+                },
+                child: _UserAvatar(user: widget.user),
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      user?.name ?? 'Family Member',
+                      widget.user?.name ?? 'Family Member',
                       style: const TextStyle(
                         fontFamily: 'Inter',
                         fontWeight: FontWeight.w700,
@@ -684,7 +726,7 @@ class _DrawerHeader extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                     Text(
-                      user?.email ?? '',
+                      widget.user?.email ?? '',
                       style: const TextStyle(
                         fontFamily: 'Inter',
                         fontWeight: FontWeight.w400,
@@ -698,7 +740,7 @@ class _DrawerHeader extends StatelessWidget {
               ),
             ],
           ),
-          if (family != null) ...[
+          if (widget.family != null) ...[
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -718,7 +760,7 @@ class _DrawerHeader extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          family!.name as String,
+                          widget.family!.name as String,
                           style: const TextStyle(
                             fontFamily: 'Inter',
                             fontWeight: FontWeight.w700,
@@ -727,36 +769,44 @@ class _DrawerHeader extends StatelessWidget {
                           ),
                           overflow: TextOverflow.ellipsis,
                         ),
-                        Row(
-                          children: [
-                            Text(
-                              'Code: ${family!.joinCode}',
-                              style: const TextStyle(
-                                fontFamily: 'Inter',
-                                fontWeight: FontWeight.w500,
-                                fontSize: 11,
-                                color: AppTheme.primary,
+                        GestureDetector(
+                          onTap: () {
+                            if (_showCode) {
+                              Clipboard.setData(
+                                  ClipboardData(text: widget.family!.joinCode as String));
+                              HapticFeedback.lightImpact();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Join code copied!'),
+                                  duration: Duration(seconds: 2),
+                                ),
+                              );
+                            } else {
+                              HapticFeedback.selectionClick();
+                              setState(() => _showCode = true);
+                            }
+                          },
+                          child: Row(
+                            children: [
+                              Text(
+                                _showCode
+                                    ? 'Code: ${widget.family!.joinCode}'
+                                    : 'Tap to show join code',
+                                style: TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontWeight: FontWeight.w500,
+                                  fontSize: 11,
+                                  color: AppTheme.primary,
+                                ),
                               ),
-                            ),
-                            const SizedBox(width: 4),
-                            GestureDetector(
-                              onTap: () {
-                                Clipboard.setData(
-                                    ClipboardData(text: family!.joinCode as String));
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Join code copied!'),
-                                    duration: Duration(seconds: 2),
-                                  ),
-                                );
-                              },
-                              child: const Icon(
-                                Icons.copy_rounded,
+                              const SizedBox(width: 4),
+                              Icon(
+                                _showCode ? Icons.copy_rounded : Icons.visibility_outlined,
                                 size: 12,
                                 color: AppTheme.primary,
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ],
                     ),
@@ -834,6 +884,45 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
+class _CollapsibleSectionHeader extends StatelessWidget {
+  final String title;
+  final bool isCollapsed;
+  final VoidCallback onTap;
+  const _CollapsibleSectionHeader({required this.title, required this.isCollapsed, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 12, 4),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                title.toUpperCase(),
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontWeight: FontWeight.w700,
+                  fontSize: 10,
+                  letterSpacing: 1.2,
+                  color: AppTheme.stone400,
+                ),
+              ),
+            ),
+            AnimatedRotation(
+              turns: isCollapsed ? -0.25 : 0,
+              duration: const Duration(milliseconds: 200),
+              child: const Icon(Icons.expand_more, size: 16, color: AppTheme.stone400),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ─────────────────────────────────────────────
 // Nav tile
 // ─────────────────────────────────────────────
@@ -869,6 +958,7 @@ class _NavTile extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           onTap: canAccess
               ? () {
+                  HapticFeedback.selectionClick();
                   Navigator.of(context).pop(); // close drawer
                   context.go(route);
                 }
@@ -878,6 +968,17 @@ class _NavTile extends StatelessWidget {
                 const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             child: Row(
               children: [
+                // Material 3 active indicator bar
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: 3,
+                  height: isActive ? 20 : 0,
+                  margin: const EdgeInsets.only(right: 8),
+                  decoration: BoxDecoration(
+                    color: isActive ? AppTheme.primary : Colors.transparent,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
                 Icon(
                   icon,
                   size: 20,

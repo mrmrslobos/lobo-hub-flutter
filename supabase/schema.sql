@@ -148,11 +148,17 @@ create table if not exists ai_history (
 create table if not exists daily_habits (
   id text primary key,
   "userId" text not null,
+  "familyId" text,
   label text not null,
-  icon text not null,
-  color text not null,
+  icon text not null default '',
+  color text not null default '#6366f1',
+  description text,
+  "isShared" boolean not null default false,
+  frequency text,
+  "targetValue" numeric,
+  "targetUnit" text,
   "createdAt" text not null,
-  "order" integer not null
+  "order" integer not null default 0
 );
 
 create table if not exists daily_habit_completions (
