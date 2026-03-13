@@ -180,6 +180,7 @@ class _FitnessScreenState extends State<FitnessScreen> {
     try {
       final raw = await AiService.ask(prompt: prompt, feature: 'ai_fitness', familyId: familyId);
       if (mounted && raw != null) {
+        provider.saveAiHistory(module: 'fitness', prompt: 'Generate fitness motivation message', response: raw);
         setState(() { _motivation = raw.trim(); _motivationLoading = false; });
       } else {
         if (mounted) setState(() => _motivationLoading = false);
@@ -746,6 +747,7 @@ Apply the requested change while keeping everything else sensible.
         if (mounted) setState(() => _refining = false);
         return;
       }
+      context.read<AppProvider>().saveAiHistory(module: 'fitness', prompt: 'Refine fitness plan: "$request"', response: raw);
       final cleaned = _stripFences(raw);
       final decoded = jsonDecode(cleaned);
       if (decoded is Map<String, dynamic>) {
@@ -1089,6 +1091,7 @@ Return ONLY valid JSON (no markdown) with this structure:
       );
 
       if (raw != null && mounted) {
+        context.read<AppProvider>().saveAiHistory(module: 'fitness', prompt: 'Generate personalized fitness plan', response: raw);
         try {
           final cleaned = _stripFences(raw);
           final parsed = jsonDecode(cleaned) as Map<String, dynamic>;

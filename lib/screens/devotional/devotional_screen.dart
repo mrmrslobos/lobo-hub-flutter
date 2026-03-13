@@ -308,6 +308,7 @@ Make the content warm, relatable, and suitable for children.''',
       );
 
       if (raw != null && mounted) {
+        provider.saveAiHistory(module: 'devotional', prompt: 'Generate daily family devotional', response: raw);
         // Final dedup check before inserting to prevent race with server cron
         if (hasTodaysDevotional()) return;
         try {
@@ -382,6 +383,7 @@ Make the content warm, relatable, and suitable for children.''';
       );
 
       if (raw != null && mounted) {
+        provider.saveAiHistory(module: 'devotional', prompt: 'Generate devotional on: $topic', response: raw);
         try {
           final data = jsonDecode(raw) as Map<String, dynamic>;
           final scriptureRef = data['scriptureRef'] as String?;
@@ -756,6 +758,7 @@ Make it warm, kid-friendly, and relatable.''';
       );
 
       if (raw != null && mounted) {
+        provider.saveAiHistory(module: 'devotional', prompt: 'Generate $_duration-day Bible reading plan on "$topic"', response: raw);
         final data = jsonDecode(raw) as Map<String, dynamic>;
         final entriesData = (data['entries'] as List?) ?? [];
         final planId = const Uuid().v4();

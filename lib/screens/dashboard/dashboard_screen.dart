@@ -159,6 +159,7 @@ Return a JSON object:
         if (mounted) setState(() => _monthlySummaryLoading = false);
         return;
       }
+      provider.saveAiHistory(module: 'dashboard', prompt: 'Generate monthly family summary', response: raw);
       var cleaned = raw.trim();
       if (cleaned.startsWith('```')) cleaned = cleaned.substring(cleaned.indexOf('\n') + 1);
       if (cleaned.endsWith('```')) cleaned = cleaned.substring(0, cleaned.lastIndexOf('```'));
@@ -241,6 +242,7 @@ Return ONLY the JSON array, no markdown.''',
       );
 
       if (raw != null && mounted) {
+        provider.saveAiHistory(module: 'dashboard', prompt: 'Generate daily AI suggestions', response: raw);
         try {
           final decoded = jsonDecode(raw);
           if (decoded is List) {

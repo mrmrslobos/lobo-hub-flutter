@@ -1463,6 +1463,7 @@ class _AiTextToChecklistSheetState extends State<_AiTextToChecklistSheet> {
         if (mounted) setState(() => _loading = false);
         return;
       }
+      context.read<AppProvider>().saveAiHistory(module: 'lists', prompt: 'Generate checklist from: "$text"', response: raw);
 
       var cleaned = raw.trim();
       if (cleaned.startsWith('```')) cleaned = cleaned.substring(cleaned.indexOf('\n') + 1);

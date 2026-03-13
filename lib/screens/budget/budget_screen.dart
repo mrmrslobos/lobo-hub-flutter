@@ -1304,6 +1304,9 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet> {
         familyId: familyId,
       );
       if (mounted) {
+        if (result != null) {
+          context.read<AppProvider>().saveAiHistory(module: 'budget', prompt: 'Analyze budget spending', response: result);
+        }
         setState(() {
           _loading = false;
           _analysis = result;
@@ -1951,6 +1954,7 @@ $text
         if (mounted) setState(() { _loading = false; _error = 'AI could not parse the statement. Try again.'; });
         return;
       }
+      provider.saveAiHistory(module: 'budget', prompt: 'Parse bank statement', response: raw);
 
       var cleaned = raw.trim();
       if (cleaned.startsWith('```')) cleaned = cleaned.substring(cleaned.indexOf('\n') + 1);

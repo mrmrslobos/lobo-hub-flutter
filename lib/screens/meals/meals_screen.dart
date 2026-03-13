@@ -193,6 +193,7 @@ Return a JSON array of exactly 3 objects, each with these fields:
         if (mounted) setState(() => _chefLoading = false);
         return;
       }
+      context.read<AppProvider>().saveAiHistory(module: 'meals', prompt: 'Generate chef meal suggestions', response: raw);
       final cleaned = _stripFences(raw);
       final decoded = jsonDecode(cleaned);
       if (decoded is List) {
@@ -308,6 +309,7 @@ Return a JSON array of 7 objects, each with:
         if (mounted) setState(() => _weekPlannerLoading = false);
         return;
       }
+      context.read<AppProvider>().saveAiHistory(module: 'meals', prompt: 'Generate weekly meal plan', response: raw);
       final cleaned = _stripFences(raw);
       final decoded = jsonDecode(cleaned);
       if (decoded is! List) {
@@ -538,6 +540,7 @@ Return a JSON array of 7 objects, each with:
         });
         return;
       }
+      context.read<AppProvider>().saveAiHistory(module: 'meals', prompt: 'Refine meal plan: "$request"', response: raw);
 
       final cleaned = _stripFences(raw);
       final decoded = jsonDecode(cleaned);
@@ -1681,6 +1684,7 @@ The replacement should be similar in style but different. Keep it healthy and fa
         );
         return;
       }
+      context.read<AppProvider>().saveAiHistory(module: 'meals', prompt: 'Swap meal: "$currentMealName"', response: raw);
 
       var cleaned = raw.trim();
       if (cleaned.startsWith('```')) cleaned = cleaned.substring(cleaned.indexOf('\n') + 1);

@@ -2,6 +2,7 @@
 // Calendar screen for FamilyHub
 // ignore_for_file: use_build_context_synchronously
 
+import 'dart:convert';
 import 'package:flutter/material.dart' hide Visibility;
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -80,6 +81,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
         });
         return;
       }
+      provider.saveAiHistory(module: 'calendar', prompt: 'Generate event itinerary: "$input"', response: jsonEncode(result));
 
       final itinerary = result['itinerary'] as String? ?? '';
       final checklist = (result['checklist'] as List<dynamic>?)
@@ -2277,6 +2279,7 @@ class _EventPlannerWizardState extends State<_EventPlannerWizard> {
         });
         return;
       }
+      provider.saveAiHistory(module: 'calendar', prompt: 'Plan event: "${_nameCtrl.text.trim()}"', response: jsonEncode(result));
 
       // Create calendar event
       final eventDate = DateTime(_eventDate.year, _eventDate.month, _eventDate.day, 12);

@@ -849,6 +849,9 @@ class _AiBreakdownSheetState extends State<_AiBreakdownSheet> {
       }
       final result = await AiService.breakdownTask(goal, familyId: familyId);
       if (mounted) {
+        if (result.isNotEmpty) {
+          context.read<AppProvider>().saveAiHistory(module: 'tasks', prompt: 'Break down task: "$goal"', response: result.join('\n'));
+        }
         setState(() {
           _loading = false;
           _subTasks = result;

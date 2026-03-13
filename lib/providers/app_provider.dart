@@ -4,6 +4,7 @@
 // ignore_for_file: avoid_catches_without_on_clauses
 
 import 'package:flutter/foundation.dart';
+import 'package:uuid/uuid.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
 
 import '../models/models.dart';
@@ -268,6 +269,31 @@ class AppProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('[AppProvider] broadcast error: $e');
     }
+  }
+
+  // ── AI History ──────────────────────────────────────────────────────────
+
+  /// Save an AI interaction to history.
+  Future<void> saveAiHistory({
+    required String module,
+    required String prompt,
+    required String response,
+  }) async {
+    final user = _activeUser;
+    final family = _activeFamily;
+    if (user == null || family == null) return;
+    final entry = AIHistory(
+      id: const Uuid().v4(),
+      userId: user.id,
+      familyId: family.id,
+      module: module,
+      prompt: prompt,
+      response: response,
+      createdAt: DateTime.now(),
+    );
+    await saveAndSync(_db.copyWith(
+      aiHistory: [..._db.aiHistory, entry],
+    ));
   }
 
   // ── Unread tracking ───────────────────────────────────────────────────────
