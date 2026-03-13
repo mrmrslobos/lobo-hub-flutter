@@ -1,10 +1,8 @@
-import 'dart:convert';
 import 'dart:io' show Platform;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
@@ -310,40 +308,19 @@ class NotificationService {
       }
       debugPrint('[NotificationService] Registering device token for user=$userId family=$familyId');
 
-      // Ensure the access token is fresh
-      try {
-        await Supabase.instance.client.auth.refreshSession();
-      } catch (e) {
-        debugPrint('[NotificationService] refreshSession failed: $e');
-      }
-
-      final session = Supabase.instance.client.auth.currentSession;
-      final accessToken = session?.accessToken ?? '';
-      final supabaseUrl = Supabase.instance.client.rest.url.replaceAll('/rest/v1', '');
-
-      // Edge functions require both Authorization (user JWT) and apikey (anon key).
-      // The anon key is embedded in the Supabase client config.
-      const anonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
-
-      debugPrint('[NotificationService] POST $supabaseUrl/functions/v1/notify-family');
-      debugPrint('[NotificationService] accessToken len=${accessToken.length}, anonKey len=${anonKey.length}');
-
-      final resp = await http.post(
-        Uri.parse('$supabaseUrl/functions/v1/notify-family'),
-        headers: {
-          'Authorization': 'Bearer $accessToken',
-          'apikey': anonKey,
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          'action': 'register',
-          'token': token,
-          'familyId': familyId,
+      // Write directly to device_tokens via REST API (RLS allows users to
+      // manage their own rows). This avoids the edge function JWT auth issue.
+      await Supabase.instance.client.from('device_tokens').upsert(
+        {
           'userId': userId,
+          'familyId': familyId,
+          'token': token,
           'platform': Platform.isIOS ? 'ios' : 'android',
-        }),
+          'updatedAt': DateTime.now().toUtc().toIso8601String(),
+        },
+        onConflict: 'userId,platform',
       );
-      debugPrint('[NotificationService] register response: ${resp.statusCode} ${resp.body}');
+      debugPrint('[NotificationService] device token registered successfully');
     } catch (e, st) {
       debugPrint('[NotificationService] registerDeviceToken error: $e\n$st');
     }
