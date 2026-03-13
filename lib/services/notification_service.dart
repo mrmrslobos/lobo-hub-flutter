@@ -308,9 +308,16 @@ class NotificationService {
       }
       debugPrint('[NotificationService] Registering device token for user=$userId family=$familyId');
 
-      // Ensure the access token is fresh — on cold start the restored session
-      // may carry an expired JWT that functions.invoke() won't auto-refresh.
-      await Supabase.instance.client.auth.refreshSession();
+      // Ensure the access token is fresh
+      try {
+        await Supabase.instance.client.auth.refreshSession();
+      } catch (e) {
+        debugPrint('[NotificationService] refreshSession failed: $e');
+      }
+
+      final session = Supabase.instance.client.auth.currentSession;
+      final jwt = session?.accessToken;
+      debugPrint('[NotificationService] session null=${session == null} jwt=${jwt == null ? "null" : "len=${jwt!.length} exp=${session!.expiresAt}"}');
 
       final resp = await Supabase.instance.client.functions.invoke(
         'notify-family',
