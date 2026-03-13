@@ -523,54 +523,14 @@ async function buildNotification(
     };
   }
 
-  if (table === 'lists' && type === 'INSERT') {
-    const actorId = record.creatorId as string;
-    const actorName = await getActorName(actorId);
-    return {
-      familyId: record.familyId as string,
-      actorId,
-      title: 'New list created 📋',
-      body: `${actorName} created: ${record.title}`,
-      path: '/lists',
-    };
-  }
-
-  if (table === 'lists' && type === 'UPDATE') {
-    // PostgreSQL triggers have full OLD row access so old_record.items is
-    // available without needing REPLICA IDENTITY FULL.
-    const oldItems = Array.isArray(payload.old_record?.items)
-      ? (payload.old_record.items as Record<string, unknown>[])
-      : [];
-    const newItems = Array.isArray(record.items)
-      ? (record.items as Record<string, unknown>[])
-      : [];
-
-    // Item added
-    if (newItems.length > oldItems.length) {
-      const added = newItems[newItems.length - 1];
-      return {
-        familyId: record.familyId as string,
-        // Use nil UUID so all family members are notified (we don't know who added it)
-        actorId: '00000000-0000-0000-0000-000000000000',
-        title: 'Item added to list 🛒',
-        body: `"${(added?.text as string) ?? 'An item'}" was added to ${record.title}`,
-        path: '/lists',
-      };
-    }
-
-    // Item ticked/unticked — find the item whose checked status changed
-    const oldMap = new Map(oldItems.map(i => [i.id as string, i.checked as boolean]));
-    const justChecked = newItems.find(i => i.id && oldMap.has(i.id as string) && !oldMap.get(i.id as string) && (i.checked as boolean));
-    if (justChecked) {
-      return {
-        familyId: record.familyId as string,
-        actorId: '00000000-0000-0000-0000-000000000000',
-        title: 'Item ticked off ✅',
-        body: `"${(justChecked?.text as string) ?? 'An item'}" ticked off in ${record.title}`,
-        path: '/lists',
-      };
-    }
-  }
+  // List INSERT and UPDATE notifications are handled by the Flutter app via
+  // NotificationService.notifyFamilyActivity with proper excludeUserId.
+  // Webhook-based list notifications were removed because:
+  //  1. The app already sends them with proper actor exclusion.
+  //  2. The webhook had no way to identify the actor (used nil UUID),
+  //     causing the actor to receive their own notifications.
+  //  3. Both firing caused duplicate notifications for other family members.
+  if (table === 'lists') return null;
 
   if (table === 'polls' && type === 'INSERT') {
     const actorId = record.creatorId as string;
