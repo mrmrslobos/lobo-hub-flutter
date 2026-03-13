@@ -314,7 +314,11 @@ class NotificationService {
       String familyId, String userId) async {
     try {
       final token = await getFcmToken();
-      if (token == null) return;
+      if (token == null) {
+        debugPrint('[NotificationService] FCM token is null — skipping registration');
+        return;
+      }
+      debugPrint('[NotificationService] Registering device token for user=$userId family=$familyId');
 
       final restUrl = Supabase.instance.client.rest.url;
       final supabaseUrl = restUrl.replaceAll('/rest/v1', '');
