@@ -68,8 +68,9 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
         debug {
-            applicationIdSuffix '.debug'
-            versionNameSuffix '-debug'
+            // Removed applicationIdSuffix '.debug' — it caused the package name
+            // to become 'com.lobohub.app.debug' which doesn't match the client
+            // in google-services.json, breaking Firebase/FCM in debug builds.
         }
     }
 }
