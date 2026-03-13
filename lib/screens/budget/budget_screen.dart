@@ -1,4 +1,5 @@
 // lib/screens/budget/budget_screen.dart
+// Budget / finance screen for FamilyHub
 import 'dart:convert';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
@@ -14,6 +15,16 @@ import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+void _showSnack(BuildContext context, String msg) {
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    content: Text(msg),
+    behavior: SnackBarBehavior.floating,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+  ));
+}
 
 // ─── Budget screen ────────────────────────────────────────────────────────────
 
@@ -57,6 +68,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
   static Color _categoryColor(String key) => _categoryColors[key.toLowerCase()] ?? const Color(0xFF78716C);
 
   Future<void> _deleteEntry(String id) async {
+    HapticFeedback.lightImpact();
     final provider = context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(db.copyWith(
@@ -140,19 +152,12 @@ class _BudgetScreenState extends State<BudgetScreen> {
             onPressed: () async {
               final amount = double.tryParse(amountCtrl.text.trim());
               if (amount == null || amount <= 0) {
-                ScaffoldMessenger.of(ctx).showSnackBar(
-                  const SnackBar(content: Text('Enter an amount greater than \$0'), behavior: SnackBarBehavior.floating),
-                );
+                _showSnack(ctx, 'Enter an amount greater than \$0');
                 return;
               }
               final remaining = goal.targetAmount - goal.savedAmount;
               if (remaining > 0 && amount > remaining) {
-                ScaffoldMessenger.of(ctx).showSnackBar(
-                  SnackBar(
-                    content: Text('Only \$${remaining.toStringAsFixed(2)} needed to reach the goal'),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
+                _showSnack(ctx, 'Only \$${remaining.toStringAsFixed(2)} needed to reach the goal');
                 return;
               }
               Navigator.pop(ctx);
@@ -288,9 +293,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
       lines.add('$date,$desc,$cat,$type,$amt');
     }
     Clipboard.setData(ClipboardData(text: lines.join('\n')));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('CSV copied to clipboard!')),
-    );
+    if (mounted) _showSnack(context, 'CSV copied to clipboard!');
   }
 
   void _showReportView({
@@ -531,30 +534,9 @@ class _BudgetScreenState extends State<BudgetScreen> {
     return Scaffold(
       backgroundColor: AppTheme.background,
       drawer: const AppDrawer(),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: Builder(
-          builder: (context) => IconButton(
-            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
-            onPressed: () => Scaffold.of(context).openDrawer(),
-          ),
-        ),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
-            const SizedBox(width: 6),
-            const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
-          ],
-        ),
-        centerTitle: false,
-        titleSpacing: 0,
-        actions: const [],
-      ),
+      appBar: const FamilyHubAppBar(),
       body: ListView(
-        padding: const EdgeInsets.only(bottom: 100),
+        padding: const EdgeInsets.only(bottom: 32),
         children: [
           // ─── Page Header ───────────────────────────────────────────────
           PageHeader(
@@ -657,132 +639,45 @@ class _BudgetScreenState extends State<BudgetScreen> {
           ),
           const SizedBox(height: 16),
 
-          // ─── Summary Cards ─────────────────────────────────────────────
+          // ─── Stat Cards ──────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Column(
-              children: [
-                // Total Income
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF0FDF4),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: AppTheme.success.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(Icons.trending_up_rounded, color: AppTheme.success, size: 20),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'TOTAL INCOME',
-                              style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.stone400, letterSpacing: 0.8),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              _currencyFmt.format(totalIncome),
-                              style: const TextStyle(fontFamily: 'Inter', fontSize: 22, fontWeight: FontWeight.w900, color: AppTheme.success),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 10),
-                // Total Expenses
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFFF7ED),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: AppTheme.error.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(Icons.trending_down_rounded, color: AppTheme.error, size: 20),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'TOTAL EXPENSES',
-                              style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.stone400, letterSpacing: 0.8),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              _currencyFmt.format(totalExpenses),
-                              style: const TextStyle(fontFamily: 'Inter', fontSize: 22, fontWeight: FontWeight.w900, color: AppTheme.error),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 10),
-                // Net Savings
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF0FDF4),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: AppTheme.success.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(Icons.attach_money_rounded, color: AppTheme.success, size: 20),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'NET SAVINGS',
-                              style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.stone400, letterSpacing: 0.8),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              _currencyFmt.format(net),
-                              style: TextStyle(fontFamily: 'Inter', fontSize: 22, fontWeight: FontWeight.w900, color: net >= 0 ? AppTheme.success : AppTheme.error),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+            child: Row(children: [
+              _MiniStat(
+                icon: Icons.trending_up_rounded,
+                iconColor: AppTheme.success,
+                value: _currencyFmt.format(totalIncome),
+                label: 'Income',
+              ),
+              const SizedBox(width: 10),
+              _MiniStat(
+                icon: Icons.trending_down_rounded,
+                iconColor: AppTheme.error,
+                value: _currencyFmt.format(totalExpenses),
+                label: 'Expenses',
+              ),
+              const SizedBox(width: 10),
+              _MiniStat(
+                icon: Icons.account_balance_wallet_rounded,
+                iconColor: net >= 0 ? AppTheme.success : AppTheme.error,
+                value: _currencyFmt.format(net),
+                label: 'Net',
+              ),
+            ]),
+          ),
+
+          const SizedBox(height: 16),
+
+          // ─── Filter Chips ───────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(children: [
+              _FilterChip(label: 'All', selected: _filter == _BudgetFilter.all, onTap: () => setState(() => _filter = _BudgetFilter.all)),
+              const SizedBox(width: 8),
+              _FilterChip(label: 'Income', selected: _filter == _BudgetFilter.income, onTap: () => setState(() => _filter = _BudgetFilter.income)),
+              const SizedBox(width: 8),
+              _FilterChip(label: 'Expenses', selected: _filter == _BudgetFilter.expenses, onTap: () => setState(() => _filter = _BudgetFilter.expenses)),
+            ]),
           ),
 
           // ─── Monthly Targets ───────────────────────────────────────────
@@ -1042,233 +937,64 @@ class _BudgetScreenState extends State<BudgetScreen> {
           if (monthEntries.where((e) => !e.isIncome).isNotEmpty)
             _buildSpendingByCategory(monthEntries, totalExpenses),
 
-          // ─── AI Savings Coach Banner ───────────────────────────────────
+          // ─── AI Tools ──────────────────────────────────────────────────
+          const Padding(
+            padding: EdgeInsets.fromLTRB(20, 24, 20, 0),
+            child: SectionHeader(title: 'AI TOOLS'),
+          ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 24, 20, 16),
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
             child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [Color(0xFF7C3AED), Color(0xFF6366F1)],
+                color: AppTheme.surface,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppTheme.primary.withValues(alpha: 0.15)),
+              ),
+              child: Row(children: [
+                Container(
+                  width: 40, height: 40,
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
                 ),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: const [
-                      Icon(Icons.auto_awesome, size: 20, color: Colors.white),
-                      SizedBox(width: 8),
-                      Text(
-                        'AI Savings Coach',
-                        style: TextStyle(fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w800, color: Colors.white),
-                      ),
-                    ],
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Text('AI Savings Coach', style: TextStyle(
+                      fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.stone900,
+                    )),
+                    const SizedBox(height: 2),
+                    const Text('Get tips on where to cut back.', style: TextStyle(
+                      fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500,
+                    )),
+                  ]),
+                ),
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: () => _showAiAnalysis(
+                    context,
+                    totalIncome: totalIncome,
+                    totalExpenses: totalExpenses,
+                    entries: monthEntries,
                   ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    "I've looked at your category limits and spending. Want some tips on where to cut back?",
-                    style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: Colors.white70, height: 1.5),
-                  ),
-                  const SizedBox(height: 14),
-                  GestureDetector(
-                    onTap: () => _showAiAnalysis(
-                      context,
-                      totalIncome: totalIncome,
-                      totalExpenses: totalExpenses,
-                      entries: monthEntries,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primary,
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
-                      ),
-                      child: const Text(
-                        'Analyze Spending',
-                        style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white),
-                      ),
-                    ),
+                    child: const Text('Analyze', style: TextStyle(
+                      fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white,
+                    )),
                   ),
-                ],
-              ),
+                ),
+              ]),
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-// ─── Savings Goal Card ────────────────────────────────────────────────────────
-
-class _SavingsGoalCard extends StatelessWidget {
-  final SavingsGoal goal;
-  final String Function(double) formatCurrency;
-  final VoidCallback onTap;
-  final VoidCallback onDelete;
-
-  const _SavingsGoalCard({
-    required this.goal,
-    required this.formatCurrency,
-    required this.onTap,
-    required this.onDelete,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final daysUntil = goal.deadline != null
-        ? goal.deadline!.difference(DateTime.now()).inDays
-        : null;
-
-    return GestureDetector(
-      onTap: goal.isComplete ? null : onTap,
-      onLongPress: () async {
-        final confirmed = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Delete Goal'),
-            content: Text('Delete "${goal.title}"?'),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text('Cancel')),
-              TextButton(
-                  onPressed: () => Navigator.pop(ctx, true),
-                  child: const Text('Delete',
-                      style: TextStyle(color: AppTheme.error))),
-            ],
-          ),
-        );
-        if (confirmed == true) onDelete();
-      },
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: goal.isComplete
-              ? AppTheme.success.withValues(alpha: 0.06)
-              : AppTheme.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: goal.isComplete
-                ? AppTheme.success.withValues(alpha: 0.3)
-                : AppTheme.stone100,
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                if (goal.emoji != null)
-                  Text(goal.emoji!,
-                      style: const TextStyle(fontSize: 22)),
-                if (goal.emoji != null) const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    goal.title,
-                    style: const TextStyle(
-                      fontFamily: 'Inter',
-                      fontWeight: FontWeight.w700,
-                      fontSize: 15,
-                      color: AppTheme.stone900,
-                    ),
-                  ),
-                ),
-                if (goal.isComplete)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: AppTheme.success.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                          color: AppTheme.success.withValues(alpha: 0.3)),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.check_circle_rounded,
-                            size: 12, color: AppTheme.success),
-                        SizedBox(width: 4),
-                        Text(
-                          'Complete!',
-                          style: TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.success,
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                else
-                  Icon(Icons.add_circle_outline_rounded,
-                      color: AppTheme.primary.withValues(alpha: 0.6), size: 20),
-              ],
-            ),
-            const SizedBox(height: 10),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: LinearProgressIndicator(
-                value: goal.progress,
-                minHeight: 8,
-                backgroundColor: AppTheme.stone100,
-                valueColor: AlwaysStoppedAnimation(
-                  goal.isComplete ? AppTheme.success : AppTheme.primary,
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  '${formatCurrency(goal.currentAmount)} of ${formatCurrency(goal.targetAmount)}',
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: AppTheme.stone600,
-                  ),
-                ),
-                if (daysUntil != null && !goal.isComplete)
-                  Text(
-                    daysUntil > 0
-                        ? '$daysUntil day${daysUntil == 1 ? '' : 's'} left'
-                        : daysUntil == 0
-                            ? 'Due today'
-                            : 'Overdue',
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: daysUntil <= 0
-                          ? AppTheme.error
-                          : daysUntil <= 7
-                              ? AppTheme.warning
-                              : AppTheme.stone400,
-                    ),
-                  ),
-                Text(
-                  '${(goal.progress * 100).toStringAsFixed(0)}%',
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.stone500,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -1317,15 +1043,11 @@ class _AddGoalSheetState extends State<_AddGoalSheet> {
     final title = _titleCtrl.text.trim();
     final target = double.tryParse(_targetCtrl.text.trim());
     if (title.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a goal name'), behavior: SnackBarBehavior.floating),
-      );
+      _showSnack(context, 'Please enter a goal name');
       return;
     }
     if (target == null || target <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid target amount'), behavior: SnackBarBehavior.floating),
-      );
+      _showSnack(context, 'Please enter a valid target amount');
       return;
     }
 
@@ -1911,16 +1633,12 @@ class _BudgetEntrySheetState extends State<_BudgetEntrySheet> {
 
   Future<void> _save() async {
     if (_titleCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a title'), behavior: SnackBarBehavior.floating),
-      );
+      _showSnack(context, 'Please enter a title');
       return;
     }
     final amount = double.tryParse(_amountCtrl.text);
     if (amount == null || amount <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid amount'), behavior: SnackBarBehavior.floating),
-      );
+      _showSnack(context, 'Please enter a valid amount');
       return;
     }
     setState(() => _isSaving = true);
@@ -2196,9 +1914,7 @@ class _AiBankStatementImportSheetState extends State<_AiBankStatementImportSheet
   Future<void> _parseStatement() async {
     final text = _textController.text.trim();
     if (text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please paste your bank statement text'), behavior: SnackBarBehavior.floating),
-      );
+      _showSnack(context, 'Please paste your bank statement text');
       return;
     }
     setState(() { _loading = true; _parsedTransactions = null; _error = null; });
@@ -2304,9 +2020,7 @@ $text
 
     if (mounted) {
       Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Imported ${newEntries.length} transactions!'), behavior: SnackBarBehavior.floating),
-      );
+      _showSnack(context, 'Imported ${newEntries.length} transactions!');
     }
   }
 
@@ -2787,6 +2501,101 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
             ),
           ),
         ]),
+      ),
+    );
+  }
+}
+
+// ─── Mini Stat Card ──────────────────────────────────────────────────────────
+
+class _MiniStat extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String value;
+  final String label;
+
+  const _MiniStat({
+    required this.icon,
+    required this.iconColor,
+    required this.value,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppTheme.stone100),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 32, height: 32,
+              decoration: BoxDecoration(
+                color: iconColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Icon(icon, size: 16, color: iconColor),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(value, style: TextStyle(
+                    fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w900, color: iconColor,
+                  ), overflow: TextOverflow.ellipsis),
+                  Text(label, style: const TextStyle(
+                    fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w500, color: AppTheme.stone400,
+                  )),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Filter Chip ─────────────────────────────────────────────────────────────
+
+class _FilterChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _FilterChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? AppTheme.primary : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: selected ? AppTheme.primary : AppTheme.stone200),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontFamily: 'Inter',
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+            color: selected ? Colors.white : AppTheme.stone600,
+          ),
+        ),
       ),
     );
   }
