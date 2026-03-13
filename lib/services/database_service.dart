@@ -110,6 +110,8 @@ class DatabaseService {
         db.mealPlans.map((m) => {...m.toJson(), 'familyId': fid}).toList());
     await up('lists',
         db.lists.map((l) => {...l.toJson(), 'familyId': fid}).toList());
+    // Delete cloud lists that no longer exist locally
+    await _deleteRemovedRows('lists', db.lists.map((l) => l.id).toSet(), fid);
     await up('devotionals',
         db.devotionals.map((d) => {...d.toJson(), 'familyId': fid}).toList());
     await up('fitness',
@@ -164,6 +166,26 @@ class DatabaseService {
         db.rewards.map((r) => {...r.toJson(), 'familyId': fid}).toList());
     await up('reading_plans',
         db.readingPlans.map((r) => {...r.toJson(), 'familyId': fid}).toList());
+  }
+
+  /// Delete cloud rows for a family-scoped table that no longer exist locally.
+  static Future<void> _deleteRemovedRows(
+    String table, Set<String> localIds, String familyId,
+  ) async {
+    if (!SupabaseService.isConfigured) return;
+    try {
+      final cloudRows = await SupabaseService.client
+          .from(table)
+          .select('id')
+          .eq('familyId', familyId);
+      final cloudIds = (cloudRows as List).map((r) => r['id'] as String).toSet();
+      final removed = cloudIds.difference(localIds);
+      for (final id in removed) {
+        await SupabaseService.deleteRows(table, {'id': id});
+      }
+    } catch (e) {
+      debugPrint('[DatabaseService] Failed to delete removed $table rows: $e');
+    }
   }
 
   // ── Cloud reconcile ───────────────────────────────────────────────────────
