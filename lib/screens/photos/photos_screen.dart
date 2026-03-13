@@ -1173,7 +1173,7 @@ class _AddMilestoneSheetState extends State<_AddMilestoneSheet> {
       _titleCtrl.text = ms.title;
       _notesCtrl.text = ms.notes ?? '';
       _ageLabelCtrl.text = ms.ageLabel ?? '';
-      _category = ms.category;
+      _category = ms.category ?? 'Firsts';
       _emoji = ms.emoji ?? '⭐';
       _date = ms.date;
     } else {

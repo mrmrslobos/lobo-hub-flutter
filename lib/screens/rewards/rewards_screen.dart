@@ -53,11 +53,8 @@ class _RewardsScreenState extends State<RewardsScreen> {
     final newSaved = goal.savedAmount + amount;
     final updated = db.savingsGoals.map((g) {
       if (g.id == goal.id) {
-        return SavingsGoal(
-          id: g.id, familyId: g.familyId, userId: g.userId,
-          title: g.title, icon: g.icon, imageUrl: g.imageUrl,
-          targetAmount: g.targetAmount, savedAmount: newSaved,
-          createdAt: g.createdAt,
+        return g.copyWith(
+          savedAmount: newSaved,
           completedAt: newSaved >= g.targetAmount ? DateTime.now() : g.completedAt,
         );
       }
@@ -120,12 +117,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
     final db = provider.db;
     final updated = db.rewards.map((r) {
       if (r.id == reward.id) {
-        return Reward(
-          id: r.id,
-          familyId: r.familyId,
-          title: r.title,
-          pointCost: r.pointCost,
-          description: r.description,
+        return r.copyWith(
           redeemedBy: [...r.redeemedBy, userId],
         );
       }

@@ -1084,9 +1084,7 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
       if (m.familyId != familyId) return m;
       final edited = _members.where((e) => e.userId == m.userId).firstOrNull;
       if (edited == null) return m;
-      return FamilyMember(
-        userId: m.userId,
-        familyId: m.familyId,
+      return m.copyWith(
         role: edited.role,
         moduleAccess: edited.moduleAccess,
         displayName: edited.displayName,
