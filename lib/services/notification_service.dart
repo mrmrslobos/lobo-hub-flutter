@@ -308,11 +308,9 @@ class NotificationService {
       }
       debugPrint('[NotificationService] Registering device token for user=$userId family=$familyId');
 
-      final restUrl = Supabase.instance.client.rest.url;
-      final supabaseUrl = restUrl.replaceAll('/rest/v1', '');
-      final accessToken =
-          Supabase.instance.client.auth.currentSession?.accessToken ?? '';
-      final uri = Uri.parse('$supabaseUrl/functions/v1/notify-family');
+      // Ensure the access token is fresh — on cold start the restored session
+      // may carry an expired JWT that functions.invoke() won't auto-refresh.
+      await Supabase.instance.client.auth.refreshSession();
 
       final resp = await Supabase.instance.client.functions.invoke(
         'notify-family',
