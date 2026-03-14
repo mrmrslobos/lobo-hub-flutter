@@ -176,6 +176,8 @@ $unitInstruction
 Return a JSON array of exactly 3 objects, each with these fields:
 - "title" (string): recipe name
 - "summary" (string): 1-2 sentence description
+- "prepMinutes" (integer): estimated prep time in minutes
+- "cookMinutes" (integer): estimated cooking time in minutes
 - "ingredients" (array of objects with "name", "quantity", "unit")
 - "steps" (array of strings)
 - "servings" (integer)
@@ -254,6 +256,8 @@ Return a JSON array of exactly 3 objects, each with these fields:
       steps: steps,
       servings: (suggestion['servings'] is int) ? suggestion['servings'] as int : 4,
       tags: tags,
+      prepMinutes: (suggestion['prepMinutes'] as num?)?.toInt(),
+      cookMinutes: (suggestion['cookMinutes'] as num?)?.toInt(),
       createdBy: userId,
     );
 
@@ -293,6 +297,8 @@ Return a JSON array of 7 objects, each with:
 - "meals" (array of objects, each with):
   - "type" (string): "breakfast", "lunch", or "dinner"
   - "name" (string): meal name
+  - "prepMinutes" (integer): estimated prep time in minutes
+  - "cookMinutes" (integer): estimated cooking time in minutes
   - "ingredients" (array of objects with "name", "quantity", "unit")
   - "steps" (array of strings)
   - "servings" (integer)
@@ -394,6 +400,8 @@ Return a JSON array of 7 objects, each with:
             steps: steps,
             servings: (meal['servings'] is int) ? meal['servings'] as int : 4,
             tags: const ['meal-plan'],
+            prepMinutes: (meal['prepMinutes'] as num?)?.toInt(),
+            cookMinutes: (meal['cookMinutes'] as num?)?.toInt(),
             createdBy: userId,
           ));
 
@@ -629,6 +637,8 @@ Return a JSON array of 7 objects, each with:
             steps: steps,
             servings: (meal['servings'] is int) ? meal['servings'] as int : 4,
             tags: const ['meal-plan'],
+            prepMinutes: (meal['prepMinutes'] as num?)?.toInt(),
+            cookMinutes: (meal['cookMinutes'] as num?)?.toInt(),
             createdBy: userId,
           ));
 
@@ -871,6 +881,9 @@ Return a JSON array of 7 objects, each with:
                     final title = s['title']?.toString() ?? 'Recipe';
                     final summary = s['summary']?.toString() ?? '';
                     final ings = s['ingredients'] is List ? (s['ingredients'] as List).length : 0;
+                    final prep = (s['prepMinutes'] as num?)?.toInt() ?? 0;
+                    final cook = (s['cookMinutes'] as num?)?.toInt() ?? 0;
+                    final totalMin = prep + cook;
                     return Container(
                       margin: const EdgeInsets.only(bottom: 8),
                       decoration: BoxDecoration(
@@ -908,6 +921,24 @@ Return a JSON array of 7 objects, each with:
                                       ),
                                       child: Text('$ings items', style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w600, color: AppTheme.stone500)),
                                     ),
+                                    if (totalMin > 0) ...[
+                                      const SizedBox(width: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: AppTheme.primaryLight,
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.timer_outlined, size: 10, color: AppTheme.primary),
+                                            const SizedBox(width: 3),
+                                            Text('${totalMin}m', style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w600, color: AppTheme.primary)),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
                                     const Spacer(),
                                     GestureDetector(
                                       onTap: () => _saveChefRecipe(s),

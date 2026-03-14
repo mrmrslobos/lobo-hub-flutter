@@ -219,7 +219,7 @@ $currentPlanJson
 
 The user wants to refine it: "$refinementRequest"
 
-Return an updated JSON array of 7 day objects with the same structure (dayName, meals array with type/name/ingredients/steps/servings), applying the requested changes.
+Return an updated JSON array of 7 day objects with the same structure (dayName, meals array with type/name/prepMinutes/cookMinutes/ingredients/steps/servings), applying the requested changes.
 Return valid JSON only, no markdown fences.
 ''';
     return ask(prompt: prompt, feature: 'ai_recipes', familyId: familyId);

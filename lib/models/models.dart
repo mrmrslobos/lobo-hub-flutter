@@ -780,6 +780,8 @@ class Recipe {
   final int servings;
   final List<String> tags;
   final String? image;
+  final int? prepMinutes;
+  final int? cookMinutes;
 
   Recipe({
     required this.id,
@@ -790,10 +792,10 @@ class Recipe {
     int? servings,
     this.tags = const [],
     this.image,
+    this.prepMinutes,
+    this.cookMinutes,
     // Accept but ignore extra fields from screen
     String? description,
-    int? prepMinutes,
-    int? cookMinutes,
     String? sourceUrl,
     String? createdBy,
     String? creatorId,
@@ -821,6 +823,8 @@ class Recipe {
       servings: (j['servings'] as num?)?.toInt() ?? 4,
       tags: _strList(j['tags']),
       image: j['image'] as String?,
+      prepMinutes: (j['prepMinutes'] ?? j['prep_minutes']) as int?,
+      cookMinutes: (j['cookMinutes'] ?? j['cook_minutes']) as int?,
     );
   }
 
@@ -833,22 +837,25 @@ class Recipe {
     'servings': servings,
     'tags': tags,
     'image': image,
+    if (prepMinutes != null) 'prepMinutes': prepMinutes,
+    if (cookMinutes != null) 'cookMinutes': cookMinutes,
   };
 
   // Convenience getters
   String? get imageUrl => image;
   String? get description => null;
-  int? get prepMinutes => null;
-  int? get cookMinutes => null;
 
   Recipe copyWith({
     String? id, String? familyId, String? title, List<RecipeIngredient>? ingredients,
     List<String>? steps, int? servings, List<String>? tags, String? image,
+    int? prepMinutes, int? cookMinutes,
   }) => Recipe(
     id: id ?? this.id, familyId: familyId ?? this.familyId,
     title: title ?? this.title, ingredients: ingredients ?? this.ingredients,
     steps: steps ?? this.steps, servings: servings ?? this.servings,
     tags: tags ?? this.tags, image: image ?? this.image,
+    prepMinutes: prepMinutes ?? this.prepMinutes,
+    cookMinutes: cookMinutes ?? this.cookMinutes,
   );
 }
 
