@@ -10,6 +10,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import 'config/theme.dart';
 import 'config/app_config.dart';
 import 'providers/app_provider.dart';
+import 'services/notification_service.dart';
 import 'widgets/biometric_lock.dart';
 
 // Screens
@@ -60,6 +61,8 @@ class _FamilyHubAppState extends State<FamilyHubApp> with WidgetsBindingObserver
       _isRouterInitialized = true;
       _listenToAuthState();
       WidgetsBinding.instance.addObserver(this);
+      // Handle notification tap that launched the app from terminated state
+      _consumePendingRoute();
     }
   }
 
@@ -67,6 +70,21 @@ class _FamilyHubAppState extends State<FamilyHubApp> with WidgetsBindingObserver
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && _provider.isAuthenticated) {
       _provider.refreshFromCloud();
+      _consumePendingRoute();
+    }
+  }
+
+  /// Navigate to the route set by a notification tap (FCM or local).
+  void _consumePendingRoute() {
+    final route = NotificationService.pendingRoute;
+    if (route != null && route.isNotEmpty) {
+      NotificationService.pendingRoute = null;
+      // Delay slightly to ensure the router is ready after resume
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_provider.isAuthenticated) {
+          _router.go(route);
+        }
+      });
     }
   }
 
