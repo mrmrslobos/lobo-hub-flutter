@@ -415,9 +415,8 @@ class Family {
   DateTime get effectiveTrialStart => trialStartDate ?? createdAt;
 
   /// Whether the 14-day free trial has expired.
-  bool get isTrialExpired =>
-      subscriptionTier == SubscriptionTier.trial &&
-      DateTime.now().difference(effectiveTrialStart).inDays >= trialDays;
+  // TODO: restore original check once subscriptions go live
+  bool get isTrialExpired => false;
 
   /// Days remaining in the trial (0 if expired or not on trial).
   int get trialDaysRemaining {
