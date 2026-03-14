@@ -254,119 +254,33 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
     super.dispose();
   }
 
-  /// Auto-generate a daily devotional if enabled and not yet created today.
-  /// First syncs with the cloud to pick up server-generated devotionals
+  /// Sync with the cloud to pick up server-generated devotionals
   /// (produced by the daily-devotional edge function even when the app is
-  /// closed). Falls back to client-side generation if nothing was found.
+  /// closed). The server is the sole generator — no client-side fallback.
   Future<void> _maybeGenerateDaily() async {
     if (!mounted) return;
     final provider = context.read<AppProvider>();
     final family = provider.activeFamily;
     if (family == null || !family.dailyDevotionalEnabled) return;
 
-    final now = DateTime.now();
-    // Stored values are UTC; convert to local for comparison
-    final utcDt = DateTime.utc(2024, 1, 1, family.dailyDevotionalHour, family.dailyDevotionalMinute);
-    final localDt = utcDt.toLocal();
-    final scheduledTime = DateTime(now.year, now.month, now.day, localDt.hour, localDt.minute);
-
-    // Only generate if we're past the scheduled time
-    if (now.isBefore(scheduledTime)) return;
-
-    final today = DateTime(now.year, now.month, now.day);
+    final today = DateTime.now();
+    final todayDate = DateTime(today.year, today.month, today.day);
 
     bool hasTodaysDevotional() => provider.db.devotionalEntries.any((e) =>
       e.familyId == family.id &&
       e.tags.contains('daily-auto') &&
-      DateTime(e.date.year, e.date.month, e.date.day) == today,
+      DateTime(e.date.year, e.date.month, e.date.day) == todayDate,
     );
 
-    // Check local first
+    // Already have today's devotional locally
     if (hasTodaysDevotional()) return;
 
-    // Sync with cloud — the server may have already generated today's devotional
+    // Sync with cloud — the server generates devotionals via pg_cron
     try {
       final merged = await DatabaseService.reconcileCloud(provider.db, family.id);
       if (mounted) provider.updateDb(merged);
-    } catch (_) {
-      // Cloud sync failed — continue with local check
-    }
-    if (!mounted) return;
-
-    // Re-check after cloud sync
-    if (hasTodaysDevotional()) return;
-
-    // Fallback: generate client-side (server may not have run yet)
-    // Use a flag to prevent concurrent generation
-    if (_isGenerating) return;
-    setState(() => _isGenerating = true);
-    try {
-      final raw = await AiService.ask(
-        prompt: '''Write a kids-friendly family devotional for today.
-Pick a random Bible verse and build a short, warm devotional around it.
-Return JSON with these exact fields: title, scripture, scriptureRef, content, reflectionPrompts (array of 3 discussion questions), prayer.
-For "scripture", write out the FULL verse text (e.g. "For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.").
-For "scriptureRef", provide only the reference (e.g. "John 3:16").
-Make the content warm, relatable, and suitable for children.''',
-        feature: 'ai_devotional',
-        familyId: widget.familyId,
-        responseMimeType: 'application/json',
-      );
-
-      if (raw != null && mounted) {
-        provider.saveAiHistory(module: 'devotional', prompt: 'Generate daily family devotional', response: raw);
-        // Final dedup check before inserting to prevent race with server cron
-        if (hasTodaysDevotional()) return;
-        try {
-          final data = jsonDecode(raw) as Map<String, dynamic>;
-          final scriptureRef = data['scriptureRef'] as String?;
-          final scriptureText = data['scripture'] as String?;
-          final scripture = scriptureText != null && scriptureRef != null
-              ? '$scriptureText\n\u2014 $scriptureRef'
-              : scriptureText ?? scriptureRef;
-          final entry = DevotionalEntry(
-            id: const Uuid().v4(),
-            familyId: widget.familyId,
-            creatorId: provider.activeUser?.id ?? '',
-            title: data['title'] as String? ?? 'Daily Devotional',
-            scripture: scripture,
-            content: data['content'] as String?,
-            reflectionPrompts: (data['reflectionPrompts'] as List?)?.cast<String>() ?? [],
-            prayer: data['prayer'] as String?,
-            tags: ['daily-auto'],
-            date: DateTime.now(),
-            visibility: Visibility.FAMILY,
-          );
-          final db = provider.db;
-          await provider.saveAndSync(db.copyWith(
-            devotionalEntries: [...db.devotionalEntries, entry],
-          ));
-          if (mounted) widget.onSelectEntry(entry);
-        } catch (_) {
-          final entry = DevotionalEntry(
-            id: const Uuid().v4(),
-            familyId: widget.familyId,
-            creatorId: provider.activeUser?.id ?? '',
-            title: 'Daily Devotional',
-            content: raw,
-            tags: ['daily-auto'],
-            date: DateTime.now(),
-            visibility: Visibility.FAMILY,
-          );
-          final db = provider.db;
-          await provider.saveAndSync(db.copyWith(
-            devotionalEntries: [...db.devotionalEntries, entry],
-          ));
-          if (mounted) widget.onSelectEntry(entry);
-        }
-      }
     } catch (e) {
-      debugPrint('Daily devotional auto-generation failed: $e');
-      if (mounted) {
-        _showSnack(context, 'Could not generate devotional. Pull down to retry.');
-      }
-    } finally {
-      if (mounted) setState(() => _isGenerating = false);
+      debugPrint('Cloud sync for daily devotional failed: $e');
     }
   }
 
@@ -1733,7 +1647,7 @@ class _DailyDevotionalCard extends StatelessWidget {
                       child: Text(
                         now.isBefore(DateTime(now.year, now.month, now.day, hour, minute))
                             ? 'Scheduled'
-                            : 'Generating...',
+                            : 'Awaiting...',
                         style: TextStyle(
                           fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13,
                           color: Colors.white.withValues(alpha: 0.7),
@@ -1759,10 +1673,9 @@ class _DailyDevotionalCard extends StatelessWidget {
       families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
     ));
 
-    if (val) {
-      // hour/minute passed here are already local (converted from UTC in build)
-      await _scheduleNotification(localHour, localMinute);
-    } else {
+    // Server-side FCM push handles notifications — no local scheduling needed.
+    // Cancel any previously scheduled local notification when toggling.
+    if (!val) {
       await NotificationService.cancel(_notifId);
     }
   }
@@ -1792,19 +1705,9 @@ class _DailyDevotionalCard extends StatelessWidget {
       families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
     ));
 
-    // Schedule local notification at the user's chosen local time
-    await _scheduleNotification(picked.hour, picked.minute);
+    // Server-side FCM push handles notifications — no local scheduling needed.
   }
 
-  static Future<void> _scheduleNotification(int hour, int minute) async {
-    await NotificationService.cancel(_notifId);
-    await NotificationService.scheduleDaily(
-      id: _notifId,
-      title: 'Daily Devotional Ready',
-      body: 'Your family\u2019s AI devotional for today is here. Open to read and reflect together.',
-      time: Time(hour, minute),
-    );
-  }
 }
 
 // ─── AI Feature Card (consistent with meals pattern) ─────────────────────────
