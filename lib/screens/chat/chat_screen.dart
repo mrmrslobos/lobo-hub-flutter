@@ -387,16 +387,60 @@ class _ChatScreenState extends State<ChatScreen> {
                                 ),
                               ),
                             ),
-                          _MessageBubble(
-                            msg: msg,
-                            isMe: isMe,
-                            sender: sender,
-                            showSenderInfo: showSenderInfo,
-                            replyMsg: replyMsg,
-                            provider: provider,
-                            onLongPress: () => _showMessageActions(provider, msg),
-                            onReply: () => setState(() => _replyTo = msg),
-                            onReact: (emoji) => _addReaction(provider, msg, emoji),
+                          Dismissible(
+                            key: ValueKey(msg.id),
+                            direction: DismissDirection.endToStart,
+                            confirmDismiss: (direction) async {
+                              return await showDialog<bool>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: const Text('Delete Message'),
+                                  content: const Text('Delete this message?'),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(ctx, false),
+                                      child: const Text('Cancel'),
+                                    ),
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(ctx, true),
+                                      child: const Text('Delete',
+                                          style: TextStyle(color: AppTheme.error)),
+                                    ),
+                                  ],
+                                ),
+                              ) ?? false;
+                            },
+                            onDismissed: (_) => _deleteMessage(provider, msg),
+                            background: Container(
+                              alignment: Alignment.centerRight,
+                              padding: const EdgeInsets.symmetric(horizontal: 20),
+                              decoration: BoxDecoration(
+                                color: AppTheme.error,
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  Text('Delete',
+                                      style: TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w600)),
+                                  SizedBox(width: 8),
+                                  Icon(Icons.delete, color: Colors.white),
+                                ],
+                              ),
+                            ),
+                            child: _MessageBubble(
+                              msg: msg,
+                              isMe: isMe,
+                              sender: sender,
+                              showSenderInfo: showSenderInfo,
+                              replyMsg: replyMsg,
+                              provider: provider,
+                              onLongPress: () => _showMessageActions(provider, msg),
+                              onReply: () => setState(() => _replyTo = msg),
+                              onReact: (emoji) => _addReaction(provider, msg, emoji),
+                            ),
                           ),
                         ],
                       );

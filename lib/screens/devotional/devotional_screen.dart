@@ -198,6 +198,7 @@ class _DevotionalScreenState extends State<DevotionalScreen>
                 entries: entries,
                 familyId: family.id,
                 onSelectEntry: (e) => setState(() => _selectedEntry = e),
+                onDeleteEntry: (id) => _deleteEntry(id),
               )
             else
               _ReadingPlansTab(
@@ -219,11 +220,13 @@ class _DevotionalsTab extends StatefulWidget {
   final List<DevotionalEntry> entries;
   final String familyId;
   final ValueChanged<DevotionalEntry> onSelectEntry;
+  final ValueChanged<String> onDeleteEntry;
 
   const _DevotionalsTab({
     required this.entries,
     required this.familyId,
     required this.onSelectEntry,
+    required this.onDeleteEntry,
   });
 
   @override
@@ -614,7 +617,40 @@ Make the content warm, relatable, and suitable for children.''';
                       else
                         ...filtered.map((entry) => Padding(
                           padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-                          child: GestureDetector(
+                          child: Dismissible(
+                            key: Key(entry.id),
+                            direction: DismissDirection.endToStart,
+                            background: Container(
+                              alignment: Alignment.centerRight,
+                              padding: const EdgeInsets.only(right: 20),
+                              decoration: BoxDecoration(
+                                color: AppTheme.error.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  Text('Delete', style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.error)),
+                                  SizedBox(width: 8),
+                                  Icon(Icons.delete_outline_rounded, color: AppTheme.error),
+                                ],
+                              ),
+                            ),
+                            confirmDismiss: (_) async {
+                              return await showDialog<bool>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: const Text('Delete Devotional'),
+                                  content: Text('Delete "${entry.title}"?'),
+                                  actions: [
+                                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                                    TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+                                  ],
+                                ),
+                              );
+                            },
+                            onDismissed: (_) => widget.onDeleteEntry(entry.id),
+                            child: GestureDetector(
                             onTap: () => widget.onSelectEntry(entry),
                             child: Container(
                               padding: const EdgeInsets.all(16),
@@ -665,6 +701,7 @@ Make the content warm, relatable, and suitable for children.''';
                                 ],
                               ),
                             ),
+                          ),
                           ),
                         )),
                     ],

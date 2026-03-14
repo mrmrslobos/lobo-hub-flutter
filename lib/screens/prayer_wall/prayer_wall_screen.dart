@@ -316,17 +316,11 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
               final isGratitude = request.type == PrayerWallType.GRATITUDE;
               return Padding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                child: _PrayerCard(
-                  request: request,
-                  userId: user.id,
-                  accentColor: isGratitude ? _warmAmber : request.answered ? _warmGreen : _warmIndigo,
-                  onPrayed: () => _togglePrayed(request, user.id),
-                  onAnswered: !request.answered && request.type == PrayerWallType.REQUEST
-                      ? () => _markAnswered(request)
-                      : null,
-                  onReaction: (emoji) => _toggleReaction(request, emoji, user.id),
-                  onDelete: () async {
-                    final confirmed = await showDialog<bool>(
+                child: Dismissible(
+                  key: ValueKey(request.id),
+                  direction: DismissDirection.endToStart,
+                  confirmDismiss: (_) async {
+                    return await showDialog<bool>(
                       context: context,
                       builder: (ctx) => AlertDialog(
                         title: const Text('Delete Prayer'),
@@ -337,10 +331,50 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
                         ],
                       ),
                     );
-                    if (confirmed == true) _deleteRequest(request.id);
                   },
-                  authorName: author?.name ?? 'Family Member',
-                  isGratitude: isGratitude,
+                  onDismissed: (_) => _deleteRequest(request.id),
+                  background: Container(
+                    decoration: BoxDecoration(
+                      color: AppTheme.error,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    alignment: Alignment.centerRight,
+                    padding: const EdgeInsets.only(right: 24),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Icon(Icons.delete, color: Colors.white),
+                        SizedBox(width: 8),
+                        Text('Delete', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
+                  child: _PrayerCard(
+                    request: request,
+                    userId: user.id,
+                    accentColor: isGratitude ? _warmAmber : request.answered ? _warmGreen : _warmIndigo,
+                    onPrayed: () => _togglePrayed(request, user.id),
+                    onAnswered: !request.answered && request.type == PrayerWallType.REQUEST
+                        ? () => _markAnswered(request)
+                        : null,
+                    onReaction: (emoji) => _toggleReaction(request, emoji, user.id),
+                    onDelete: () async {
+                      final confirmed = await showDialog<bool>(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          title: const Text('Delete Prayer'),
+                          content: const Text('Remove this entry?'),
+                          actions: [
+                            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+                          ],
+                        ),
+                      );
+                      if (confirmed == true) _deleteRequest(request.id);
+                    },
+                    authorName: author?.name ?? 'Family Member',
+                    isGratitude: isGratitude,
+                  ),
                 ),
               );
             }),

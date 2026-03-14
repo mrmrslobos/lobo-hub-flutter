@@ -625,11 +625,57 @@ class _FitnessScreenState extends State<FitnessScreen> {
           else
             ...shown.map((log) => Padding(
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-                  child: _LogCard(
-                    log: log,
-                    emoji: _activityEmoji(log.activity),
-                    memberName: provider.userById(log.userId)?.name ?? 'Member',
-                    onDelete: () => _deleteLog(context, log.id),
+                  child: Dismissible(
+                    key: ValueKey(log.id),
+                    direction: DismissDirection.endToStart,
+                    confirmDismiss: (_) async {
+                      return await showDialog<bool>(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          title: const Text('Delete Log'),
+                          content: const Text('Remove this fitness log?'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.of(ctx).pop(false),
+                              child: const Text('Cancel'),
+                            ),
+                            TextButton(
+                              onPressed: () => Navigator.of(ctx).pop(true),
+                              child: const Text('Delete'),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                    onDismissed: (_) => _deleteLog(context, log.id),
+                    background: Container(
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.only(right: 20),
+                      decoration: BoxDecoration(
+                        color: AppTheme.error,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Text(
+                            'Delete',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          SizedBox(width: 8),
+                          Icon(Icons.delete, color: Colors.white),
+                        ],
+                      ),
+                    ),
+                    child: _LogCard(
+                      log: log,
+                      emoji: _activityEmoji(log.activity),
+                      memberName: provider.userById(log.userId)?.name ?? 'Member',
+                      onDelete: () => _deleteLog(context, log.id),
+                    ),
                   ),
                 )),
         ],

@@ -237,16 +237,62 @@ class _PollsScreenState extends State<PollsScreen> {
               child: Column(
                 children: filteredPolls.map((poll) => Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: _PollCard(
-                    poll: poll,
-                    userId: user.id,
-                    isExpanded: _expandedPollId == poll.id,
-                    onTap: () => setState(() {
-                      _expandedPollId = _expandedPollId == poll.id ? null : poll.id;
-                    }),
-                    onVote: poll.status == PollStatus.open ? (optId) => _vote(poll, optId) : null,
-                    onClose: poll.status == PollStatus.open ? () => _closePoll(poll) : null,
-                    onDelete: () => _deletePoll(poll.id),
+                  child: Dismissible(
+                    key: ValueKey(poll.id),
+                    direction: DismissDirection.endToStart,
+                    background: Container(
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      decoration: BoxDecoration(
+                        color: AppTheme.error,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Icon(Icons.delete, color: Colors.white),
+                          SizedBox(width: 8),
+                          Text(
+                            'Delete',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    confirmDismiss: (direction) async {
+                      return await showDialog<bool>(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text('Delete Poll'),
+                          content: Text('Delete "${poll.question}"?'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.of(context).pop(false),
+                              child: const Text('Cancel'),
+                            ),
+                            TextButton(
+                              onPressed: () => Navigator.of(context).pop(true),
+                              child: const Text('Delete'),
+                            ),
+                          ],
+                        ),
+                      ) ?? false;
+                    },
+                    onDismissed: (direction) => _deletePoll(poll.id),
+                    child: _PollCard(
+                      poll: poll,
+                      userId: user.id,
+                      isExpanded: _expandedPollId == poll.id,
+                      onTap: () => setState(() {
+                        _expandedPollId = _expandedPollId == poll.id ? null : poll.id;
+                      }),
+                      onVote: poll.status == PollStatus.open ? (optId) => _vote(poll, optId) : null,
+                      onClose: poll.status == PollStatus.open ? () => _closePoll(poll) : null,
+                      onDelete: () => _deletePoll(poll.id),
+                    ),
                   ),
                 )).toList(),
               ),
