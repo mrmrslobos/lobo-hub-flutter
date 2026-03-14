@@ -399,18 +399,18 @@ class AppProvider extends ChangeNotifier {
   String memberDisplayName(FamilyMember member) =>
       userById(member.id)?.name ?? member.name;
 
-  /// Returns total approved chore points for a given user in the active family
-  int chorePointsForUser(String userId) {
+  /// Returns total approved chore earnings (dollar value) for a given user
+  double choreEarningsForUser(String userId) {
     if (_activeFamily == null) return 0;
     final completions = db.choreCompletions.where(
       (c) => c.userId == userId &&
              c.familyId == _activeFamily!.id &&
              c.approvalStatus == ApprovalStatus.APPROVED,
     );
-    int total = 0;
+    double total = 0;
     for (final completion in completions) {
       final chore = db.chores.firstWhereOrNull((ch) => ch.id == completion.choreId);
-      total += chore?.points ?? 0;
+      total += chore?.reward ?? 0;
     }
     return total;
   }

@@ -187,7 +187,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
     final members = provider.familyMembers;
     final rewards = provider.db.rewards.where((r) => r.familyId == family.id).toList();
     final savingsGoals = provider.db.savingsGoals.where((g) => g.familyId == family.id).toList();
-    final myPoints = provider.chorePointsForUser(user.id);
+    final myEarnings = provider.choreEarningsForUser(user.id);
     final isOwner = user.id == family.ownerId;
     final completedGoals = savingsGoals.where((g) => g.savedAmount >= g.targetAmount).length;
 
@@ -229,8 +229,8 @@ class _RewardsScreenState extends State<RewardsScreen> {
                 _MiniStat(
                   icon: Icons.star_rounded,
                   iconColor: const Color(0xFFF59E0B),
-                  value: '$myPoints',
-                  label: 'My Points',
+                  value: '\$${myEarnings.toStringAsFixed(2)}',
+                  label: 'My Earnings',
                 ),
                 const SizedBox(width: 10),
                 _MiniStat(
@@ -255,7 +255,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
               child: SectionHeader(title: "KIDS' BALANCES"),
             ),
             ...members.map((member) {
-              final pts = provider.chorePointsForUser(member.id);
+              final earned = provider.choreEarningsForUser(member.id);
               final displayName = provider.memberDisplayName(member);
               return Padding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
@@ -285,7 +285,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              'Earned: \$$pts',
+                              'Earned: \$${earned.toStringAsFixed(2)}',
                               style: const TextStyle(
                                 fontFamily: 'Inter',
                                 fontSize: 13,
@@ -299,7 +299,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
                           Text(
-                            '\$$pts',
+                            '\$${earned.toStringAsFixed(2)}',
                             style: const TextStyle(
                               fontFamily: 'Inter',
                               fontSize: 24,
@@ -625,6 +625,7 @@ class _SavingsGoalSheetState extends State<_SavingsGoalSheet> {
 
   final _titleCtrl = TextEditingController();
   final _amountCtrl = TextEditingController();
+  final _savedCtrl = TextEditingController();
   final _imageUrlCtrl = TextEditingController();
   String _selectedIcon = '\u{1F3AE}';
   String? _selectedMemberId;
@@ -633,6 +634,7 @@ class _SavingsGoalSheetState extends State<_SavingsGoalSheet> {
   void dispose() {
     _titleCtrl.dispose();
     _amountCtrl.dispose();
+    _savedCtrl.dispose();
     _imageUrlCtrl.dispose();
     super.dispose();
   }
@@ -709,6 +711,18 @@ class _SavingsGoalSheetState extends State<_SavingsGoalSheet> {
           ),
           const SizedBox(height: 12),
 
+          // Already saved (optional)
+          TextField(
+            controller: _savedCtrl,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: 'Already Saved (optional)',
+              prefixText: '\$ ',
+              prefixIcon: Icon(Icons.account_balance_wallet_rounded),
+            ),
+          ),
+          const SizedBox(height: 12),
+
           // Image URL (optional)
           TextField(
             controller: _imageUrlCtrl,
@@ -757,6 +771,7 @@ class _SavingsGoalSheetState extends State<_SavingsGoalSheet> {
                 final title = _titleCtrl.text.trim();
                 final amount = double.tryParse(_amountCtrl.text) ?? 0;
                 if (title.isEmpty || amount <= 0) return;
+                final initialSaved = double.tryParse(_savedCtrl.text) ?? 0;
                 final goal = SavingsGoal(
                   id: const Uuid().v4(),
                   familyId: family.id,
@@ -765,7 +780,7 @@ class _SavingsGoalSheetState extends State<_SavingsGoalSheet> {
                   icon: _selectedIcon,
                   imageUrl: _imageUrlCtrl.text.trim().isEmpty ? null : _imageUrlCtrl.text.trim(),
                   targetAmount: amount,
-                  savedAmount: 0,
+                  savedAmount: initialSaved > 0 ? initialSaved : 0,
                   createdAt: DateTime.now(),
                 );
                 widget.onSave(goal);
