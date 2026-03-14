@@ -18,6 +18,7 @@ import '../../services/ai_service.dart';
 import '../../services/locale_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/subscription_modal.dart';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -157,6 +158,7 @@ class _FitnessScreenState extends State<FitnessScreen> {
   bool _motivationLoading = false;
 
   Future<void> _getMotivation() async {
+    if (SubscriptionModal.guardAI(context)) return;
     setState(() => _motivationLoading = true);
 
     final provider = context.read<AppProvider>();
@@ -755,6 +757,7 @@ class _StoredPlanViewState extends State<_StoredPlanView> {
   }
 
   Future<void> _refinePlan() async {
+    if (SubscriptionModal.guardAI(context)) return;
     final request = _refineController.text.trim();
     if (request.isEmpty) {
       _showSnack(context, 'Please describe how to refine the plan');
@@ -1079,6 +1082,7 @@ class _AiFitnessPlanSheetState extends State<_AiFitnessPlanSheet> {
   }
 
   Future<void> _generate() async {
+    if (SubscriptionModal.guardAI(context)) return;
     if (_gender.isEmpty || _level.isEmpty || _heightCtrl.text.trim().isEmpty || _weightCtrl.text.trim().isEmpty) {
       setState(() => _error = 'Please fill in all fields before generating.');
       return;

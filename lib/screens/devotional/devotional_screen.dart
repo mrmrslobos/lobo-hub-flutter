@@ -16,6 +16,7 @@ import '../../services/database_service.dart';
 import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/subscription_modal.dart';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -285,6 +286,7 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
   }
 
   Future<void> _generate() async {
+    if (SubscriptionModal.guardAI(context)) return;
     setState(() => _isGenerating = true);
     try {
       final topic = _topicCtrl.text.trim().isEmpty ? 'a random Bible verse' : _topicCtrl.text.trim();
@@ -687,6 +689,7 @@ class _ReadingPlansTabState extends State<_ReadingPlansTab> {
   }
 
   Future<void> _generatePlan() async {
+    if (SubscriptionModal.guardAI(context)) return;
     final topic = _customTopicCtrl.text.trim().isNotEmpty
         ? _customTopicCtrl.text.trim()
         : _selectedTopic;

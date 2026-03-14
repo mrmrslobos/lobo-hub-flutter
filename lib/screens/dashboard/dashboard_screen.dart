@@ -19,6 +19,7 @@ import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/subscription_modal.dart';
 
 // ─── AI Suggestion model ─────────────────────────────────────────────────────
 
@@ -111,6 +112,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _loadMonthlySummary() async {
+    if (AiService.isAIBlocked) return;
     if (_monthlySummaryLoading) return;
     setState(() => _monthlySummaryLoading = true);
 
@@ -186,6 +188,7 @@ Return a JSON object:
   }
 
   Future<void> _loadAISuggestions() async {
+    if (AiService.isAIBlocked) return;
     if (!mounted) return;
     setState(() => _suggestionsLoading = true);
 

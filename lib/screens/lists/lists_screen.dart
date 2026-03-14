@@ -11,6 +11,7 @@ import '../../services/ai_service.dart';
 import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/subscription_modal.dart';
 
 class ListsScreen extends StatefulWidget {
   const ListsScreen({super.key});
@@ -737,6 +738,7 @@ class _AiCategorizationSheetState extends State<_AiCategorizationSheet> {
   }
 
   Future<void> _categorize() async {
+    if (SubscriptionModal.guardAI(context)) return;
     try {
       final familyId = context.read<AppProvider>().activeFamily?.id;
       if (familyId == null) {
@@ -1442,6 +1444,7 @@ class _AiTextToChecklistSheetState extends State<_AiTextToChecklistSheet> {
   }
 
   Future<void> _convert() async {
+    if (SubscriptionModal.guardAI(context)) return;
     final text = _textController.text.trim();
     if (text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
