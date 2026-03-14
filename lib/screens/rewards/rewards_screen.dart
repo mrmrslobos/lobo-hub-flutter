@@ -187,7 +187,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
     final members = provider.familyMembers;
     final rewards = provider.db.rewards.where((r) => r.familyId == family.id).toList();
     final savingsGoals = provider.db.savingsGoals.where((g) => g.familyId == family.id).toList();
-    final myPoints = provider.chorePointsForUser(user.id);
+    final myEarnings = provider.choreEarningsForUser(user.id);
     final isOwner = user.id == family.ownerId;
     final completedGoals = savingsGoals.where((g) => g.savedAmount >= g.targetAmount).length;
 
@@ -229,8 +229,8 @@ class _RewardsScreenState extends State<RewardsScreen> {
                 _MiniStat(
                   icon: Icons.star_rounded,
                   iconColor: const Color(0xFFF59E0B),
-                  value: '$myPoints',
-                  label: 'My Points',
+                  value: '\$${myEarnings.toStringAsFixed(2)}',
+                  label: 'My Earnings',
                 ),
                 const SizedBox(width: 10),
                 _MiniStat(
@@ -255,7 +255,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
               child: SectionHeader(title: "KIDS' BALANCES"),
             ),
             ...members.map((member) {
-              final pts = provider.chorePointsForUser(member.id);
+              final earned = provider.choreEarningsForUser(member.id);
               final displayName = provider.memberDisplayName(member);
               return Padding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
@@ -285,7 +285,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              'Earned: \$$pts',
+                              'Earned: \$${earned.toStringAsFixed(2)}',
                               style: const TextStyle(
                                 fontFamily: 'Inter',
                                 fontSize: 13,
@@ -299,7 +299,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
                           Text(
-                            '\$$pts',
+                            '\$${earned.toStringAsFixed(2)}',
                             style: const TextStyle(
                               fontFamily: 'Inter',
                               fontSize: 24,
