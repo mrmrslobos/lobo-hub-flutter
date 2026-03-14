@@ -56,6 +56,14 @@ class _TryAIFeature {
   });
 }
 
+class _QuickAction {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+  const _QuickAction(this.icon, this.label, this.color, this.onTap);
+}
+
 // ─── Dashboard Screen ────────────────────────────────────────────────────────
 
 class DashboardScreen extends StatefulWidget {
@@ -832,39 +840,52 @@ Return ONLY the JSON array, no markdown.''',
   }
 
   Widget _buildActionButtons(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-      child: Row(
-        children: [
-          _circleIconButton(Icons.refresh_rounded, onTap: _onRefresh),
-          const SizedBox(width: 8),
-          ElevatedButton.icon(
-            icon: const Icon(Icons.add, size: 16),
-            label: const Text('New Task'),
-            onPressed: () { HapticFeedback.lightImpact(); context.go('/tasks'); },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.primary,
-              foregroundColor: Colors.white,
-              elevation: 0,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-              textStyle: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14),
-            ),
-          ),
-          const SizedBox(width: 8),
-          _circleIconButton(Icons.trending_up_rounded, onTap: () => context.go('/budget')),
-        ],
-      ),
-    );
-  }
+    final actions = [
+      _QuickAction(Icons.add_rounded, 'Add Task', const Color(0xFF6366F1), () => context.go('/tasks')),
+      _QuickAction(Icons.restaurant_rounded, 'Meal Plan', const Color(0xFF10B981), () => context.go('/meals')),
+      _QuickAction(Icons.shopping_cart_rounded, 'Shopping', const Color(0xFF0EA5E9), () => context.go('/lists')),
+      _QuickAction(Icons.event_rounded, 'New Event', const Color(0xFFF59E0B), () => context.go('/calendar')),
+      _QuickAction(Icons.menu_book_rounded, 'Devotional', const Color(0xFF8B5CF6), () => context.go('/devotional')),
+      _QuickAction(Icons.trending_up_rounded, 'Finances', const Color(0xFF16A34A), () => context.go('/budget')),
+    ];
 
-  Widget _circleIconButton(IconData icon, {required VoidCallback onTap}) {
-    return GestureDetector(
-      onTap: () { HapticFeedback.lightImpact(); onTap(); },
-      child: Container(
-        width: 42, height: 42,
-        decoration: BoxDecoration(color: AppTheme.surface, shape: BoxShape.circle, border: Border.all(color: AppTheme.stone100)),
-        child: Icon(icon, size: 18, color: AppTheme.stone600),
+    return SizedBox(
+      height: 88,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+        itemCount: actions.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 12),
+        itemBuilder: (_, i) {
+          final a = actions[i];
+          return GestureDetector(
+            onTap: () { HapticFeedback.lightImpact(); a.onTap(); },
+            child: SizedBox(
+              width: 68,
+              child: Column(
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: a.color.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Icon(a.icon, size: 22, color: a.color),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    a.label,
+                    style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.stone600),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
   }
