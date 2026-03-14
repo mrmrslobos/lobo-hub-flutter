@@ -625,6 +625,7 @@ class _SavingsGoalSheetState extends State<_SavingsGoalSheet> {
 
   final _titleCtrl = TextEditingController();
   final _amountCtrl = TextEditingController();
+  final _savedCtrl = TextEditingController();
   final _imageUrlCtrl = TextEditingController();
   String _selectedIcon = '\u{1F3AE}';
   String? _selectedMemberId;
@@ -633,6 +634,7 @@ class _SavingsGoalSheetState extends State<_SavingsGoalSheet> {
   void dispose() {
     _titleCtrl.dispose();
     _amountCtrl.dispose();
+    _savedCtrl.dispose();
     _imageUrlCtrl.dispose();
     super.dispose();
   }
@@ -709,6 +711,18 @@ class _SavingsGoalSheetState extends State<_SavingsGoalSheet> {
           ),
           const SizedBox(height: 12),
 
+          // Already saved (optional)
+          TextField(
+            controller: _savedCtrl,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: 'Already Saved (optional)',
+              prefixText: '\$ ',
+              prefixIcon: Icon(Icons.account_balance_wallet_rounded),
+            ),
+          ),
+          const SizedBox(height: 12),
+
           // Image URL (optional)
           TextField(
             controller: _imageUrlCtrl,
@@ -757,6 +771,7 @@ class _SavingsGoalSheetState extends State<_SavingsGoalSheet> {
                 final title = _titleCtrl.text.trim();
                 final amount = double.tryParse(_amountCtrl.text) ?? 0;
                 if (title.isEmpty || amount <= 0) return;
+                final initialSaved = double.tryParse(_savedCtrl.text) ?? 0;
                 final goal = SavingsGoal(
                   id: const Uuid().v4(),
                   familyId: family.id,
@@ -765,7 +780,7 @@ class _SavingsGoalSheetState extends State<_SavingsGoalSheet> {
                   icon: _selectedIcon,
                   imageUrl: _imageUrlCtrl.text.trim().isEmpty ? null : _imageUrlCtrl.text.trim(),
                   targetAmount: amount,
-                  savedAmount: 0,
+                  savedAmount: initialSaved > 0 ? initialSaved : 0,
                   createdAt: DateTime.now(),
                 );
                 widget.onSave(goal);
