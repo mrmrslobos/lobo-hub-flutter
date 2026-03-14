@@ -815,14 +815,7 @@ class FamilyHubAppBar extends StatelessWidget implements PreferredSizeWidget {
       ),
       centerTitle: false,
       titleSpacing: 0,
-      actions: [
-        Builder(
-          builder: (context) => IconButton(
-            icon: const Icon(Icons.menu_rounded, color: AppTheme.stone500),
-            onPressed: () => Scaffold.of(context).openEndDrawer(),
-          ),
-        ),
-      ],
+      actions: const [],
     );
   }
 }
