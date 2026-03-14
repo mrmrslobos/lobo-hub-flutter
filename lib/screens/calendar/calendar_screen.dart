@@ -19,6 +19,7 @@ import '../../services/calendar_sync_service.dart';
 import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/subscription_modal.dart';
 
 // ─── CalendarScreen ───────────────────────────────────────────────────────────
 
@@ -50,6 +51,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }
 
   Future<void> _handleAiQuickPlan() async {
+    if (SubscriptionModal.guardAI(context)) return;
     final input = _aiController.text.trim();
     if (input.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2245,6 +2247,7 @@ class _EventPlannerWizardState extends State<_EventPlannerWizard> {
   }
 
   Future<void> _generatePlan() async {
+    if (SubscriptionModal.guardAI(context)) return;
     if (_nameCtrl.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter an event name'), behavior: SnackBarBehavior.floating),

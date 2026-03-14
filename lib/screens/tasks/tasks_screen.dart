@@ -14,6 +14,7 @@ import '../../services/ai_service.dart';
 import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/subscription_modal.dart';
 
 // ─── Filter enum ──────────────────────────────────────────────────────────────
 
@@ -835,6 +836,7 @@ class _AiBreakdownSheetState extends State<_AiBreakdownSheet> {
   }
 
   Future<void> _breakdown() async {
+    if (SubscriptionModal.guardAI(context)) return;
     final goal = _goalCtrl.text.trim();
     if (goal.isEmpty) return;
     setState(() {

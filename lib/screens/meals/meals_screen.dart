@@ -14,6 +14,7 @@ import '../../widgets/common_widgets.dart';
 import '../../services/ai_service.dart';
 import '../../services/locale_service.dart';
 import '../../config/theme.dart';
+import '../../widgets/subscription_modal.dart';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -150,6 +151,7 @@ class _MealsScreenState extends State<MealsScreen>
 
   // ── AI Chef Suggestion ──
   Future<void> _generateChefSuggestion() async {
+    if (SubscriptionModal.guardAI(context)) return;
     final prefs = _chefController.text.trim();
     if (prefs.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -269,6 +271,7 @@ Return a JSON array of exactly 3 objects, each with these fields:
 
   // ── AI Week Planner ──
   Future<void> _generateWeekPlan() async {
+    if (SubscriptionModal.guardAI(context)) return;
     final prefs = _weekPlannerController.text.trim();
     if (prefs.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -508,6 +511,7 @@ Return a JSON array of 7 objects, each with:
 
   // ── Refine Meal Plan ──
   Future<void> _refineMealPlan() async {
+    if (SubscriptionModal.guardAI(context)) return;
     final request = _refineController.text.trim();
     if (request.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -676,6 +680,7 @@ Return a JSON array of 7 objects, each with:
 
   // ── Import from URL (inline) ──
   Future<void> _importFromUrl() async {
+    if (SubscriptionModal.guardAI(context)) return;
     final url = _importUrlController.text.trim();
     if (url.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1564,6 +1569,7 @@ class _MealSlotCard extends StatelessWidget {
   }
 
   Future<void> _aiSwapMeal(BuildContext context) async {
+    if (SubscriptionModal.guardAI(context)) return;
     final currentMealName = meal!.title;
     final label = _mealTypeLabels[mealType] ?? mealType;
 
@@ -2631,6 +2637,7 @@ class _ImportUrlDialogState extends State<_ImportUrlDialog> {
   }
 
   Future<void> _import() async {
+    if (SubscriptionModal.guardAI(context)) return;
     final url = _urlController.text.trim();
     if (url.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(

@@ -21,7 +21,7 @@ enum Role { OWNER, ADMIN, MEMBER }
 
 enum Visibility { PRIVATE, FAMILY, SPECIFIC }
 
-enum SubscriptionTier { trial, base, ai }
+enum SubscriptionTier { trial, base, ai, ai_family }
 
 enum Recurrence { NONE, DAILY, WEEKLY, MONTHLY }
 
@@ -87,6 +87,7 @@ SubscriptionTier subscriptionTierFromString(String? s) {
   switch (s) {
     case 'base': return SubscriptionTier.base;
     case 'ai': return SubscriptionTier.ai;
+    case 'ai_family': return SubscriptionTier.ai_family;
     default: return SubscriptionTier.trial;
   }
 }
@@ -304,6 +305,8 @@ class Family {
   final String? announcement;
   final String? announcementAuthor;
   final SubscriptionTier subscriptionTier;
+  final DateTime? trialStartDate;
+  final String currency; // ISO 4217: AUD, USD, GBP, CAD, INR
   final List<String> enabledModules;
   final DateTime createdAt;
   final bool welcomeDismissed;
@@ -322,6 +325,8 @@ class Family {
     this.announcement,
     this.announcementAuthor,
     this.subscriptionTier = SubscriptionTier.trial,
+    this.trialStartDate,
+    this.currency = 'AUD',
     this.enabledModules = const [],
     required this.createdAt,
     this.welcomeDismissed = false,
@@ -341,6 +346,8 @@ class Family {
     announcement: j['announcement'] as String?,
     announcementAuthor: (j['announcement_author'] ?? j['announcementAuthor']) as String?,
     subscriptionTier: subscriptionTierFromString((j['subscription_tier'] ?? j['subscriptionTier']) as String?),
+    trialStartDate: _parseDateOpt(j['trial_start_date'] ?? j['trialStartDate']),
+    currency: (j['currency'] as String?) ?? 'AUD',
     enabledModules: _strList(j['enabled_modules'] ?? j['enabledModules']),
     createdAt: _parseDate(j['created_at'] ?? j['createdAt']),
     welcomeDismissed: (j['welcome_dismissed'] ?? j['welcomeDismissed'] ?? false) as bool,
@@ -360,6 +367,8 @@ class Family {
     'announcement': announcement,
     'announcement_author': announcementAuthor,
     'subscription_tier': subscriptionTier.name,
+    'trial_start_date': trialStartDate?.toIso8601String(),
+    'currency': currency,
     'enabled_modules': enabledModules,
     'created_at': createdAt.toIso8601String(),
     'welcome_dismissed': welcomeDismissed,
@@ -374,7 +383,7 @@ class Family {
   Family copyWith({
     String? id, String? name, String? ownerId, String? joinCode,
     String? announcement, String? announcementAuthor,
-    SubscriptionTier? subscriptionTier, List<String>? enabledModules,
+    SubscriptionTier? subscriptionTier, DateTime? trialStartDate, String? currency, List<String>? enabledModules,
     DateTime? createdAt, bool? welcomeDismissed, bool? weeklyDigest,
     int? weeklyDigestDay, int? weeklyDigestHour,
     bool? dailyDevotionalEnabled, int? dailyDevotionalHour, int? dailyDevotionalMinute,
@@ -386,6 +395,8 @@ class Family {
     announcement: announcement ?? this.announcement,
     announcementAuthor: announcementAuthor ?? this.announcementAuthor,
     subscriptionTier: subscriptionTier ?? this.subscriptionTier,
+    trialStartDate: trialStartDate ?? this.trialStartDate,
+    currency: currency ?? this.currency,
     enabledModules: enabledModules ?? this.enabledModules,
     createdAt: createdAt ?? this.createdAt,
     welcomeDismissed: welcomeDismissed ?? this.welcomeDismissed,
@@ -396,6 +407,48 @@ class Family {
     dailyDevotionalHour: dailyDevotionalHour ?? this.dailyDevotionalHour,
     dailyDevotionalMinute: dailyDevotionalMinute ?? this.dailyDevotionalMinute,
   );
+
+  // ── Trial helpers ──────────────────────────────────────────────────────
+  static const trialDays = 14;
+
+  /// The effective trial start: explicit field or family creation date.
+  DateTime get effectiveTrialStart => trialStartDate ?? createdAt;
+
+  /// Whether the 14-day free trial has expired.
+  bool get isTrialExpired =>
+      subscriptionTier == SubscriptionTier.trial &&
+      DateTime.now().difference(effectiveTrialStart).inDays >= trialDays;
+
+  /// Days remaining in the trial (0 if expired or not on trial).
+  int get trialDaysRemaining {
+    if (subscriptionTier != SubscriptionTier.trial) return 0;
+    final remaining = trialDays - DateTime.now().difference(effectiveTrialStart).inDays;
+    return remaining.clamp(0, trialDays);
+  }
+
+  /// Modules available on the free/expired tier (tasks, lists, calendar only).
+  static const freeModules = {'tasks', 'lists', 'calendar'};
+
+  /// Whether a given module route is accessible on the current plan.
+  bool isModuleAccessible(String route) {
+    if (subscriptionTier != SubscriptionTier.trial) return true;
+    if (!isTrialExpired) return true; // trial still active → full access
+    return freeModules.contains(route.replaceAll('/', ''));
+  }
+
+  /// Whether AI features are available on the current plan.
+  /// AI is available during trial, and on ai / ai_family tiers — NOT on base.
+  bool get hasAIAccess {
+    switch (subscriptionTier) {
+      case SubscriptionTier.ai:
+      case SubscriptionTier.ai_family:
+        return true;
+      case SubscriptionTier.trial:
+        return !isTrialExpired; // AI during trial, not after
+      case SubscriptionTier.base:
+        return false;
+    }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

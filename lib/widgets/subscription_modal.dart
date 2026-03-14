@@ -2,8 +2,10 @@
 // Subscription paywall modal for FamilyHub
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../config/theme.dart';
+import '../services/ai_service.dart';
 import '../services/purchase_service.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -19,6 +21,14 @@ class SubscriptionModal extends StatelessWidget {
     required this.feature,
     this.onUpgrade,
   });
+
+  /// Returns true (and shows upgrade modal) if AI is blocked on the current plan.
+  /// Screens should call this before attempting AI and abort if it returns true.
+  static bool guardAI(BuildContext context) {
+    if (!AiService.isAIBlocked) return false;
+    show(context, feature: 'AI-powered features');
+    return true;
+  }
 
   /// Show as a modal bottom sheet
   static Future<void> show(
@@ -102,9 +112,9 @@ class SubscriptionModal extends StatelessWidget {
             width: double.infinity,
             height: 52,
             child: ElevatedButton(
-              onPressed: () async {
+              onPressed: () {
                 Navigator.of(context).pop();
-                await PurchaseService.presentPaywall();
+                context.go('/subscription');
                 onUpgrade?.call();
               },
               style: ElevatedButton.styleFrom(

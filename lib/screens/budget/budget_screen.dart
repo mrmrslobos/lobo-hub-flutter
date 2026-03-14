@@ -15,6 +15,7 @@ import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/subscription_modal.dart';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1291,6 +1292,7 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet> {
   }
 
   Future<void> _fetchAnalysis() async {
+    if (SubscriptionModal.guardAI(context)) return;
     try {
       final familyId = context.read<AppProvider>().activeFamily?.id;
       if (familyId == null) {
@@ -1915,6 +1917,7 @@ class _AiBankStatementImportSheetState extends State<_AiBankStatementImportSheet
   }
 
   Future<void> _parseStatement() async {
+    if (SubscriptionModal.guardAI(context)) return;
     final text = _textController.text.trim();
     if (text.isEmpty) {
       _showSnack(context, 'Please paste your bank statement text');

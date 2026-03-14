@@ -2,12 +2,27 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+/// Thrown when AI is used on a plan that doesn't include AI features.
+class AINotAvailableException implements Exception {
+  const AINotAvailableException();
+  @override
+  String toString() => 'AI features require an AI or AI Family subscription.';
+}
+
 class AiService {
+  /// Whether AI is currently blocked. Set by the provider so the service
+  /// can check without needing a BuildContext.
+  static bool _aiBlocked = false;
+  static void setAIBlocked(bool blocked) => _aiBlocked = blocked;
+  static bool get isAIBlocked => _aiBlocked;
+
   /// Call the Supabase ai-proxy edge function.
   ///
   /// [feature] must match a key in the edge function's FEATURE_TIER_MAP
   /// (e.g. 'ai_tasks', 'ai_recipes', 'ai_fitness', 'ai_budget', 'ai_lists').
   /// [familyId] is the current family's ID for subscription-tier verification.
+  ///
+  /// Throws [AINotAvailableException] if the family's plan doesn't include AI.
   static Future<String?> ask({
     required String prompt,
     required String feature,
@@ -15,6 +30,7 @@ class AiService {
     String? responseMimeType,
     Map<String, dynamic>? responseSchema,
   }) async {
+    if (_aiBlocked) throw const AINotAvailableException();
     try {
       final body = <String, dynamic>{
         'familyId': familyId,

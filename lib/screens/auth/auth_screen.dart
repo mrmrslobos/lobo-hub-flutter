@@ -327,6 +327,7 @@ class _AuthScreenState extends State<AuthScreen> {
         ownerId: user.id,
         enabledModules: const [],
         createdAt: DateTime.now(),
+        trialStartDate: DateTime.now(),
       );
       _pendingFamily = family;
       _setView(_AuthView.moduleSetup);
