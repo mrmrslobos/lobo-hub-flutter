@@ -14,7 +14,8 @@ class AiService {
   /// can check without needing a BuildContext.
   static bool _aiBlocked = false;
   static void setAIBlocked(bool blocked) => _aiBlocked = blocked;
-  static bool get isAIBlocked => _aiBlocked;
+  // TODO: restore `=> _aiBlocked` once subscriptions go live
+  static bool get isAIBlocked => false;
 
   /// Call the Supabase ai-proxy edge function.
   ///
