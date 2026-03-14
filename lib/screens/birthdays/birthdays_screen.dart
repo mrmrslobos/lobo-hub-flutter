@@ -446,11 +446,52 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
     final color = _badgeColor(days);
     final isToday = days == 0;
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: GestureDetector(
-        onLongPress: () => _showOccasionActions(occasion),
-        child: AnimatedContainer(
+    return Dismissible(
+      key: ValueKey(occasion.id),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        decoration: BoxDecoration(
+          color: AppTheme.error,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        alignment: Alignment.centerRight,
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.delete, color: Colors.white),
+            SizedBox(width: 8),
+            Text('Delete', style: TextStyle(
+              fontFamily: 'Inter', color: Colors.white, fontWeight: FontWeight.w600,
+            )),
+          ],
+        ),
+      ),
+      confirmDismiss: (direction) async {
+        return await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Delete this occasion?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: const Text('Delete', style: TextStyle(color: AppTheme.error)),
+              ),
+            ],
+          ),
+        ) ?? false;
+      },
+      onDismissed: (_) => _deleteOccasion(occasion.id),
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: GestureDetector(
+          onLongPress: () => _showOccasionActions(occasion),
+          child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -541,6 +582,7 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
           ]),
         ),
       ),
+    ),
     );
   }
 }

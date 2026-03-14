@@ -177,12 +177,61 @@ class _HabitsScreenState extends State<HabitsScreen> {
                     ...allHabits.map((habit) {
                       final isDone = todayCompletions.any((c) => c.habitId == habit.id);
                       final streak = _calcStreak(habit, db.habitCompletions, user.id);
-                      return _HabitCard(
-                        habit: habit,
-                        isDone: isDone,
-                        streak: streak,
-                        onToggle: () => _toggleCompletion(context, provider, db, habit, isDone, user, todayCompletions),
-                        onLongPress: () => _showHabitOptions(context, provider, db, habit, user, family),
+                      return Dismissible(
+                        key: ValueKey(habit.id),
+                        direction: DismissDirection.endToStart,
+                        confirmDismiss: (_) async {
+                          return await showDialog<bool>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text('Delete Habit'),
+                              content: Text('Delete "${habit.label}"?'),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(ctx, false),
+                                  child: const Text('Cancel'),
+                                ),
+                                TextButton(
+                                  onPressed: () => Navigator.pop(ctx, true),
+                                  child: const Text('Delete'),
+                                ),
+                              ],
+                            ),
+                          ) ?? false;
+                        },
+                        onDismissed: (_) async {
+                          final updatedHabits = db.dailyHabits.where((h) => h.id != habit.id).toList();
+                          final updatedCompletions = db.habitCompletions.where((c) => c.habitId != habit.id).toList();
+                          await provider.saveAndSync(db.copyWith(dailyHabits: updatedHabits, habitCompletions: updatedCompletions));
+                          if (context.mounted) _showSnack(context, 'Habit deleted');
+                        },
+                        background: Container(
+                          alignment: Alignment.centerRight,
+                          padding: const EdgeInsets.only(right: 20),
+                          decoration: BoxDecoration(
+                            color: AppTheme.error,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.delete_outline_rounded, color: Colors.white),
+                              SizedBox(width: 8),
+                              Text('Delete', style: TextStyle(
+                                color: Colors.white,
+                                fontFamily: 'Inter',
+                                fontWeight: FontWeight.w700,
+                              )),
+                            ],
+                          ),
+                        ),
+                        child: _HabitCard(
+                          habit: habit,
+                          isDone: isDone,
+                          streak: streak,
+                          onToggle: () => _toggleCompletion(context, provider, db, habit, isDone, user, todayCompletions),
+                          onLongPress: () => _showHabitOptions(context, provider, db, habit, user, family),
+                        ),
                       );
                     }),
                   ],

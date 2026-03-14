@@ -198,6 +198,7 @@ class _DevotionalScreenState extends State<DevotionalScreen>
                 entries: entries,
                 familyId: family.id,
                 onSelectEntry: (e) => setState(() => _selectedEntry = e),
+                onDeleteEntry: (id) => _deleteEntry(id),
               )
             else
               _ReadingPlansTab(
@@ -219,11 +220,13 @@ class _DevotionalsTab extends StatefulWidget {
   final List<DevotionalEntry> entries;
   final String familyId;
   final ValueChanged<DevotionalEntry> onSelectEntry;
+  final ValueChanged<String> onDeleteEntry;
 
   const _DevotionalsTab({
     required this.entries,
     required this.familyId,
     required this.onSelectEntry,
+    required this.onDeleteEntry,
   });
 
   @override
@@ -262,7 +265,10 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
     if (family == null || !family.dailyDevotionalEnabled) return;
 
     final now = DateTime.now();
-    final scheduledTime = DateTime(now.year, now.month, now.day, family.dailyDevotionalHour, family.dailyDevotionalMinute);
+    // Stored values are UTC; convert to local for comparison
+    final utcDt = DateTime.utc(2024, 1, 1, family.dailyDevotionalHour, family.dailyDevotionalMinute);
+    final localDt = utcDt.toLocal();
+    final scheduledTime = DateTime(now.year, now.month, now.day, localDt.hour, localDt.minute);
 
     // Only generate if we're past the scheduled time
     if (now.isBefore(scheduledTime)) return;
@@ -611,7 +617,40 @@ Make the content warm, relatable, and suitable for children.''';
                       else
                         ...filtered.map((entry) => Padding(
                           padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-                          child: GestureDetector(
+                          child: Dismissible(
+                            key: Key(entry.id),
+                            direction: DismissDirection.endToStart,
+                            background: Container(
+                              alignment: Alignment.centerRight,
+                              padding: const EdgeInsets.only(right: 20),
+                              decoration: BoxDecoration(
+                                color: AppTheme.error.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  Text('Delete', style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.error)),
+                                  SizedBox(width: 8),
+                                  Icon(Icons.delete_outline_rounded, color: AppTheme.error),
+                                ],
+                              ),
+                            ),
+                            confirmDismiss: (_) async {
+                              return await showDialog<bool>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: const Text('Delete Devotional'),
+                                  content: Text('Delete "${entry.title}"?'),
+                                  actions: [
+                                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                                    TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+                                  ],
+                                ),
+                              );
+                            },
+                            onDismissed: (_) => widget.onDeleteEntry(entry.id),
+                            child: GestureDetector(
                             onTap: () => widget.onSelectEntry(entry),
                             child: Container(
                               padding: const EdgeInsets.all(16),
@@ -662,6 +701,7 @@ Make the content warm, relatable, and suitable for children.''';
                                 ],
                               ),
                             ),
+                          ),
                           ),
                         )),
                     ],
@@ -1566,8 +1606,11 @@ class _DailyDevotionalCard extends StatelessWidget {
     if (family == null) return const SizedBox.shrink();
 
     final enabled = family.dailyDevotionalEnabled;
-    final hour = family.dailyDevotionalHour;
-    final minute = family.dailyDevotionalMinute;
+    // Stored values are UTC; convert to local for display
+    final utcDt = DateTime.utc(2024, 1, 1, family.dailyDevotionalHour, family.dailyDevotionalMinute);
+    final localDt = utcDt.toLocal();
+    final hour = localDt.hour;
+    final minute = localDt.minute;
     final timeOfDay = TimeOfDay(hour: hour, minute: minute);
     final formattedTime = timeOfDay.format(context);
 
@@ -1706,7 +1749,7 @@ class _DailyDevotionalCard extends StatelessWidget {
     );
   }
 
-  Future<void> _toggle(BuildContext context, bool val, int hour, int minute) async {
+  Future<void> _toggle(BuildContext context, bool val, int localHour, int localMinute) async {
     final provider = context.read<AppProvider>();
     final family = provider.activeFamily!;
     final updated = family.copyWith(dailyDevotionalEnabled: val);
@@ -1717,7 +1760,8 @@ class _DailyDevotionalCard extends StatelessWidget {
     ));
 
     if (val) {
-      await _scheduleNotification(hour, minute);
+      // hour/minute passed here are already local (converted from UTC in build)
+      await _scheduleNotification(localHour, localMinute);
     } else {
       await NotificationService.cancel(_notifId);
     }
@@ -1731,11 +1775,16 @@ class _DailyDevotionalCard extends StatelessWidget {
     );
     if (picked == null || !context.mounted) return;
 
+    // Convert local time to UTC for the server-side cron job
+    final now = DateTime.now();
+    final localDt = DateTime(now.year, now.month, now.day, picked.hour, picked.minute);
+    final utcDt = localDt.toUtc();
+
     final provider = context.read<AppProvider>();
     final family = provider.activeFamily!;
     final updated = family.copyWith(
-      dailyDevotionalHour: picked.hour,
-      dailyDevotionalMinute: picked.minute,
+      dailyDevotionalHour: utcDt.hour,
+      dailyDevotionalMinute: utcDt.minute,
     );
     final db = provider.db;
     provider.updateFamily(updated);
@@ -1743,6 +1792,7 @@ class _DailyDevotionalCard extends StatelessWidget {
       families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
     ));
 
+    // Schedule local notification at the user's chosen local time
     await _scheduleNotification(picked.hour, picked.minute);
   }
 
