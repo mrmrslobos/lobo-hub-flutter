@@ -10,6 +10,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
 import '../models/models.dart';
 import '../services/database_service.dart';
 import '../services/notification_service.dart';
+import '../services/ai_service.dart';
 import '../services/supabase_service.dart';
 
 class AppProvider extends ChangeNotifier {
@@ -134,9 +135,14 @@ class AppProvider extends ChangeNotifier {
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
+  void _syncAIFlag() {
+    AiService.setAIBlocked(!(_activeFamily?.hasAIAccess ?? false));
+  }
+
   void authenticate(User user, Family family) {
     _activeUser = user;
     _activeFamily = family;
+    _syncAIFlag();
     // Only fall back to DatabaseService cache if _db hasn't been populated
     // (e.g. via setDb after cloud reconciliation).
     if (_db.families.isEmpty) {
@@ -368,12 +374,14 @@ class AppProvider extends ChangeNotifier {
     final family = _db.families.firstWhereOrNull((f) => f.id == familyId);
     if (family != null) {
       _activeFamily = family;
+      _syncAIFlag();
       notifyListeners();
     }
   }
 
   void updateFamily(Family family) {
     _activeFamily = family;
+    _syncAIFlag();
     notifyListeners();
   }
 
@@ -391,6 +399,9 @@ class AppProvider extends ChangeNotifier {
   bool get isOwner => activeUserRole == Role.OWNER;
   bool get isAdmin =>
       activeUserRole == Role.ADMIN || activeUserRole == Role.OWNER;
+
+  /// Whether the current family's plan includes AI features.
+  bool get hasAIAccess => _activeFamily?.hasAIAccess ?? false;
 
   /// All family members for the active family
   List<FamilyMember> get familyMembers =>

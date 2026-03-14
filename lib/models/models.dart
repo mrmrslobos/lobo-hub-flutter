@@ -435,6 +435,20 @@ class Family {
     if (!isTrialExpired) return true; // trial still active → full access
     return freeModules.contains(route.replaceAll('/', ''));
   }
+
+  /// Whether AI features are available on the current plan.
+  /// AI is available during trial, and on ai / ai_family tiers — NOT on base.
+  bool get hasAIAccess {
+    switch (subscriptionTier) {
+      case SubscriptionTier.ai:
+      case SubscriptionTier.ai_family:
+        return true;
+      case SubscriptionTier.trial:
+        return !isTrialExpired; // AI during trial, not after
+      case SubscriptionTier.base:
+        return false;
+    }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
