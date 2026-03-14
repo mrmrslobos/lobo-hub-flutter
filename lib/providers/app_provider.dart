@@ -329,7 +329,12 @@ class AppProvider extends ChangeNotifier {
     // and moduleAccess store paths without the leading slash.
     final normalized = path.startsWith('/') ? path.substring(1) : path;
 
+    // Trial gating: if trial expired and no paid plan, restrict to free modules
     final family = currentFamily;
+    if (family != null && family.isTrialExpired) {
+      if (!Family.freeModules.contains(normalized)) return false;
+    }
+
     final enabled = family?.enabledModules;
     if (enabled != null && enabled.isNotEmpty) {
       // Check both with and without leading slash for compatibility

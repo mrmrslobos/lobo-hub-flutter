@@ -497,6 +497,7 @@ Return ONLY the JSON array, no markdown.''',
               padding: EdgeInsets.zero,
               children: [
                 _buildHeroSection(family),
+                _buildTrialBanner(context, family),
                 _buildActionButtons(context),
                 _buildAnnouncementSection(context, provider, family),
                 if (!family.welcomeDismissed)
@@ -835,6 +836,47 @@ Return ONLY the JSON array, no markdown.''',
             style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone500),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildTrialBanner(BuildContext context, Family family) {
+    if (family.subscriptionTier != SubscriptionTier.trial) return const SizedBox.shrink();
+    final expired = family.isTrialExpired;
+    final daysLeft = family.trialDaysRemaining;
+    // Only show when 7 days or less remaining, or expired
+    if (!expired && daysLeft > 7) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      child: GestureDetector(
+        onTap: () => context.go('/subscription'),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: expired
+                  ? [const Color(0xFFDC2626), const Color(0xFFEF4444)]
+                  : [const Color(0xFFF59E0B), const Color(0xFFFBBF24)],
+            ),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              Icon(expired ? Icons.lock_rounded : Icons.timer_rounded, color: Colors.white, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  expired
+                      ? 'Trial expired — tap to upgrade and unlock all features'
+                      : '$daysLeft day${daysLeft == 1 ? '' : 's'} left in your free trial — tap to view plans',
+                  style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 12, color: Colors.white),
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, color: Colors.white, size: 18),
+            ],
+          ),
+        ),
       ),
     );
   }

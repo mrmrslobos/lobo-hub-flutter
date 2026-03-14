@@ -35,6 +35,7 @@ import 'screens/location/location_screen.dart';
 import 'screens/health/health_screen.dart';
 import 'screens/ai_history/ai_history_screen.dart';
 import 'screens/habits/habits_screen.dart';
+import 'screens/subscription/subscription_screen.dart';
 
 class FamilyHubApp extends StatefulWidget {
   const FamilyHubApp({super.key});
@@ -264,6 +265,11 @@ class _FamilyHubAppState extends State<FamilyHubApp> with WidgetsBindingObserver
           path: '/habits',
           name: 'habits',
           builder: (context, state) => const HabitsScreen(),
+        ),
+        GoRoute(
+          path: '/subscription',
+          name: 'subscription',
+          builder: (context, state) => const SubscriptionScreen(),
         ),
       ],
       errorBuilder: (context, state) => Scaffold(

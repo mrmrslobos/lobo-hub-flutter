@@ -626,7 +626,100 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
                     }).toList(),
                   ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
+
+                // Subscription / Plan
+                Builder(builder: (ctx) {
+                  final provider = ctx.watch<AppProvider>();
+                  final family = provider.activeFamily;
+                  if (family == null) return const SizedBox.shrink();
+                  final tier = family.subscriptionTier;
+                  final isOnTrial = tier == SubscriptionTier.trial;
+                  final trialDays = family.trialDaysRemaining;
+                  final trialExpired = family.isTrialExpired;
+
+                  String planLabel;
+                  Color planColor;
+                  String planDesc;
+                  switch (tier) {
+                    case SubscriptionTier.base:
+                      planLabel = 'Base';
+                      planColor = const Color(0xFF0EA5E9);
+                      planDesc = 'Essential family organisation';
+                    case SubscriptionTier.ai:
+                      planLabel = 'AI';
+                      planColor = const Color(0xFF8B5CF6);
+                      planDesc = 'Smart AI-powered features';
+                    case SubscriptionTier.ai_family:
+                      planLabel = 'AI Family';
+                      planColor = const Color(0xFF16A34A);
+                      planDesc = '2 adults + 4 children covered';
+                    case SubscriptionTier.trial:
+                      planLabel = trialExpired ? 'Trial Expired' : 'Free Trial';
+                      planColor = trialExpired ? const Color(0xFFDC2626) : const Color(0xFF6366F1);
+                      planDesc = trialExpired
+                          ? 'Limited to Tasks, Lists & Calendar'
+                          : '$trialDays day${trialDays == 1 ? '' : 's'} remaining';
+                  }
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'SUBSCRIPTION',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                          letterSpacing: 0.5,
+                          color: AppTheme.stone500,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      GestureDetector(
+                        onTap: () {
+                          HapticFeedback.lightImpact();
+                          Navigator.pop(context);
+                          context.go('/subscription');
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: planColor.withValues(alpha: 0.06),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: planColor.withValues(alpha: 0.2)),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 40, height: 40,
+                                decoration: BoxDecoration(
+                                  color: planColor.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Icon(
+                                  isOnTrial ? Icons.timer_rounded : Icons.workspace_premium_rounded,
+                                  size: 20,
+                                  color: planColor,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(planLabel, style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: planColor)),
+                                  Text(planDesc, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500)),
+                                ],
+                              )),
+                              Icon(Icons.chevron_right_rounded, color: planColor, size: 20),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                  );
+                }),
 
                 // About section
                 Container(
