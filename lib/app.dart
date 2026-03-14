@@ -75,13 +75,16 @@ class _FamilyHubAppState extends State<FamilyHubApp> with WidgetsBindingObserver
   }
 
   /// Navigate to the route set by a notification tap (FCM or local).
+  /// Syncs with cloud first so newly-generated content is available.
   void _consumePendingRoute() {
     final route = NotificationService.pendingRoute;
     if (route != null && route.isNotEmpty) {
       NotificationService.pendingRoute = null;
-      // Delay slightly to ensure the router is ready after resume
-      WidgetsBinding.instance.addPostFrameCallback((_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
         if (_provider.isAuthenticated) {
+          // Sync first so the notification's content (e.g. devotional) is
+          // available locally before navigating to the screen.
+          await _provider.refreshFromCloud();
           _router.go(route);
         }
       });
