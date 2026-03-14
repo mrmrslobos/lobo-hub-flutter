@@ -363,7 +363,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
                   itemCount: rewards.length,
                   itemBuilder: (ctx, i) {
                     final reward = rewards[i];
-                    final canRedeem = myPoints >= reward.pointCost;
+                    final canRedeem = myEarnings >= reward.pointCost;
                     final alreadyRedeemed = reward.redeemedBy.contains(user.id);
                     return _RewardCard(
                       reward: reward,
