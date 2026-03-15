@@ -249,16 +249,18 @@ class AppProvider extends ChangeNotifier {
     _db = newDb;
     notifyListeners();
     if (_activeFamily != null) {
-      // Block _pullFromCloud during save to prevent stale cloud data
-      // from overwriting local changes before sync propagates.
+      // Save locally (fast) then fire-and-forget the cloud sync so the
+      // UI never blocks on network I/O.
+      await DatabaseService.saveLocal(newDb);
       _isSyncing = true;
-      try {
-        await DatabaseService.saveAndSync(newDb, _activeFamily!.id);
-        // Broadcast change to other family members via realtime channel
+      final familyId = _activeFamily!.id;
+      DatabaseService.syncToCloud(newDb, familyId).then((_) {
         _broadcastChange();
-      } finally {
+      }).catchError((e) {
+        debugPrint('[AppProvider] cloud sync error: $e');
+      }).whenComplete(() {
         _isSyncing = false;
-      }
+      });
     } else {
       await DatabaseService.saveLocal(newDb);
     }

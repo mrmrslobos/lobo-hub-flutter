@@ -54,12 +54,16 @@ class DatabaseService {
   /// Save locally and attempt a background cloud sync.
   static Future<void> saveAndSync(AppDB db, String familyId) async {
     await saveLocal(db);
-    if (SupabaseService.isConfigured) {
-      try {
-        await _syncToCloud(db, familyId);
-      } catch (e) {
-        debugPrint('[DatabaseService] Cloud sync failed: $e');
-      }
+    await syncToCloud(db, familyId);
+  }
+
+  /// Push local data to Supabase. Safe to fire-and-forget.
+  static Future<void> syncToCloud(AppDB db, String familyId) async {
+    if (!SupabaseService.isConfigured) return;
+    try {
+      await _syncToCloud(db, familyId);
+    } catch (e) {
+      debugPrint('[DatabaseService] Cloud sync failed: $e');
     }
   }
 
@@ -94,12 +98,6 @@ class DatabaseService {
 
     final fid = familyId;
 
-    // Core identity tables
-    await up('users', db.users.map((u) => u.toJson()).toList());
-    await up('families', db.families.map((f) => f.toJson()).toList());
-    await up('family_members', db.familyMembers.map((m) => m.toJson()).toList(),
-        onConflict: 'userId,familyId');
-
     // Helper to upsert then delete removed rows in one step
     Future<void> upAndClean(String table, List<Map<String, dynamic>> rows,
         Set<String> localIds, {String onConflict = 'id'}) async {
@@ -107,100 +105,111 @@ class DatabaseService {
       await _deleteRemovedRows(table, localIds, fid);
     }
 
-    await upAndClean('tasks',
-        db.tasks.map((t) => {...t.toJson(), 'familyId': fid}).toList(),
-        db.tasks.map((t) => t.id).toSet());
-    await upAndClean('events',
-        db.events.map((e) => {...e.toJson(), 'familyId': fid}).toList(),
-        db.events.map((e) => e.id).toSet());
-    await upAndClean('recipes',
-        db.recipes.map((r) => {...r.toJson(), 'familyId': fid}).toList(),
-        db.recipes.map((r) => r.id).toSet());
-    await upAndClean('meal_plans',
-        db.mealPlans.map((m) => {...m.toJson(), 'familyId': fid}).toList(),
-        db.mealPlans.map((m) => m.id).toSet());
-    await upAndClean('lists',
-        db.lists.map((l) => {...l.toJson(), 'familyId': fid}).toList(),
-        db.lists.map((l) => l.id).toSet());
-    await upAndClean('devotionals',
-        db.devotionals.map((d) => {...d.toJson(), 'familyId': fid}).toList(),
-        db.devotionals.map((d) => d.id).toSet());
-    await up('fitness',
-        db.fitness.map((f) => f.toJson()).toList());
-    await upAndClean('budget_categories',
-        db.budgetCategories.map((b) => {...b.toJson(), 'familyId': fid}).toList(),
-        db.budgetCategories.map((b) => b.id).toSet());
-    await upAndClean('transactions',
-        db.transactions.map((t) => {...t.toJson(), 'familyId': fid}).toList(),
-        db.transactions.map((t) => t.id).toSet());
-    await upAndClean('ai_history',
-        db.aiHistory.map((a) => a.toJson()).toList(),
-        db.aiHistory.map((a) => a.id).toSet());
-    await upAndClean('daily_habits',
-        db.dailyHabits.map((h) => h.toJson()).toList(),
-        db.dailyHabits.map((h) => h.id).toSet());
-    await up('daily_habit_completions',
-        db.dailyHabitCompletions.map((c) => c.toJson()).toList());
-    await upAndClean('chores',
-        db.chores.map((c) => {...c.toJson(), 'familyId': fid}).toList(),
-        db.chores.map((c) => c.id).toSet());
-    await upAndClean('chore_completions',
-        db.choreCompletions.map((c) => c.toJson()).toList(),
-        db.choreCompletions.map((c) => c.id).toSet());
-    await upAndClean('polls',
-        db.polls.map((p) => {...p.toJson(), 'familyId': fid}).toList(),
-        db.polls.map((p) => p.id).toSet());
-    await upAndClean('poll_votes',
-        db.pollVotes.map((v) => v.toJson()).toList(),
-        db.pollVotes.map((v) => v.id).toSet());
-    await upAndClean('reward_items',
-        db.rewardItems.map((r) => {...r.toJson(), 'familyId': fid}).toList(),
-        db.rewardItems.map((r) => r.id).toSet());
-    await upAndClean('reward_redemptions',
-        db.rewardRedemptions.map((r) => r.toJson()).toList(),
-        db.rewardRedemptions.map((r) => r.id).toSet());
-    await upAndClean('savings_goals',
-        db.savingsGoals.map((g) => {...g.toJson(), 'familyId': fid}).toList(),
-        db.savingsGoals.map((g) => g.id).toSet());
-    await upAndClean('prayer_wall',
-        db.prayerWall.map((p) => {...p.toJson(), 'familyId': fid}).toList(),
-        db.prayerWall.map((p) => p.id).toSet());
-    await upAndClean('special_dates',
-        db.specialDates.map((s) => {...s.toJson(), 'familyId': fid}).toList(),
-        db.specialDates.map((s) => s.id).toSet());
-    await upAndClean('family_photos',
-        db.familyPhotos.map((p) => {...p.toJson(), 'familyId': fid}).toList(),
-        db.familyPhotos.map((p) => p.id).toSet());
-    await upAndClean('milestones',
-        db.milestones.map((m) => {...m.toJson(), 'familyId': fid}).toList(),
-        db.milestones.map((m) => m.id).toSet());
-    await upAndClean('saved_places',
-        db.savedPlaces.map((s) => {...s.toJson(), 'familyId': fid}).toList(),
-        db.savedPlaces.map((s) => s.id).toSet());
-    await upAndClean('user_locations',
-        db.userLocations.map((u) => u.toJson()).toList(),
-        db.userLocations.map((u) => u.id).toSet());
-    await upAndClean('messages',
-        db.messages.map((m) => {...m.toJson(), 'familyId': fid}).toList(),
-        db.messages.map((m) => m.id).toSet());
-    await upAndClean('health_records',
-        db.healthRecords.map((h) => {...h.toJson(), 'familyId': fid}).toList(),
-        db.healthRecords.map((h) => h.id).toSet());
-    await upAndClean('period_cycles',
-        db.periodCycles.map((c) => c.toJson()).toList(),
-        db.periodCycles.map((c) => c.id).toSet());
-    await upAndClean('period_symptoms',
-        db.periodSymptoms.map((s) => s.toJson()).toList(),
-        db.periodSymptoms.map((s) => s.id).toSet());
-    await upAndClean('external_calendars',
-        db.externalCalendars.map((c) => {...c.toJson(), 'familyId': fid}).toList(),
-        db.externalCalendars.map((c) => c.id).toSet());
-    await upAndClean('rewards',
-        db.rewards.map((r) => {...r.toJson(), 'familyId': fid}).toList(),
-        db.rewards.map((r) => r.id).toSet());
-    await upAndClean('reading_plans',
-        db.readingPlans.map((r) => {...r.toJson(), 'familyId': fid}).toList(),
-        db.readingPlans.map((r) => r.id).toSet());
+    // Core identity tables first (other tables may reference these)
+    await Future.wait([
+      up('users', db.users.map((u) => u.toJson()).toList()),
+      up('families', db.families.map((f) => f.toJson()).toList()),
+      up('family_members', db.familyMembers.map((m) => m.toJson()).toList(),
+          onConflict: 'userId,familyId'),
+    ]);
+
+    // All other tables in parallel — they're independent of each other
+    await Future.wait([
+      upAndClean('tasks',
+          db.tasks.map((t) => {...t.toJson(), 'familyId': fid}).toList(),
+          db.tasks.map((t) => t.id).toSet()),
+      upAndClean('events',
+          db.events.map((e) => {...e.toJson(), 'familyId': fid}).toList(),
+          db.events.map((e) => e.id).toSet()),
+      upAndClean('recipes',
+          db.recipes.map((r) => {...r.toJson(), 'familyId': fid}).toList(),
+          db.recipes.map((r) => r.id).toSet()),
+      upAndClean('meal_plans',
+          db.mealPlans.map((m) => {...m.toJson(), 'familyId': fid}).toList(),
+          db.mealPlans.map((m) => m.id).toSet()),
+      upAndClean('lists',
+          db.lists.map((l) => {...l.toJson(), 'familyId': fid}).toList(),
+          db.lists.map((l) => l.id).toSet()),
+      upAndClean('devotionals',
+          db.devotionals.map((d) => {...d.toJson(), 'familyId': fid}).toList(),
+          db.devotionals.map((d) => d.id).toSet()),
+      up('fitness',
+          db.fitness.map((f) => f.toJson()).toList()),
+      upAndClean('budget_categories',
+          db.budgetCategories.map((b) => {...b.toJson(), 'familyId': fid}).toList(),
+          db.budgetCategories.map((b) => b.id).toSet()),
+      upAndClean('transactions',
+          db.transactions.map((t) => {...t.toJson(), 'familyId': fid}).toList(),
+          db.transactions.map((t) => t.id).toSet()),
+      upAndClean('ai_history',
+          db.aiHistory.map((a) => a.toJson()).toList(),
+          db.aiHistory.map((a) => a.id).toSet()),
+      upAndClean('daily_habits',
+          db.dailyHabits.map((h) => h.toJson()).toList(),
+          db.dailyHabits.map((h) => h.id).toSet()),
+      up('daily_habit_completions',
+          db.dailyHabitCompletions.map((c) => c.toJson()).toList()),
+      upAndClean('chores',
+          db.chores.map((c) => {...c.toJson(), 'familyId': fid}).toList(),
+          db.chores.map((c) => c.id).toSet()),
+      upAndClean('chore_completions',
+          db.choreCompletions.map((c) => c.toJson()).toList(),
+          db.choreCompletions.map((c) => c.id).toSet()),
+      upAndClean('polls',
+          db.polls.map((p) => {...p.toJson(), 'familyId': fid}).toList(),
+          db.polls.map((p) => p.id).toSet()),
+      upAndClean('poll_votes',
+          db.pollVotes.map((v) => v.toJson()).toList(),
+          db.pollVotes.map((v) => v.id).toSet()),
+      upAndClean('reward_items',
+          db.rewardItems.map((r) => {...r.toJson(), 'familyId': fid}).toList(),
+          db.rewardItems.map((r) => r.id).toSet()),
+      upAndClean('reward_redemptions',
+          db.rewardRedemptions.map((r) => r.toJson()).toList(),
+          db.rewardRedemptions.map((r) => r.id).toSet()),
+      upAndClean('savings_goals',
+          db.savingsGoals.map((g) => {...g.toJson(), 'familyId': fid}).toList(),
+          db.savingsGoals.map((g) => g.id).toSet()),
+      upAndClean('prayer_wall',
+          db.prayerWall.map((p) => {...p.toJson(), 'familyId': fid}).toList(),
+          db.prayerWall.map((p) => p.id).toSet()),
+      upAndClean('special_dates',
+          db.specialDates.map((s) => {...s.toJson(), 'familyId': fid}).toList(),
+          db.specialDates.map((s) => s.id).toSet()),
+      upAndClean('family_photos',
+          db.familyPhotos.map((p) => {...p.toJson(), 'familyId': fid}).toList(),
+          db.familyPhotos.map((p) => p.id).toSet()),
+      upAndClean('milestones',
+          db.milestones.map((m) => {...m.toJson(), 'familyId': fid}).toList(),
+          db.milestones.map((m) => m.id).toSet()),
+      upAndClean('saved_places',
+          db.savedPlaces.map((s) => {...s.toJson(), 'familyId': fid}).toList(),
+          db.savedPlaces.map((s) => s.id).toSet()),
+      upAndClean('user_locations',
+          db.userLocations.map((u) => u.toJson()).toList(),
+          db.userLocations.map((u) => u.id).toSet()),
+      upAndClean('messages',
+          db.messages.map((m) => {...m.toJson(), 'familyId': fid}).toList(),
+          db.messages.map((m) => m.id).toSet()),
+      upAndClean('health_records',
+          db.healthRecords.map((h) => {...h.toJson(), 'familyId': fid}).toList(),
+          db.healthRecords.map((h) => h.id).toSet()),
+      upAndClean('period_cycles',
+          db.periodCycles.map((c) => c.toJson()).toList(),
+          db.periodCycles.map((c) => c.id).toSet()),
+      upAndClean('period_symptoms',
+          db.periodSymptoms.map((s) => s.toJson()).toList(),
+          db.periodSymptoms.map((s) => s.id).toSet()),
+      upAndClean('external_calendars',
+          db.externalCalendars.map((c) => {...c.toJson(), 'familyId': fid}).toList(),
+          db.externalCalendars.map((c) => c.id).toSet()),
+      upAndClean('rewards',
+          db.rewards.map((r) => {...r.toJson(), 'familyId': fid}).toList(),
+          db.rewards.map((r) => r.id).toSet()),
+      upAndClean('reading_plans',
+          db.readingPlans.map((r) => {...r.toJson(), 'familyId': fid}).toList(),
+          db.readingPlans.map((r) => r.id).toSet()),
+    ]);
   }
 
   /// Delete cloud rows for a family-scoped table that no longer exist locally.
