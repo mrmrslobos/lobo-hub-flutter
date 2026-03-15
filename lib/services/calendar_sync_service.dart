@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:extension_google_sign_in_as_googleapis_auth/extension_google_sign_in_as_googleapis_auth.dart';
 import 'package:googleapis/calendar/v3.dart' as gcal;
+import 'package:googleapis/tasks/v1.dart' as gtasks;
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 
@@ -18,7 +19,10 @@ class CalendarSyncService {
   // ── Google Calendar ────────────────────────────────────────────────────────
 
   static final GoogleSignIn _googleSignIn = GoogleSignIn(
-    scopes: [gcal.CalendarApi.calendarReadonlyScope],
+    scopes: [
+      gcal.CalendarApi.calendarReadonlyScope,
+      gtasks.TasksApi.tasksReadonlyScope,
+    ],
   );
 
   static GoogleSignInAccount? get currentGoogleUser => _googleSignIn.currentUser;
@@ -113,6 +117,58 @@ class CalendarSyncService {
       }).toList();
     } catch (e) {
       debugPrint('Error fetching Google events: $e');
+      return [];
+    }
+  }
+
+  // ── Google Tasks Import ──────────────────────────────────────────────────────
+
+  /// Fetch all Google Tasks from every task list and convert to Task objects.
+  static Future<List<Task>> fetchGoogleTasks({
+    required String familyId,
+    required String userId,
+  }) async {
+    var httpClient = await _googleSignIn.authenticatedClient();
+    if (httpClient == null) {
+      await _googleSignIn.signInSilently();
+      httpClient = await _googleSignIn.authenticatedClient();
+      if (httpClient == null) return [];
+    }
+
+    try {
+      final tasksApi = gtasks.TasksApi(httpClient);
+      final taskLists = await tasksApi.tasklists.list();
+      final result = <Task>[];
+
+      for (final list in taskLists.items ?? []) {
+        if (list.id == null) continue;
+        final listName = list.title ?? 'Google Tasks';
+        final tasksResponse = await tasksApi.tasks.list(
+          list.id!,
+          showCompleted: true,
+          showHidden: true,
+          maxResults: 100,
+        );
+
+        for (final gt in tasksResponse.items ?? []) {
+          if (gt.title == null || gt.title!.trim().isEmpty) continue;
+          result.add(Task(
+            id: 'gtask_${gt.id ?? _uuid.v4()}',
+            familyId: familyId,
+            creatorId: userId,
+            title: gt.title!,
+            notes: gt.notes,
+            dueDate: gt.due != null ? DateTime.tryParse(gt.due!) : null,
+            completed: gt.status == 'completed',
+            completedBy: gt.status == 'completed' ? userId : null,
+            tags: [listName],
+          ));
+        }
+      }
+
+      return result;
+    } catch (e) {
+      debugPrint('Error fetching Google Tasks: $e');
       return [];
     }
   }
