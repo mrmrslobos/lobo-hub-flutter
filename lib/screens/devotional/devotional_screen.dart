@@ -272,6 +272,7 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
   /// Sync with the cloud to pick up server-generated devotionals
   /// (produced by the daily-devotional edge function even when the app is
   /// closed). The server is the sole generator — no client-side fallback.
+  /// After sync, auto-opens today's devotional so it's the active reading.
   Future<void> _maybeGenerateDaily() async {
     if (!mounted) return;
     final provider = context.read<AppProvider>();
@@ -281,19 +282,34 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
     final today = DateTime.now();
     final todayDate = DateTime(today.year, today.month, today.day);
 
-    bool hasTodaysDevotional() => provider.db.devotionalEntries.any((e) =>
-      e.familyId == family.id &&
-      e.tags.contains('daily-auto') &&
-      DateTime(e.date.year, e.date.month, e.date.day) == todayDate,
-    );
+    DevotionalEntry? findTodaysDevotional() {
+      try {
+        return provider.db.devotionalEntries.firstWhere((e) =>
+          e.familyId == family.id &&
+          e.tags.contains('daily-auto') &&
+          DateTime(e.date.year, e.date.month, e.date.day) == todayDate,
+        );
+      } catch (_) {
+        return null;
+      }
+    }
 
-    // Already have today's devotional locally
-    if (hasTodaysDevotional()) return;
+    // Already have today's devotional locally — auto-open it
+    final existing = findTodaysDevotional();
+    if (existing != null) {
+      if (mounted) widget.onSelectEntry(existing);
+      return;
+    }
 
     // Sync with cloud — the server generates devotionals via pg_cron
     try {
       final merged = await DatabaseService.reconcileCloud(provider.db, family.id);
-      if (mounted) provider.updateDb(merged);
+      if (mounted) {
+        provider.updateDb(merged);
+        // After sync, auto-open today's devotional if it arrived
+        final synced = findTodaysDevotional();
+        if (synced != null) widget.onSelectEntry(synced);
+      }
     } catch (e) {
       debugPrint('Cloud sync for daily devotional failed: $e');
     }
@@ -408,9 +424,17 @@ Make the content warm, relatable, and suitable for children.''';
         const SizedBox(height: 24),
 
         // ── Past Readings (collapsible) ──
-        if (widget.entries.isNotEmpty) ...[
-          () {
-            final filtered = widget.entries.where((entry) {
+        // Exclude today's daily-auto devotional — it's the active reading
+        // shown via the Daily Devotional card, not a "past" reading.
+        () {
+          final now = DateTime.now();
+          final todayDate = DateTime(now.year, now.month, now.day);
+          final pastEntries = widget.entries.where((e) =>
+            !(e.tags.contains('daily-auto') &&
+              DateTime(e.date.year, e.date.month, e.date.day) == todayDate)
+          ).toList();
+          if (pastEntries.isEmpty) return const SizedBox.shrink();
+          final filtered = pastEntries.where((entry) {
               if (_showFavoritesOnly && !entry.isFavorited) return false;
               if (_searchQuery.isNotEmpty) {
                 final q = _searchQuery.toLowerCase();
@@ -452,7 +476,7 @@ Make the content warm, relatable, and suitable for children.''';
                               color: AppTheme.stone100,
                               borderRadius: BorderRadius.circular(10),
                             ),
-                            child: Text('${widget.entries.length}', style: const TextStyle(
+                            child: Text('${pastEntries.length}', style: const TextStyle(
                               fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 12, color: AppTheme.stone500,
                             )),
                           ),
@@ -642,7 +666,6 @@ Make the content warm, relatable, and suitable for children.''';
               ],
             );
           }(),
-        ],
       ],
     );
   }
