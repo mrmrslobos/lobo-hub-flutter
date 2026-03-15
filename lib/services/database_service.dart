@@ -16,6 +16,11 @@ class DatabaseService {
   static const String _dbKey = 'familyhub_db';
   static AppDB? _cache;
 
+  /// Keys that were intentionally deleted locally.  Prevents cloud merges
+  /// from re-adding them before the sync has propagated the delete.
+  /// Cleared after a successful cloud sync.
+  static final Set<String> _deletedKeys = {};
+
   static AppDB get db => _cache ?? AppDB.empty();
 
   // ── Local persistence ─────────────────────────────────────────────────────
@@ -38,6 +43,13 @@ class DatabaseService {
   }
 
   static Future<void> saveLocal(AppDB db) async {
+    // Track keys that disappeared (intentional deletes) so cloud merge
+    // doesn't re-add them.
+    if (_cache != null) {
+      final oldKeys = _collectKeys(_cache!);
+      final newKeys = _collectKeys(db);
+      _deletedKeys.addAll(oldKeys.difference(newKeys));
+    }
     _cache = db;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_dbKey, jsonEncode(db.toJson()));
@@ -62,6 +74,9 @@ class DatabaseService {
     if (!SupabaseService.isConfigured) return;
     try {
       await _syncToCloud(db, familyId);
+      // Deletes have been pushed to cloud — safe to clear the set so
+      // future merges from other devices can add genuinely new items.
+      _deletedKeys.clear();
     } catch (e) {
       debugPrint('[DatabaseService] Cloud sync failed: $e');
     }
@@ -292,11 +307,10 @@ class DatabaseService {
 
   /// Merge two lists by [id].
   ///
-  /// Local defines which items exist (deletes are respected).  For items
-  /// present in both local and cloud, cloud data wins (picks up edits from
-  /// other devices).  Items that exist *only* in the cloud are added (new
-  /// items from another family member).  Items that exist only locally are
-  /// kept (offline-created, not yet synced).
+  /// - Items in both local & cloud: local wins (local is source of truth).
+  /// - Items only in cloud: added (new from another device) UNLESS the key
+  ///   is in [_deletedKeys] (was intentionally deleted on this device).
+  /// - Items only in local: kept (offline-created, not yet synced).
   static String _mergeKeyOf(dynamic item) {
     try { return item.mergeKey as String; } catch (_) {}
     return item.id as String;
@@ -304,43 +318,28 @@ class DatabaseService {
 
   static List<T> _mergeById<T>(List<T> local, List<T> cloud) {
     if (cloud.isEmpty) return local;
-    if (local.isEmpty) return cloud;
     final localMap = <String, T>{};
     for (final item in local) {
-      try {
-        localMap[_mergeKeyOf(item)] = item;
-      } catch (_) {}
+      try { localMap[_mergeKeyOf(item)] = item; } catch (_) {}
     }
-    // Cloud can update existing items, but cannot re-add items that
-    // were deleted locally.  The _cache reflects the latest intentional
-    // state; items missing from _cache were deliberately removed.
-    final cacheKeys = _cache != null
-        ? _allKeys(_cache!)
-        : null; // null = no cache, allow all cloud items
+    if (local.isEmpty && _deletedKeys.isEmpty) return cloud;
     final map = <String, T>{...localMap};
     for (final item in cloud) {
       try {
         final key = _mergeKeyOf(item);
-        if (localMap.containsKey(key)) {
-          map[key] = item; // cloud wins for shared items (other device edits)
-        } else if (cacheKeys == null || !cacheKeys.contains(key)) {
-          // Item is not in local AND was never in our cache → genuinely new
-          // from another device. If it WAS in cache but isn't now, it was
-          // deleted locally and should stay deleted.
+        if (!localMap.containsKey(key) && !_deletedKeys.contains(key)) {
+          // Genuinely new item from another device — add it
           map[key] = item;
         }
+        // If it exists locally, keep the local version (local wins).
+        // If it's in _deletedKeys, skip it (intentional delete).
       } catch (_) {}
     }
     return map.values.toList();
   }
 
-  /// Collect all merge keys from every collection in an AppDB snapshot.
-  static Set<String>? _allKeysCache;
-  static AppDB? _allKeysCacheSource;
-  static Set<String> _allKeys(AppDB db) {
-    if (identical(db, _allKeysCacheSource) && _allKeysCache != null) {
-      return _allKeysCache!;
-    }
+  /// Collect all merge keys from an AppDB snapshot.
+  static Set<String> _collectKeys(AppDB db) {
     final keys = <String>{};
     void addAll(List items) {
       for (final item in items) {
@@ -359,8 +358,6 @@ class DatabaseService {
     addAll(db.userLocations); addAll(db.messages); addAll(db.healthRecords);
     addAll(db.periodCycles); addAll(db.periodSymptoms);
     addAll(db.rewards); addAll(db.readingPlans); addAll(db.externalCalendars);
-    _allKeysCache = keys;
-    _allKeysCacheSource = db;
     return keys;
   }
 
