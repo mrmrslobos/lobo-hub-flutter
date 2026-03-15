@@ -109,8 +109,7 @@ class DatabaseService {
     await Future.wait([
       up('users', db.users.map((u) => u.toJson()).toList()),
       up('families', db.families.map((f) => f.toJson()).toList()),
-      up('family_members', db.familyMembers.map((m) => m.toJson()).toList(),
-          onConflict: 'userId,familyId'),
+      _syncFamilyMembers(db, fid),
     ]);
 
     // All other tables in parallel — they're independent of each other
@@ -212,6 +211,43 @@ class DatabaseService {
     ]);
   }
 
+  /// Upsert family members and delete removed ones (composite key: userId+familyId).
+  static Future<void> _syncFamilyMembers(AppDB db, String familyId) async {
+    if (db.familyMembers.isNotEmpty) {
+      try {
+        await SupabaseService.upsertTable(
+          'family_members',
+          _camelRows(db.familyMembers.map((m) => m.toJson()).toList()),
+          onConflict: 'userId,familyId',
+        );
+      } catch (e) {
+        debugPrint('[DatabaseService] Failed to sync family_members: $e');
+      }
+    }
+    // Delete members removed locally
+    try {
+      final cloudRows = await SupabaseService.client
+          .from('family_members')
+          .select('userId, familyId')
+          .eq('familyId', familyId);
+      final localKeys = db.familyMembers
+          .where((m) => m.familyId == familyId)
+          .map((m) => '${m.userId}_${m.familyId}')
+          .toSet();
+      for (final row in (cloudRows as List)) {
+        final key = '${row['userId']}_${row['familyId']}';
+        if (!localKeys.contains(key)) {
+          await SupabaseService.deleteRows('family_members', {
+            'userId': row['userId'] as String,
+            'familyId': row['familyId'] as String,
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('[DatabaseService] Failed to delete removed family_members: $e');
+    }
+  }
+
   /// Delete cloud rows for a family-scoped table that no longer exist locally.
   static Future<void> _deleteRemovedRows(
     String table, Set<String> localIds, String familyId,
@@ -254,7 +290,13 @@ class DatabaseService {
     }
   }
 
-  /// Merge two lists by [id], with cloud items winning on conflict.
+  /// Merge two lists by [id].
+  ///
+  /// Local defines which items exist (deletes are respected).  For items
+  /// present in both local and cloud, cloud data wins (picks up edits from
+  /// other devices).  Items that exist *only* in the cloud are added (new
+  /// items from another family member).  Items that exist only locally are
+  /// kept (offline-created, not yet synced).
   static String _mergeKeyOf(dynamic item) {
     try { return item.mergeKey as String; } catch (_) {}
     return item.id as String;
@@ -263,18 +305,63 @@ class DatabaseService {
   static List<T> _mergeById<T>(List<T> local, List<T> cloud) {
     if (cloud.isEmpty) return local;
     if (local.isEmpty) return cloud;
-    final map = <String, T>{};
+    final localMap = <String, T>{};
     for (final item in local) {
       try {
-        map[_mergeKeyOf(item)] = item;
+        localMap[_mergeKeyOf(item)] = item;
       } catch (_) {}
     }
+    // Cloud can update existing items, but cannot re-add items that
+    // were deleted locally.  The _cache reflects the latest intentional
+    // state; items missing from _cache were deliberately removed.
+    final cacheKeys = _cache != null
+        ? _allKeys(_cache!)
+        : null; // null = no cache, allow all cloud items
+    final map = <String, T>{...localMap};
     for (final item in cloud) {
       try {
-        map[_mergeKeyOf(item)] = item; // cloud wins on conflict
+        final key = _mergeKeyOf(item);
+        if (localMap.containsKey(key)) {
+          map[key] = item; // cloud wins for shared items (other device edits)
+        } else if (cacheKeys == null || !cacheKeys.contains(key)) {
+          // Item is not in local AND was never in our cache → genuinely new
+          // from another device. If it WAS in cache but isn't now, it was
+          // deleted locally and should stay deleted.
+          map[key] = item;
+        }
       } catch (_) {}
     }
     return map.values.toList();
+  }
+
+  /// Collect all merge keys from every collection in an AppDB snapshot.
+  static Set<String>? _allKeysCache;
+  static AppDB? _allKeysCacheSource;
+  static Set<String> _allKeys(AppDB db) {
+    if (identical(db, _allKeysCacheSource) && _allKeysCache != null) {
+      return _allKeysCache!;
+    }
+    final keys = <String>{};
+    void addAll(List items) {
+      for (final item in items) {
+        try { keys.add(_mergeKeyOf(item)); } catch (_) {}
+      }
+    }
+    addAll(db.users); addAll(db.families); addAll(db.familyMembers);
+    addAll(db.tasks); addAll(db.events); addAll(db.recipes);
+    addAll(db.mealPlans); addAll(db.lists); addAll(db.devotionals);
+    addAll(db.fitness); addAll(db.budgetCategories); addAll(db.transactions);
+    addAll(db.aiHistory); addAll(db.dailyHabits); addAll(db.dailyHabitCompletions);
+    addAll(db.chores); addAll(db.choreCompletions); addAll(db.polls);
+    addAll(db.pollVotes); addAll(db.rewardItems); addAll(db.rewardRedemptions);
+    addAll(db.savingsGoals); addAll(db.prayerWall); addAll(db.specialDates);
+    addAll(db.familyPhotos); addAll(db.milestones); addAll(db.savedPlaces);
+    addAll(db.userLocations); addAll(db.messages); addAll(db.healthRecords);
+    addAll(db.periodCycles); addAll(db.periodSymptoms);
+    addAll(db.rewards); addAll(db.readingPlans); addAll(db.externalCalendars);
+    _allKeysCache = keys;
+    _allKeysCacheSource = db;
+    return keys;
   }
 
   static AppDB _mergeWithCloud(
