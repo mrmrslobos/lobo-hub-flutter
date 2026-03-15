@@ -252,9 +252,14 @@ class AppProvider extends ChangeNotifier {
       // Save locally (fast) then fire-and-forget the cloud sync so the
       // UI never blocks on network I/O.
       await DatabaseService.saveLocal(newDb);
+      // Broadcast immediately so other devices know to pull — don't wait
+      // for the full cloud sync to finish.
+      _broadcastChange();
       _isSyncing = true;
       final familyId = _activeFamily!.id;
       DatabaseService.syncToCloud(newDb, familyId).then((_) {
+        // Broadcast again after sync completes so other devices pick up
+        // the data that's now definitely in the cloud.
         _broadcastChange();
       }).catchError((e) {
         debugPrint('[AppProvider] cloud sync error: $e');

@@ -119,84 +119,62 @@ class SupabaseService {
 
     final result = <String, dynamic>{};
 
-    // Fetch the family itself (queried by its own id, not familyId)
-    try {
-      result['families'] = await client
-          .from('families')
-          .select()
-          .eq('id', familyId);
-    } catch (_) {
-      result['families'] = [];
+    /// Safely fetch a single table, returning [] on error.
+    Future<List> fetch(String table, String column, dynamic value) async {
+      try {
+        if (value is List) {
+          return await client.from(table).select().inFilter(column, value);
+        }
+        return await client.from(table).select().eq(column, value);
+      } catch (_) {
+        return [];
+      }
     }
 
-    // Family-scoped tables
+    // ── Phase 1: fetch family + family_members in parallel ───────────────
+    // We need member userIds before we can query user-scoped tables.
+    final phase1 = await Future.wait([
+      fetch('families', 'id', familyId),
+      fetch('family_members', 'familyId', familyId),
+    ]);
+    result['families'] = phase1[0];
+    result['family_members'] = phase1[1];
+
+    final userIds = (phase1[1] as List)
+        .map((m) => (m as Map)['userId'] as String)
+        .toList();
+
+    // ── Phase 2: everything else in parallel ─────────────────────────────
+    final allTables = <String>[];
+    final allFutures = <Future<List>>[];
+
     for (final table in familyScopedTables) {
-      try {
-        result[table] = await client
-            .from(table)
-            .select()
-            .eq('familyId', familyId);
-      } catch (_) {
-        result[table] = [];
-      }
+      allTables.add(table);
+      allFutures.add(fetch(table, 'familyId', familyId));
     }
-
-    // Tables that use family_id but may be named differently
+    // family_members already fetched in phase 1, skip it
     for (final table in familyIdTables) {
-      try {
-        result[table] = await client
-            .from(table)
-            .select()
-            .eq('familyId', familyId);
-      } catch (_) {
-        result[table] = [];
-      }
+      if (table == 'family_members') continue;
+      allTables.add(table);
+      allFutures.add(fetch(table, 'familyId', familyId));
     }
-
-    // User-scoped tables: fetch members first then query by user_id
-    try {
-      final members = await client
-          .from('family_members')
-          .select('userId')
-          .eq('familyId', familyId);
-
-      final userIds = (members as List)
-          .map((m) => m['userId'] as String)
-          .toList();
-
-      if (userIds.isNotEmpty) {
-        // Fetch users
-        try {
-          result['users'] = await client
-              .from('users')
-              .select()
-              .inFilter('id', userIds);
-        } catch (_) {
-          result['users'] = [];
-        }
-
-        // Fetch user-scoped tables
-        for (final table in userScopedTables) {
-          try {
-            result[table] = await client
-                .from(table)
-                .select()
-                .inFilter('userId', userIds);
-          } catch (_) {
-            result[table] = [];
-          }
-        }
-      } else {
-        result['users'] = [];
-        for (final table in userScopedTables) {
-          result[table] = [];
-        }
+    if (userIds.isNotEmpty) {
+      allTables.add('users');
+      allFutures.add(fetch('users', 'id', userIds));
+      for (final table in userScopedTables) {
+        allTables.add(table);
+        allFutures.add(fetch(table, 'userId', userIds));
       }
-    } catch (_) {
+    } else {
       result['users'] = [];
       for (final table in userScopedTables) {
         result[table] = [];
       }
+    }
+
+    final phase2 = await Future.wait(allFutures);
+    for (var i = 0; i < allTables.length; i++) {
+      result[allTables[i]] = phase2[i];
     }
 
     return result;
