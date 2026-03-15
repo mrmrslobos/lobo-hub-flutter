@@ -3,6 +3,8 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart' hide Visibility;
+
+import '../../app.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -94,37 +96,49 @@ class _DevotionalScreenState extends State<DevotionalScreen>
 
     // If viewing a devotional entry detail
     if (_selectedEntry != null) {
-      return _EntryDetailView(
-        entry: _selectedEntry!,
-        onBack: () => setState(() => _selectedEntry = null),
-        onDelete: () => _deleteEntry(_selectedEntry!.id),
-        onUpdatePrayer: (prayer) async {
-          final provider = context.read<AppProvider>();
-          final db = provider.db;
-          final updated = _selectedEntry!.copyWith(userPrayer: prayer);
-          await provider.saveAndSync(db.copyWith(
-            devotionalEntries: db.devotionalEntries.map((e) => e.id == updated.id ? updated : e).toList(),
-          ));
-          setState(() => _selectedEntry = updated);
+      return BackNavigationScope(
+        onBack: () {
+          setState(() => _selectedEntry = null);
+          return true;
         },
-        onToggleFavorite: () async {
-          final provider = context.read<AppProvider>();
-          final db = provider.db;
-          final updated = _selectedEntry!.copyWith(isFavorited: !_selectedEntry!.isFavorited);
-          await provider.saveAndSync(db.copyWith(
-            devotionalEntries: db.devotionalEntries.map((e) => e.id == updated.id ? updated : e).toList(),
-          ));
-          setState(() => _selectedEntry = updated);
-        },
+        child: _EntryDetailView(
+          entry: _selectedEntry!,
+          onBack: () => setState(() => _selectedEntry = null),
+          onDelete: () => _deleteEntry(_selectedEntry!.id),
+          onUpdatePrayer: (prayer) async {
+            final provider = context.read<AppProvider>();
+            final db = provider.db;
+            final updated = _selectedEntry!.copyWith(userPrayer: prayer);
+            await provider.saveAndSync(db.copyWith(
+              devotionalEntries: db.devotionalEntries.map((e) => e.id == updated.id ? updated : e).toList(),
+            ));
+            setState(() => _selectedEntry = updated);
+          },
+          onToggleFavorite: () async {
+            final provider = context.read<AppProvider>();
+            final db = provider.db;
+            final updated = _selectedEntry!.copyWith(isFavorited: !_selectedEntry!.isFavorited);
+            await provider.saveAndSync(db.copyWith(
+              devotionalEntries: db.devotionalEntries.map((e) => e.id == updated.id ? updated : e).toList(),
+            ));
+            setState(() => _selectedEntry = updated);
+          },
+        ),
       );
     }
 
     // If viewing a reading plan detail
     if (_selectedPlan != null) {
-      return _ReadingPlanDetailView(
-        plan: _selectedPlan!,
-        entries: entries,
-        onBack: () => setState(() => _selectedPlan = null),
+      return BackNavigationScope(
+        onBack: () {
+          setState(() => _selectedPlan = null);
+          return true;
+        },
+        child: _ReadingPlanDetailView(
+          plan: _selectedPlan!,
+          entries: entries,
+          onBack: () => setState(() => _selectedPlan = null),
+        ),
       );
     }
 

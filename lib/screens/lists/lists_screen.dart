@@ -4,6 +4,8 @@ import 'package:flutter/material.dart' hide Visibility;
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../app.dart';
+
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
@@ -332,14 +334,20 @@ class _ListsScreenState extends State<ListsScreen> {
     }
 
     if (_selectedList != null) {
-      return _ListDetailView(
-        list: _selectedList!,
-        onBack: () => setState(() => _selectedList = null),
-        onAddItem: (name) => _addItem(_selectedList!, name),
-        onToggleItem: (item) => _toggleItem(_selectedList!, item),
-        onDeleteItem: (id) => _deleteItem(_selectedList!, id),
-        onDeleteList: () => _deleteList(_selectedList!),
-        onAiCategorize: _showAiCategorization,
+      return BackNavigationScope(
+        onBack: () {
+          setState(() => _selectedList = null);
+          return true;
+        },
+        child: _ListDetailView(
+          list: _selectedList!,
+          onBack: () => setState(() => _selectedList = null),
+          onAddItem: (name) => _addItem(_selectedList!, name),
+          onToggleItem: (item) => _toggleItem(_selectedList!, item),
+          onDeleteItem: (id) => _deleteItem(_selectedList!, id),
+          onDeleteList: () => _deleteList(_selectedList!),
+          onAiCategorize: _showAiCategorization,
+        ),
       );
     }
 
