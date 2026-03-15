@@ -171,105 +171,118 @@ class _FamilyHubAppState extends State<FamilyHubApp> with WidgetsBindingObserver
           name: 'dashboard',
           builder: (context, state) => const DashboardScreen(),
         ),
-        GoRoute(
-          path: '/tasks',
-          name: 'tasks',
-          builder: (context, state) => const TasksScreen(),
-        ),
-        GoRoute(
-          path: '/chat',
-          name: 'chat',
-          builder: (context, state) => const ChatScreen(),
-        ),
-        GoRoute(
-          path: '/calendar',
-          name: 'calendar',
-          builder: (context, state) => const CalendarScreen(),
-        ),
-        GoRoute(
-          path: '/meals',
-          name: 'meals',
-          builder: (context, state) => const MealsScreen(),
-        ),
-        GoRoute(
-          path: '/budget',
-          name: 'budget',
-          builder: (context, state) => const BudgetScreen(),
-        ),
-        GoRoute(
-          path: '/lists',
-          name: 'lists',
-          builder: (context, state) => const ListsScreen(),
-        ),
-        GoRoute(
-          path: '/chores',
-          name: 'chores',
-          builder: (context, state) => const ChoresScreen(),
-        ),
-        GoRoute(
-          path: '/rewards',
-          name: 'rewards',
-          builder: (context, state) => const RewardsScreen(),
-        ),
-        GoRoute(
-          path: '/fitness',
-          name: 'fitness',
-          builder: (context, state) => const FitnessScreen(),
-        ),
-        GoRoute(
-          path: '/devotional',
-          name: 'devotional',
-          builder: (context, state) => const DevotionalScreen(),
-        ),
-        GoRoute(
-          path: '/prayer-wall',
-          name: 'prayer-wall',
-          builder: (context, state) => const PrayerWallScreen(),
-        ),
-        GoRoute(
-          path: '/polls',
-          name: 'polls',
-          builder: (context, state) => const PollsScreen(),
-        ),
-        GoRoute(
-          path: '/period-tracker',
-          name: 'period-tracker',
-          builder: (context, state) => const PeriodTrackerScreen(),
-        ),
-        GoRoute(
-          path: '/birthdays',
-          name: 'birthdays',
-          builder: (context, state) => const BirthdaysScreen(),
-        ),
-        GoRoute(
-          path: '/photos',
-          name: 'photos',
-          builder: (context, state) => const PhotosScreen(),
-        ),
-        GoRoute(
-          path: '/location',
-          name: 'location',
-          builder: (context, state) => const LocationScreen(),
-        ),
-        GoRoute(
-          path: '/health',
-          name: 'health',
-          builder: (context, state) => const HealthScreen(),
-        ),
-        GoRoute(
-          path: '/ai-history',
-          name: 'ai-history',
-          builder: (context, state) => const AIHistoryScreen(),
-        ),
-        GoRoute(
-          path: '/habits',
-          name: 'habits',
-          builder: (context, state) => const HabitsScreen(),
-        ),
-        GoRoute(
-          path: '/subscription',
-          name: 'subscription',
-          builder: (context, state) => const SubscriptionScreen(),
+        // Wrap all module screens so Android back gesture returns to
+        // dashboard instead of closing the app.
+        ShellRoute(
+          builder: (context, state, child) => PopScope(
+            canPop: false,
+            onPopInvokedWithResult: (didPop, _) {
+              if (!didPop) context.go('/');
+            },
+            child: child,
+          ),
+          routes: [
+            GoRoute(
+              path: '/tasks',
+              name: 'tasks',
+              builder: (context, state) => const TasksScreen(),
+            ),
+            GoRoute(
+              path: '/chat',
+              name: 'chat',
+              builder: (context, state) => const ChatScreen(),
+            ),
+            GoRoute(
+              path: '/calendar',
+              name: 'calendar',
+              builder: (context, state) => const CalendarScreen(),
+            ),
+            GoRoute(
+              path: '/meals',
+              name: 'meals',
+              builder: (context, state) => const MealsScreen(),
+            ),
+            GoRoute(
+              path: '/budget',
+              name: 'budget',
+              builder: (context, state) => const BudgetScreen(),
+            ),
+            GoRoute(
+              path: '/lists',
+              name: 'lists',
+              builder: (context, state) => const ListsScreen(),
+            ),
+            GoRoute(
+              path: '/chores',
+              name: 'chores',
+              builder: (context, state) => const ChoresScreen(),
+            ),
+            GoRoute(
+              path: '/rewards',
+              name: 'rewards',
+              builder: (context, state) => const RewardsScreen(),
+            ),
+            GoRoute(
+              path: '/fitness',
+              name: 'fitness',
+              builder: (context, state) => const FitnessScreen(),
+            ),
+            GoRoute(
+              path: '/devotional',
+              name: 'devotional',
+              builder: (context, state) => const DevotionalScreen(),
+            ),
+            GoRoute(
+              path: '/prayer-wall',
+              name: 'prayer-wall',
+              builder: (context, state) => const PrayerWallScreen(),
+            ),
+            GoRoute(
+              path: '/polls',
+              name: 'polls',
+              builder: (context, state) => const PollsScreen(),
+            ),
+            GoRoute(
+              path: '/period-tracker',
+              name: 'period-tracker',
+              builder: (context, state) => const PeriodTrackerScreen(),
+            ),
+            GoRoute(
+              path: '/birthdays',
+              name: 'birthdays',
+              builder: (context, state) => const BirthdaysScreen(),
+            ),
+            GoRoute(
+              path: '/photos',
+              name: 'photos',
+              builder: (context, state) => const PhotosScreen(),
+            ),
+            GoRoute(
+              path: '/location',
+              name: 'location',
+              builder: (context, state) => const LocationScreen(),
+            ),
+            GoRoute(
+              path: '/health',
+              name: 'health',
+              builder: (context, state) => const HealthScreen(),
+            ),
+            GoRoute(
+              path: '/ai-history',
+              name: 'ai-history',
+              builder: (context, state) => const AIHistoryScreen(),
+            ),
+            GoRoute(
+              path: '/habits',
+              name: 'habits',
+              builder: (context, state) => const HabitsScreen(),
+            ),
+            GoRoute(
+              path: '/subscription',
+              name: 'subscription',
+              builder: (context, state) => const SubscriptionScreen(),
+            ),
+          ],
         ),
       ],
       errorBuilder: (context, state) => Scaffold(
