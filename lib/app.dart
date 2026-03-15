@@ -177,7 +177,12 @@ class _FamilyHubAppState extends State<FamilyHubApp> with WidgetsBindingObserver
           builder: (context, state, child) => PopScope(
             canPop: false,
             onPopInvokedWithResult: (didPop, _) {
-              if (!didPop) context.go('/');
+              if (didPop) return;
+              // Let the screen handle back first (e.g. close a detail view)
+              final scope = BackNavigationScope.maybeOf(context);
+              if (scope != null && scope.onBack()) return;
+              // Nothing to go back to within the screen — go to dashboard
+              context.go('/');
             },
             child: child,
           ),
@@ -332,6 +337,36 @@ class _FamilyHubAppState extends State<FamilyHubApp> with WidgetsBindingObserver
       ),
     );
   }
+}
+
+// ─────────────────────────────────────────────
+// Helper: makes GoRouter re-evaluate redirect when AppProvider changes
+// ─────────────────────────────────────────────
+
+// ─────────────────────────────────────────────
+// BackNavigationScope: lets screens register a custom back handler so
+// the ShellRoute PopScope can delegate back to the screen first.
+// ─────────────────────────────────────────────
+
+class BackNavigationScope extends InheritedWidget {
+  /// Called when the user triggers a back gesture. Return true if the screen
+  /// handled it (e.g. dismissed a detail view); return false to let the shell
+  /// navigate to dashboard.
+  final bool Function() onBack;
+
+  const BackNavigationScope({
+    super.key,
+    required this.onBack,
+    required super.child,
+  });
+
+  static BackNavigationScope? maybeOf(BuildContext context) {
+    return context.dependOnInheritedWidgetOfExactType<BackNavigationScope>();
+  }
+
+  @override
+  bool updateShouldNotify(BackNavigationScope oldWidget) =>
+      onBack != oldWidget.onBack;
 }
 
 // ─────────────────────────────────────────────
