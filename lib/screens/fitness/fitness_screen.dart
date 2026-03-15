@@ -235,8 +235,8 @@ class _FitnessScreenState extends State<FitnessScreen> {
           final userId = provider.activeUser?.id;
           if (userId == null) return;
           final plans = db.fitnessPlans.toList();
-          plans.removeWhere((p) => p is Map && p['userId'] == userId);
-          plans.add({...planMap, 'userId': userId, 'createdAt': DateTime.now().toIso8601String()});
+          plans.removeWhere((p) => p is Map && p['user_id'] == userId);
+          plans.add({...planMap, 'user_id': userId, 'created_at': DateTime.now().toIso8601String()});
           await provider.saveAndSync(db.copyWith(fitnessPlans: plans));
         },
       ),
@@ -291,7 +291,7 @@ class _FitnessScreenState extends State<FitnessScreen> {
     // Stored AI fitness plan
     final storedPlan = provider.db.fitnessPlans
         .whereType<Map>()
-        .where((p) => p['userId'] == user.id)
+        .where((p) => p['user_id'] == user.id)
         .toList();
     final latestPlan = storedPlan.isNotEmpty ? storedPlan.last : null;
 
@@ -804,8 +804,8 @@ Apply the requested change while keeping everything else sensible.
         final db = provider.db;
         final userId = provider.activeUser?.id ?? '';
         final plans = db.fitnessPlans.toList();
-        plans.removeWhere((p) => p is Map && p['userId'] == userId);
-        plans.add({...decoded, 'profile': profile, 'userId': userId, 'createdAt': DateTime.now().toIso8601String()});
+        plans.removeWhere((p) => p is Map && p['user_id'] == userId);
+        plans.add({...decoded, 'profile': profile, 'user_id': userId, 'created_at': DateTime.now().toIso8601String()});
         await provider.saveAndSync(db.copyWith(fitnessPlans: plans));
 
         if (mounted) {

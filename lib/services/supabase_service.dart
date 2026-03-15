@@ -135,13 +135,13 @@ class SupabaseService {
     // We need member userIds before we can query user-scoped tables.
     final phase1 = await Future.wait([
       fetch('families', 'id', familyId),
-      fetch('family_members', 'familyId', familyId),
+      fetch('family_members', 'family_id', familyId),
     ]);
     result['families'] = phase1[0];
     result['family_members'] = phase1[1];
 
     final userIds = (phase1[1] as List)
-        .map((m) => (m as Map)['userId'] as String)
+        .map((m) => (m as Map)['user_id'] as String)
         .toList();
 
     // ── Phase 2: everything else in parallel ─────────────────────────────
@@ -150,20 +150,20 @@ class SupabaseService {
 
     for (final table in familyScopedTables) {
       allTables.add(table);
-      allFutures.add(fetch(table, 'familyId', familyId));
+      allFutures.add(fetch(table, 'family_id', familyId));
     }
     // family_members already fetched in phase 1, skip it
     for (final table in familyIdTables) {
       if (table == 'family_members') continue;
       allTables.add(table);
-      allFutures.add(fetch(table, 'familyId', familyId));
+      allFutures.add(fetch(table, 'family_id', familyId));
     }
     if (userIds.isNotEmpty) {
       allTables.add('users');
       allFutures.add(fetch('users', 'id', userIds));
       for (final table in userScopedTables) {
         allTables.add(table);
-        allFutures.add(fetch(table, 'userId', userIds));
+        allFutures.add(fetch(table, 'user_id', userIds));
       }
     } else {
       result['users'] = [];

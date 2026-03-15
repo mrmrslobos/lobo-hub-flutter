@@ -189,7 +189,7 @@ const TABLE_MAP: { key: keyof DB; table: string; onConflict?: string; noDelete?:
   // Deleting remote rows based on local state would wipe other users' data.
   // Explicit membership/family removal must go through direct Supabase calls.
   { key: 'families', table: 'families', onConflict: 'id', noDelete: true },
-  { key: 'familyMembers', table: 'family_members', onConflict: 'userId,familyId', noDelete: true },
+  { key: 'familyMembers', table: 'family_members', onConflict: 'user_id,family_id', noDelete: true },
   { key: 'tasks', table: 'tasks', onConflict: 'id' },
   { key: 'events', table: 'events', onConflict: 'id' },
   { key: 'recipes', table: 'recipes', onConflict: 'id' },
@@ -497,14 +497,14 @@ async function syncToCloudImpl(db: DB) {
     if (!Array.isArray(rows)) continue;
 
     try {
-      const idCol = key === 'familyMembers' ? 'userId' : 'id';
+      const idCol = key === 'familyMembers' ? 'user_id' : 'id';
       let remoteQuery = supabase.from(table).select(idCol);
       switch (key) {
         case 'users':
           remoteQuery = remoteQuery.eq('id', activeUserId);
           break;
         case 'families':
-          remoteQuery = remoteQuery.eq('ownerId', activeUserId);
+          remoteQuery = remoteQuery.eq('owner_id', activeUserId);
           break;
         case 'fitness':
         case 'fitnessPlans':
@@ -515,18 +515,18 @@ async function syncToCloudImpl(db: DB) {
         case 'periodCycles':
         case 'periodSymptoms':
         case 'intimateLogs':
-          remoteQuery = remoteQuery.eq('userId', activeUserId);
+          remoteQuery = remoteQuery.eq('user_id', activeUserId);
           break;
         case 'rewardRedemptions':
         case 'pollVotes':
         case 'choreCompletions':
           if (memberFamilyIds.size > 0) {
-            remoteQuery = remoteQuery.in('familyId', [...memberFamilyIds]);
+            remoteQuery = remoteQuery.in('family_id', [...memberFamilyIds]);
           }
           break;
         default:
           if (memberFamilyIds.size > 0) {
-            remoteQuery = remoteQuery.in('familyId', [...memberFamilyIds]);
+            remoteQuery = remoteQuery.in('family_id', [...memberFamilyIds]);
           }
           break;
       }
@@ -659,7 +659,7 @@ export const resetDB = async () => {
         'user_locations',
       ];
       for (const table of userScopedTables) {
-        const { error } = await supabase.from(table).delete().eq('userId', userId);
+        const { error } = await supabase.from(table).delete().eq('user_id', userId);
         if (error) console.warn(`Failed to clear "${table}":`, error.message);
       }
 
@@ -674,13 +674,13 @@ export const resetDB = async () => {
           'health_records', 'messages',
         ];
         for (const table of familyScopedTables) {
-          const { error } = await supabase.from(table).delete().in('familyId', memberFamilyIds);
+          const { error } = await supabase.from(table).delete().in('family_id', memberFamilyIds);
           if (error) console.warn(`Failed to clear "${table}":`, error.message);
         }
       }
 
-      await supabase.from('family_members').delete().eq('userId', userId);
-      await supabase.from('families').delete().eq('ownerId', userId);
+      await supabase.from('family_members').delete().eq('user_id', userId);
+      await supabase.from('families').delete().eq('owner_id', userId);
       await supabase.from('users').delete().eq('id', userId);
 
       console.info('[FamilyHub] Supabase tables cleared (scoped to current user).');
