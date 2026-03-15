@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../config/theme.dart';
 import '../models/models.dart';
 import '../providers/app_provider.dart';
+import '../services/calendar_sync_service.dart';
 import '../services/supabase_service.dart';
 import 'biometric_lock.dart';
 
@@ -313,6 +314,68 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
     setState(() => _selectedLocale = code);
   }
 
+  Future<void> _importGoogleTasks(
+    BuildContext context,
+    AppProvider provider,
+    Family family,
+    User user,
+  ) async {
+    // Sign in to Google (or use existing session)
+    var account = CalendarSyncService.currentGoogleUser;
+    account ??= await CalendarSyncService.signInGoogle();
+    if (account == null) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Google sign-in cancelled')),
+        );
+      }
+      return;
+    }
+
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Importing Google Tasks...')),
+      );
+    }
+
+    final imported = await CalendarSyncService.fetchGoogleTasks(
+      familyId: family.id,
+      userId: user.id,
+    );
+
+    if (imported.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No tasks found in Google Tasks')),
+        );
+      }
+      return;
+    }
+
+    // Merge: skip tasks already imported (by id prefix)
+    final existingIds = provider.db.tasks.map((t) => t.id).toSet();
+    final newTasks = imported.where((t) => !existingIds.contains(t.id)).toList();
+
+    if (newTasks.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('All Google Tasks already imported')),
+        );
+      }
+      return;
+    }
+
+    await provider.saveAndSync(provider.db.copyWith(
+      tasks: [...provider.db.tasks, ...newTasks],
+    ));
+
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Imported ${newTasks.length} task${newTasks.length == 1 ? '' : 's'} from Google')),
+      );
+    }
+  }
+
   /// Convert local day-of-week + hour to UTC day + hour.
   (int, int) _localToUtc(int localDay, int localHour) {
     final now = DateTime.now();
@@ -580,6 +643,61 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
                             ),
                           ),
                         ),
+                      const SizedBox(height: 16),
+                    ],
+                  );
+                }),
+
+                // Import from Google Tasks
+                Builder(builder: (ctx) {
+                  final provider = ctx.watch<AppProvider>();
+                  final family = provider.activeFamily;
+                  final user = provider.activeUser;
+                  if (family == null || user == null) return const SizedBox.shrink();
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'IMPORT',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                          letterSpacing: 0.5,
+                          color: AppTheme.stone500,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: AppTheme.stone50,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: ListTile(
+                          leading: const Icon(Icons.download_rounded, color: AppTheme.stone600, size: 22),
+                          title: const Text(
+                            'Import Google Tasks',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontWeight: FontWeight.w600,
+                              fontSize: 15,
+                              color: AppTheme.stone900,
+                            ),
+                          ),
+                          subtitle: const Text(
+                            'One-time import of your Google Tasks',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 12,
+                              color: AppTheme.stone500,
+                            ),
+                          ),
+                          trailing: const Icon(Icons.chevron_right_rounded, color: AppTheme.stone400),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          onTap: () => _importGoogleTasks(ctx, provider, family, user),
+                        ),
+                      ),
                       const SizedBox(height: 16),
                     ],
                   );
