@@ -210,10 +210,10 @@ class _AuthScreenState extends State<AuthScreen> {
           final memberships = await Supabase.instance.client
               .from('family_members')
               .select()
-              .eq('userId', user.id);
+              .eq('user_id', user.id);
           if (memberships is List && memberships.isNotEmpty) {
             final cloudMembership = memberships.first as Map<String, dynamic>;
-            final familyId = (cloudMembership['familyId'] ?? cloudMembership['family_id']) as String?;
+            final familyId = cloudMembership['family_id'] as String?;
             if (familyId != null) {
               // Fetch all cloud data for this family and merge
               final db = await DatabaseService.reconcileCloud(provider.db, familyId);

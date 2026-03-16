@@ -368,22 +368,22 @@ Deno.serve(async (req: Request) => {
 
     const { data: allFamilies, error: familiesErr } = await supabase
       .from('families')
-      .select('id, name, "dailyDevotionalEnabled", "dailyDevotionalHour", "dailyDevotionalMinute"');
+      .select('id, name, daily_devotional_enabled, daily_devotional_hour, daily_devotional_minute');
 
     if (familiesErr) throw new Error(`families query failed: ${familiesErr.message}`);
 
     type FamilyRow = {
       id: string;
       name: string;
-      dailyDevotionalEnabled: boolean | null;
-      dailyDevotionalHour: number | null;
-      dailyDevotionalMinute: number | null;
+      daily_devotional_enabled: boolean | null;
+      daily_devotional_hour: number | null;
+      daily_devotional_minute: number | null;
     };
 
     const families = ((allFamilies ?? []) as FamilyRow[]).filter((f) => {
-      if (!f.dailyDevotionalEnabled) return false;
-      const schedHour = f.dailyDevotionalHour ?? 7;
-      const schedMinute = f.dailyDevotionalMinute ?? 0;
+      if (!f.daily_devotional_enabled) return false;
+      const schedHour = f.daily_devotional_hour ?? 7;
+      const schedMinute = f.daily_devotional_minute ?? 0;
       return schedHour === currentUtcHour && schedMinute >= windowStart && schedMinute <= windowEnd;
     });
 
@@ -414,7 +414,7 @@ Deno.serve(async (req: Request) => {
       const { data: existing } = await supabase
         .from('devotionals')
         .select('id')
-        .eq('familyId', family.id)
+        .eq('family_id', family.id)
         .contains('tags', ['daily-auto'])
         .gte('date', `${todayStr}T00:00:00`)
         .lte('date', `${todayStr}T23:59:59`)
@@ -445,12 +445,12 @@ Deno.serve(async (req: Request) => {
         .from('devotionals')
         .insert({
           id: entryId,
-          familyId: family.id,
-          creatorId: '00000000-0000-0000-0000-000000000000', // system-generated
+          family_id: family.id,
+          creator_id: '00000000-0000-0000-0000-000000000000', // system-generated
           title: devotional.title || 'Daily Devotional',
           scripture: scripture,
           content: devotional.content || null,
-          reflectionPrompts: devotional.reflectionPrompts || [],
+          reflection_prompts: devotional.reflectionPrompts || [],
           prayer: devotional.prayer || null,
           tags: ['daily-auto'],
           date: now.toISOString(),
@@ -477,11 +477,11 @@ Deno.serve(async (req: Request) => {
 
         const { data: tokens } = await supabase
           .from('device_tokens')
-          .select('token, userId')
-          .eq('familyId', family.id);
+          .select('token, user_id')
+          .eq('family_id', family.id);
 
         if (tokens && tokens.length > 0) {
-          const tokenRows = tokens as Array<{ token: string; userId: string }>;
+          const tokenRows = tokens as Array<{ token: string; user_id: string }>;
           const results = await Promise.all(
             tokenRows.map((row) =>
               sendFcmMessage(projectId, accessToken, {
@@ -508,8 +508,8 @@ Deno.serve(async (req: Request) => {
       if (vapidPublicKey && vapidPrivateKey) {
         const { data: webSubs } = await supabase
           .from('web_push_subscriptions')
-          .select('endpoint, p256dh, auth, userId')
-          .eq('familyId', family.id);
+          .select('endpoint, p256dh, auth, user_id')
+          .eq('family_id', family.id);
 
         if (webSubs && webSubs.length > 0) {
           const subRows = webSubs as Array<{ endpoint: string; p256dh: string; auth: string }>;

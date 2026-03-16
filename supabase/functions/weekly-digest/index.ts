@@ -232,22 +232,22 @@ Deno.serve(async (req: Request) => {
 
     const { data: allFamilies, error: familiesErr } = await supabase
       .from('families')
-      .select('id, name, "weeklyDigest", "weeklyDigestDay", "weeklyDigestHour"');
+      .select('id, name, weekly_digest, weekly_digest_day, weekly_digest_hour');
 
     if (familiesErr) throw new Error(`families query failed: ${familiesErr.message}`);
 
     type FamilyRow = {
       id: string;
       name: string;
-      weeklyDigest: boolean | null;
-      weeklyDigestDay: number | null;
-      weeklyDigestHour: number | null;
+      weekly_digest: boolean | null;
+      weekly_digest_day: number | null;
+      weekly_digest_hour: number | null;
     };
 
     const families = ((allFamilies ?? []) as FamilyRow[]).filter((f) => {
-      if (f.weeklyDigest === false) return false;
-      const schedDay = f.weeklyDigestDay ?? 0;    // default: Sunday
-      const schedHour = f.weeklyDigestHour ?? 8;  // default: 08:00 UTC
+      if (f.weekly_digest === false) return false;
+      const schedDay = f.weekly_digest_day ?? 0;    // default: Sunday
+      const schedHour = f.weekly_digest_hour ?? 8;  // default: 08:00 UTC
       return schedDay === currentUtcDay && schedHour === currentUtcHour;
     });
 
@@ -273,13 +273,13 @@ Deno.serve(async (req: Request) => {
       // ---------------------------------------------------------------------
       const { data: completions } = await supabase
         .from('chore_completions')
-        .select('userId')
-        .eq('familyId', family.id)
+        .select('user_id')
+        .eq('family_id', family.id)
         .gte('date', sevenDaysAgoStr);
 
       const userCounts: Record<string, number> = {};
       for (const cc of completions ?? []) {
-        const uid = (cc as any).userId as string;
+        const uid = (cc as any).user_id as string;
         userCounts[uid] = (userCounts[uid] || 0) + 1;
       }
 
@@ -306,7 +306,7 @@ Deno.serve(async (req: Request) => {
       const { data: upcomingEventsRows } = await supabase
         .from('events')
         .select('id')
-        .eq('familyId', family.id)
+        .eq('family_id', family.id)
         .eq('visibility', 'FAMILY')
         .gte('start', nowIso)
         .lte('start', sevenDaysAheadIso);
@@ -319,11 +319,11 @@ Deno.serve(async (req: Request) => {
       const { data: dueTasksRows } = await supabase
         .from('tasks')
         .select('id')
-        .eq('familyId', family.id)
+        .eq('family_id', family.id)
         .eq('visibility', 'FAMILY')
         .eq('completed', false)
-        .gte('dueDate', todayStr)
-        .lte('dueDate', sevenDaysAheadStr);
+        .gte('due_date', todayStr)
+        .lte('due_date', sevenDaysAheadStr);
 
       const dueTasks = (dueTasksRows ?? []).length;
 
@@ -339,12 +339,12 @@ Deno.serve(async (req: Request) => {
       // ---------------------------------------------------------------------
       const { data: tokens } = await supabase
         .from('device_tokens')
-        .select('token, userId')
-        .eq('familyId', family.id);
+        .select('token, user_id')
+        .eq('family_id', family.id);
 
       if (!tokens || tokens.length === 0) continue;
 
-      const tokenRows = tokens as Array<{ token: string; userId: string }>;
+      const tokenRows = tokens as Array<{ token: string; user_id: string }>;
       const results = await Promise.all(
         tokenRows.map((row) =>
           sendFcmMessage(projectId, accessToken, {

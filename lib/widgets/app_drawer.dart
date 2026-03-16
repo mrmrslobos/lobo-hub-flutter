@@ -1464,8 +1464,8 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
     if (SupabaseService.isConfigured) {
       try {
         await SupabaseService.deleteRows('family_members', {
-          'userId': removedUserId,
-          'familyId': m.familyId,
+          'user_id': removedUserId,
+          'family_id': m.familyId,
         });
       } catch (e) {
         debugPrint('[Drawer] cloud delete member failed: $e');
