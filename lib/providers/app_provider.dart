@@ -92,9 +92,10 @@ class AppProvider extends ChangeNotifier {
         final memberships = await SupabaseService.client
             .from('family_members')
             .select()
-            .eq('user_id', userId);
+            .eq('userId', userId);
         if (memberships is List && memberships.isNotEmpty) {
-          knownFamilyId = memberships.first['family_id'] as String?;
+          knownFamilyId = (memberships.first['familyId'] ??
+              memberships.first['family_id']) as String?;
         }
       } catch (_) {}
     }
@@ -176,7 +177,7 @@ class AppProvider extends ChangeNotifier {
       onBroadcast: (payload) {
         // Ignore our own broadcasts to avoid race condition where we pull
         // stale cloud data before our own sync has propagated.
-        final senderId = payload is Map ? payload['user_id'] : null;
+        final senderId = payload is Map ? payload['userId'] : null;
         if (senderId == _activeUser?.id) return;
         _pullFromCloud();
       },
@@ -276,7 +277,7 @@ class AppProvider extends ChangeNotifier {
     try {
       _realtimeChannel!.sendBroadcastMessage(
         event: 'db_change',
-        payload: {'user_id': _activeUser?.id, 'ts': DateTime.now().toIso8601String()},
+        payload: {'userId': _activeUser?.id, 'ts': DateTime.now().toIso8601String()},
       );
     } catch (e) {
       debugPrint('[AppProvider] broadcast error: $e');

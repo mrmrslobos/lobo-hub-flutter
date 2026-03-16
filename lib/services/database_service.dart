@@ -82,12 +82,28 @@ class DatabaseService {
     }
   }
 
+  /// Convert snake_case keys to camelCase for Supabase column compatibility.
+  static String _snakeToCamel(String s) {
+    final parts = s.split('_');
+    if (parts.length <= 1) return s;
+    return parts.first +
+        parts.skip(1).map((p) => p.isEmpty ? '' : '${p[0].toUpperCase()}${p.substring(1)}').join();
+  }
+
+  static Map<String, dynamic> _toCamel(Map<String, dynamic> row) {
+    return row.map((k, v) => MapEntry(_snakeToCamel(k), v));
+  }
+
+  static List<Map<String, dynamic>> _camelRows(List<Map<String, dynamic>> rows) {
+    return rows.map(_toCamel).toList();
+  }
+
   static Future<void> _syncToCloud(AppDB db, String familyId) async {
     Future<void> up(String table, List<Map<String, dynamic>> rows,
         {String onConflict = 'id'}) async {
       if (rows.isNotEmpty) {
         try {
-          await SupabaseService.upsertTable(table, rows,
+          await SupabaseService.upsertTable(table, _camelRows(rows),
               onConflict: onConflict);
         } catch (e) {
           debugPrint('[DatabaseService] Failed to sync $table: $e');
@@ -114,30 +130,30 @@ class DatabaseService {
     // All other tables in parallel — they're independent of each other
     await Future.wait([
       upAndClean('tasks',
-          db.tasks.map((t) => {...t.toJson(), 'family_id': fid}).toList(),
+          db.tasks.map((t) => {...t.toJson(), 'familyId': fid}).toList(),
           db.tasks.map((t) => t.id).toSet()),
       upAndClean('events',
-          db.events.map((e) => {...e.toJson(), 'family_id': fid}).toList(),
+          db.events.map((e) => {...e.toJson(), 'familyId': fid}).toList(),
           db.events.map((e) => e.id).toSet()),
       upAndClean('recipes',
-          db.recipes.map((r) => {...r.toJson(), 'family_id': fid}).toList(),
+          db.recipes.map((r) => {...r.toJson(), 'familyId': fid}).toList(),
           db.recipes.map((r) => r.id).toSet()),
       upAndClean('meal_plans',
-          db.mealPlans.map((m) => {...m.toJson(), 'family_id': fid}).toList(),
+          db.mealPlans.map((m) => {...m.toJson(), 'familyId': fid}).toList(),
           db.mealPlans.map((m) => m.id).toSet()),
       upAndClean('lists',
-          db.lists.map((l) => {...l.toJson(), 'family_id': fid}).toList(),
+          db.lists.map((l) => {...l.toJson(), 'familyId': fid}).toList(),
           db.lists.map((l) => l.id).toSet()),
       upAndClean('devotionals',
-          db.devotionals.map((d) => {...d.toJson(), 'family_id': fid}).toList(),
+          db.devotionals.map((d) => {...d.toJson(), 'familyId': fid}).toList(),
           db.devotionals.map((d) => d.id).toSet()),
       up('fitness',
           db.fitness.map((f) => f.toJson()).toList()),
       upAndClean('budget_categories',
-          db.budgetCategories.map((b) => {...b.toJson(), 'family_id': fid}).toList(),
+          db.budgetCategories.map((b) => {...b.toJson(), 'familyId': fid}).toList(),
           db.budgetCategories.map((b) => b.id).toSet()),
       upAndClean('transactions',
-          db.transactions.map((t) => {...t.toJson(), 'family_id': fid}).toList(),
+          db.transactions.map((t) => {...t.toJson(), 'familyId': fid}).toList(),
           db.transactions.map((t) => t.id).toSet()),
       upAndClean('ai_history',
           db.aiHistory.map((a) => a.toJson()).toList(),
@@ -148,49 +164,49 @@ class DatabaseService {
       up('daily_habit_completions',
           db.dailyHabitCompletions.map((c) => c.toJson()).toList()),
       upAndClean('chores',
-          db.chores.map((c) => {...c.toJson(), 'family_id': fid}).toList(),
+          db.chores.map((c) => {...c.toJson(), 'familyId': fid}).toList(),
           db.chores.map((c) => c.id).toSet()),
       upAndClean('chore_completions',
           db.choreCompletions.map((c) => c.toJson()).toList(),
           db.choreCompletions.map((c) => c.id).toSet()),
       upAndClean('polls',
-          db.polls.map((p) => {...p.toJson(), 'family_id': fid}).toList(),
+          db.polls.map((p) => {...p.toJson(), 'familyId': fid}).toList(),
           db.polls.map((p) => p.id).toSet()),
       upAndClean('poll_votes',
           db.pollVotes.map((v) => v.toJson()).toList(),
           db.pollVotes.map((v) => v.id).toSet()),
       upAndClean('reward_items',
-          db.rewardItems.map((r) => {...r.toJson(), 'family_id': fid}).toList(),
+          db.rewardItems.map((r) => {...r.toJson(), 'familyId': fid}).toList(),
           db.rewardItems.map((r) => r.id).toSet()),
       upAndClean('reward_redemptions',
           db.rewardRedemptions.map((r) => r.toJson()).toList(),
           db.rewardRedemptions.map((r) => r.id).toSet()),
       upAndClean('savings_goals',
-          db.savingsGoals.map((g) => {...g.toJson(), 'family_id': fid}).toList(),
+          db.savingsGoals.map((g) => {...g.toJson(), 'familyId': fid}).toList(),
           db.savingsGoals.map((g) => g.id).toSet()),
       upAndClean('prayer_wall',
-          db.prayerWall.map((p) => {...p.toJson(), 'family_id': fid}).toList(),
+          db.prayerWall.map((p) => {...p.toJson(), 'familyId': fid}).toList(),
           db.prayerWall.map((p) => p.id).toSet()),
       upAndClean('special_dates',
-          db.specialDates.map((s) => {...s.toJson(), 'family_id': fid}).toList(),
+          db.specialDates.map((s) => {...s.toJson(), 'familyId': fid}).toList(),
           db.specialDates.map((s) => s.id).toSet()),
       upAndClean('family_photos',
-          db.familyPhotos.map((p) => {...p.toJson(), 'family_id': fid}).toList(),
+          db.familyPhotos.map((p) => {...p.toJson(), 'familyId': fid}).toList(),
           db.familyPhotos.map((p) => p.id).toSet()),
       upAndClean('milestones',
-          db.milestones.map((m) => {...m.toJson(), 'family_id': fid}).toList(),
+          db.milestones.map((m) => {...m.toJson(), 'familyId': fid}).toList(),
           db.milestones.map((m) => m.id).toSet()),
       upAndClean('saved_places',
-          db.savedPlaces.map((s) => {...s.toJson(), 'family_id': fid}).toList(),
+          db.savedPlaces.map((s) => {...s.toJson(), 'familyId': fid}).toList(),
           db.savedPlaces.map((s) => s.id).toSet()),
       upAndClean('user_locations',
           db.userLocations.map((u) => u.toJson()).toList(),
           db.userLocations.map((u) => u.id).toSet()),
       upAndClean('messages',
-          db.messages.map((m) => {...m.toJson(), 'family_id': fid}).toList(),
+          db.messages.map((m) => {...m.toJson(), 'familyId': fid}).toList(),
           db.messages.map((m) => m.id).toSet()),
       upAndClean('health_records',
-          db.healthRecords.map((h) => {...h.toJson(), 'family_id': fid}).toList(),
+          db.healthRecords.map((h) => {...h.toJson(), 'familyId': fid}).toList(),
           db.healthRecords.map((h) => h.id).toSet()),
       upAndClean('period_cycles',
           db.periodCycles.map((c) => c.toJson()).toList(),
@@ -199,13 +215,13 @@ class DatabaseService {
           db.periodSymptoms.map((s) => s.toJson()).toList(),
           db.periodSymptoms.map((s) => s.id).toSet()),
       upAndClean('external_calendars',
-          db.externalCalendars.map((c) => {...c.toJson(), 'family_id': fid}).toList(),
+          db.externalCalendars.map((c) => {...c.toJson(), 'familyId': fid}).toList(),
           db.externalCalendars.map((c) => c.id).toSet()),
       upAndClean('rewards',
-          db.rewards.map((r) => {...r.toJson(), 'family_id': fid}).toList(),
+          db.rewards.map((r) => {...r.toJson(), 'familyId': fid}).toList(),
           db.rewards.map((r) => r.id).toSet()),
       upAndClean('reading_plans',
-          db.readingPlans.map((r) => {...r.toJson(), 'family_id': fid}).toList(),
+          db.readingPlans.map((r) => {...r.toJson(), 'familyId': fid}).toList(),
           db.readingPlans.map((r) => r.id).toSet()),
     ]);
   }
@@ -216,8 +232,8 @@ class DatabaseService {
       try {
         await SupabaseService.upsertTable(
           'family_members',
-          db.familyMembers.map((m) => m.toJson()).toList(),
-          onConflict: 'user_id,family_id',
+          _camelRows(db.familyMembers.map((m) => m.toJson()).toList()),
+          onConflict: 'userId,familyId',
         );
       } catch (e) {
         debugPrint('[DatabaseService] Failed to sync family_members: $e');
@@ -227,18 +243,18 @@ class DatabaseService {
     try {
       final cloudRows = await SupabaseService.client
           .from('family_members')
-          .select('user_id, family_id')
-          .eq('family_id', familyId);
+          .select('userId, familyId')
+          .eq('familyId', familyId);
       final localKeys = db.familyMembers
           .where((m) => m.familyId == familyId)
           .map((m) => '${m.userId}_${m.familyId}')
           .toSet();
       for (final row in (cloudRows as List)) {
-        final key = '${row['user_id']}_${row['family_id']}';
+        final key = '${row['userId']}_${row['familyId']}';
         if (!localKeys.contains(key)) {
           await SupabaseService.deleteRows('family_members', {
-            'user_id': row['user_id'] as String,
-            'family_id': row['family_id'] as String,
+            'userId': row['userId'] as String,
+            'familyId': row['familyId'] as String,
           });
         }
       }
@@ -256,7 +272,7 @@ class DatabaseService {
       final cloudRows = await SupabaseService.client
           .from(table)
           .select('id')
-          .eq('family_id', familyId);
+          .eq('familyId', familyId);
       final cloudIds = (cloudRows as List).map((r) => r['id'] as String).toSet();
       final removed = cloudIds.difference(localIds);
       for (final id in removed) {

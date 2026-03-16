@@ -276,8 +276,8 @@ class NotificationService {
           'notify-family',
           body: {
             'action': 'notify',
-            'family_id': familyId,
-            'exclude_user_id': excludeUserId,
+            'familyId': familyId,
+            'excludeUserId': excludeUserId,
             'title': title,
             'body': body,
             'path': path ?? '/',
@@ -312,13 +312,13 @@ class NotificationService {
       // manage their own rows). This avoids the edge function JWT auth issue.
       await Supabase.instance.client.from('device_tokens').upsert(
         {
-          'user_id': userId,
-          'family_id': familyId,
+          'userId': userId,
+          'familyId': familyId,
           'token': token,
           'platform': Platform.isIOS ? 'ios' : 'android',
-          'updated_at': DateTime.now().toUtc().toIso8601String(),
+          'updatedAt': DateTime.now().toUtc().toIso8601String(),
         },
-        onConflict: 'user_id,platform',
+        onConflict: 'userId,platform',
       );
       debugPrint('[NotificationService] device token registered successfully');
     } catch (e, st) {

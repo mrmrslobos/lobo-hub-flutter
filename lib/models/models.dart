@@ -341,22 +341,22 @@ class Family {
   factory Family.fromJson(Map<String, dynamic> j) => Family(
     id: j['id'] as String? ?? '',
     name: j['name'] as String? ?? '',
-    ownerId: j['owner_id'] as String? ?? '',
-    joinCode: j['join_code'] as String? ?? '',
+    ownerId: (j['owner_id'] ?? j['ownerId']) as String? ?? '',
+    joinCode: (j['join_code'] ?? j['joinCode']) as String? ?? '',
     announcement: j['announcement'] as String?,
-    announcementAuthor: j['announcement_author'] as String?,
-    subscriptionTier: subscriptionTierFromString(j['subscription_tier'] as String?),
-    trialStartDate: _parseDateOpt(j['trial_start_date']),
+    announcementAuthor: (j['announcement_author'] ?? j['announcementAuthor']) as String?,
+    subscriptionTier: subscriptionTierFromString((j['subscription_tier'] ?? j['subscriptionTier']) as String?),
+    trialStartDate: _parseDateOpt(j['trial_start_date'] ?? j['trialStartDate']),
     currency: (j['currency'] as String?) ?? 'AUD',
-    enabledModules: _strList(j['enabled_modules']),
-    createdAt: _parseDate(j['created_at']),
-    welcomeDismissed: (j['welcome_dismissed'] ?? false) as bool,
-    weeklyDigest: (j['weekly_digest'] ?? true) as bool,
-    weeklyDigestDay: (j['weekly_digest_day'] as num?)?.toInt() ?? 0,
-    weeklyDigestHour: (j['weekly_digest_hour'] as num?)?.toInt() ?? 8,
-    dailyDevotionalEnabled: (j['daily_devotional_enabled'] ?? false) as bool,
-    dailyDevotionalHour: (j['daily_devotional_hour'] as num?)?.toInt() ?? 7,
-    dailyDevotionalMinute: (j['daily_devotional_minute'] as num?)?.toInt() ?? 0,
+    enabledModules: _strList(j['enabled_modules'] ?? j['enabledModules']),
+    createdAt: _parseDate(j['created_at'] ?? j['createdAt']),
+    welcomeDismissed: (j['welcome_dismissed'] ?? j['welcomeDismissed'] ?? false) as bool,
+    weeklyDigest: (j['weekly_digest'] ?? j['weeklyDigest'] ?? true) as bool,
+    weeklyDigestDay: ((j['weekly_digest_day'] ?? j['weeklyDigestDay']) as num?)?.toInt() ?? 0,
+    weeklyDigestHour: ((j['weekly_digest_hour'] ?? j['weeklyDigestHour']) as num?)?.toInt() ?? 8,
+    dailyDevotionalEnabled: (j['daily_devotional_enabled'] ?? j['dailyDevotionalEnabled'] ?? false) as bool,
+    dailyDevotionalHour: ((j['daily_devotional_hour'] ?? j['dailyDevotionalHour']) as num?)?.toInt() ?? 7,
+    dailyDevotionalMinute: ((j['daily_devotional_minute'] ?? j['dailyDevotionalMinute']) as num?)?.toInt() ?? 0,
   );
 
   Map<String, dynamic> toJson() => {
@@ -476,13 +476,13 @@ class FamilyMember {
   String get name => displayName ?? userId;
 
   factory FamilyMember.fromJson(Map<String, dynamic> j) => FamilyMember(
-    userId: j['user_id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
+    userId: (j['user_id'] ?? j['userId']) as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
     role: roleFromString(j['role'] as String?),
-    moduleAccess: j['module_access'] != null
-        ? _strList(j['module_access'])
+    moduleAccess: (j['module_access'] ?? j['moduleAccess']) != null
+        ? _strList(j['module_access'] ?? j['moduleAccess'])
         : null,
-    displayName: (j['display_name'] ?? j['name']) as String?,
+    displayName: (j['display_name'] ?? j['displayName'] ?? j['name']) as String?,
   );
 
   FamilyMember copyWith({
@@ -559,17 +559,17 @@ class Task {
 
   factory Task.fromJson(Map<String, dynamic> j) => Task(
     id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    creatorId: j['creator_id'] as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
+    creatorId: (j['creator_id'] ?? j['creatorId']) as String? ?? '',
     title: j['title'] as String? ?? '',
     notes: j['notes'] as String?,
-    dueDate: _parseDateOpt(j['due_date']),
-    dueTime: j['due_time'] as String?,
+    dueDate: _parseDateOpt(j['due_date'] ?? j['dueDate']),
+    dueTime: (j['due_time'] ?? j['dueTime']) as String?,
     reminderMinutes: (j['reminder_minutes'] as num?)?.toInt() ?? (j['reminderMinutes'] as num?)?.toInt(),
     priority: priorityFromString(j['priority'] as String?),
     completed: (j['completed'] ?? false) as bool,
-    completedBy: j['completed_by'] as String?,
-    updatedBy: j['updated_by'] as String?,
+    completedBy: (j['completed_by'] ?? j['completedBy']) as String?,
+    updatedBy: (j['updated_by'] ?? j['updatedBy']) as String?,
     visibility: visibilityFromString(j['visibility'] as String?),
     assignees: _strList(j['assignees']),
     tags: _strList(j['tags']),
@@ -672,20 +672,20 @@ class CalendarEvent {
 
   factory CalendarEvent.fromJson(Map<String, dynamic> j) => CalendarEvent(
     id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    creatorId: j['creator_id'] as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
+    creatorId: (j['creator_id'] ?? j['creatorId']) as String? ?? '',
     title: j['title'] as String? ?? '',
     description: j['description'] as String?,
     location: j['location'] as String?,
     start: _parseDate(j['start']),
     end: _parseDate(j['end']),
     visibility: visibilityFromString(j['visibility'] as String?),
-    sharedWith: _strList(j['shared_with']),
+    sharedWith: _strList(j['shared_with'] ?? j['sharedWith']),
     checklist: _strList(j['checklist']),
-    budgetEstimate: j['budget_estimate'] != null
-        ? (j['budget_estimate'] as num).toDouble()
+    budgetEstimate: (j['budget_estimate'] ?? j['budgetEstimate']) != null
+        ? ((j['budget_estimate'] ?? j['budgetEstimate']) as num).toDouble()
         : null,
-    externalCalendarId: j['external_calendar_id'] as String?,
+    externalCalendarId: (j['external_calendar_id'] ?? j['externalCalendarId']) as String?,
     recurrence: recurrenceFromString(j['recurrence'] as String?),
   );
 
@@ -780,16 +780,16 @@ class ExternalCalendar {
 
   factory ExternalCalendar.fromJson(Map<String, dynamic> j) => ExternalCalendar(
     id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    creatorId: (j['creator_id'] ?? j['user_id']) as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
+    creatorId: (j['creator_id'] ?? j['creatorId'] ?? j['user_id'] ?? j['userId']) as String? ?? '',
     type: externalCalendarTypeFromString(j['type'] as String?),
     name: j['name'] as String? ?? '',
-    googleCalendarId: (j['google_calendar_id'] ?? (j['type'] == 'GOOGLE' ? j['url'] : null)) as String?,
-    icsUrl: (j['ics_url'] ?? (j['type'] != 'GOOGLE' ? j['url'] : null)) as String?,
+    googleCalendarId: (j['google_calendar_id'] ?? j['googleCalendarId'] ?? (j['type'] == 'GOOGLE' ? j['url'] : null)) as String?,
+    icsUrl: (j['ics_url'] ?? j['icsUrl'] ?? (j['type'] != 'GOOGLE' ? j['url'] : null)) as String?,
     color: j['color'] as String?,
     enabled: j['enabled'] as bool? ?? true,
-    lastSyncedAt: _parseDate(j['last_synced'] ?? j['last_synced_at']),
-    createdAt: _parseDate(j['created_at']),
+    lastSyncedAt: _parseDate(j['last_synced'] ?? j['lastSynced'] ?? j['last_synced_at'] ?? j['lastSyncedAt']),
+    createdAt: _parseDate(j['created_at'] ?? j['createdAt']),
   );
 
   Map<String, dynamic> toJson() => {
@@ -868,15 +868,15 @@ class Recipe {
     }
     return Recipe(
       id: j['id'] as String? ?? '',
-      familyId: j['family_id'] as String? ?? '',
+      familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
       title: j['title'] as String? ?? '',
       ingredients: ingredients,
       steps: _strList(j['steps']),
       servings: (j['servings'] as num?)?.toInt() ?? 4,
       tags: _strList(j['tags']),
       image: j['image'] as String?,
-      prepMinutes: (j['prep_minutes'] ?? j['prepMinutes']) as int?,
-      cookMinutes: (j['cook_minutes'] ?? j['cookMinutes']) as int?,
+      prepMinutes: (j['prepMinutes'] ?? j['prep_minutes']) as int?,
+      cookMinutes: (j['cookMinutes'] ?? j['cook_minutes']) as int?,
     );
   }
 
@@ -964,11 +964,11 @@ class MealPlanEntry {
 
   factory MealPlanEntry.fromJson(Map<String, dynamic> j) => MealPlanEntry(
     id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
     date: _parseDate(j['date']),
-    mealType: (j['meal_type'] as String? ?? 'breakfast').toLowerCase(),
-    recipeId: j['recipe_id'] as String?,
-    customMeal: j['custom_meal'] as String?,
+    mealType: ((j['meal_type'] ?? j['mealType']) as String? ?? 'breakfast').toLowerCase(),
+    recipeId: (j['recipe_id'] ?? j['recipeId']) as String?,
+    customMeal: (j['custom_meal'] ?? j['customMeal']) as String?,
     notes: j['notes'] as String?,
   );
 
@@ -1025,7 +1025,7 @@ class ListItem {
     quantity: j['quantity'] as String?,
     checked: (j['checked'] ?? false) as bool,
     notes: j['notes'] as String?,
-    aiCategory: j['ai_category'] as String?,
+    aiCategory: (j['ai_category'] ?? j['aiCategory']) as String?,
   );
 
   Map<String, dynamic> toJson() => {
@@ -1080,13 +1080,13 @@ class ShoppingList {
 
   factory ShoppingList.fromJson(Map<String, dynamic> j) => ShoppingList(
     id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    creatorId: j['creator_id'] as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
+    creatorId: (j['creator_id'] ?? j['creatorId']) as String? ?? '',
     title: j['title'] as String? ?? '',
     items: _parseList(j['items'], ListItem.fromJson),
     category: listCategoryFromString(j['category'] as String?),
     visibility: visibilityFromString(j['visibility'] as String?),
-    sharedWith: _strList(j['shared_with']),
+    sharedWith: _strList(j['shared_with'] ?? j['sharedWith']),
   );
 
   Map<String, dynamic> toJson() => {
@@ -1154,18 +1154,18 @@ class DevotionalEntry {
 
   factory DevotionalEntry.fromJson(Map<String, dynamic> j) => DevotionalEntry(
     id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    creatorId: j['creator_id'] as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
+    creatorId: (j['creator_id'] ?? j['creatorId']) as String? ?? '',
     title: j['title'] as String? ?? '',
     scripture: j['scripture'] as String?,
     content: j['content'] as String?,
-    reflectionPrompts: _strList(j['reflection_prompts']),
+    reflectionPrompts: _strList(j['reflection_prompts'] ?? j['reflectionPrompts']),
     prayer: j['prayer'] as String?,
-    userPrayer: j['user_prayer'] as String?,
+    userPrayer: (j['user_prayer'] ?? j['userPrayer']) as String?,
     tags: _strList(j['tags']),
     date: _parseDate(j['date']),
     visibility: visibilityFromString(j['visibility'] as String?),
-    isFavorited: (j['is_favorited'] ?? false) as bool,
+    isFavorited: (j['is_favorited'] ?? j['isFavorited'] ?? false) as bool,
   );
 
   Map<String, dynamic> toJson() => {
@@ -1227,7 +1227,7 @@ class FitnessMetric {
 
   factory FitnessMetric.fromJson(Map<String, dynamic> j) => FitnessMetric(
     id: j['id'] as String? ?? '',
-    userId: j['user_id'] as String? ?? '',
+    userId: (j['user_id'] ?? j['userId']) as String? ?? '',
     type: j['type'] as String? ?? '',
     value: ((j['value'] as num?) ?? 0).toDouble(),
     date: _parseDate(j['date']),
@@ -1267,10 +1267,10 @@ class FitnessLog {
 
   factory FitnessLog.fromJson(Map<String, dynamic> j) => FitnessLog(
     id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    userId: j['user_id'] as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
+    userId: (j['user_id'] ?? j['userId']) as String? ?? '',
     activity: j['activity'] as String? ?? '',
-    durationMinutes: (j['duration_minutes'] as int?) ?? 0,
+    durationMinutes: ((j['duration_minutes'] ?? j['durationMinutes']) as int?) ?? 0,
     caloriesBurned: (j['calories_burned'] as num?)?.toInt(),
     notes: j['notes'] as String?,
     date: _parseDate(j['date']),
@@ -1320,8 +1320,8 @@ class BudgetCategoryRecord {
 
   factory BudgetCategoryRecord.fromJson(Map<String, dynamic> j) => BudgetCategoryRecord(
     id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    creatorId: j['creator_id'] as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
+    creatorId: (j['creator_id'] ?? j['creatorId']) as String? ?? '',
     name: j['name'] as String? ?? '',
     limit: ((j['limit'] as num?) ?? 0).toDouble(),
     color: j['color'] as String? ?? '#6366f1',
@@ -1368,9 +1368,9 @@ class Transaction {
 
   factory Transaction.fromJson(Map<String, dynamic> j) => Transaction(
     id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    creatorId: j['creator_id'] as String? ?? '',
-    categoryId: j['category_id'] as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
+    creatorId: (j['creator_id'] ?? j['creatorId']) as String? ?? '',
+    categoryId: (j['category_id'] ?? j['categoryId']) as String? ?? '',
     amount: ((j['amount'] as num?) ?? 0).toDouble(),
     type: transactionTypeFromString(j['type'] as String?),
     date: _parseDate(j['date']),
@@ -1422,8 +1422,8 @@ class BudgetEntry {
 
   factory BudgetEntry.fromJson(Map<String, dynamic> j) => BudgetEntry(
     id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    creatorId: j['creator_id'] as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
+    creatorId: (j['creator_id'] ?? j['creatorId']) as String? ?? '',
     title: j['title'] as String? ?? '',
     amount: ((j['amount'] as num?) ?? 0).toDouble(),
     type: transactionTypeFromString(j['type'] as String?),
@@ -1479,12 +1479,12 @@ class AIHistory {
 
   factory AIHistory.fromJson(Map<String, dynamic> j) => AIHistory(
     id: j['id'] as String? ?? '',
-    userId: j['user_id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
+    userId: (j['user_id'] ?? j['userId']) as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
     module: j['module'] as String? ?? '',
     prompt: j['prompt'] as String? ?? '',
     response: j['response'] as String? ?? '',
-    createdAt: _parseDate(j['created_at']),
+    createdAt: _parseDate(j['created_at'] ?? j['createdAt']),
   );
 
   Map<String, dynamic> toJson() => {
@@ -1556,17 +1556,17 @@ class DailyHabit {
 
   factory DailyHabit.fromJson(Map<String, dynamic> j) => DailyHabit(
     id: j['id'] as String? ?? '',
-    userId: j['user_id'] as String? ?? '',
-    familyId: j['family_id'] as String?,
+    userId: (j['user_id'] ?? j['userId']) as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String?,
     label: j['label'] as String? ?? '',
     icon: j['icon'] as String?,
     color: j['color'] as String?,
     description: j['description'] as String?,
-    isShared: (j['is_shared'] ?? false) as bool,
+    isShared: (j['is_shared'] ?? j['isShared'] ?? false) as bool,
     frequency: j['frequency'] as String?,
-    targetValue: j['target_value'] as num?,
-    targetUnit: j['target_unit'] as String?,
-    createdAt: _parseDate(j['created_at']),
+    targetValue: (j['target_value'] ?? j['targetValue']) as num?,
+    targetUnit: (j['target_unit'] ?? j['targetUnit']) as String?,
+    createdAt: _parseDate(j['created_at'] ?? j['createdAt']),
     order: (j['order'] as num?)?.toInt() ?? 0,
   );
 
@@ -1598,10 +1598,10 @@ class DailyHabitCompletion {
   factory DailyHabitCompletion.fromJson(Map<String, dynamic> j) =>
       DailyHabitCompletion(
     id: j['id'] as String? ?? '',
-    habitId: j['habit_id'] as String? ?? '',
-    userId: j['user_id'] as String? ?? '',
+    habitId: (j['habit_id'] ?? j['habitId']) as String? ?? '',
+    userId: (j['user_id'] ?? j['userId']) as String? ?? '',
     date: _parseDate(j['date']),
-    completedAt: _parseDate(j['completed_at']),
+    completedAt: _parseDate(j['completed_at'] ?? j['completedAt']),
   );
 
   Map<String, dynamic> toJson() => {
@@ -1661,20 +1661,20 @@ class Chore {
 
   factory Chore.fromJson(Map<String, dynamic> j) => Chore(
     id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    creatorId: j['creator_id'] as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
+    creatorId: (j['creator_id'] ?? j['creatorId']) as String? ?? '',
     title: j['title'] as String? ?? '',
     description: j['description'] as String?,
     icon: j['icon'] as String?,
     points: (j['points'] as num?)?.toInt() ?? 0,
     reward: (j['reward'] as num?)?.toDouble(),
     frequency: choreFrequencyFromString(j['frequency'] as String?),
-    daysOfWeek: _intList(j['days_of_week']),
+    daysOfWeek: _intList(j['days_of_week'] ?? j['daysOfWeek']),
     assignees: _strList(j['assignees']),
     color: j['color'] as String?,
     visibility: visibilityFromString(j['visibility'] as String?),
-    createdAt: _parseDate(j['created_at']),
-    requiresApproval: (j['requires_approval'] ?? false) as bool,
+    createdAt: _parseDate(j['created_at'] ?? j['createdAt']),
+    requiresApproval: (j['requires_approval'] ?? j['requiresApproval'] ?? false) as bool,
   );
 
   Map<String, dynamic> toJson() => {
@@ -1741,14 +1741,14 @@ class ChoreCompletion {
 
   factory ChoreCompletion.fromJson(Map<String, dynamic> j) => ChoreCompletion(
     id: j['id'] as String? ?? '',
-    choreId: j['chore_id'] as String? ?? '',
-    userId: j['user_id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
+    choreId: (j['chore_id'] ?? j['choreId']) as String? ?? '',
+    userId: (j['user_id'] ?? j['userId']) as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
     date: _parseDate(j['date']),
-    completedAt: _parseDate(j['completed_at']),
-    approvalStatus: approvalStatusFromString(j['approval_status'] as String?),
-    approvedBy: j['approved_by'] as String?,
-    approvedAt: _parseDateOpt(j['approved_at']),
+    completedAt: _parseDate(j['completed_at'] ?? j['completedAt']),
+    approvalStatus: approvalStatusFromString((j['approval_status'] ?? j['approvalStatus']) as String?),
+    approvedBy: (j['approved_by'] ?? j['approvedBy']) as String?,
+    approvedAt: _parseDateOpt(j['approved_at'] ?? j['approvedAt']),
   );
 
   Map<String, dynamic> toJson() => {
@@ -1793,14 +1793,14 @@ class RewardItem {
 
   factory RewardItem.fromJson(Map<String, dynamic> j) => RewardItem(
     id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    creatorId: j['creator_id'] as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
+    creatorId: (j['creator_id'] ?? j['creatorId']) as String? ?? '',
     title: j['title'] as String? ?? '',
     description: j['description'] as String?,
     cost: ((j['cost'] as num?) ?? 0).toInt(),
     icon: j['icon'] as String?,
     active: (j['active'] ?? true) as bool,
-    createdAt: _parseDate(j['created_at']),
+    createdAt: _parseDate(j['created_at'] ?? j['createdAt']),
   );
 
   Map<String, dynamic> toJson() => {
@@ -1843,15 +1843,15 @@ class RewardRedemption {
 
   factory RewardRedemption.fromJson(Map<String, dynamic> j) => RewardRedemption(
     id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    userId: j['user_id'] as String? ?? '',
-    rewardId: j['reward_id'] as String? ?? '',
-    rewardTitle: j['reward_title'] as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
+    userId: (j['user_id'] ?? j['userId']) as String? ?? '',
+    rewardId: (j['reward_id'] ?? j['rewardId']) as String? ?? '',
+    rewardTitle: (j['reward_title'] ?? j['rewardTitle']) as String? ?? '',
     amount: ((j['amount'] as num?) ?? 0).toInt(),
     status: redemptionStatusFromString(j['status'] as String?),
-    requestedAt: _parseDate(j['requested_at']),
-    resolvedAt: _parseDateOpt(j['resolved_at']),
-    resolvedBy: j['resolved_by'] as String?,
+    requestedAt: _parseDate(j['requested_at'] ?? j['requestedAt']),
+    resolvedAt: _parseDateOpt(j['resolved_at'] ?? j['resolvedAt']),
+    resolvedBy: (j['resolved_by'] ?? j['resolvedBy']) as String?,
   );
 
   Map<String, dynamic> toJson() => {
@@ -1887,11 +1887,11 @@ class Reward {
 
   factory Reward.fromJson(Map<String, dynamic> j) => Reward(
     id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
     title: j['title'] as String? ?? '',
-    pointCost: ((j['point_cost'] ?? j['cost']) as int?) ?? 0,
+    pointCost: ((j['point_cost'] ?? j['pointCost'] ?? j['cost']) as int?) ?? 0,
     description: j['description'] as String?,
-    redeemedBy: _strList(j['redeemed_by']),
+    redeemedBy: _strList(j['redeemed_by'] ?? j['redeemedBy']),
   );
 
   Map<String, dynamic> toJson() => {
@@ -1934,14 +1934,14 @@ class ReadingPlan {
 
   factory ReadingPlan.fromJson(Map<String, dynamic> j) => ReadingPlan(
     id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    creatorId: j['creator_id'] as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
+    creatorId: (j['creator_id'] ?? j['creatorId']) as String? ?? '',
     title: j['title'] as String? ?? '',
     description: j['description'] as String? ?? '',
-    totalDays: (j['total_days'] as int?) ?? 0,
+    totalDays: ((j['total_days'] ?? j['totalDays']) as int?) ?? 0,
     days: (j['days'] is List) ? j['days'] as List : [],
-    entryIds: _strList(j['entry_ids']),
-    createdAt: _parseDate(j['created_at']),
+    entryIds: _strList(j['entry_ids'] ?? j['entryIds']),
+    createdAt: _parseDate(j['created_at'] ?? j['createdAt']),
   );
 
   Map<String, dynamic> toJson() => {
@@ -1996,9 +1996,9 @@ class ReadingPlanEntry {
 
   factory ReadingPlanEntry.fromJson(Map<String, dynamic> j) => ReadingPlanEntry(
     id: j['id'] as String? ?? '',
-    planId: j['plan_id'] as String? ?? '',
-    devotionalId: j['devotional_id'] as String? ?? '',
-    dayNumber: (j['day_number'] as int?) ?? 0,
+    planId: (j['plan_id'] ?? j['planId']) as String? ?? '',
+    devotionalId: (j['devotional_id'] ?? j['devotionalId']) as String? ?? '',
+    dayNumber: ((j['day_number'] ?? j['dayNumber']) as int?) ?? 0,
   );
 
   Map<String, dynamic> toJson() => {
@@ -2058,15 +2058,15 @@ class SavingsGoal {
 
   factory SavingsGoal.fromJson(Map<String, dynamic> j) => SavingsGoal(
     id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    userId: j['user_id'] as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
+    userId: (j['user_id'] ?? j['userId']) as String? ?? '',
     title: j['title'] as String? ?? '',
     icon: j['icon'] as String?,
-    imageUrl: j['image_url'] as String?,
-    targetAmount: (j['target_amount'] as num? ?? 0).toDouble(),
-    savedAmount: (j['saved_amount'] as num? ?? 0).toDouble(),
-    createdAt: _parseDate(j['created_at']),
-    completedAt: _parseDateOpt(j['completed_at']),
+    imageUrl: (j['image_url'] ?? j['imageUrl']) as String?,
+    targetAmount: ((j['target_amount'] ?? j['targetAmount']) as num? ?? 0).toDouble(),
+    savedAmount: ((j['saved_amount'] ?? j['savedAmount']) as num? ?? 0).toDouble(),
+    createdAt: _parseDate(j['created_at'] ?? j['createdAt']),
+    completedAt: _parseDateOpt(j['completed_at'] ?? j['completedAt']),
   );
 
   Map<String, dynamic> toJson() => {
@@ -2121,7 +2121,7 @@ class PollOption {
   factory PollOption.fromJson(Map<String, dynamic> j) => PollOption(
     id: j['id'] as String? ?? '',
     text: j['text'] as String? ?? '',
-    voterIds: _strList(j['voter_ids']),
+    voterIds: _strList(j['voter_ids'] ?? j['voterIds']),
   );
 
   Map<String, dynamic> toJson() => {'id': id, 'text': text, 'voter_ids': voterIds};
@@ -2160,16 +2160,16 @@ class Poll {
 
   factory Poll.fromJson(Map<String, dynamic> j) => Poll(
     id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    creatorId: j['creator_id'] as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
+    creatorId: (j['creator_id'] ?? j['creatorId']) as String? ?? '',
     question: j['question'] as String? ?? '',
     options: _parseList(j['options'], PollOption.fromJson),
-    allowMultiple: (j['allow_multiple'] ?? false) as bool,
+    allowMultiple: (j['allow_multiple'] ?? j['allowMultiple'] ?? false) as bool,
     anonymous: (j['anonymous'] ?? false) as bool,
     status: pollStatusFromString(j['status'] as String?),
     deadline: _parseDateOpt(j['deadline']),
     visibility: visibilityFromString(j['visibility'] as String?),
-    createdAt: _parseDate(j['created_at']),
+    createdAt: _parseDate(j['created_at'] ?? j['createdAt']),
   );
 
   Map<String, dynamic> toJson() => {
@@ -2224,11 +2224,11 @@ class PollVote {
 
   factory PollVote.fromJson(Map<String, dynamic> j) => PollVote(
     id: j['id'] as String? ?? '',
-    pollId: j['poll_id'] as String? ?? '',
-    optionId: j['option_id'] as String? ?? '',
-    userId: j['user_id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    votedAt: _parseDate(j['voted_at']),
+    pollId: (j['poll_id'] ?? j['pollId']) as String? ?? '',
+    optionId: (j['option_id'] ?? j['optionId']) as String? ?? '',
+    userId: (j['user_id'] ?? j['userId']) as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
+    votedAt: _parseDate(j['voted_at'] ?? j['votedAt']),
   );
 
   Map<String, dynamic> toJson() => {
@@ -2252,7 +2252,7 @@ class Reaction {
   const Reaction({required this.userId, required this.emoji});
 
   factory Reaction.fromJson(Map<String, dynamic> j) => Reaction(
-    userId: j['user_id'] as String? ?? '',
+    userId: (j['user_id'] ?? j['userId']) as String? ?? '',
     emoji: j['emoji'] as String? ?? '',
   );
 
@@ -2308,15 +2308,15 @@ class PrayerWallEntry {
 
   factory PrayerWallEntry.fromJson(Map<String, dynamic> j) => PrayerWallEntry(
     id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    creatorId: j['creator_id'] as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
+    creatorId: (j['creator_id'] ?? j['creatorId']) as String? ?? '',
     type: prayerWallTypeFromString(j['type'] as String?),
     text: j['text'] as String? ?? '',
-    originalRequestId: j['original_request_id'] as String?,
+    originalRequestId: (j['original_request_id'] ?? j['originalRequestId']) as String?,
     reactions: _parseList(j['reactions'], Reaction.fromJson),
-    prayedByIds: _strList(j['prayed_by_ids']),
+    prayedByIds: _strList(j['prayed_by_ids'] ?? j['prayedByIds']),
     date: _parseDate(j['date']),
-    answeredAt: _parseDateOpt(j['answered_at']),
+    answeredAt: _parseDateOpt(j['answered_at'] ?? j['answeredAt']),
     visibility: visibilityFromString(j['visibility'] as String?),
   );
 
@@ -2374,13 +2374,13 @@ class ChatMessage {
     }
     return ChatMessage(
       id: j['id'] as String? ?? '',
-      familyId: j['family_id'] as String? ?? '',
-      userId: j['user_id'] as String? ?? '',
+      familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
+      userId: (j['user_id'] ?? j['userId']) as String? ?? '',
       text: j['text'] as String? ?? '',
-      replyToId: j['reply_to_id'] as String?,
+      replyToId: (j['reply_to_id'] ?? j['replyToId']) as String?,
       reactions: parsedReactions,
-      editedAt: _parseDateOpt(j['edited_at']),
-      createdAt: _parseDate(j['created_at']),
+      editedAt: _parseDateOpt(j['edited_at'] ?? j['editedAt']),
+      createdAt: _parseDate(j['created_at'] ?? j['createdAt']),
     );
   }
 
@@ -2460,8 +2460,8 @@ class SpecialDate {
 
   factory SpecialDate.fromJson(Map<String, dynamic> j) => SpecialDate(
     id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    creatorId: j['creator_id'] as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
+    creatorId: (j['creator_id'] ?? j['creatorId']) as String? ?? '',
     name: j['name'] as String? ?? '',
     type: specialDateTypeFromString(j['type'] as String?),
     month: (j['month'] as num?)?.toInt() ?? 1,
@@ -2469,9 +2469,9 @@ class SpecialDate {
     year: (j['year'] as num?)?.toInt(),
     emoji: j['emoji'] as String?,
     notes: j['notes'] as String?,
-    reminderDays: _intList(j['reminder_days']),
+    reminderDays: _intList(j['reminder_days'] ?? j['reminderDays']),
     visibility: visibilityFromString(j['visibility'] as String?),
-    createdAt: _parseDate(j['created_at']),
+    createdAt: _parseDate(j['created_at'] ?? j['createdAt']),
   );
 
   Map<String, dynamic> toJson() => {
@@ -2545,14 +2545,14 @@ class FamilyPhoto {
 
   factory FamilyPhoto.fromJson(Map<String, dynamic> j) => FamilyPhoto(
     id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    uploaderId: j['uploader_id'] as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
+    uploaderId: (j['uploader_id'] ?? j['uploaderId']) as String? ?? '',
     url: j['url'] as String? ?? '',
     caption: j['caption'] as String?,
-    takenAt: _parseDateOpt(j['taken_at']),
-    createdAt: _parseDate(j['created_at']),
+    takenAt: _parseDateOpt(j['taken_at'] ?? j['takenAt']),
+    createdAt: _parseDate(j['created_at'] ?? j['createdAt']),
     reactions: _parseList(j['reactions'], Reaction.fromJson),
-    milestoneId: j['milestone_id'] as String?,
+    milestoneId: (j['milestone_id'] ?? j['milestoneId']) as String?,
     tags: _strList(j['tags']),
     visibility: visibilityFromString(j['visibility'] as String?),
   );
@@ -2604,16 +2604,16 @@ class Milestone {
 
   factory Milestone.fromJson(Map<String, dynamic> j) => Milestone(
     id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    childId: j['child_id'] as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
+    childId: (j['child_id'] ?? j['childId']) as String? ?? '',
     title: j['title'] as String? ?? '',
     emoji: j['emoji'] as String?,
     category: j['category'] as String?,
     date: _parseDate(j['date']),
     notes: j['notes'] as String?,
-    photoIds: _strList(j['photo_ids']),
-    ageLabel: j['age_label'] as String?,
-    createdAt: _parseDate(j['created_at']),
+    photoIds: _strList(j['photo_ids'] ?? j['photoIds']),
+    ageLabel: (j['age_label'] ?? j['ageLabel']) as String?,
+    createdAt: _parseDate(j['created_at'] ?? j['createdAt']),
   );
 
   Map<String, dynamic> toJson() => {
@@ -2662,15 +2662,15 @@ class UserLocation {
 
   factory UserLocation.fromJson(Map<String, dynamic> j) => UserLocation(
     id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    userId: j['user_id'] as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
+    userId: (j['user_id'] ?? j['userId']) as String? ?? '',
     latitude: ((j['latitude'] as num?) ?? 0).toDouble(),
     longitude: ((j['longitude'] as num?) ?? 0).toDouble(),
     accuracy: (j['accuracy'] as num?)?.toDouble(),
-    placeName: j['place_name'] as String?,
-    nearPlace: j['near_place'] as String?,
-    isSharing: (j['is_sharing'] ?? false) as bool,
-    updatedAt: _parseDate(j['updated_at']),
+    placeName: (j['place_name'] ?? j['placeName']) as String?,
+    nearPlace: (j['near_place'] ?? j['nearPlace']) as String?,
+    isSharing: (j['is_sharing'] ?? j['isSharing'] ?? false) as bool,
+    updatedAt: _parseDate(j['updated_at'] ?? j['updatedAt']),
   );
 
   Map<String, dynamic> toJson() => {
@@ -2715,14 +2715,14 @@ class SavedPlace {
 
   factory SavedPlace.fromJson(Map<String, dynamic> j) => SavedPlace(
     id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    creatorId: j['creator_id'] as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
+    creatorId: (j['creator_id'] ?? j['creatorId']) as String? ?? '',
     name: j['name'] as String? ?? '',
     emoji: j['emoji'] as String?,
     latitude: ((j['latitude'] as num?) ?? 0).toDouble(),
     longitude: ((j['longitude'] as num?) ?? 0).toDouble(),
-    radiusMetres: (j['radius_metres'] as num? ?? 100).toDouble(),
-    createdAt: _parseDate(j['created_at']),
+    radiusMetres: ((j['radius_metres'] ?? j['radiusMetres']) as num? ?? 100).toDouble(),
+    createdAt: _parseDate(j['created_at'] ?? j['createdAt']),
   );
 
   Map<String, dynamic> toJson() => {
@@ -2790,7 +2790,7 @@ class HealthMedication {
     name: j['name'] as String? ?? '',
     dose: j['dose'] as String?,
     frequency: j['frequency'] as String?,
-    startDate: _parseDateOpt(j['start_date']),
+    startDate: _parseDateOpt(j['start_date'] ?? j['startDate']),
   );
 
   Map<String, dynamic> toJson() => {
@@ -2818,7 +2818,7 @@ class HealthCondition {
   factory HealthCondition.fromJson(Map<String, dynamic> j) => HealthCondition(
     id: j['id'] as String? ?? '',
     name: j['name'] as String? ?? '',
-    diagnosedDate: _parseDateOpt(j['diagnosed_date']),
+    diagnosedDate: _parseDateOpt(j['diagnosed_date'] ?? j['diagnosedDate']),
     notes: j['notes'] as String?,
   );
 
@@ -2847,7 +2847,7 @@ class HealthImmunization {
     id: j['id'] as String? ?? '',
     name: j['name'] as String? ?? '',
     date: _parseDateOpt(j['date']),
-    nextDue: _parseDateOpt(j['next_due']),
+    nextDue: _parseDateOpt(j['next_due'] ?? j['nextDue']),
   );
 
   Map<String, dynamic> toJson() => {
@@ -2939,21 +2939,21 @@ class HealthRecord {
 
   factory HealthRecord.fromJson(Map<String, dynamic> j) => HealthRecord(
     id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    memberId: (j['member_id'] ?? j['user_id']) as String? ?? '',
-    updatedBy: j['updated_by'] as String?,
-    bloodType: bloodTypeFromString(j['blood_type'] as String?),
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
+    memberId: (j['member_id'] ?? j['memberId'] ?? j['user_id'] ?? j['userId']) as String? ?? '',
+    updatedBy: (j['updated_by'] ?? j['updatedBy']) as String?,
+    bloodType: bloodTypeFromString((j['blood_type'] ?? j['bloodType']) as String?),
     allergies: _parseList(j['allergies'], HealthAllergy.fromJson),
     medications: _parseList(j['medications'], HealthMedication.fromJson),
     conditions: _parseList(j['conditions'], HealthCondition.fromJson),
     immunizations: _parseList(j['immunizations'], HealthImmunization.fromJson),
-    emergencyContacts: _parseList(j['emergency_contacts'], EmergencyContact.fromJson),
-    doctorName: j['doctor_name'] as String?,
-    doctorPhone: j['doctor_phone'] as String?,
-    insuranceProvider: j['insurance_provider'] as String?,
-    insurancePolicyNumber: j['insurance_policy_number'] as String?,
+    emergencyContacts: _parseList(j['emergency_contacts'] ?? j['emergencyContacts'], EmergencyContact.fromJson),
+    doctorName: (j['doctor_name'] ?? j['doctorName']) as String?,
+    doctorPhone: (j['doctor_phone'] ?? j['doctorPhone']) as String?,
+    insuranceProvider: (j['insurance_provider'] ?? j['insuranceProvider']) as String?,
+    insurancePolicyNumber: (j['insurance_policy_number'] ?? j['insurancePolicyNumber']) as String?,
     notes: j['notes'] as String?,
-    updatedAt: _parseDate(j['updated_at']),
+    updatedAt: _parseDate(j['updated_at'] ?? j['updatedAt']),
     type: j['type'] as String?,
     title: j['title'] as String?,
     data: (j['data'] as Map<String, dynamic>?)?.map((k, v) => MapEntry(k, v.toString())) ?? const {},
@@ -3004,13 +3004,13 @@ class PeriodCycle {
 
   factory PeriodCycle.fromJson(Map<String, dynamic> j) => PeriodCycle(
     id: j['id'] as String? ?? '',
-    userId: j['user_id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    startDate: _parseDate(j['start_date']),
-    endDate: _parseDateOpt(j['end_date']),
-    flowLevel: flowLevelFromString(j['flow_level'] as String?),
+    userId: (j['user_id'] ?? j['userId']) as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
+    startDate: _parseDate(j['start_date'] ?? j['startDate']),
+    endDate: _parseDateOpt(j['end_date'] ?? j['endDate']),
+    flowLevel: flowLevelFromString((j['flow_level'] ?? j['flowLevel']) as String?),
     notes: j['notes'] as String?,
-    createdAt: _parseDate(j['created_at']),
+    createdAt: _parseDate(j['created_at'] ?? j['createdAt']),
   );
 
   Map<String, dynamic> toJson() => {
@@ -3065,14 +3065,14 @@ class PeriodSymptomLog {
 
   factory PeriodSymptomLog.fromJson(Map<String, dynamic> j) => PeriodSymptomLog(
     id: j['id'] as String? ?? '',
-    userId: j['user_id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
+    userId: (j['user_id'] ?? j['userId']) as String? ?? '',
+    familyId: (j['family_id'] ?? j['familyId']) as String? ?? '',
     date: _parseDate(j['date']),
     symptoms: _strList(j['symptoms']),
     mood: j['mood'] != null ? cycleMoodFromString(j['mood'] as String?) : null,
     painLevel: (j['pain_level'] as num?)?.toInt() ?? (j['painLevel'] as num?)?.toInt(),
     notes: j['notes'] as String?,
-    createdAt: _parseDate(j['created_at']),
+    createdAt: _parseDate(j['created_at'] ?? j['createdAt']),
   );
 
   Map<String, dynamic> toJson() => {
@@ -3132,8 +3132,8 @@ class NotificationPrefs {
     birthdays: (j['birthdays'] ?? true) as bool,
     photos: (j['photos'] ?? false) as bool,
     location: (j['location'] ?? false) as bool,
-    weeklyDigest: (j['weekly_digest'] ?? true) as bool,
-    webPushEnabled: (j['web_push_enabled'] ?? false) as bool,
+    weeklyDigest: (j['weekly_digest'] ?? j['weeklyDigest'] ?? true) as bool,
+    webPushEnabled: (j['web_push_enabled'] ?? j['webPushEnabled'] ?? false) as bool,
   );
 
   Map<String, dynamic> toJson() => {

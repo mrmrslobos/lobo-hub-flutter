@@ -71,7 +71,7 @@ Deno.serve(async (req) => {
 
     const { data: family, error: familyError } = await supabase
       .from('families')
-      .select('subscription_tier')
+      .select('subscriptionTier')
       .eq('id', familyId)
       .single();
 
@@ -81,7 +81,7 @@ Deno.serve(async (req) => {
     }
 
     const requiredTier = FEATURE_TIER_MAP[feature];
-    if (requiredTier && !tierAllows(family?.subscription_tier, requiredTier)) {
+    if (requiredTier && !tierAllows(family?.subscriptionTier, requiredTier)) {
       return new Response(JSON.stringify({ error: 'subscription_required', tier: requiredTier }), {
         status: 402,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

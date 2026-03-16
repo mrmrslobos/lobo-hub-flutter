@@ -34,7 +34,7 @@ class AiService {
     if (_aiBlocked) throw const AINotAvailableException();
     try {
       final body = <String, dynamic>{
-        'family_id': familyId,
+        'familyId': familyId,
         'feature': feature,
         'prompt': prompt,
       };

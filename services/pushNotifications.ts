@@ -206,7 +206,7 @@ async function upsertDeviceToken(userId: string, familyId: string, token: string
   const { error } = await supabase
     .from('device_tokens')
     .upsert(
-      { user_id: userId, family_id: familyId, token, platform, updated_at: new Date().toISOString() },
+      { userId, familyId, token, platform, updatedAt: new Date().toISOString() },
       // Conflict on the token itself so each physical device gets its own row.
       // userId+platform would overwrite e.g. an iPhone row when an iPad (also
       // 'ios') registers — that device would stop receiving notifications.
@@ -272,12 +272,12 @@ export async function subscribeWebPush(userId: string, familyId: string): Promis
     const subJson = sub.toJSON() as { endpoint: string; keys: { p256dh: string; auth: string } };
     const { error } = await supabase.from('web_push_subscriptions').upsert(
       {
-        user_id: userId,
-        family_id: familyId,
+        userId,
+        familyId,
         endpoint: subJson.endpoint,
         p256dh: subJson.keys.p256dh,
         auth: subJson.keys.auth,
-        updated_at: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       },
       { onConflict: 'endpoint' },
     );
@@ -328,7 +328,7 @@ export async function unregisterPushNotifications(userId: string): Promise<void>
   const { error } = await supabase
     .from('device_tokens')
     .delete()
-    .eq('user_id', userId);
+    .eq('userId', userId);
 
   if (error) {
     console.warn('[Push] Failed to remove device tokens:', error.message);
