@@ -54,10 +54,16 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { familyId, feature, prompt, responseMimeType, responseSchema } = await req.json();
+    const body = await req.json();
+    // Accept both snake_case (Flutter client) and camelCase field names
+    const familyId = body.family_id ?? body.familyId;
+    const feature = body.feature;
+    const prompt = body.prompt;
+    const responseMimeType = body.responseMimeType;
+    const responseSchema = body.responseSchema;
 
     if (!familyId || !feature || !prompt) {
-      return new Response(JSON.stringify({ error: 'Missing required fields: familyId, feature, prompt' }), {
+      return new Response(JSON.stringify({ error: 'Missing required fields: family_id, feature, prompt' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
