@@ -371,6 +371,10 @@ Deno.serve(async (req: Request) => {
     // The cron fires every 15 minutes. Family stores dailyDevotionalHour (0-23)
     // and dailyDevotionalMinute (0-59) in UTC. We match families whose
     // scheduled hour matches AND whose minute falls in the current 15-min window.
+    //
+    // Pass ?test=true or { "test": true } to bypass the time-window check
+    // and generate for all enabled families (useful for debugging).
+    // Pass { "family_id": "..." } to target a single family.
     // -----------------------------------------------------------------------
     const now = new Date();
     const currentUtcHour = now.getUTCHours();
@@ -378,6 +382,19 @@ Deno.serve(async (req: Request) => {
     // Round down to the 15-minute window start
     const windowStart = currentUtcMinute - (currentUtcMinute % 15);
     const windowEnd = windowStart + 14;
+
+    // Check for test/debug mode
+    let testMode = new URL(req.url).searchParams.get('test') === 'true';
+    let targetFamilyId: string | null = null;
+    try {
+      const body = await req.clone().json();
+      if (body?.test) testMode = true;
+      if (body?.family_id) targetFamilyId = body.family_id;
+    } catch { /* empty body is fine */ }
+
+    if (testMode) {
+      console.info(`[daily-devotional] TEST MODE — bypassing time window (current UTC: ${currentUtcHour}:${String(currentUtcMinute).padStart(2, '0')})`);
+    }
 
     const { data: allFamilies, error: familiesErr } = await supabase
       .from('families')
@@ -393,11 +410,24 @@ Deno.serve(async (req: Request) => {
       daily_devotional_minute: number | null;
     };
 
+    console.info(`[daily-devotional] Found ${(allFamilies ?? []).length} total families. Current UTC: ${currentUtcHour}:${String(currentUtcMinute).padStart(2, '0')}, window: ${windowStart}-${windowEnd}`);
+
     const families = ((allFamilies ?? []) as FamilyRow[]).filter((f) => {
-      if (!f.daily_devotional_enabled) return false;
+      if (targetFamilyId && f.id !== targetFamilyId) return false;
+      if (!f.daily_devotional_enabled) {
+        if (testMode || targetFamilyId === f.id) {
+          console.info(`[daily-devotional] Family "${f.name}" has daily_devotional_enabled=${f.daily_devotional_enabled} — skipping`);
+        }
+        return false;
+      }
+      if (testMode) return true; // bypass time check in test mode
       const schedHour = f.daily_devotional_hour ?? 7;
       const schedMinute = f.daily_devotional_minute ?? 0;
-      return schedHour === currentUtcHour && schedMinute >= windowStart && schedMinute <= windowEnd;
+      const matches = schedHour === currentUtcHour && schedMinute >= windowStart && schedMinute <= windowEnd;
+      if (!matches) {
+        console.info(`[daily-devotional] Family "${f.name}" scheduled at ${schedHour}:${String(schedMinute).padStart(2, '0')} UTC — not in current window`);
+      }
+      return matches;
     });
 
     if (families.length === 0) {
