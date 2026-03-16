@@ -302,12 +302,18 @@ Make the content warm, relatable, and suitable for children.`;
   let lastError: unknown;
 
   for (const model of MODEL_CANDIDATES) {
-    const body = {
+    const body: Record<string, unknown> = {
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: {
         responseMimeType: 'application/json',
       },
     };
+
+    // Gemini 2.5+ models return "thinking" parts by default which breaks
+    // JSON extraction from parts[0]. Disable thinking to get clean output.
+    if (model.includes('2.5')) {
+      (body.generationConfig as Record<string, unknown>).thinkingConfig = { thinkingBudget: 0 };
+    }
 
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
@@ -316,12 +322,17 @@ Make the content warm, relatable, and suitable for children.`;
 
     if (res.ok) {
       const data = await res.json();
-      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+      // Find the first text part that isn't a "thinking" part — Gemini 2.5+
+      // models may prepend thought parts before the actual response.
+      const parts = data?.candidates?.[0]?.content?.parts ?? [];
+      const textPart = parts.filter((p: Record<string, unknown>) => 'text' in p && !p.thought);
+      const text = textPart.length > 0 ? (textPart[textPart.length - 1].text as string) : '';
       try {
         return JSON.parse(text);
       } catch {
         console.warn('[daily-devotional] Failed to parse Gemini JSON, raw:', text.slice(0, 200));
-        return null;
+        // Don't return null — try next model
+        continue;
       }
     }
 
