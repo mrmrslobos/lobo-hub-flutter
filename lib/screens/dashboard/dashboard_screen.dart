@@ -1007,7 +1007,7 @@ Return ONLY the JSON array, no markdown.''',
     controller.dispose();
     if (result == null || !context.mounted) return; // cancelled
 
-    final user = provider.currentUser;
+    final user = provider.activeUser;
     final authorName = user?.name ?? 'Someone';
     // copyWith uses ?? so null means "keep old value".
     // Use empty string to clear; the display treats empty as no announcement.
