@@ -5,7 +5,7 @@
 
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
+import 'package:supabase_flutter/supabase_flutter.dart' show PostgresChangeEvent, PostgresChangeFilter, PostgresChangeFilterType, RealtimeChannel, Supabase;
 
 import '../models/models.dart';
 import '../services/database_service.dart';
@@ -21,6 +21,7 @@ class AppProvider extends ChangeNotifier {
   bool _isLocked = false;
   Set<String> _unreadModules = {};
   RealtimeChannel? _realtimeChannel;
+  RealtimeChannel? _devotionalChannel;
   bool _isSyncing = false;
 
   // ── Getters ───────────────────────────────────────────────────────────────
@@ -171,6 +172,7 @@ class AppProvider extends ChangeNotifier {
     final familyId = _activeFamily?.id;
     if (familyId == null || !SupabaseService.isConfigured) return;
 
+    // Channel 1: Broadcast — client-to-client sync notifications
     _realtimeChannel = SupabaseService.subscribeToFamily(
       familyId,
       onBroadcast: (payload) {
@@ -181,12 +183,41 @@ class AppProvider extends ChangeNotifier {
         _pullFromCloud();
       },
     );
+
+    // Channel 2: Postgres changes on devotionals table — picks up
+    // server-generated devotionals from the daily-devotional edge function
+    // in real time, without waiting for the user to manually sync.
+    try {
+      _devotionalChannel = Supabase.instance.client
+          .channel('devotionals:$familyId')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.insert,
+            schema: 'public',
+            table: 'devotionals',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'family_id',
+              value: familyId,
+            ),
+            callback: (payload) {
+              debugPrint('[AppProvider] Devotional inserted via Postgres realtime — syncing');
+              _pullFromCloud();
+            },
+          )
+          .subscribe();
+    } catch (e) {
+      debugPrint('[AppProvider] Postgres realtime subscription failed: $e');
+    }
   }
 
   void _stopRealtimeListener() {
     if (_realtimeChannel != null) {
       SupabaseService.unsubscribe(_realtimeChannel!);
       _realtimeChannel = null;
+    }
+    if (_devotionalChannel != null) {
+      SupabaseService.unsubscribe(_devotionalChannel!);
+      _devotionalChannel = null;
     }
   }
 

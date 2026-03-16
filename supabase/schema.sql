@@ -685,3 +685,10 @@ alter table families add column if not exists daily_devotional_minute smallint n
 
 -- Devotional favorites (per-entry, local-first but synced)
 alter table devotionals add column if not exists is_favorited boolean not null default false;
+
+-- =============================================================================
+-- Enable Postgres Realtime on devotionals table so the Flutter app receives
+-- INSERT events in real time when the daily-devotional edge function creates
+-- a new devotional server-side.
+-- =============================================================================
+alter publication supabase_realtime add table devotionals;
