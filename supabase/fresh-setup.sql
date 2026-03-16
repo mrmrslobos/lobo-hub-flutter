@@ -4,7 +4,7 @@
 -- Run this ONCE on a brand-new Supabase project (SQL Editor → Run).
 --
 -- What this does:
---   1. Creates all 28 tables with every column the app needs
+--   1. Creates all tables with every column the app needs
 --   2. Adds indexes for performance
 --   3. Creates the auth_is_member_of() helper function
 --   4. Enables RLS with proper family/user-scoped policies
@@ -33,35 +33,35 @@ CREATE TABLE IF NOT EXISTS users (
 -- families
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS families (
-  id                   text PRIMARY KEY,
-  name                 text NOT NULL,
-  "ownerId"            text NOT NULL,
-  "joinCode"           text NOT NULL UNIQUE,
-  announcement         text,
-  "announcementAuthor" text,
-  "subscriptionTier"   text,
-  "enabledModules"     jsonb NOT NULL DEFAULT '[]'::jsonb,
-  settings             jsonb,
-  "createdAt"          text,
-  "welcomeDismissed"   boolean NOT NULL DEFAULT false,
-  "weeklyDigest"              boolean DEFAULT true,
-  "weeklyDigestDay"           smallint DEFAULT 0,
-  "weeklyDigestHour"          smallint DEFAULT 8,
-  "dailyDevotionalEnabled"    boolean NOT NULL DEFAULT false,
-  "dailyDevotionalHour"       smallint NOT NULL DEFAULT 7,
-  "dailyDevotionalMinute"     smallint NOT NULL DEFAULT 0
+  id                       text PRIMARY KEY,
+  name                     text NOT NULL,
+  owner_id                 text NOT NULL,
+  join_code                text NOT NULL UNIQUE,
+  announcement             text,
+  announcement_author      text,
+  subscription_tier        text,
+  enabled_modules          jsonb NOT NULL DEFAULT '[]'::jsonb,
+  settings                 jsonb,
+  created_at               text,
+  welcome_dismissed        boolean NOT NULL DEFAULT false,
+  weekly_digest            boolean DEFAULT true,
+  weekly_digest_day        smallint DEFAULT 0,
+  weekly_digest_hour       smallint DEFAULT 8,
+  daily_devotional_enabled boolean NOT NULL DEFAULT false,
+  daily_devotional_hour    smallint NOT NULL DEFAULT 7,
+  daily_devotional_minute  smallint NOT NULL DEFAULT 0
 );
 
 -- ---------------------------------------------------------------------------
 -- family_members
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS family_members (
-  "userId"       text NOT NULL,
-  "familyId"     text NOT NULL,
-  role           text NOT NULL,
-  "moduleAccess" jsonb,
-  "displayName"  text,
-  PRIMARY KEY ("userId", "familyId")
+  user_id       text NOT NULL,
+  family_id     text NOT NULL,
+  role          text NOT NULL,
+  module_access jsonb,
+  display_name  text,
+  PRIMARY KEY (user_id, family_id)
 );
 
 -- ---------------------------------------------------------------------------
@@ -77,8 +77,8 @@ STABLE
 AS $$
   SELECT EXISTS (
     SELECT 1 FROM family_members
-    WHERE "familyId" = fid
-      AND "userId" = auth.uid()::text
+    WHERE family_id = fid
+      AND user_id = auth.uid()::text
   );
 $$;
 
@@ -95,14 +95,14 @@ LANGUAGE sql
 SECURITY DEFINER
 STABLE
 AS $$
-  SELECT * FROM families WHERE "joinCode" = code LIMIT 1;
+  SELECT * FROM families WHERE join_code = code LIMIT 1;
 $$;
 
 -- ---------------------------------------------------------------------------
 -- Recovery: migrate all Supabase rows from a legacy random-ID profile to the
 -- caller's Supabase Auth UUID.  SECURITY DEFINER lets this run as postgres
 -- (bypasses RLS) so it can update rows that the caller cannot access directly
--- because the ownerId/userId still holds the old random ID.
+-- because the owner_id/user_id still holds the old random ID.
 --
 -- This is idempotent: if no old profile with the same email exists, or if the
 -- migration already ran, the function returns immediately without changes.
@@ -129,14 +129,14 @@ BEGIN
 
   IF old_id IS NULL THEN RETURN; END IF;
 
-  UPDATE users            SET id         = new_id WHERE id         = old_id;
-  UPDATE families         SET "ownerId"  = new_id WHERE "ownerId"  = old_id;
-  UPDATE family_members   SET "userId"   = new_id WHERE "userId"   = old_id;
-  UPDATE fitness          SET "userId"   = new_id WHERE "userId"   = old_id;
-  UPDATE fitness_plans    SET "userId"   = new_id WHERE "userId"   = old_id;
-  UPDATE daily_habits     SET "userId"   = new_id WHERE "userId"   = old_id;
-  UPDATE daily_habit_completions SET "userId" = new_id WHERE "userId" = old_id;
-  UPDATE device_tokens    SET "userId"   = new_id WHERE "userId"   = old_id;
+  UPDATE users            SET id       = new_id WHERE id       = old_id;
+  UPDATE families         SET owner_id = new_id WHERE owner_id = old_id;
+  UPDATE family_members   SET user_id  = new_id WHERE user_id  = old_id;
+  UPDATE fitness          SET user_id  = new_id WHERE user_id  = old_id;
+  UPDATE fitness_plans    SET user_id  = new_id WHERE user_id  = old_id;
+  UPDATE daily_habits     SET user_id  = new_id WHERE user_id  = old_id;
+  UPDATE daily_habit_completions SET user_id = new_id WHERE user_id = old_id;
+  UPDATE device_tokens    SET user_id  = new_id WHERE user_id  = old_id;
 END;
 $$;
 
@@ -145,17 +145,17 @@ $$;
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS tasks (
   id               text PRIMARY KEY,
-  "familyId"       text NOT NULL,
-  "creatorId"      text NOT NULL,
+  family_id        text NOT NULL,
+  creator_id       text NOT NULL,
   title            text NOT NULL,
   notes            text,
-  "dueDate"        text NOT NULL DEFAULT '',
-  "dueTime"        text,
-  "reminderMinutes" integer,
+  due_date         text NOT NULL DEFAULT '',
+  due_time         text,
+  reminder_minutes integer,
   priority         text NOT NULL,
   completed        boolean NOT NULL DEFAULT false,
-  "completedBy"    text,
-  "updatedBy"      text,
+  completed_by     text,
+  updated_by       text,
   visibility       text NOT NULL DEFAULT 'FAMILY',
   assignees        jsonb NOT NULL DEFAULT '[]'::jsonb,
   tags             jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -167,19 +167,19 @@ CREATE TABLE IF NOT EXISTS tasks (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS events (
   id                   text PRIMARY KEY,
-  "familyId"           text NOT NULL,
-  "creatorId"          text NOT NULL DEFAULT '',
+  family_id            text NOT NULL,
+  creator_id           text NOT NULL DEFAULT '',
   title                text NOT NULL,
   description          text,
   location             text,
   start                text NOT NULL,
   "end"                text NOT NULL,
   visibility           text NOT NULL DEFAULT 'FAMILY',
-  "sharedWith"         jsonb NOT NULL DEFAULT '[]'::jsonb,
+  shared_with          jsonb NOT NULL DEFAULT '[]'::jsonb,
   checklist            jsonb NOT NULL DEFAULT '[]'::jsonb,
-  "budgetEstimate"     numeric,
-  "externalCalendarId" text,
-  "externalUid"        text,
+  budget_estimate      numeric,
+  external_calendar_id text,
+  external_uid         text,
   recurrence           text DEFAULT 'NONE'
 );
 
@@ -188,7 +188,7 @@ CREATE TABLE IF NOT EXISTS events (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS recipes (
   id          text PRIMARY KEY,
-  "familyId"  text NOT NULL,
+  family_id   text NOT NULL,
   title       text NOT NULL,
   ingredients jsonb NOT NULL DEFAULT '[]'::jsonb,
   steps       jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -201,223 +201,233 @@ CREATE TABLE IF NOT EXISTS recipes (
 -- meal_plans
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS meal_plans (
-  id           text PRIMARY KEY,
-  "familyId"   text NOT NULL,
-  date         text NOT NULL,
-  "mealType"   text NOT NULL,
-  "recipeId"   text,
-  "customMeal" text
+  id          text PRIMARY KEY,
+  family_id   text NOT NULL,
+  date        text NOT NULL,
+  meal_type   text NOT NULL,
+  recipe_id   text,
+  custom_meal text
 );
 
 -- ---------------------------------------------------------------------------
 -- lists
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS lists (
-  id          text PRIMARY KEY,
-  "familyId"  text NOT NULL,
-  "creatorId" text NOT NULL DEFAULT '',
-  title       text NOT NULL,
-  items       jsonb NOT NULL DEFAULT '[]'::jsonb,
-  category    text NOT NULL,
-  visibility  text NOT NULL DEFAULT 'FAMILY'
+  id         text PRIMARY KEY,
+  family_id  text NOT NULL,
+  creator_id text NOT NULL DEFAULT '',
+  title      text NOT NULL,
+  items      jsonb NOT NULL DEFAULT '[]'::jsonb,
+  category   text NOT NULL,
+  visibility text NOT NULL DEFAULT 'FAMILY'
 );
 
 -- ---------------------------------------------------------------------------
 -- devotionals
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS devotionals (
-  id                  text PRIMARY KEY,
-  "familyId"          text NOT NULL DEFAULT '',
-  "creatorId"         text NOT NULL DEFAULT '',
-  title               text NOT NULL,
-  scripture           text NOT NULL,
-  content             text NOT NULL,
-  "reflectionPrompts" jsonb NOT NULL DEFAULT '[]'::jsonb,
-  prayer              text,
-  "userPrayer"        text,
-  tags                jsonb NOT NULL DEFAULT '[]'::jsonb,
-  date                text NOT NULL,
-  visibility          text NOT NULL DEFAULT 'FAMILY',
-  "isFavorited"       boolean NOT NULL DEFAULT false
+  id                 text PRIMARY KEY,
+  family_id          text NOT NULL DEFAULT '',
+  creator_id         text NOT NULL DEFAULT '',
+  title              text NOT NULL,
+  scripture          text NOT NULL,
+  content            text NOT NULL,
+  reflection_prompts jsonb NOT NULL DEFAULT '[]'::jsonb,
+  prayer             text,
+  user_prayer        text,
+  tags               jsonb NOT NULL DEFAULT '[]'::jsonb,
+  date               text NOT NULL,
+  visibility         text NOT NULL DEFAULT 'FAMILY',
+  is_favorited       boolean NOT NULL DEFAULT false
 );
 
 -- ---------------------------------------------------------------------------
 -- fitness (personal metrics: weight, steps, workouts)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS fitness (
-  id       text PRIMARY KEY,
-  "userId" text NOT NULL,
-  type     text NOT NULL,
-  value    numeric NOT NULL,
-  date     text NOT NULL,
-  notes    text
+  id      text PRIMARY KEY,
+  user_id text NOT NULL,
+  type    text NOT NULL,
+  value   numeric NOT NULL,
+  date    text NOT NULL,
+  notes   text
 );
 
 -- ---------------------------------------------------------------------------
 -- fitness_plans (AI-generated personal workout plans)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS fitness_plans (
-  id           text PRIMARY KEY,
-  "userId"     text NOT NULL,
-  summary      text NOT NULL,
-  "weeklyPlan" jsonb NOT NULL DEFAULT '[]'::jsonb,
-  tips         jsonb NOT NULL DEFAULT '[]'::jsonb,
-  profile      jsonb NOT NULL DEFAULT '{}'::jsonb,
-  "createdAt"  text NOT NULL
+  id          text PRIMARY KEY,
+  user_id     text NOT NULL,
+  summary     text NOT NULL,
+  weekly_plan jsonb NOT NULL DEFAULT '[]'::jsonb,
+  tips        jsonb NOT NULL DEFAULT '[]'::jsonb,
+  profile     jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at  text NOT NULL
 );
 
 -- ---------------------------------------------------------------------------
 -- budget_categories
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS budget_categories (
-  id          text PRIMARY KEY,
-  "familyId"  text NOT NULL,
-  "creatorId" text NOT NULL DEFAULT '',
-  name        text NOT NULL,
-  "limit"     numeric NOT NULL,
-  color       text NOT NULL,
-  visibility  text NOT NULL DEFAULT 'FAMILY'
+  id         text PRIMARY KEY,
+  family_id  text NOT NULL,
+  creator_id text NOT NULL DEFAULT '',
+  name       text NOT NULL,
+  "limit"    numeric NOT NULL,
+  color      text NOT NULL,
+  visibility text NOT NULL DEFAULT 'FAMILY'
 );
 
 -- ---------------------------------------------------------------------------
 -- transactions
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS transactions (
-  id           text PRIMARY KEY,
-  "familyId"   text NOT NULL,
-  "creatorId"  text NOT NULL DEFAULT '',
-  "categoryId" text NOT NULL,
-  amount       numeric NOT NULL,
-  type         text NOT NULL,
-  date         text NOT NULL,
-  description  text NOT NULL,
-  visibility   text NOT NULL DEFAULT 'FAMILY'
+  id          text PRIMARY KEY,
+  family_id   text NOT NULL,
+  creator_id  text NOT NULL DEFAULT '',
+  category_id text NOT NULL,
+  amount      numeric NOT NULL,
+  type        text NOT NULL,
+  date        text NOT NULL,
+  description text NOT NULL,
+  visibility  text NOT NULL DEFAULT 'FAMILY'
 );
 
 -- ---------------------------------------------------------------------------
 -- ai_history
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ai_history (
-  id          text PRIMARY KEY,
-  "userId"    text NOT NULL,
-  "familyId"  text NOT NULL,
-  module      text NOT NULL,
-  prompt      text NOT NULL,
-  response    text NOT NULL,
-  "createdAt" text NOT NULL
+  id         text PRIMARY KEY,
+  user_id    text NOT NULL,
+  family_id  text NOT NULL,
+  module     text NOT NULL,
+  prompt     text NOT NULL,
+  response   text NOT NULL,
+  created_at text NOT NULL
 );
 
 -- ---------------------------------------------------------------------------
 -- daily_habits (personal habit tracker)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS daily_habits (
-  id          text PRIMARY KEY,
-  "userId"    text NOT NULL,
-  label       text NOT NULL,
-  icon        text NOT NULL,
-  color       text NOT NULL,
-  "createdAt" text NOT NULL,
-  "order"     integer NOT NULL
+  id           text PRIMARY KEY,
+  user_id      text NOT NULL,
+  family_id    text,
+  label        text NOT NULL,
+  icon         text NOT NULL DEFAULT '',
+  color        text NOT NULL DEFAULT '#6366f1',
+  description  text,
+  is_shared    boolean NOT NULL DEFAULT false,
+  frequency    text,
+  target_value numeric,
+  target_unit  text,
+  created_at   text NOT NULL,
+  "order"      integer NOT NULL DEFAULT 0
 );
 
 -- ---------------------------------------------------------------------------
 -- daily_habit_completions
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS daily_habit_completions (
-  id            text PRIMARY KEY,
-  "habitId"     text NOT NULL,
-  "userId"      text NOT NULL,
-  date          text NOT NULL,
-  "completedAt" text NOT NULL
+  id           text PRIMARY KEY,
+  habit_id     text NOT NULL,
+  user_id      text NOT NULL,
+  date         text NOT NULL,
+  completed_at text NOT NULL
 );
 
 -- ---------------------------------------------------------------------------
 -- chores
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS chores (
-  id           text PRIMARY KEY,
-  "familyId"   text NOT NULL,
-  "creatorId"  text NOT NULL,
-  title        text NOT NULL,
-  description  text,
-  icon         text NOT NULL DEFAULT '🧹',
-  points       integer NOT NULL DEFAULT 10,
-  reward       numeric,
-  frequency    text NOT NULL DEFAULT 'DAILY',
-  "daysOfWeek" jsonb NOT NULL DEFAULT '[]'::jsonb,
-  assignees    jsonb NOT NULL DEFAULT '[]'::jsonb,
-  color        text NOT NULL DEFAULT '#6366f1',
-  visibility   text NOT NULL DEFAULT 'FAMILY',
-  "createdAt"  text NOT NULL
+  id                text PRIMARY KEY,
+  family_id         text NOT NULL,
+  creator_id        text NOT NULL,
+  title             text NOT NULL,
+  description       text,
+  icon              text NOT NULL DEFAULT '🧹',
+  points            integer NOT NULL DEFAULT 10,
+  reward            numeric,
+  frequency         text NOT NULL DEFAULT 'DAILY',
+  days_of_week      jsonb NOT NULL DEFAULT '[]'::jsonb,
+  assignees         jsonb NOT NULL DEFAULT '[]'::jsonb,
+  color             text NOT NULL DEFAULT '#6366f1',
+  visibility        text NOT NULL DEFAULT 'FAMILY',
+  requires_approval boolean,
+  created_at        text NOT NULL
 );
 
 -- ---------------------------------------------------------------------------
 -- chore_completions
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS chore_completions (
-  id            text PRIMARY KEY,
-  "choreId"     text NOT NULL,
-  "userId"      text NOT NULL,
-  "familyId"    text NOT NULL,
-  date          text NOT NULL,
-  "completedAt" text NOT NULL
+  id              text PRIMARY KEY,
+  chore_id        text NOT NULL,
+  user_id         text NOT NULL,
+  family_id       text NOT NULL,
+  date            text NOT NULL,
+  completed_at    text NOT NULL,
+  approval_status text,
+  approved_by     text,
+  approved_at     text
 );
 
 -- ---------------------------------------------------------------------------
 -- polls
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS polls (
-  id              text PRIMARY KEY,
-  "familyId"      text NOT NULL,
-  "creatorId"     text NOT NULL,
-  question        text NOT NULL,
-  options         jsonb NOT NULL DEFAULT '[]'::jsonb,
-  "allowMultiple" boolean NOT NULL DEFAULT false,
-  anonymous       boolean NOT NULL DEFAULT false,
-  status          text NOT NULL DEFAULT 'OPEN',
-  deadline        text,
-  visibility      text NOT NULL DEFAULT 'FAMILY',
-  "createdAt"     text NOT NULL
+  id             text PRIMARY KEY,
+  family_id      text NOT NULL,
+  creator_id     text NOT NULL,
+  question       text NOT NULL,
+  options        jsonb NOT NULL DEFAULT '[]'::jsonb,
+  allow_multiple boolean NOT NULL DEFAULT false,
+  anonymous      boolean NOT NULL DEFAULT false,
+  status         text NOT NULL DEFAULT 'OPEN',
+  deadline       text,
+  visibility     text NOT NULL DEFAULT 'FAMILY',
+  created_at     text NOT NULL
 );
 
 -- ---------------------------------------------------------------------------
 -- poll_votes
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS poll_votes (
-  id         text PRIMARY KEY,
-  "pollId"   text NOT NULL,
-  "optionId" text NOT NULL,
-  "userId"   text NOT NULL,
-  "familyId" text NOT NULL,
-  "votedAt"  text NOT NULL
+  id        text PRIMARY KEY,
+  poll_id   text NOT NULL,
+  option_id text NOT NULL,
+  user_id   text NOT NULL,
+  family_id text NOT NULL,
+  voted_at  text NOT NULL
 );
 
 -- ---------------------------------------------------------------------------
 -- external_calendars
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS external_calendars (
-  id           text PRIMARY KEY,
-  "familyId"   text NOT NULL,
-  "creatorId"  text NOT NULL,
-  name         text NOT NULL,
-  url          text,
-  color        text NOT NULL DEFAULT '#6366f1',
-  type         text NOT NULL DEFAULT 'OTHER',
-  enabled      boolean NOT NULL DEFAULT true,
-  "lastSynced" text,
-  "createdAt"  text NOT NULL
+  id          text PRIMARY KEY,
+  family_id   text NOT NULL,
+  creator_id  text NOT NULL,
+  name        text NOT NULL,
+  url         text,
+  color       text NOT NULL DEFAULT '#6366f1',
+  type        text NOT NULL DEFAULT 'OTHER',
+  enabled     boolean NOT NULL DEFAULT true,
+  last_synced text,
+  created_at  text NOT NULL
 );
 
 -- ---------------------------------------------------------------------------
 -- rewards (family rewards catalogue)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS rewards (
-  id            text PRIMARY KEY,
-  "familyId"    text NOT NULL,
-  title         text NOT NULL,
-  "pointCost"   int NOT NULL DEFAULT 0,
-  description   text,
-  "redeemedBy"  jsonb NOT NULL DEFAULT '[]'::jsonb
+  id          text PRIMARY KEY,
+  family_id   text NOT NULL,
+  title       text NOT NULL,
+  point_cost  int NOT NULL DEFAULT 0,
+  description text,
+  redeemed_by jsonb NOT NULL DEFAULT '[]'::jsonb
 );
 
 -- ---------------------------------------------------------------------------
@@ -425,46 +435,46 @@ CREATE TABLE IF NOT EXISTS rewards (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS reward_items (
   id          text PRIMARY KEY,
-  "familyId"  text NOT NULL,
-  "creatorId" text NOT NULL,
+  family_id   text NOT NULL,
+  creator_id  text NOT NULL,
   title       text NOT NULL,
   description text,
   cost        numeric NOT NULL,
   icon        text NOT NULL,
   active      boolean NOT NULL DEFAULT true,
-  "createdAt" text NOT NULL
+  created_at  text NOT NULL
 );
 
 -- ---------------------------------------------------------------------------
 -- reward_redemptions
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS reward_redemptions (
-  id            text PRIMARY KEY,
-  "familyId"    text NOT NULL,
-  "userId"      text NOT NULL,
-  "rewardId"    text,
-  "rewardTitle" text NOT NULL,
-  amount        numeric NOT NULL,
-  status        text NOT NULL DEFAULT 'PENDING',
-  "requestedAt" text NOT NULL,
-  "resolvedAt"  text,
-  "resolvedBy"  text
+  id           text PRIMARY KEY,
+  family_id    text NOT NULL,
+  user_id      text NOT NULL,
+  reward_id    text,
+  reward_title text NOT NULL,
+  amount       numeric NOT NULL,
+  status       text NOT NULL DEFAULT 'PENDING',
+  requested_at text NOT NULL,
+  resolved_at  text,
+  resolved_by  text
 );
 
 -- ---------------------------------------------------------------------------
 -- savings_goals
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS savings_goals (
-  id             text PRIMARY KEY,
-  "familyId"     text NOT NULL,
-  "userId"       text NOT NULL,
-  title          text NOT NULL,
-  icon           text NOT NULL,
-  "imageUrl"     text,
-  "targetAmount" numeric NOT NULL,
-  "savedAmount"  numeric NOT NULL DEFAULT 0,
-  "createdAt"    text NOT NULL,
-  "completedAt"  text
+  id            text PRIMARY KEY,
+  family_id     text NOT NULL,
+  user_id       text NOT NULL,
+  title         text NOT NULL,
+  icon          text NOT NULL,
+  image_url     text,
+  target_amount numeric NOT NULL,
+  saved_amount  numeric NOT NULL DEFAULT 0,
+  created_at    text NOT NULL,
+  completed_at  text
 );
 
 -- ---------------------------------------------------------------------------
@@ -472,15 +482,15 @@ CREATE TABLE IF NOT EXISTS savings_goals (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS prayer_wall (
   id                  text PRIMARY KEY,
-  "familyId"          text NOT NULL,
-  "creatorId"         text NOT NULL,
+  family_id           text NOT NULL,
+  creator_id          text NOT NULL,
   type                text NOT NULL,
   text                text NOT NULL,
-  "originalRequestId" text,
+  original_request_id text,
   reactions           jsonb NOT NULL DEFAULT '[]'::jsonb,
-  "prayedByIds"       jsonb NOT NULL DEFAULT '[]'::jsonb,
+  prayed_by_ids       jsonb NOT NULL DEFAULT '[]'::jsonb,
   date                text NOT NULL,
-  "answeredAt"        text,
+  answered_at         text,
   visibility          text NOT NULL DEFAULT 'FAMILY'
 );
 
@@ -489,13 +499,13 @@ CREATE TABLE IF NOT EXISTS prayer_wall (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS reading_plans (
   id          text PRIMARY KEY,
-  "familyId"  text NOT NULL,
-  "creatorId" text NOT NULL,
+  family_id   text NOT NULL,
+  creator_id  text NOT NULL,
   title       text NOT NULL,
   description text NOT NULL,
-  "totalDays" integer NOT NULL,
+  total_days  integer NOT NULL,
   days        jsonb NOT NULL DEFAULT '[]'::jsonb,
-  "createdAt" text NOT NULL
+  created_at  text NOT NULL
 );
 
 -- ---------------------------------------------------------------------------
@@ -503,65 +513,210 @@ CREATE TABLE IF NOT EXISTS reading_plans (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS reading_plan_progress (
   id                text PRIMARY KEY,
-  "planId"          text NOT NULL,
-  "userId"          text NOT NULL,
-  "familyId"        text NOT NULL,
-  "completedDays"   jsonb NOT NULL DEFAULT '[]'::jsonb,
-  "currentStreak"   integer NOT NULL DEFAULT 0,
-  "longestStreak"   integer NOT NULL DEFAULT 0,
-  "startedAt"       text NOT NULL,
-  "lastCompletedAt" text
+  plan_id           text NOT NULL,
+  user_id           text NOT NULL,
+  family_id         text NOT NULL,
+  completed_days    jsonb NOT NULL DEFAULT '[]'::jsonb,
+  current_streak    integer NOT NULL DEFAULT 0,
+  longest_streak    integer NOT NULL DEFAULT 0,
+  started_at        text NOT NULL,
+  last_completed_at text
 );
 
 -- ---------------------------------------------------------------------------
 -- period_cycles
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS period_cycles (
-  id          text PRIMARY KEY,
-  "userId"    text NOT NULL,
-  "familyId"  text NOT NULL,
-  "startDate" timestamptz NOT NULL,
-  "endDate"   timestamptz,
-  "flowLevel" text NOT NULL DEFAULT 'MEDIUM',
-  notes       text,
-  "createdAt" timestamptz NOT NULL DEFAULT now()
+  id         text PRIMARY KEY,
+  user_id    text NOT NULL,
+  family_id  text NOT NULL,
+  start_date timestamptz NOT NULL,
+  end_date   timestamptz,
+  flow_level text NOT NULL DEFAULT 'MEDIUM',
+  notes      text,
+  created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS period_cycles_user_idx ON period_cycles ("userId");
-CREATE INDEX IF NOT EXISTS period_cycles_family_idx ON period_cycles ("familyId");
+CREATE INDEX IF NOT EXISTS period_cycles_user_idx ON period_cycles (user_id);
+CREATE INDEX IF NOT EXISTS period_cycles_family_idx ON period_cycles (family_id);
 
 -- ---------------------------------------------------------------------------
 -- period_symptoms
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS period_symptoms (
-  id          text PRIMARY KEY,
-  "userId"    text NOT NULL,
-  "familyId"  text NOT NULL,
-  date        timestamptz NOT NULL,
-  symptoms    jsonb NOT NULL DEFAULT '[]'::jsonb,
-  mood        text,
-  "painLevel" int,
-  notes       text,
-  "createdAt" timestamptz NOT NULL DEFAULT now()
+  id         text PRIMARY KEY,
+  user_id    text NOT NULL,
+  family_id  text NOT NULL,
+  date       timestamptz NOT NULL,
+  symptoms   jsonb NOT NULL DEFAULT '[]'::jsonb,
+  mood       text,
+  pain_level int,
+  notes      text,
+  created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS period_symptoms_user_idx ON period_symptoms ("userId");
-CREATE INDEX IF NOT EXISTS period_symptoms_family_idx ON period_symptoms ("familyId");
+CREATE INDEX IF NOT EXISTS period_symptoms_user_idx ON period_symptoms (user_id);
+CREATE INDEX IF NOT EXISTS period_symptoms_family_idx ON period_symptoms (family_id);
 
 -- ---------------------------------------------------------------------------
 -- device_tokens (push notifications — one row per user per platform)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS device_tokens (
-  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "userId"    text NOT NULL,
-  "familyId"  text NOT NULL,
-  token       text NOT NULL,
-  platform    text NOT NULL CHECK (platform IN ('ios', 'android')),
-  "updatedAt" timestamptz NOT NULL DEFAULT now(),
-  UNIQUE ("userId", platform)
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    text NOT NULL,
+  family_id  text NOT NULL,
+  token      text NOT NULL,
+  platform   text NOT NULL CHECK (platform IN ('ios', 'android')),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (user_id, platform)
 );
 
-CREATE INDEX IF NOT EXISTS device_tokens_family_idx ON device_tokens ("familyId");
+CREATE INDEX IF NOT EXISTS device_tokens_family_idx ON device_tokens (family_id);
+
+-- ---------------------------------------------------------------------------
+-- web_push_subscriptions (Browser PWA push subscriptions)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS web_push_subscriptions (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    text NOT NULL,
+  family_id  text NOT NULL,
+  endpoint   text NOT NULL UNIQUE,
+  p256dh     text NOT NULL,
+  auth       text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS web_push_family_idx ON web_push_subscriptions (family_id);
+
+-- ---------------------------------------------------------------------------
+-- special_dates (birthdays, anniversaries, etc.)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS special_dates (
+  id            text PRIMARY KEY,
+  family_id     text NOT NULL,
+  creator_id    text NOT NULL,
+  name          text NOT NULL,
+  type          text NOT NULL CHECK (type IN ('BIRTHDAY','ANNIVERSARY','MEMORIAL','OTHER')),
+  month         smallint NOT NULL,
+  day           smallint NOT NULL,
+  year          smallint,
+  emoji         text NOT NULL,
+  notes         text,
+  reminder_days jsonb NOT NULL DEFAULT '[]'::jsonb,
+  visibility    text NOT NULL DEFAULT 'FAMILY',
+  created_at    text NOT NULL
+);
+
+-- ---------------------------------------------------------------------------
+-- family_photos
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS family_photos (
+  id           text PRIMARY KEY,
+  family_id    text NOT NULL,
+  uploader_id  text NOT NULL,
+  url          text NOT NULL,
+  caption      text,
+  taken_at     text NOT NULL,
+  created_at   text NOT NULL,
+  reactions    jsonb NOT NULL DEFAULT '[]'::jsonb,
+  milestone_id text,
+  tags         jsonb NOT NULL DEFAULT '[]'::jsonb,
+  visibility   text NOT NULL DEFAULT 'FAMILY'
+);
+
+-- ---------------------------------------------------------------------------
+-- milestones (child development milestones)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS milestones (
+  id         text PRIMARY KEY,
+  family_id  text NOT NULL,
+  child_id   text NOT NULL,
+  title      text NOT NULL,
+  emoji      text NOT NULL,
+  category   text NOT NULL,
+  date       text NOT NULL,
+  notes      text,
+  photo_ids  jsonb NOT NULL DEFAULT '[]'::jsonb,
+  age_label  text,
+  created_at text NOT NULL
+);
+
+-- ---------------------------------------------------------------------------
+-- saved_places (location sharing)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS saved_places (
+  id            text PRIMARY KEY,
+  family_id     text NOT NULL,
+  creator_id    text NOT NULL,
+  name          text NOT NULL,
+  emoji         text NOT NULL,
+  latitude      numeric NOT NULL,
+  longitude     numeric NOT NULL,
+  radius_metres numeric NOT NULL DEFAULT 200,
+  created_at    text NOT NULL
+);
+
+-- ---------------------------------------------------------------------------
+-- user_locations
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS user_locations (
+  id         text PRIMARY KEY,
+  family_id  text NOT NULL,
+  user_id    text NOT NULL,
+  latitude   numeric NOT NULL,
+  longitude  numeric NOT NULL,
+  accuracy   numeric,
+  place_name text,
+  near_place text,
+  is_sharing boolean NOT NULL DEFAULT false,
+  updated_at text NOT NULL
+);
+
+-- ---------------------------------------------------------------------------
+-- health_records
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS health_records (
+  id                      text PRIMARY KEY,
+  family_id               text NOT NULL,
+  member_id               text NOT NULL,
+  updated_by              text NOT NULL,
+  blood_type              text NOT NULL DEFAULT 'Unknown',
+  allergies               jsonb NOT NULL DEFAULT '[]'::jsonb,
+  medications             jsonb NOT NULL DEFAULT '[]'::jsonb,
+  conditions              jsonb NOT NULL DEFAULT '[]'::jsonb,
+  immunizations           jsonb NOT NULL DEFAULT '[]'::jsonb,
+  emergency_contacts      jsonb NOT NULL DEFAULT '[]'::jsonb,
+  doctor_name             text,
+  doctor_phone            text,
+  insurance_provider      text,
+  insurance_policy_number text,
+  notes                   text,
+  updated_at              text NOT NULL,
+  UNIQUE (family_id, member_id)
+);
+
+CREATE INDEX IF NOT EXISTS health_records_family_idx ON health_records (family_id);
+
+-- ---------------------------------------------------------------------------
+-- messages (family chat)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS messages (
+  id          text PRIMARY KEY,
+  family_id   text NOT NULL,
+  user_id     text NOT NULL,
+  text        text NOT NULL,
+  reply_to_id text,
+  reactions   jsonb NOT NULL DEFAULT '{}'::jsonb,
+  edited_at   text,
+  created_at  text NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS messages_family_idx ON messages (family_id);
+CREATE INDEX IF NOT EXISTS special_dates_family_idx ON special_dates (family_id);
+CREATE INDEX IF NOT EXISTS family_photos_family_idx ON family_photos (family_id);
+CREATE INDEX IF NOT EXISTS milestones_family_idx ON milestones (family_id);
+CREATE INDEX IF NOT EXISTS saved_places_family_idx ON saved_places (family_id);
+CREATE INDEX IF NOT EXISTS user_locations_family_idx ON user_locations (family_id);
 
 
 -- =============================================================================
@@ -578,9 +733,9 @@ CREATE POLICY "users_select" ON users FOR SELECT
     id = auth.uid()::text
     OR EXISTS (
       SELECT 1 FROM family_members fm1
-      JOIN family_members fm2 ON fm1."familyId" = fm2."familyId"
-      WHERE fm1."userId" = auth.uid()::text
-        AND fm2."userId" = users.id
+      JOIN family_members fm2 ON fm1.family_id = fm2.family_id
+      WHERE fm1.user_id = auth.uid()::text
+        AND fm2.user_id = users.id
     )
   );
 
@@ -606,11 +761,11 @@ CREATE POLICY "families_insert" ON families FOR INSERT
   WITH CHECK (auth.uid() IS NOT NULL);
 
 CREATE POLICY "families_update" ON families FOR UPDATE
-  USING ("ownerId" = auth.uid()::text)
-  WITH CHECK ("ownerId" = auth.uid()::text);
+  USING (owner_id = auth.uid()::text)
+  WITH CHECK (owner_id = auth.uid()::text);
 
 CREATE POLICY "families_delete" ON families FOR DELETE
-  USING ("ownerId" = auth.uid()::text);
+  USING (owner_id = auth.uid()::text);
 
 -- ---------------------------------------------------------------------------
 -- family_members
@@ -618,52 +773,46 @@ CREATE POLICY "families_delete" ON families FOR DELETE
 ALTER TABLE family_members ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "family_members_select" ON family_members FOR SELECT
-  USING (auth_is_member_of("familyId"));
+  USING (auth_is_member_of(family_id));
 
--- A user may add themselves (join by code) OR owner/admin may add anyone
 CREATE POLICY "family_members_insert" ON family_members FOR INSERT
   WITH CHECK (
-    "userId" = auth.uid()::text
+    user_id = auth.uid()::text
     OR EXISTS (
       SELECT 1 FROM family_members fm
-      WHERE fm."familyId" = family_members."familyId"
-        AND fm."userId" = auth.uid()::text
+      WHERE fm.family_id = family_members.family_id
+        AND fm.user_id = auth.uid()::text
         AND fm.role IN ('OWNER', 'ADMIN')
     )
   );
 
 CREATE POLICY "family_members_update" ON family_members FOR UPDATE
-  -- A user may update their OWN membership row (e.g. upsert during sync),
-  -- OR an OWNER/ADMIN may update any member's row in their family.
-  -- Without the self-update clause, upserts by regular MEMBERs fail:
-  -- the first INSERT succeeds but subsequent upserts (ON CONFLICT → UPDATE)
-  -- are blocked because only OWNER/ADMIN rows would pass the USING check.
   USING (
-    "userId" = auth.uid()::text
+    user_id = auth.uid()::text
     OR EXISTS (
       SELECT 1 FROM family_members fm
-      WHERE fm."familyId" = family_members."familyId"
-        AND fm."userId" = auth.uid()::text
+      WHERE fm.family_id = family_members.family_id
+        AND fm.user_id = auth.uid()::text
         AND fm.role IN ('OWNER', 'ADMIN')
     )
   )
   WITH CHECK (
-    "userId" = auth.uid()::text
+    user_id = auth.uid()::text
     OR EXISTS (
       SELECT 1 FROM family_members fm
-      WHERE fm."familyId" = family_members."familyId"
-        AND fm."userId" = auth.uid()::text
+      WHERE fm.family_id = family_members.family_id
+        AND fm.user_id = auth.uid()::text
         AND fm.role IN ('OWNER', 'ADMIN')
     )
   );
 
 CREATE POLICY "family_members_delete" ON family_members FOR DELETE
   USING (
-    "userId" = auth.uid()::text
+    user_id = auth.uid()::text
     OR EXISTS (
       SELECT 1 FROM family_members fm
-      WHERE fm."familyId" = family_members."familyId"
-        AND fm."userId" = auth.uid()::text
+      WHERE fm.family_id = family_members.family_id
+        AND fm.user_id = auth.uid()::text
         AND fm.role IN ('OWNER', 'ADMIN')
     )
   );
@@ -673,182 +822,189 @@ CREATE POLICY "family_members_delete" ON family_members FOR DELETE
 -- ---------------------------------------------------------------------------
 ALTER TABLE tasks ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "tasks_all" ON tasks FOR ALL
-  USING (auth_is_member_of("familyId"))
-  WITH CHECK (auth_is_member_of("familyId"));
+  USING (auth_is_member_of(family_id))
+  WITH CHECK (auth_is_member_of(family_id));
 
 ALTER TABLE events ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "events_all" ON events FOR ALL
-  USING (auth_is_member_of("familyId"))
-  WITH CHECK (auth_is_member_of("familyId"));
+  USING (auth_is_member_of(family_id))
+  WITH CHECK (auth_is_member_of(family_id));
 
 ALTER TABLE recipes ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "recipes_all" ON recipes FOR ALL
-  USING (auth_is_member_of("familyId"))
-  WITH CHECK (auth_is_member_of("familyId"));
+  USING (auth_is_member_of(family_id))
+  WITH CHECK (auth_is_member_of(family_id));
 
 ALTER TABLE meal_plans ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "meal_plans_all" ON meal_plans FOR ALL
-  USING (auth_is_member_of("familyId"))
-  WITH CHECK (auth_is_member_of("familyId"));
+  USING (auth_is_member_of(family_id))
+  WITH CHECK (auth_is_member_of(family_id));
 
 ALTER TABLE lists ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "lists_all" ON lists FOR ALL
-  USING (auth_is_member_of("familyId"))
-  WITH CHECK (auth_is_member_of("familyId"));
+  USING (auth_is_member_of(family_id))
+  WITH CHECK (auth_is_member_of(family_id));
 
 ALTER TABLE devotionals ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "devotionals_all" ON devotionals FOR ALL
-  USING (auth_is_member_of("familyId"))
-  WITH CHECK (auth_is_member_of("familyId"));
+  USING (auth_is_member_of(family_id))
+  WITH CHECK (auth_is_member_of(family_id));
 
 ALTER TABLE budget_categories ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "budget_categories_all" ON budget_categories FOR ALL
-  USING (auth_is_member_of("familyId"))
-  WITH CHECK (auth_is_member_of("familyId"));
+  USING (auth_is_member_of(family_id))
+  WITH CHECK (auth_is_member_of(family_id));
 
 ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "transactions_all" ON transactions FOR ALL
-  USING (auth_is_member_of("familyId"))
-  WITH CHECK (auth_is_member_of("familyId"));
+  USING (auth_is_member_of(family_id))
+  WITH CHECK (auth_is_member_of(family_id));
 
 ALTER TABLE ai_history ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "ai_history_all" ON ai_history FOR ALL
-  USING (auth_is_member_of("familyId"))
-  WITH CHECK (auth_is_member_of("familyId"));
+  USING (auth_is_member_of(family_id))
+  WITH CHECK (auth_is_member_of(family_id));
 
 ALTER TABLE chores ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "chores_all" ON chores FOR ALL
-  USING (auth_is_member_of("familyId"))
-  WITH CHECK (auth_is_member_of("familyId"));
+  USING (auth_is_member_of(family_id))
+  WITH CHECK (auth_is_member_of(family_id));
 
 ALTER TABLE chore_completions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "chore_completions_all" ON chore_completions FOR ALL
-  USING (auth_is_member_of("familyId"))
-  WITH CHECK (auth_is_member_of("familyId"));
+  USING (auth_is_member_of(family_id))
+  WITH CHECK (auth_is_member_of(family_id));
 
 ALTER TABLE polls ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "polls_all" ON polls FOR ALL
-  USING (auth_is_member_of("familyId"))
-  WITH CHECK (auth_is_member_of("familyId"));
+  USING (auth_is_member_of(family_id))
+  WITH CHECK (auth_is_member_of(family_id));
 
 ALTER TABLE poll_votes ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "poll_votes_all" ON poll_votes FOR ALL
-  USING (auth_is_member_of("familyId"))
-  WITH CHECK (auth_is_member_of("familyId"));
+  USING (auth_is_member_of(family_id))
+  WITH CHECK (auth_is_member_of(family_id));
 
 ALTER TABLE external_calendars ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "external_calendars_all" ON external_calendars FOR ALL
-  USING (auth_is_member_of("familyId"))
-  WITH CHECK (auth_is_member_of("familyId"));
+  USING (auth_is_member_of(family_id))
+  WITH CHECK (auth_is_member_of(family_id));
 
 ALTER TABLE rewards ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "rewards_all" ON rewards FOR ALL
-  USING (auth_is_member_of("familyId"))
-  WITH CHECK (auth_is_member_of("familyId"));
+  USING (auth_is_member_of(family_id))
+  WITH CHECK (auth_is_member_of(family_id));
 
 ALTER TABLE reward_items ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "reward_items_all" ON reward_items FOR ALL
-  USING (auth_is_member_of("familyId"))
-  WITH CHECK (auth_is_member_of("familyId"));
+  USING (auth_is_member_of(family_id))
+  WITH CHECK (auth_is_member_of(family_id));
 
 ALTER TABLE reward_redemptions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "reward_redemptions_all" ON reward_redemptions FOR ALL
-  USING (auth_is_member_of("familyId"))
-  WITH CHECK (auth_is_member_of("familyId"));
+  USING (auth_is_member_of(family_id))
+  WITH CHECK (auth_is_member_of(family_id));
 
 ALTER TABLE savings_goals ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "savings_goals_all" ON savings_goals FOR ALL
-  USING (auth_is_member_of("familyId"))
-  WITH CHECK (auth_is_member_of("familyId"));
+  USING (auth_is_member_of(family_id))
+  WITH CHECK (auth_is_member_of(family_id));
 
 ALTER TABLE prayer_wall ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "prayer_wall_all" ON prayer_wall FOR ALL
-  USING (auth_is_member_of("familyId"))
-  WITH CHECK (auth_is_member_of("familyId"));
+  USING (auth_is_member_of(family_id))
+  WITH CHECK (auth_is_member_of(family_id));
 
 ALTER TABLE reading_plans ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "reading_plans_all" ON reading_plans FOR ALL
-  USING (auth_is_member_of("familyId"))
-  WITH CHECK (auth_is_member_of("familyId"));
+  USING (auth_is_member_of(family_id))
+  WITH CHECK (auth_is_member_of(family_id));
 
 ALTER TABLE reading_plan_progress ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "reading_plan_progress_all" ON reading_plan_progress FOR ALL
-  USING (auth_is_member_of("familyId"))
-  WITH CHECK (auth_is_member_of("familyId"));
+  USING (auth_is_member_of(family_id))
+  WITH CHECK (auth_is_member_of(family_id));
+
+-- New-module tables
+DO $$
+DECLARE
+  t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY[
+    'special_dates','family_photos','milestones','saved_places',
+    'user_locations','health_records','messages'
+  ]
+  LOOP
+    EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
+    EXECUTE format('CREATE POLICY "%s_all" ON %I FOR ALL USING (auth_is_member_of(family_id)) WITH CHECK (auth_is_member_of(family_id))', t, t);
+  END LOOP;
+END $$;
 
 -- ---------------------------------------------------------------------------
--- Personal tables (no familyId) — each user sees only their own rows
+-- Personal tables (no family_id scope) — each user sees only their own rows
 -- ---------------------------------------------------------------------------
 ALTER TABLE fitness ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "fitness_all" ON fitness FOR ALL
-  USING ("userId" = auth.uid()::text)
-  WITH CHECK ("userId" = auth.uid()::text);
+  USING (user_id = auth.uid()::text)
+  WITH CHECK (user_id = auth.uid()::text);
 
 ALTER TABLE fitness_plans ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "fitness_plans_all" ON fitness_plans FOR ALL
-  USING ("userId" = auth.uid()::text)
-  WITH CHECK ("userId" = auth.uid()::text);
+  USING (user_id = auth.uid()::text)
+  WITH CHECK (user_id = auth.uid()::text);
 
 ALTER TABLE daily_habits ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "daily_habits_all" ON daily_habits FOR ALL
-  USING ("userId" = auth.uid()::text)
-  WITH CHECK ("userId" = auth.uid()::text);
+  USING (user_id = auth.uid()::text)
+  WITH CHECK (user_id = auth.uid()::text);
 
 ALTER TABLE daily_habit_completions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "daily_habit_completions_all" ON daily_habit_completions FOR ALL
   USING (
-    "userId" = auth.uid()::text
+    user_id = auth.uid()::text
     OR EXISTS (
       SELECT 1 FROM daily_habits dh
-      WHERE dh.id = daily_habit_completions."habitId"
-        AND dh."userId" = auth.uid()::text
+      WHERE dh.id = daily_habit_completions.habit_id
+        AND dh.user_id = auth.uid()::text
     )
   )
   WITH CHECK (
-    "userId" = auth.uid()::text
+    user_id = auth.uid()::text
   );
 
 -- period_cycles — users manage only their own rows
 ALTER TABLE period_cycles ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "period_cycles_all" ON period_cycles FOR ALL
-  USING ("userId" = auth.uid()::text)
-  WITH CHECK ("userId" = auth.uid()::text);
+  USING (user_id = auth.uid()::text)
+  WITH CHECK (user_id = auth.uid()::text);
 
 -- period_symptoms — users manage only their own rows
 ALTER TABLE period_symptoms ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "period_symptoms_all" ON period_symptoms FOR ALL
-  USING ("userId" = auth.uid()::text)
-  WITH CHECK ("userId" = auth.uid()::text);
+  USING (user_id = auth.uid()::text)
+  WITH CHECK (user_id = auth.uid()::text);
 
 -- device_tokens — users manage only their own tokens
 ALTER TABLE device_tokens ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users manage own tokens" ON device_tokens FOR ALL
-  USING  (auth.uid()::text = "userId")
-  WITH CHECK (auth.uid()::text = "userId");
+  USING  (auth.uid()::text = user_id)
+  WITH CHECK (auth.uid()::text = user_id);
+
+-- web_push_subscriptions — users manage only their own subscriptions
+ALTER TABLE web_push_subscriptions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users manage own web push subscriptions" ON web_push_subscriptions FOR ALL
+  USING  (auth.uid()::text = user_id)
+  WITH CHECK (auth.uid()::text = user_id);
 
 
 -- =============================================================================
 -- PERMISSIONS
 -- =============================================================================
--- Supabase's Table Editor auto-grants these, but tables created via the SQL
--- Editor don't always inherit them depending on project configuration.
--- Without these grants, Postgres denies access before RLS even evaluates,
--- so all reads and writes silently fail even with a valid auth session.
--- =============================================================================
-
--- Allow roles to use the public schema
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
-
--- Authenticated users can read and write their own/family data (RLS limits rows)
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO authenticated;
-
--- Anon users can only read (used for join-by-code lookup before auth)
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon;
-
--- Sequences (auto-increment PKs, e.g. device_tokens.id)
 GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO authenticated, anon;
 
--- Apply the same grants to any tables added in future migrations
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO authenticated;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
