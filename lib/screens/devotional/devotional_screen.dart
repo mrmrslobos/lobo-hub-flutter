@@ -271,8 +271,9 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
 
   /// Sync with the cloud to pick up server-generated devotionals
   /// (produced by the daily-devotional edge function even when the app is
-  /// closed). The server is the sole generator — no client-side fallback.
-  /// After sync, auto-opens today's devotional so it's the active reading.
+  /// closed). If the server hasn't generated one yet (e.g. cron not
+  /// configured or timing mismatch), falls back to client-side generation
+  /// so the user never sees a perpetual "Awaiting..." state.
   Future<void> _maybeGenerateDaily() async {
     if (!mounted) return;
     final provider = context.read<AppProvider>();
@@ -308,10 +309,97 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
         provider.updateDb(merged);
         // After sync, auto-open today's devotional if it arrived
         final synced = findTodaysDevotional();
-        if (synced != null) widget.onSelectEntry(synced);
+        if (synced != null) {
+          widget.onSelectEntry(synced);
+          return;
+        }
       }
     } catch (e) {
       debugPrint('Cloud sync for daily devotional failed: $e');
+    }
+
+    // Fallback: if scheduled time has passed and no devotional arrived from
+    // the server, generate one client-side so the user isn't stuck on
+    // "Awaiting..." forever.
+    if (!mounted) return;
+    final utcDt = DateTime.utc(2024, 1, 1, family.dailyDevotionalHour, family.dailyDevotionalMinute);
+    final localDt = utcDt.toLocal();
+    final scheduledToday = DateTime(today.year, today.month, today.day, localDt.hour, localDt.minute);
+    if (today.isBefore(scheduledToday)) return; // not yet time
+
+    await _generateDailyFallback(family.id);
+  }
+
+  /// Client-side fallback: generate today's daily devotional via AI when
+  /// the server-side cron hasn't produced one.
+  Future<void> _generateDailyFallback(String familyId) async {
+    if (AiService.isAIBlocked) return;
+    setState(() => _isGenerating = true);
+    try {
+      final provider = context.read<AppProvider>();
+      const prompt = '''Write a kids-friendly family devotional for today.
+Pick a random Bible verse and build a short, warm devotional around it.
+Return JSON with these exact fields: title, scripture, scriptureRef, content, reflectionPrompts (array of 3 discussion questions), prayer.
+For "scripture", write out the FULL verse text (e.g. "For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.").
+For "scriptureRef", provide only the reference (e.g. "John 3:16").
+Make the content warm, relatable, and suitable for children.''';
+
+      final raw = await AiService.ask(
+        prompt: prompt,
+        feature: 'ai_devotional',
+        familyId: familyId,
+        responseMimeType: 'application/json',
+      );
+
+      if (raw != null && mounted) {
+        provider.saveAiHistory(module: 'devotional', prompt: 'Auto-generate daily devotional', response: raw);
+        try {
+          final data = jsonDecode(raw) as Map<String, dynamic>;
+          final scriptureRef = data['scriptureRef'] as String?;
+          final scriptureText = data['scripture'] as String?;
+          final scripture = scriptureText != null && scriptureRef != null
+              ? '$scriptureText\n\u2014 $scriptureRef'
+              : scriptureText ?? scriptureRef;
+          final entry = DevotionalEntry(
+            id: const Uuid().v4(),
+            familyId: familyId,
+            creatorId: provider.activeUser?.id ?? '',
+            title: data['title'] as String? ?? 'Daily Devotional',
+            scripture: scripture,
+            content: data['content'] as String?,
+            reflectionPrompts: (data['reflectionPrompts'] as List?)?.cast<String>() ?? [],
+            prayer: data['prayer'] as String?,
+            date: DateTime.now(),
+            visibility: Visibility.FAMILY,
+            tags: ['daily-auto'],
+          );
+          final db = provider.db;
+          await provider.saveAndSync(db.copyWith(
+            devotionalEntries: [...db.devotionalEntries, entry],
+          ));
+          if (mounted) widget.onSelectEntry(entry);
+        } catch (_) {
+          final entry = DevotionalEntry(
+            id: const Uuid().v4(),
+            familyId: familyId,
+            creatorId: provider.activeUser?.id ?? '',
+            title: 'Daily Devotional',
+            content: raw,
+            date: DateTime.now(),
+            visibility: Visibility.FAMILY,
+            tags: ['daily-auto'],
+          );
+          final db = provider.db;
+          await provider.saveAndSync(db.copyWith(
+            devotionalEntries: [...db.devotionalEntries, entry],
+          ));
+          if (mounted) widget.onSelectEntry(entry);
+        }
+      }
+    } catch (e) {
+      debugPrint('Client-side daily devotional generation failed: $e');
+    } finally {
+      if (mounted) setState(() => _isGenerating = false);
     }
   }
 
@@ -420,6 +508,8 @@ Make the content warm, relatable, and suitable for children.''';
         _DailyDevotionalCard(
           familyId: widget.familyId,
           onTapToday: (entry) => widget.onSelectEntry(entry),
+          onGenerateNow: () => _generateDailyFallback(widget.familyId),
+          isGenerating: _isGenerating,
         ),
         const SizedBox(height: 24),
 
@@ -1548,8 +1638,10 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
 class _DailyDevotionalCard extends StatelessWidget {
   final String familyId;
   final ValueChanged<DevotionalEntry>? onTapToday;
+  final VoidCallback? onGenerateNow;
+  final bool isGenerating;
 
-  const _DailyDevotionalCard({required this.familyId, this.onTapToday});
+  const _DailyDevotionalCard({required this.familyId, this.onTapToday, this.onGenerateNow, this.isGenerating = false});
 
   static const _notifId = 9901; // stable ID for daily devotional notification
 
@@ -1677,7 +1769,35 @@ class _DailyDevotionalCard extends StatelessWidget {
                         )),
                       ),
                     )
-                  else
+                  else if (isGenerating)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 14, height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white.withValues(alpha: 0.7),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Generating...',
+                            style: TextStyle(
+                              fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13,
+                              color: Colors.white.withValues(alpha: 0.7),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else if (now.isBefore(DateTime(now.year, now.month, now.day, hour, minute)))
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                       decoration: BoxDecoration(
@@ -1685,12 +1805,28 @@ class _DailyDevotionalCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Text(
-                        now.isBefore(DateTime(now.year, now.month, now.day, hour, minute))
-                            ? 'Scheduled'
-                            : 'Awaiting...',
+                        'Scheduled',
                         style: TextStyle(
                           fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13,
                           color: Colors.white.withValues(alpha: 0.7),
+                        ),
+                      ),
+                    )
+                  else
+                    GestureDetector(
+                      onTap: onGenerateNow,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Text(
+                          'Generate Now',
+                          style: TextStyle(
+                            fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13,
+                            color: Color(0xFF6366F1),
+                          ),
                         ),
                       ),
                     ),
