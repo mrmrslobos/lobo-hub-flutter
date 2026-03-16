@@ -11,6 +11,7 @@ import '../models/models.dart';
 import '../services/database_service.dart';
 import '../services/notification_service.dart';
 import '../services/ai_service.dart';
+import '../services/field_encryption_service.dart';
 import '../services/supabase_service.dart';
 
 class AppProvider extends ChangeNotifier {
@@ -127,6 +128,7 @@ class AppProvider extends ChangeNotifier {
       if (family != null) {
         _activeUser = user;
         _activeFamily = family;
+        FieldEncryption.init(family.id, family.joinCode);
         _startRealtimeListener();
         NotificationService.registerDeviceToken(family.id, user.id);
       }
@@ -142,6 +144,7 @@ class AppProvider extends ChangeNotifier {
   void authenticate(User user, Family family) {
     _activeUser = user;
     _activeFamily = family;
+    FieldEncryption.init(family.id, family.joinCode);
     _syncAIFlag();
     // Only fall back to DatabaseService cache if _db hasn't been populated
     // (e.g. via setDb after cloud reconciliation).
@@ -291,6 +294,7 @@ class AppProvider extends ChangeNotifier {
       } catch (_) {}
     }
 
+    FieldEncryption.clear();
     await DatabaseService.clearLocal();
     _db = AppDB.empty();
     notifyListeners();
