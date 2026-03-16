@@ -179,8 +179,7 @@ class _FamilyHubAppState extends State<FamilyHubApp> with WidgetsBindingObserver
             onPopInvokedWithResult: (didPop, _) {
               if (didPop) return;
               // Let the screen handle back first (e.g. close a detail view)
-              final scope = BackNavigationScope.maybeOf(context);
-              if (scope != null && scope.onBack()) return;
+              if (BackNavigationScope.invokeActive()) return;
               // Nothing to go back to within the screen — go to dashboard
               context.go('/');
             },
@@ -348,25 +347,51 @@ class _FamilyHubAppState extends State<FamilyHubApp> with WidgetsBindingObserver
 // the ShellRoute PopScope can delegate back to the screen first.
 // ─────────────────────────────────────────────
 
-class BackNavigationScope extends InheritedWidget {
+class BackNavigationScope extends StatefulWidget {
   /// Called when the user triggers a back gesture. Return true if the screen
   /// handled it (e.g. dismissed a detail view); return false to let the shell
   /// navigate to dashboard.
   final bool Function() onBack;
+  final Widget child;
 
   const BackNavigationScope({
     super.key,
     required this.onBack,
-    required super.child,
+    required this.child,
   });
 
-  static BackNavigationScope? maybeOf(BuildContext context) {
-    return context.dependOnInheritedWidgetOfExactType<BackNavigationScope>();
+  /// Global registry so the ShellRoute PopScope (which sits *above* the child
+  /// in the widget tree) can reach the currently-active back handler.
+  static bool Function()? _activeHandler;
+  static bool invokeActive() => _activeHandler?.call() ?? false;
+
+  @override
+  State<BackNavigationScope> createState() => _BackNavigationScopeState();
+}
+
+class _BackNavigationScopeState extends State<BackNavigationScope> {
+  @override
+  void initState() {
+    super.initState();
+    BackNavigationScope._activeHandler = widget.onBack;
   }
 
   @override
-  bool updateShouldNotify(BackNavigationScope oldWidget) =>
-      onBack != oldWidget.onBack;
+  void didUpdateWidget(BackNavigationScope oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    BackNavigationScope._activeHandler = widget.onBack;
+  }
+
+  @override
+  void dispose() {
+    if (BackNavigationScope._activeHandler == widget.onBack) {
+      BackNavigationScope._activeHandler = null;
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 // ─────────────────────────────────────────────
