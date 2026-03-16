@@ -112,6 +112,14 @@ Deno.serve(async (req) => {
         };
       }
 
+      // Gemini 2.5+ models return "thinking" parts by default which can
+      // break JSON extraction from parts[0]. Disable thinking for clean output.
+      if (model.includes('2.5')) {
+        const gc = (body.generationConfig ?? {}) as Record<string, unknown>;
+        gc.thinkingConfig = { thinkingBudget: 0 };
+        body.generationConfig = gc;
+      }
+
       geminiResponse = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
@@ -130,7 +138,10 @@ Deno.serve(async (req) => {
     }
 
     const geminiData = await geminiResponse.json();
-    const text = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+    // Find the last non-thinking text part (Gemini 2.5+ may prepend thought parts)
+    const parts = geminiData?.candidates?.[0]?.content?.parts ?? [];
+    const textParts = parts.filter((p: Record<string, unknown>) => 'text' in p && !p.thought);
+    const text = textParts.length > 0 ? (textParts[textParts.length - 1].text as string) : '';
 
     return new Response(JSON.stringify({ text }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
