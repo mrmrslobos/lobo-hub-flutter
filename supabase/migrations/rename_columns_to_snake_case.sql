@@ -428,299 +428,170 @@ $$;
 -- =============================================================================
 -- Recreate all RLS policies with snake_case column references
 -- =============================================================================
+-- All policy operations are wrapped in a DO block that checks table existence
+-- first, so this migration works even if some tables haven't been created yet.
+-- =============================================================================
 
--- ---------------------------------------------------------------------------
--- users
--- ---------------------------------------------------------------------------
-DROP POLICY IF EXISTS "users_select" ON users;
-CREATE POLICY "users_select" ON users FOR SELECT
-  USING (
-    id = auth.uid()::text
-    OR EXISTS (
-      SELECT 1 FROM family_members fm1
-      JOIN family_members fm2 ON fm1.family_id = fm2.family_id
-      WHERE fm1.user_id = auth.uid()::text
-        AND fm2.user_id = users.id
-    )
-  );
-
-DROP POLICY IF EXISTS "users_insert" ON users;
-CREATE POLICY "users_insert" ON users FOR INSERT
-  WITH CHECK (id = auth.uid()::text);
-
-DROP POLICY IF EXISTS "users_update" ON users;
-CREATE POLICY "users_update" ON users FOR UPDATE
-  USING (id = auth.uid()::text)
-  WITH CHECK (id = auth.uid()::text);
-
-DROP POLICY IF EXISTS "users_delete" ON users;
-CREATE POLICY "users_delete" ON users FOR DELETE
-  USING (id = auth.uid()::text);
-
--- ---------------------------------------------------------------------------
--- families
--- ---------------------------------------------------------------------------
-DROP POLICY IF EXISTS "families_select" ON families;
-CREATE POLICY "families_select" ON families FOR SELECT
-  USING (auth_is_member_of(id));
-
-DROP POLICY IF EXISTS "families_insert" ON families;
-CREATE POLICY "families_insert" ON families FOR INSERT
-  WITH CHECK (auth.uid() IS NOT NULL);
-
-DROP POLICY IF EXISTS "families_update" ON families;
-CREATE POLICY "families_update" ON families FOR UPDATE
-  USING (owner_id = auth.uid()::text)
-  WITH CHECK (owner_id = auth.uid()::text);
-
-DROP POLICY IF EXISTS "families_delete" ON families;
-CREATE POLICY "families_delete" ON families FOR DELETE
-  USING (owner_id = auth.uid()::text);
-
--- ---------------------------------------------------------------------------
--- family_members
--- ---------------------------------------------------------------------------
-DROP POLICY IF EXISTS "family_members_select" ON family_members;
-CREATE POLICY "family_members_select" ON family_members FOR SELECT
-  USING (auth_is_member_of(family_id));
-
-DROP POLICY IF EXISTS "family_members_insert" ON family_members;
-CREATE POLICY "family_members_insert" ON family_members FOR INSERT
-  WITH CHECK (
-    user_id = auth.uid()::text
-    OR EXISTS (
-      SELECT 1 FROM family_members fm
-      WHERE fm.family_id = family_members.family_id
-        AND fm.user_id = auth.uid()::text
-        AND fm.role IN ('OWNER', 'ADMIN')
-    )
-  );
-
-DROP POLICY IF EXISTS "family_members_update" ON family_members;
-CREATE POLICY "family_members_update" ON family_members FOR UPDATE
-  USING (
-    user_id = auth.uid()::text
-    OR EXISTS (
-      SELECT 1 FROM family_members fm
-      WHERE fm.family_id = family_members.family_id
-        AND fm.user_id = auth.uid()::text
-        AND fm.role IN ('OWNER', 'ADMIN')
-    )
-  )
-  WITH CHECK (
-    user_id = auth.uid()::text
-    OR EXISTS (
-      SELECT 1 FROM family_members fm
-      WHERE fm.family_id = family_members.family_id
-        AND fm.user_id = auth.uid()::text
-        AND fm.role IN ('OWNER', 'ADMIN')
-    )
-  );
-
-DROP POLICY IF EXISTS "family_members_delete" ON family_members;
-CREATE POLICY "family_members_delete" ON family_members FOR DELETE
-  USING (
-    user_id = auth.uid()::text
-    OR EXISTS (
-      SELECT 1 FROM family_members fm
-      WHERE fm.family_id = family_members.family_id
-        AND fm.user_id = auth.uid()::text
-        AND fm.role IN ('OWNER', 'ADMIN')
-    )
-  );
-
--- ---------------------------------------------------------------------------
--- Family-scoped tables (auth_is_member_of uses snake_case internally now)
--- ---------------------------------------------------------------------------
-DROP POLICY IF EXISTS "tasks_all" ON tasks;
-CREATE POLICY "tasks_all" ON tasks FOR ALL
-  USING (auth_is_member_of(family_id))
-  WITH CHECK (auth_is_member_of(family_id));
-
-DROP POLICY IF EXISTS "events_all" ON events;
-CREATE POLICY "events_all" ON events FOR ALL
-  USING (auth_is_member_of(family_id))
-  WITH CHECK (auth_is_member_of(family_id));
-
-DROP POLICY IF EXISTS "recipes_all" ON recipes;
-CREATE POLICY "recipes_all" ON recipes FOR ALL
-  USING (auth_is_member_of(family_id))
-  WITH CHECK (auth_is_member_of(family_id));
-
-DROP POLICY IF EXISTS "meal_plans_all" ON meal_plans;
-CREATE POLICY "meal_plans_all" ON meal_plans FOR ALL
-  USING (auth_is_member_of(family_id))
-  WITH CHECK (auth_is_member_of(family_id));
-
-DROP POLICY IF EXISTS "lists_all" ON lists;
-CREATE POLICY "lists_all" ON lists FOR ALL
-  USING (auth_is_member_of(family_id))
-  WITH CHECK (auth_is_member_of(family_id));
-
-DROP POLICY IF EXISTS "devotionals_all" ON devotionals;
-CREATE POLICY "devotionals_all" ON devotionals FOR ALL
-  USING (auth_is_member_of(family_id))
-  WITH CHECK (auth_is_member_of(family_id));
-
-DROP POLICY IF EXISTS "budget_categories_all" ON budget_categories;
-CREATE POLICY "budget_categories_all" ON budget_categories FOR ALL
-  USING (auth_is_member_of(family_id))
-  WITH CHECK (auth_is_member_of(family_id));
-
-DROP POLICY IF EXISTS "transactions_all" ON transactions;
-CREATE POLICY "transactions_all" ON transactions FOR ALL
-  USING (auth_is_member_of(family_id))
-  WITH CHECK (auth_is_member_of(family_id));
-
-DROP POLICY IF EXISTS "ai_history_all" ON ai_history;
-CREATE POLICY "ai_history_all" ON ai_history FOR ALL
-  USING (auth_is_member_of(family_id))
-  WITH CHECK (auth_is_member_of(family_id));
-
-DROP POLICY IF EXISTS "chores_all" ON chores;
-CREATE POLICY "chores_all" ON chores FOR ALL
-  USING (auth_is_member_of(family_id))
-  WITH CHECK (auth_is_member_of(family_id));
-
-DROP POLICY IF EXISTS "chore_completions_all" ON chore_completions;
-CREATE POLICY "chore_completions_all" ON chore_completions FOR ALL
-  USING (auth_is_member_of(family_id))
-  WITH CHECK (auth_is_member_of(family_id));
-
-DROP POLICY IF EXISTS "polls_all" ON polls;
-CREATE POLICY "polls_all" ON polls FOR ALL
-  USING (auth_is_member_of(family_id))
-  WITH CHECK (auth_is_member_of(family_id));
-
-DROP POLICY IF EXISTS "poll_votes_all" ON poll_votes;
-CREATE POLICY "poll_votes_all" ON poll_votes FOR ALL
-  USING (auth_is_member_of(family_id))
-  WITH CHECK (auth_is_member_of(family_id));
-
-DROP POLICY IF EXISTS "external_calendars_all" ON external_calendars;
-CREATE POLICY "external_calendars_all" ON external_calendars FOR ALL
-  USING (auth_is_member_of(family_id))
-  WITH CHECK (auth_is_member_of(family_id));
-
-DROP POLICY IF EXISTS "rewards_all" ON rewards;
-CREATE POLICY "rewards_all" ON rewards FOR ALL
-  USING (auth_is_member_of(family_id))
-  WITH CHECK (auth_is_member_of(family_id));
-
-DROP POLICY IF EXISTS "reward_items_all" ON reward_items;
-CREATE POLICY "reward_items_all" ON reward_items FOR ALL
-  USING (auth_is_member_of(family_id))
-  WITH CHECK (auth_is_member_of(family_id));
-
-DROP POLICY IF EXISTS "reward_redemptions_all" ON reward_redemptions;
-CREATE POLICY "reward_redemptions_all" ON reward_redemptions FOR ALL
-  USING (auth_is_member_of(family_id))
-  WITH CHECK (auth_is_member_of(family_id));
-
-DROP POLICY IF EXISTS "savings_goals_all" ON savings_goals;
-CREATE POLICY "savings_goals_all" ON savings_goals FOR ALL
-  USING (auth_is_member_of(family_id))
-  WITH CHECK (auth_is_member_of(family_id));
-
-DROP POLICY IF EXISTS "prayer_wall_all" ON prayer_wall;
-CREATE POLICY "prayer_wall_all" ON prayer_wall FOR ALL
-  USING (auth_is_member_of(family_id))
-  WITH CHECK (auth_is_member_of(family_id));
-
-DROP POLICY IF EXISTS "reading_plans_all" ON reading_plans;
-CREATE POLICY "reading_plans_all" ON reading_plans FOR ALL
-  USING (auth_is_member_of(family_id))
-  WITH CHECK (auth_is_member_of(family_id));
-
-DROP POLICY IF EXISTS "reading_plan_progress_all" ON reading_plan_progress;
-CREATE POLICY "reading_plan_progress_all" ON reading_plan_progress FOR ALL
-  USING (auth_is_member_of(family_id))
-  WITH CHECK (auth_is_member_of(family_id));
-
--- ---------------------------------------------------------------------------
--- Personal tables — user sees only their own rows
--- ---------------------------------------------------------------------------
-DROP POLICY IF EXISTS "fitness_all" ON fitness;
-CREATE POLICY "fitness_all" ON fitness FOR ALL
-  USING (user_id = auth.uid()::text)
-  WITH CHECK (user_id = auth.uid()::text);
-
-DROP POLICY IF EXISTS "fitness_plans_all" ON fitness_plans;
-CREATE POLICY "fitness_plans_all" ON fitness_plans FOR ALL
-  USING (user_id = auth.uid()::text)
-  WITH CHECK (user_id = auth.uid()::text);
-
-DROP POLICY IF EXISTS "daily_habits_all" ON daily_habits;
-CREATE POLICY "daily_habits_all" ON daily_habits FOR ALL
-  USING (user_id = auth.uid()::text)
-  WITH CHECK (user_id = auth.uid()::text);
-
-DROP POLICY IF EXISTS "daily_habit_completions_all" ON daily_habit_completions;
-CREATE POLICY "daily_habit_completions_all" ON daily_habit_completions FOR ALL
-  USING (
-    user_id = auth.uid()::text
-    OR EXISTS (
-      SELECT 1 FROM daily_habits dh
-      WHERE dh.id = daily_habit_completions.habit_id
-        AND dh.user_id = auth.uid()::text
-    )
-  )
-  WITH CHECK (user_id = auth.uid()::text);
-
-DROP POLICY IF EXISTS "period_cycles_all" ON period_cycles;
-CREATE POLICY "period_cycles_all" ON period_cycles FOR ALL
-  USING (user_id = auth.uid()::text)
-  WITH CHECK (user_id = auth.uid()::text);
-
-DROP POLICY IF EXISTS "period_symptoms_all" ON period_symptoms;
-CREATE POLICY "period_symptoms_all" ON period_symptoms FOR ALL
-  USING (user_id = auth.uid()::text)
-  WITH CHECK (user_id = auth.uid()::text);
-
-DROP POLICY IF EXISTS "Users manage own tokens" ON device_tokens;
-CREATE POLICY "Users manage own tokens" ON device_tokens FOR ALL
-  USING  (auth.uid()::text = user_id)
-  WITH CHECK (auth.uid()::text = user_id);
-
--- Also drop any old permissive policies from schema.sql
 DO $$
 DECLARE
-  t text;
+  _t text;
 BEGIN
-  FOREACH t IN ARRAY ARRAY[
-    'users','families','family_members','tasks','events','recipes','meal_plans',
-    'lists','devotionals','fitness','fitness_plans','budget_categories','transactions','ai_history',
-    'daily_habits','daily_habit_completions','chores','chore_completions','polls','poll_votes',
-    'external_calendars','rewards','reward_items','reward_redemptions','savings_goals',
+  -- -----------------------------------------------------------------------
+  -- Helper: drop + create a policy only if the table exists
+  -- -----------------------------------------------------------------------
+
+  -- users (special: cross-family visibility)
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='users') THEN
+    EXECUTE 'DROP POLICY IF EXISTS "users_select" ON users';
+    EXECUTE $p$CREATE POLICY "users_select" ON users FOR SELECT
+      USING (
+        id = auth.uid()::text
+        OR EXISTS (
+          SELECT 1 FROM family_members fm1
+          JOIN family_members fm2 ON fm1.family_id = fm2.family_id
+          WHERE fm1.user_id = auth.uid()::text
+            AND fm2.user_id = users.id
+        )
+      )$p$;
+    EXECUTE 'DROP POLICY IF EXISTS "users_insert" ON users';
+    EXECUTE $p$CREATE POLICY "users_insert" ON users FOR INSERT WITH CHECK (id = auth.uid()::text)$p$;
+    EXECUTE 'DROP POLICY IF EXISTS "users_update" ON users';
+    EXECUTE $p$CREATE POLICY "users_update" ON users FOR UPDATE USING (id = auth.uid()::text) WITH CHECK (id = auth.uid()::text)$p$;
+    EXECUTE 'DROP POLICY IF EXISTS "users_delete" ON users';
+    EXECUTE $p$CREATE POLICY "users_delete" ON users FOR DELETE USING (id = auth.uid()::text)$p$;
+  END IF;
+
+  -- families (special: owner-based update/delete)
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='families') THEN
+    EXECUTE 'DROP POLICY IF EXISTS "families_select" ON families';
+    EXECUTE $p$CREATE POLICY "families_select" ON families FOR SELECT USING (auth_is_member_of(id))$p$;
+    EXECUTE 'DROP POLICY IF EXISTS "families_insert" ON families';
+    EXECUTE $p$CREATE POLICY "families_insert" ON families FOR INSERT WITH CHECK (auth.uid() IS NOT NULL)$p$;
+    EXECUTE 'DROP POLICY IF EXISTS "families_update" ON families';
+    EXECUTE $p$CREATE POLICY "families_update" ON families FOR UPDATE USING (owner_id = auth.uid()::text) WITH CHECK (owner_id = auth.uid()::text)$p$;
+    EXECUTE 'DROP POLICY IF EXISTS "families_delete" ON families';
+    EXECUTE $p$CREATE POLICY "families_delete" ON families FOR DELETE USING (owner_id = auth.uid()::text)$p$;
+  END IF;
+
+  -- family_members (special: self + owner/admin)
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='family_members') THEN
+    EXECUTE 'DROP POLICY IF EXISTS "family_members_select" ON family_members';
+    EXECUTE $p$CREATE POLICY "family_members_select" ON family_members FOR SELECT USING (auth_is_member_of(family_id))$p$;
+    EXECUTE 'DROP POLICY IF EXISTS "family_members_insert" ON family_members';
+    EXECUTE $p$CREATE POLICY "family_members_insert" ON family_members FOR INSERT
+      WITH CHECK (
+        user_id = auth.uid()::text
+        OR EXISTS (
+          SELECT 1 FROM family_members fm
+          WHERE fm.family_id = family_members.family_id
+            AND fm.user_id = auth.uid()::text
+            AND fm.role IN ('OWNER', 'ADMIN')
+        )
+      )$p$;
+    EXECUTE 'DROP POLICY IF EXISTS "family_members_update" ON family_members';
+    EXECUTE $p$CREATE POLICY "family_members_update" ON family_members FOR UPDATE
+      USING (
+        user_id = auth.uid()::text
+        OR EXISTS (
+          SELECT 1 FROM family_members fm
+          WHERE fm.family_id = family_members.family_id
+            AND fm.user_id = auth.uid()::text
+            AND fm.role IN ('OWNER', 'ADMIN')
+        )
+      )
+      WITH CHECK (
+        user_id = auth.uid()::text
+        OR EXISTS (
+          SELECT 1 FROM family_members fm
+          WHERE fm.family_id = family_members.family_id
+            AND fm.user_id = auth.uid()::text
+            AND fm.role IN ('OWNER', 'ADMIN')
+        )
+      )$p$;
+    EXECUTE 'DROP POLICY IF EXISTS "family_members_delete" ON family_members';
+    EXECUTE $p$CREATE POLICY "family_members_delete" ON family_members FOR DELETE
+      USING (
+        user_id = auth.uid()::text
+        OR EXISTS (
+          SELECT 1 FROM family_members fm
+          WHERE fm.family_id = family_members.family_id
+            AND fm.user_id = auth.uid()::text
+            AND fm.role IN ('OWNER', 'ADMIN')
+        )
+      )$p$;
+  END IF;
+
+  -- Family-scoped tables: auth_is_member_of(family_id)
+  FOREACH _t IN ARRAY ARRAY[
+    'tasks','events','recipes','meal_plans','lists','devotionals',
+    'budget_categories','transactions','ai_history',
+    'chores','chore_completions','polls','poll_votes','external_calendars',
+    'rewards','reward_items','reward_redemptions','savings_goals',
     'prayer_wall','reading_plans','reading_plan_progress',
-    'special_dates','family_photos','milestones','saved_places','user_locations','health_records','messages'
+    'special_dates','family_photos','milestones','saved_places',
+    'user_locations','health_records','messages'
   ]
   LOOP
-    EXECUTE format('DROP POLICY IF EXISTS "%s_rw_auth" ON %I', t, t);
-    EXECUTE format('DROP POLICY IF EXISTS "%s_ro_anon" ON %I', t, t);
-    EXECUTE format('DROP POLICY IF EXISTS "%s_rw_anon" ON %I', t, t);
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name=_t) THEN
+      -- Drop old permissive policies from schema.sql
+      EXECUTE format('DROP POLICY IF EXISTS "%s_rw_auth" ON %I', _t, _t);
+      EXECUTE format('DROP POLICY IF EXISTS "%s_ro_anon" ON %I', _t, _t);
+      EXECUTE format('DROP POLICY IF EXISTS "%s_rw_anon" ON %I', _t, _t);
+      -- Drop and recreate the _all policy
+      EXECUTE format('DROP POLICY IF EXISTS "%s_all" ON %I', _t, _t);
+      EXECUTE format('CREATE POLICY "%s_all" ON %I FOR ALL USING (auth_is_member_of(family_id)) WITH CHECK (auth_is_member_of(family_id))', _t, _t);
+    END IF;
   END LOOP;
-END $$;
 
--- New-module tables with family-scoped policies
-DO $$
-DECLARE
-  t text;
-BEGIN
-  FOREACH t IN ARRAY ARRAY[
-    'special_dates','family_photos','milestones','saved_places','user_locations','health_records','messages'
+  -- Personal tables: user_id = auth.uid()
+  FOREACH _t IN ARRAY ARRAY[
+    'fitness','fitness_plans','daily_habits','period_cycles','period_symptoms'
   ]
   LOOP
-    EXECUTE format('DROP POLICY IF EXISTS "%s_all" ON %I', t, t);
-    EXECUTE format('CREATE POLICY "%s_all" ON %I FOR ALL USING (auth_is_member_of(family_id)) WITH CHECK (auth_is_member_of(family_id))', t, t);
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name=_t) THEN
+      EXECUTE format('DROP POLICY IF EXISTS "%s_rw_auth" ON %I', _t, _t);
+      EXECUTE format('DROP POLICY IF EXISTS "%s_ro_anon" ON %I', _t, _t);
+      EXECUTE format('DROP POLICY IF EXISTS "%s_rw_anon" ON %I', _t, _t);
+      EXECUTE format('DROP POLICY IF EXISTS "%s_all" ON %I', _t, _t);
+      EXECUTE format('CREATE POLICY "%s_all" ON %I FOR ALL USING (user_id = auth.uid()::text) WITH CHECK (user_id = auth.uid()::text)', _t, _t);
+    END IF;
   END LOOP;
-END $$;
 
--- Web push subscriptions
-DROP POLICY IF EXISTS "Users manage own web push subscriptions" ON web_push_subscriptions;
-CREATE POLICY "Users manage own web push subscriptions" ON web_push_subscriptions FOR ALL
-  USING  (auth.uid()::text = user_id)
-  WITH CHECK (auth.uid()::text = user_id);
+  -- daily_habit_completions (special: owner of habit can also see)
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='daily_habit_completions') THEN
+    EXECUTE 'DROP POLICY IF EXISTS "daily_habit_completions_rw_auth" ON daily_habit_completions';
+    EXECUTE 'DROP POLICY IF EXISTS "daily_habit_completions_ro_anon" ON daily_habit_completions';
+    EXECUTE 'DROP POLICY IF EXISTS "daily_habit_completions_rw_anon" ON daily_habit_completions';
+    EXECUTE 'DROP POLICY IF EXISTS "daily_habit_completions_all" ON daily_habit_completions';
+    EXECUTE $p$CREATE POLICY "daily_habit_completions_all" ON daily_habit_completions FOR ALL
+      USING (
+        user_id = auth.uid()::text
+        OR EXISTS (
+          SELECT 1 FROM daily_habits dh
+          WHERE dh.id = daily_habit_completions.habit_id
+            AND dh.user_id = auth.uid()::text
+        )
+      )
+      WITH CHECK (user_id = auth.uid()::text)$p$;
+  END IF;
+
+  -- device_tokens
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='device_tokens') THEN
+    EXECUTE 'DROP POLICY IF EXISTS "Users manage own tokens" ON device_tokens';
+    EXECUTE $p$CREATE POLICY "Users manage own tokens" ON device_tokens FOR ALL
+      USING  (auth.uid()::text = user_id)
+      WITH CHECK (auth.uid()::text = user_id)$p$;
+  END IF;
+
+  -- web_push_subscriptions
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='web_push_subscriptions') THEN
+    EXECUTE 'DROP POLICY IF EXISTS "Users manage own web push subscriptions" ON web_push_subscriptions';
+    EXECUTE $p$CREATE POLICY "Users manage own web push subscriptions" ON web_push_subscriptions FOR ALL
+      USING  (auth.uid()::text = user_id)
+      WITH CHECK (auth.uid()::text = user_id)$p$;
+  END IF;
+
+END $$;
 
 -- ---------------------------------------------------------------------------
 -- Clean up helper function
