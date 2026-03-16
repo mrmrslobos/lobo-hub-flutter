@@ -101,19 +101,20 @@ class AppProvider extends ChangeNotifier {
       } catch (_) {}
     }
 
-    // Reconcile with cloud in the background (non-blocking)
+    // Reconcile with cloud
     if (knownFamilyId != null && SupabaseService.isConfigured) {
-      final fid = knownFamilyId;
-      _pullFromCloud();
-    } else if (user == null && knownFamilyId != null) {
-      // User not in local DB — must wait for cloud sync
-      try {
-        _db = await DatabaseService.reconcileCloud(_db, knownFamilyId);
-        user = _db.users.firstWhereOrNull((u) => u.id == userId);
-        if (user != null) _setActiveUserFamily(user, knownFamilyId);
-      } catch (e) {
-        debugPrint('[AppProvider] Cloud reconciliation failed: $e');
+      // If user not in local DB, we must sync from cloud first
+      if (user == null) {
+        try {
+          _db = await DatabaseService.reconcileCloud(_db, knownFamilyId);
+          user = _db.users.firstWhereOrNull((u) => u.id == userId);
+          if (user != null) _setActiveUserFamily(user, knownFamilyId);
+        } catch (e) {
+          debugPrint('[AppProvider] Cloud reconciliation failed: $e');
+        }
       }
+      // Background pull for any remaining updates
+      _pullFromCloud();
     }
   }
 
