@@ -53,6 +53,7 @@ class _DevotionalScreenState extends State<DevotionalScreen>
   late final TabController _tabController;
   DevotionalEntry? _selectedEntry;
   ReadingPlan? _selectedPlan;
+  bool _dismissedAutoOpen = false;
 
   @override
   void initState() {
@@ -98,12 +99,12 @@ class _DevotionalScreenState extends State<DevotionalScreen>
     if (_selectedEntry != null) {
       return BackNavigationScope(
         onBack: () {
-          setState(() => _selectedEntry = null);
+          setState(() { _selectedEntry = null; _dismissedAutoOpen = true; });
           return true;
         },
         child: _EntryDetailView(
           entry: _selectedEntry!,
-          onBack: () => setState(() => _selectedEntry = null),
+          onBack: () => setState(() { _selectedEntry = null; _dismissedAutoOpen = true; }),
           onDelete: () => _deleteEntry(_selectedEntry!.id),
           onUpdatePrayer: (prayer) async {
             final provider = context.read<AppProvider>();
@@ -214,6 +215,7 @@ class _DevotionalScreenState extends State<DevotionalScreen>
                 familyId: family.id,
                 onSelectEntry: (e) => setState(() => _selectedEntry = e),
                 onDeleteEntry: (id) => _deleteEntry(id),
+                skipAutoOpen: _dismissedAutoOpen,
               )
             else
               _ReadingPlansTab(
@@ -236,12 +238,14 @@ class _DevotionalsTab extends StatefulWidget {
   final String familyId;
   final ValueChanged<DevotionalEntry> onSelectEntry;
   final ValueChanged<String> onDeleteEntry;
+  final bool skipAutoOpen;
 
   const _DevotionalsTab({
     required this.entries,
     required this.familyId,
     required this.onSelectEntry,
     required this.onDeleteEntry,
+    this.skipAutoOpen = false,
   });
 
   @override
@@ -296,9 +300,10 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
     }
 
     // Already have today's devotional locally — auto-open it
+    // (unless user already dismissed it by pressing back)
     final existing = findTodaysDevotional();
     if (existing != null) {
-      if (mounted) widget.onSelectEntry(existing);
+      if (mounted && !widget.skipAutoOpen) widget.onSelectEntry(existing);
       return;
     }
 
@@ -310,7 +315,7 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
         // After sync, auto-open today's devotional if it arrived
         final synced = findTodaysDevotional();
         if (synced != null) {
-          widget.onSelectEntry(synced);
+          if (!widget.skipAutoOpen) widget.onSelectEntry(synced);
           return;
         }
       }
