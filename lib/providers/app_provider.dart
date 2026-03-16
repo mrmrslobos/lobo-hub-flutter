@@ -5,7 +5,7 @@
 
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
+import 'package:supabase_flutter/supabase_flutter.dart' show PostgresChangeEvent, PostgresChangeFilter, PostgresChangeFilterType, RealtimeChannel, Supabase;
 
 import '../models/models.dart';
 import '../services/database_service.dart';
@@ -21,6 +21,7 @@ class AppProvider extends ChangeNotifier {
   bool _isLocked = false;
   Set<String> _unreadModules = {};
   RealtimeChannel? _realtimeChannel;
+  RealtimeChannel? _postgresChannel;
   bool _isSyncing = false;
 
   // ── Getters ───────────────────────────────────────────────────────────────
@@ -165,28 +166,89 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Start listening for realtime changes from other family members.
+  /// All family-scoped tables that should trigger a sync on any change.
+  static const _realtimeTables = [
+    'tasks',
+    'events',
+    'recipes',
+    'meal_plans',
+    'lists',
+    'devotionals',
+    'budget_categories',
+    'transactions',
+    'chores',
+    'chore_completions',
+    'polls',
+    'poll_votes',
+    'reward_items',
+    'reward_redemptions',
+    'savings_goals',
+    'prayer_wall',
+    'special_dates',
+    'family_photos',
+    'milestones',
+    'saved_places',
+    'messages',
+    'health_records',
+    'reading_plans',
+    'rewards',
+  ];
+
+  /// Start listening for realtime changes — both from other clients
+  /// (broadcast) and from server-side processes (Postgres changes).
   void _startRealtimeListener() {
     _stopRealtimeListener();
     final familyId = _activeFamily?.id;
     if (familyId == null || !SupabaseService.isConfigured) return;
 
+    // Channel 1: Broadcast — kept for backward compatibility with clients
+    // that haven't updated yet. Will be removed once all clients use
+    // Postgres Realtime.
     _realtimeChannel = SupabaseService.subscribeToFamily(
       familyId,
       onBroadcast: (payload) {
-        // Ignore our own broadcasts to avoid race condition where we pull
-        // stale cloud data before our own sync has propagated.
         final senderId = payload is Map ? payload['user_id'] : null;
         if (senderId == _activeUser?.id) return;
         _pullFromCloud();
       },
     );
+
+    // Channel 2: Postgres Realtime — listens for INSERT/UPDATE/DELETE on
+    // all family-scoped tables. Catches changes from edge functions, cron
+    // jobs, other clients, and direct DB edits. More reliable than
+    // broadcast since it doesn't depend on clients sending notifications.
+    try {
+      var channel = Supabase.instance.client.channel('postgres:$familyId');
+      for (final table in _realtimeTables) {
+        channel = channel.onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: table,
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'family_id',
+            value: familyId,
+          ),
+          callback: (payload) {
+            debugPrint('[AppProvider] Postgres change on ${payload.table} — syncing');
+            _pullFromCloud();
+          },
+        );
+      }
+      _postgresChannel = channel.subscribe();
+    } catch (e) {
+      debugPrint('[AppProvider] Postgres realtime subscription failed: $e');
+    }
   }
 
   void _stopRealtimeListener() {
     if (_realtimeChannel != null) {
       SupabaseService.unsubscribe(_realtimeChannel!);
       _realtimeChannel = null;
+    }
+    if (_postgresChannel != null) {
+      SupabaseService.unsubscribe(_postgresChannel!);
+      _postgresChannel = null;
     }
   }
 
