@@ -1,0 +1,11 @@
+[project]
+id = "vinumlekpmddtbfkojkd"
+
+[functions.ai-proxy]
+verify_jwt = false
+
+[functions.daily-devotional]
+verify_jwt = false
+
+[functions.weekly-digest]
+verify_jwt = false
