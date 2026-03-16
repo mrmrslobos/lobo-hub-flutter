@@ -16,6 +16,7 @@ import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
 import '../../services/database_service.dart';
 import '../../services/notification_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/subscription_modal.dart';
@@ -1759,6 +1760,18 @@ class _DailyDevotionalCard extends StatelessWidget {
                       ),
                     ),
                   ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: () => _testEdgeFunction(context),
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(Icons.send_rounded, size: 16, color: Colors.white.withValues(alpha: 0.7)),
+                    ),
+                  ),
                   const Spacer(),
                   if (todayEntry != null)
                     GestureDetector(
@@ -1858,6 +1871,49 @@ class _DailyDevotionalCard extends StatelessWidget {
     // Cancel any previously scheduled local notification when toggling.
     if (!val) {
       await NotificationService.cancel(_notifId);
+    }
+  }
+
+  /// Manually invoke the daily-devotional edge function in test mode
+  /// to verify server-side generation + notifications work.
+  Future<void> _testEdgeFunction(BuildContext context) async {
+    final provider = context.read<AppProvider>();
+    final family = provider.activeFamily;
+    if (family == null) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Testing server-side devotional...')),
+    );
+
+    try {
+      final res = await Supabase.instance.client.functions.invoke(
+        'daily-devotional',
+        body: {'test': true, 'family_id': family.id},
+      );
+      if (!context.mounted) return;
+      final data = res.data;
+      final generated = data?['generated'] ?? 0;
+      final sent = data?['sent'] ?? 0;
+      final error = data?['error'];
+
+      if (error != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Server error: $error'), backgroundColor: Colors.red),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Generated: $generated, Notifications sent: $sent')),
+        );
+        // Sync to pick up the new devotional
+        if (generated > 0) {
+          await provider.refreshFromCloud();
+        }
+      }
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Edge function failed: $e'), backgroundColor: Colors.red),
+      );
     }
   }
 
