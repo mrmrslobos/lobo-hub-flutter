@@ -247,18 +247,25 @@ class DatabaseService {
     }
   }
 
-  /// Delete cloud rows for a family-scoped table that no longer exist locally.
+  /// Delete cloud rows for a family-scoped table that were intentionally
+  /// removed locally (tracked in [_deletedKeys]).
+  ///
+  /// Previously this deleted ANY cloud row not present locally, which caused
+  /// server-generated content (e.g. daily devotionals created by the
+  /// daily-devotional edge function) to be wiped before the app ever saw it.
+  /// Now it only deletes rows whose keys are in [_deletedKeys].
   static Future<void> _deleteRemovedRows(
     String table, Set<String> localIds, String familyId,
   ) async {
-    if (!SupabaseService.isConfigured) return;
+    if (!SupabaseService.isConfigured || _deletedKeys.isEmpty) return;
     try {
       final cloudRows = await SupabaseService.client
           .from(table)
           .select('id')
           .eq('family_id', familyId);
       final cloudIds = (cloudRows as List).map((r) => r['id'] as String).toSet();
-      final removed = cloudIds.difference(localIds);
+      // Only delete cloud rows that were intentionally deleted locally
+      final removed = cloudIds.intersection(_deletedKeys);
       for (final id in removed) {
         await SupabaseService.deleteRows(table, {'id': id});
       }
