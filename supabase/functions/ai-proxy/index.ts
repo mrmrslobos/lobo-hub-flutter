@@ -108,11 +108,11 @@ Deno.serve(async (req) => {
     let geminiResponse: Response | null = null;
 
     for (const model of MODEL_CANDIDATES) {
-      const body: Record<string, unknown> = {
+      const reqBody: Record<string, unknown> = {
         contents: [{ parts: [{ text: prompt }] }],
       };
       if (responseMimeType) {
-        body.generationConfig = {
+        reqBody.generationConfig = {
           responseMimeType,
           ...(responseSchema ? { responseSchema } : {}),
         };
@@ -120,15 +120,14 @@ Deno.serve(async (req) => {
 
       // Gemini 2.5+ models return "thinking" parts by default which can
       // break JSON extraction from parts[0]. Disable thinking for clean output.
+      // thinkingConfig is a top-level field, NOT inside generationConfig.
       if (model.includes('2.5')) {
-        const gc = (body.generationConfig ?? {}) as Record<string, unknown>;
-        gc.thinkingConfig = { thinkingBudget: 0 };
-        body.generationConfig = gc;
+        reqBody.thinkingConfig = { thinkingBudget: 0 };
       }
 
       geminiResponse = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(reqBody) },
       );
 
       if (geminiResponse.ok) break;

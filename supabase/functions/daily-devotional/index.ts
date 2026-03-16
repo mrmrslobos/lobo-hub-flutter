@@ -311,13 +311,15 @@ Make the content warm, relatable, and suitable for children.`;
 
     // Gemini 2.5+ models return "thinking" parts by default which breaks
     // JSON extraction from parts[0]. Disable thinking to get clean output.
+    // thinkingConfig is a top-level field, NOT inside generationConfig.
+    const geminiBody: Record<string, unknown> = { ...body };
     if (model.includes('2.5')) {
-      (body.generationConfig as Record<string, unknown>).thinkingConfig = { thinkingBudget: 0 };
+      geminiBody.thinkingConfig = { thinkingBudget: 0 };
     }
 
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(geminiBody) },
     );
 
     if (res.ok) {
