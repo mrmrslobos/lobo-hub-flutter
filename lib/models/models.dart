@@ -3,6 +3,8 @@
 
 // ignore_for_file: constant_identifier_names
 
+import '../services/field_encryption_service.dart';
+
 typedef PrayerRequest = PrayerWallEntry;
 typedef AIHistoryEntry = AIHistory;
 typedef PeriodEntry = PeriodCycle;
@@ -1318,22 +1320,25 @@ class BudgetCategoryRecord {
     this.visibility = Visibility.FAMILY,
   });
 
-  factory BudgetCategoryRecord.fromJson(Map<String, dynamic> j) => BudgetCategoryRecord(
-    id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    creatorId: j['creator_id'] as String? ?? '',
-    name: j['name'] as String? ?? '',
-    limit: ((j['limit'] as num?) ?? 0).toDouble(),
-    color: j['color'] as String? ?? '#6366f1',
-    visibility: visibilityFromString(j['visibility'] as String?),
-  );
+  factory BudgetCategoryRecord.fromJson(Map<String, dynamic> j) {
+    final fid = j['family_id'] as String? ?? '';
+    return BudgetCategoryRecord(
+      id: j['id'] as String? ?? '',
+      familyId: fid,
+      creatorId: j['creator_id'] as String? ?? '',
+      name: FieldEncryption.decryptField(j['name'] as String?, fid) ?? '',
+      limit: FieldEncryption.decryptDouble(j['limit'], fid) ?? 0,
+      color: j['color'] as String? ?? '#6366f1',
+      visibility: visibilityFromString(j['visibility'] as String?),
+    );
+  }
 
   Map<String, dynamic> toJson() => {
     'id': id,
     'family_id': familyId,
     'creator_id': creatorId,
-    'name': name,
-    'limit': limit,
+    'name': FieldEncryption.encryptField(name, familyId),
+    'limit': FieldEncryption.encryptNum(limit, familyId),
     'color': color,
     'visibility': visibility.name,
   };
@@ -1366,27 +1371,30 @@ class Transaction {
     this.visibility = Visibility.FAMILY,
   });
 
-  factory Transaction.fromJson(Map<String, dynamic> j) => Transaction(
-    id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    creatorId: j['creator_id'] as String? ?? '',
-    categoryId: j['category_id'] as String? ?? '',
-    amount: ((j['amount'] as num?) ?? 0).toDouble(),
-    type: transactionTypeFromString(j['type'] as String?),
-    date: _parseDate(j['date']),
-    description: j['description'] as String? ?? '',
-    visibility: visibilityFromString(j['visibility'] as String?),
-  );
+  factory Transaction.fromJson(Map<String, dynamic> j) {
+    final fid = j['family_id'] as String? ?? '';
+    return Transaction(
+      id: j['id'] as String? ?? '',
+      familyId: fid,
+      creatorId: j['creator_id'] as String? ?? '',
+      categoryId: j['category_id'] as String? ?? '',
+      amount: FieldEncryption.decryptDouble(j['amount'], fid) ?? 0,
+      type: transactionTypeFromString(j['type'] as String?),
+      date: _parseDate(j['date']),
+      description: FieldEncryption.decryptField(j['description'] as String?, fid) ?? '',
+      visibility: visibilityFromString(j['visibility'] as String?),
+    );
+  }
 
   Map<String, dynamic> toJson() => {
     'id': id,
     'family_id': familyId,
     'creator_id': creatorId,
     'category_id': categoryId,
-    'amount': amount,
+    'amount': FieldEncryption.encryptNum(amount, familyId),
     'type': type.name,
     'date': date.toIso8601String(),
-    'description': description,
+    'description': FieldEncryption.encryptField(description, familyId),
     'visibility': visibility.name,
   };
 }
@@ -2056,28 +2064,31 @@ class SavingsGoal {
        savedAmount = savedAmount ?? currentAmount ?? 0,
        completedAt = completedAt ?? deadline;
 
-  factory SavingsGoal.fromJson(Map<String, dynamic> j) => SavingsGoal(
-    id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    userId: j['user_id'] as String? ?? '',
-    title: j['title'] as String? ?? '',
-    icon: j['icon'] as String?,
-    imageUrl: j['image_url'] as String?,
-    targetAmount: (j['target_amount'] as num? ?? 0).toDouble(),
-    savedAmount: (j['saved_amount'] as num? ?? 0).toDouble(),
-    createdAt: _parseDate(j['created_at']),
-    completedAt: _parseDateOpt(j['completed_at']),
-  );
+  factory SavingsGoal.fromJson(Map<String, dynamic> j) {
+    final fid = j['family_id'] as String? ?? '';
+    return SavingsGoal(
+      id: j['id'] as String? ?? '',
+      familyId: fid,
+      userId: j['user_id'] as String? ?? '',
+      title: FieldEncryption.decryptField(j['title'] as String?, fid) ?? '',
+      icon: j['icon'] as String?,
+      imageUrl: j['image_url'] as String?,
+      targetAmount: FieldEncryption.decryptDouble(j['target_amount'], fid) ?? 0,
+      savedAmount: FieldEncryption.decryptDouble(j['saved_amount'], fid) ?? 0,
+      createdAt: _parseDate(j['created_at']),
+      completedAt: _parseDateOpt(j['completed_at']),
+    );
+  }
 
   Map<String, dynamic> toJson() => {
     'id': id,
     'family_id': familyId,
     'user_id': userId,
-    'title': title,
+    'title': FieldEncryption.encryptField(title, familyId),
     'icon': icon,
     'image_url': imageUrl,
-    'target_amount': targetAmount,
-    'saved_amount': savedAmount,
+    'target_amount': FieldEncryption.encryptNum(targetAmount, familyId),
+    'saved_amount': FieldEncryption.encryptNum(savedAmount, familyId),
     'created_at': createdAt.toIso8601String(),
     'completed_at': completedAt?.toIso8601String(),
   };
@@ -2365,18 +2376,20 @@ class ChatMessage {
   });
 
   factory ChatMessage.fromJson(Map<String, dynamic> j) {
-    final rawReactions = j['reactions'];
+    final fid = j['family_id'] as String? ?? '';
+    // Reactions may be encrypted as a JSON string or legacy plain map
+    final rawReactions = FieldEncryption.decryptJson(j['reactions'], fid);
     Map<String, List<String>> parsedReactions = {};
     if (rawReactions is Map) {
       rawReactions.forEach((k, v) {
-        parsedReactions[k.toString()] = (v as List).map((e) => e.toString()).toList();
+        parsedReactions[k.toString()] = (v is List) ? v.map((e) => e.toString()).toList() : <String>[];
       });
     }
     return ChatMessage(
       id: j['id'] as String? ?? '',
-      familyId: j['family_id'] as String? ?? '',
+      familyId: fid,
       userId: j['user_id'] as String? ?? '',
-      text: j['text'] as String? ?? '',
+      text: FieldEncryption.decryptField(j['text'] as String?, fid) ?? '',
       replyToId: j['reply_to_id'] as String?,
       reactions: parsedReactions,
       editedAt: _parseDateOpt(j['edited_at']),
@@ -2388,9 +2401,9 @@ class ChatMessage {
     'id': id,
     'family_id': familyId,
     'user_id': userId,
-    'text': text,
+    'text': FieldEncryption.encryptField(text, familyId),
     'reply_to_id': replyToId,
-    'reactions': reactions,
+    'reactions': FieldEncryption.encryptJson(reactions, familyId),
     'edited_at': editedAt?.toIso8601String(),
     'created_at': createdAt.toIso8601String(),
   };
@@ -2937,41 +2950,46 @@ class HealthRecord {
   String get userId => memberId;
   DateTime get date => updatedAt;
 
-  factory HealthRecord.fromJson(Map<String, dynamic> j) => HealthRecord(
-    id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    memberId: (j['member_id'] ?? j['user_id']) as String? ?? '',
-    updatedBy: j['updated_by'] as String?,
-    bloodType: bloodTypeFromString(j['blood_type'] as String?),
-    allergies: _parseList(j['allergies'], HealthAllergy.fromJson),
-    medications: _parseList(j['medications'], HealthMedication.fromJson),
-    conditions: _parseList(j['conditions'], HealthCondition.fromJson),
-    immunizations: _parseList(j['immunizations'], HealthImmunization.fromJson),
-    emergencyContacts: _parseList(j['emergency_contacts'], EmergencyContact.fromJson),
-    doctorName: j['doctor_name'] as String?,
-    doctorPhone: j['doctor_phone'] as String?,
-    insuranceProvider: j['insurance_provider'] as String?,
-    insurancePolicyNumber: j['insurance_policy_number'] as String?,
-    notes: j['notes'] as String?,
-    updatedAt: _parseDate(j['updated_at']),
-    type: j['type'] as String?,
-    title: j['title'] as String?,
-    data: (j['data'] as Map<String, dynamic>?)?.map((k, v) => MapEntry(k, v.toString())) ?? const {},
-  );
+  factory HealthRecord.fromJson(Map<String, dynamic> j) {
+    final fid = j['family_id'] as String? ?? '';
+    return HealthRecord(
+      id: j['id'] as String? ?? '',
+      familyId: fid,
+      memberId: (j['member_id'] ?? j['user_id']) as String? ?? '',
+      updatedBy: j['updated_by'] as String?,
+      bloodType: bloodTypeFromString(FieldEncryption.decryptField(j['blood_type'] as String?, fid)),
+      allergies: _parseList(FieldEncryption.decryptJson(j['allergies'], fid), HealthAllergy.fromJson),
+      medications: _parseList(FieldEncryption.decryptJson(j['medications'], fid), HealthMedication.fromJson),
+      conditions: _parseList(FieldEncryption.decryptJson(j['conditions'], fid), HealthCondition.fromJson),
+      immunizations: _parseList(FieldEncryption.decryptJson(j['immunizations'], fid), HealthImmunization.fromJson),
+      emergencyContacts: _parseList(FieldEncryption.decryptJson(j['emergency_contacts'], fid), EmergencyContact.fromJson),
+      doctorName: FieldEncryption.decryptField(j['doctor_name'] as String?, fid),
+      doctorPhone: FieldEncryption.decryptField(j['doctor_phone'] as String?, fid),
+      insuranceProvider: FieldEncryption.decryptField(j['insurance_provider'] as String?, fid),
+      insurancePolicyNumber: FieldEncryption.decryptField(j['insurance_policy_number'] as String?, fid),
+      notes: FieldEncryption.decryptField(j['notes'] as String?, fid),
+      updatedAt: _parseDate(j['updated_at']),
+      type: j['type'] as String?,
+      title: j['title'] as String?,
+      data: (j['data'] as Map<String, dynamic>?)?.map((k, v) => MapEntry(k, v.toString())) ?? const {},
+    );
+  }
 
   Map<String, dynamic> toJson() => {
     'id': id, 'family_id': familyId, 'member_id': memberId,
     'updated_by': updatedBy ?? memberId,
-    'blood_type': bloodType.name,
-    'allergies': allergies.map((e) => e.toJson()).toList(),
-    'medications': medications.map((e) => e.toJson()).toList(),
-    'conditions': conditions.map((e) => e.toJson()).toList(),
-    'immunizations': immunizations.map((e) => e.toJson()).toList(),
-    'emergency_contacts': emergencyContacts.map((e) => e.toJson()).toList(),
-    'doctor_name': doctorName, 'doctor_phone': doctorPhone,
-    'insurance_provider': insuranceProvider,
-    'insurance_policy_number': insurancePolicyNumber,
-    'notes': notes, 'updated_at': updatedAt.toIso8601String(),
+    'blood_type': FieldEncryption.encryptField(bloodType.name, familyId),
+    'allergies': FieldEncryption.encryptJson(allergies.map((e) => e.toJson()).toList(), familyId),
+    'medications': FieldEncryption.encryptJson(medications.map((e) => e.toJson()).toList(), familyId),
+    'conditions': FieldEncryption.encryptJson(conditions.map((e) => e.toJson()).toList(), familyId),
+    'immunizations': FieldEncryption.encryptJson(immunizations.map((e) => e.toJson()).toList(), familyId),
+    'emergency_contacts': FieldEncryption.encryptJson(emergencyContacts.map((e) => e.toJson()).toList(), familyId),
+    'doctor_name': FieldEncryption.encryptField(doctorName, familyId),
+    'doctor_phone': FieldEncryption.encryptField(doctorPhone, familyId),
+    'insurance_provider': FieldEncryption.encryptField(insuranceProvider, familyId),
+    'insurance_policy_number': FieldEncryption.encryptField(insurancePolicyNumber, familyId),
+    'notes': FieldEncryption.encryptField(notes, familyId),
+    'updated_at': updatedAt.toIso8601String(),
   };
 }
 
@@ -3002,16 +3020,19 @@ class PeriodCycle {
     List<String>? symptoms,
   }) : createdAt = createdAt ?? DateTime.now();
 
-  factory PeriodCycle.fromJson(Map<String, dynamic> j) => PeriodCycle(
-    id: j['id'] as String? ?? '',
-    userId: j['user_id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    startDate: _parseDate(j['start_date']),
-    endDate: _parseDateOpt(j['end_date']),
-    flowLevel: flowLevelFromString(j['flow_level'] as String?),
-    notes: j['notes'] as String?,
-    createdAt: _parseDate(j['created_at']),
-  );
+  factory PeriodCycle.fromJson(Map<String, dynamic> j) {
+    final fid = j['family_id'] as String? ?? '';
+    return PeriodCycle(
+      id: j['id'] as String? ?? '',
+      userId: j['user_id'] as String? ?? '',
+      familyId: fid,
+      startDate: _parseDate(j['start_date']),
+      endDate: _parseDateOpt(j['end_date']),
+      flowLevel: flowLevelFromString(FieldEncryption.decryptField(j['flow_level'] as String?, fid)),
+      notes: FieldEncryption.decryptField(j['notes'] as String?, fid),
+      createdAt: _parseDate(j['created_at']),
+    );
+  }
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -3019,8 +3040,8 @@ class PeriodCycle {
     'family_id': familyId,
     'start_date': startDate.toIso8601String(),
     'end_date': endDate?.toIso8601String(),
-    'flow_level': flowLevel.name,
-    'notes': notes,
+    'flow_level': FieldEncryption.encryptField(flowLevel.name, familyId),
+    'notes': FieldEncryption.encryptField(notes, familyId),
     'created_at': createdAt.toIso8601String(),
   };
 
@@ -3063,27 +3084,33 @@ class PeriodSymptomLog {
     required this.createdAt,
   });
 
-  factory PeriodSymptomLog.fromJson(Map<String, dynamic> j) => PeriodSymptomLog(
-    id: j['id'] as String? ?? '',
-    userId: j['user_id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    date: _parseDate(j['date']),
-    symptoms: _strList(j['symptoms']),
-    mood: j['mood'] != null ? cycleMoodFromString(j['mood'] as String?) : null,
-    painLevel: (j['pain_level'] as num?)?.toInt() ?? (j['painLevel'] as num?)?.toInt(),
-    notes: j['notes'] as String?,
-    createdAt: _parseDate(j['created_at']),
-  );
+  factory PeriodSymptomLog.fromJson(Map<String, dynamic> j) {
+    final fid = j['family_id'] as String? ?? '';
+    // symptoms may be encrypted as a JSON string or legacy plain list
+    final rawSymptoms = FieldEncryption.decryptJson(j['symptoms'], fid);
+    final moodRaw = j['mood'] ?? j['pain_level'] != null ? j['mood'] : null;
+    return PeriodSymptomLog(
+      id: j['id'] as String? ?? '',
+      userId: j['user_id'] as String? ?? '',
+      familyId: fid,
+      date: _parseDate(j['date']),
+      symptoms: rawSymptoms is List ? rawSymptoms.map((e) => e.toString()).toList() : _strList(rawSymptoms),
+      mood: moodRaw != null ? cycleMoodFromString(FieldEncryption.decryptField(moodRaw as String?, fid)) : null,
+      painLevel: FieldEncryption.decryptInt(j['pain_level'] ?? j['painLevel'], fid),
+      notes: FieldEncryption.decryptField(j['notes'] as String?, fid),
+      createdAt: _parseDate(j['created_at']),
+    );
+  }
 
   Map<String, dynamic> toJson() => {
     'id': id,
     'user_id': userId,
     'family_id': familyId,
     'date': date.toIso8601String(),
-    'symptoms': symptoms,
-    'mood': mood?.name,
-    'pain_level': painLevel,
-    'notes': notes,
+    'symptoms': FieldEncryption.encryptJson(symptoms, familyId),
+    'mood': FieldEncryption.encryptField(mood?.name, familyId),
+    'pain_level': FieldEncryption.encryptNum(painLevel, familyId),
+    'notes': FieldEncryption.encryptField(notes, familyId),
     'created_at': createdAt.toIso8601String(),
   };
 }
