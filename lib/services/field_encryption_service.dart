@@ -5,8 +5,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
-import 'package:encrypt/encrypt.dart';
-import 'package:flutter/foundation.dart';
+import 'package:encrypt/encrypt.dart' show AES, AESMode, Encrypted, Encrypter, IV, Key;
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 /// Encrypts / decrypts individual field values using AES-256-CBC with a
