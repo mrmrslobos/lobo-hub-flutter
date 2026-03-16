@@ -11,7 +11,8 @@
 -- weekly-digest, daily-devotional) which already use snake_case column names.
 -- =============================================================================
 
-BEGIN;
+-- NOTE: No BEGIN/COMMIT transaction wrapper — Supabase SQL Editor runs each
+-- statement independently. The migration is idempotent so this is safe.
 
 -- ---------------------------------------------------------------------------
 -- Helper: rename a column only if the old name exists and the new name does not
@@ -623,5 +624,3 @@ SELECT _recreate_policy('web_push_subscriptions', 'Users manage own web push sub
 DROP FUNCTION IF EXISTS _rename_col_if_exists(text, text, text);
 DROP FUNCTION IF EXISTS _recreate_policy(text, text, text, text, text);
 DROP FUNCTION IF EXISTS _drop_old_policies(text);
-
-COMMIT;
