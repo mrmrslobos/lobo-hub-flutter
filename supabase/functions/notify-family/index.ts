@@ -418,14 +418,14 @@ async function buildNotification(
   };
 
   if (table === 'tasks' && type === 'INSERT') {
-    const actorId = record.creatorId as string;
+    const actorId = record.creator_id as string;
     const actorName = await getActorName(actorId);
     const assignees = Array.isArray(record.assignees) ? (record.assignees as string[]) : [];
     // If the task is assigned to specific people (other than just the creator), notify only them.
     const nonCreatorAssignees = assignees.filter((id: string) => id !== actorId);
     if (nonCreatorAssignees.length > 0) {
       return {
-        familyId: record.familyId as string,
+        familyId: record.family_id as string,
         actorId,
         title: '📋 Task assigned to you',
         body: `${actorName} assigned you: ${record.title}`,
@@ -434,7 +434,7 @@ async function buildNotification(
       };
     }
     return {
-      familyId: record.familyId as string,
+      familyId: record.family_id as string,
       actorId,
       title: 'New task added',
       body: `${actorName} added: ${record.title}`,
@@ -445,10 +445,10 @@ async function buildNotification(
   if (table === 'tasks' && type === 'UPDATE') {
     // Handle task completion
     if (record.completed === true && payload.old_record?.completed !== true) {
-      const actorId = (record.completedBy ?? record.updatedBy ?? record.creatorId) as string;
+      const actorId = (record.completed_by ?? record.updated_by ?? record.creator_id) as string;
       const actorName = await getActorName(actorId);
       return {
-        familyId: record.familyId as string,
+        familyId: record.family_id as string,
         actorId,
         title: 'Task completed ✅',
         body: `${actorName} completed: ${record.title}`,
@@ -461,12 +461,12 @@ async function buildNotification(
     const newAssignees = Array.isArray(record.assignees) ? (record.assignees as string[]) : [];
     const addedAssignees = newAssignees.filter((id: string) => !oldAssignees.includes(id));
     if (addedAssignees.length > 0) {
-      const actorId = (record.updatedBy ?? record.creatorId) as string;
+      const actorId = (record.updated_by ?? record.creator_id) as string;
       const actorName = await getActorName(actorId);
       const nonActorNewAssignees = addedAssignees.filter((id: string) => id !== actorId);
       if (nonActorNewAssignees.length > 0) {
         return {
-          familyId: record.familyId as string,
+          familyId: record.family_id as string,
           actorId,
           title: '📋 Task assigned to you',
           body: `${actorName} assigned you: ${record.title}`,
@@ -480,10 +480,10 @@ async function buildNotification(
   }
 
   if (table === 'events' && type === 'INSERT') {
-    const actorId = record.creatorId as string;
+    const actorId = record.creator_id as string;
     const actorName = await getActorName(actorId);
     return {
-      familyId: record.familyId as string,
+      familyId: record.family_id as string,
       actorId,
       title: 'New event added 📅',
       body: `${actorName} added: ${record.title}`,
@@ -492,10 +492,10 @@ async function buildNotification(
   }
 
   if (table === 'chores' && type === 'INSERT') {
-    const actorId = record.creatorId as string;
+    const actorId = record.creator_id as string;
     const actorName = await getActorName(actorId);
     return {
-      familyId: record.familyId as string,
+      familyId: record.family_id as string,
       actorId,
       title: 'New chore assigned 🧹',
       body: `${actorName} added: ${record.title}`,
@@ -504,18 +504,18 @@ async function buildNotification(
   }
 
   if (table === 'chore_completions' && type === 'INSERT') {
-    const actorId = record.userId as string;
+    const actorId = record.user_id as string;
     const actorName = await getActorName(actorId);
 
     // Get chore title for the body
     const { data: chore } = await supabaseClient
       .from('chores')
-      .select('title, familyId')
-      .eq('id', record.choreId)
+      .select('title, family_id')
+      .eq('id', record.chore_id)
       .maybeSingle();
 
     return {
-      familyId: (chore as any)?.familyId ?? (record.familyId as string),
+      familyId: (chore as any)?.family_id ?? (record.family_id as string),
       actorId,
       title: 'Chore done! 🎉',
       body: `${actorName} completed: ${(chore as any)?.title ?? 'a chore'}`,
@@ -533,10 +533,10 @@ async function buildNotification(
   if (table === 'lists') return null;
 
   if (table === 'polls' && type === 'INSERT') {
-    const actorId = record.creatorId as string;
+    const actorId = record.creator_id as string;
     const actorName = await getActorName(actorId);
     return {
-      familyId: record.familyId as string,
+      familyId: record.family_id as string,
       actorId,
       title: 'New poll 🗳️',
       body: `${actorName} started: ${record.question}`,
@@ -574,13 +574,13 @@ Deno.serve(async (req: Request) => {
         .from('device_tokens')
         .upsert(
           {
-            userId: body.userId,
-            familyId: body.familyId,
+            user_id: body.userId,
+            family_id: body.familyId,
             token: body.token,
             platform,
-            updatedAt: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
           },
-          { onConflict: 'userId,platform' },
+          { onConflict: 'user_id,platform' },
         );
       if (error) {
         console.error('[notify-family] Token registration failed:', error.message);
@@ -614,13 +614,13 @@ Deno.serve(async (req: Request) => {
 
         const tokenQuery = supabaseClient
           .from('device_tokens')
-          .select('token, userId')
-          .eq('familyId', notification.familyId)
-          .neq('userId', notification.actorId);
+          .select('token, user_id')
+          .eq('family_id', notification.familyId)
+          .neq('user_id', notification.actorId);
         const { data: tokens } = await tokenQuery;
 
         if (tokens && tokens.length > 0) {
-          const tokenRows = tokens as Array<{ token: string; userId: string }>;
+          const tokenRows = tokens as Array<{ token: string; user_id: string }>;
           const results = await Promise.all(
             tokenRows.map((row) =>
               sendFcmMessage(projectId, accessToken, {
@@ -647,9 +647,9 @@ Deno.serve(async (req: Request) => {
       if (vpubKey && vprivKey) {
         const webSubQuery = supabaseClient
           .from('web_push_subscriptions')
-          .select('endpoint, p256dh, auth, userId')
-          .eq('familyId', notification.familyId)
-          .neq('userId', notification.actorId);
+          .select('endpoint, p256dh, auth, user_id')
+          .eq('family_id', notification.familyId)
+          .neq('user_id', notification.actorId);
         const { data: webSubs } = await webSubQuery;
 
         if (webSubs && webSubs.length > 0) {
@@ -705,16 +705,16 @@ Deno.serve(async (req: Request) => {
 
       let tokenQuery = supabaseClient
         .from('device_tokens')
-        .select('token, userId')
-        .eq('familyId', notification.familyId)
-        .neq('userId', notification.actorId);
+        .select('token, user_id')
+        .eq('family_id', notification.familyId)
+        .neq('user_id', notification.actorId);
       if (notification.targetUserIds && notification.targetUserIds.length > 0) {
-        tokenQuery = tokenQuery.in('userId', notification.targetUserIds);
+        tokenQuery = tokenQuery.in('user_id', notification.targetUserIds);
       }
       const { data: tokens } = await tokenQuery;
 
       if (tokens && tokens.length > 0) {
-        const tokenRows = tokens as Array<{ token: string; userId: string }>;
+        const tokenRows = tokens as Array<{ token: string; user_id: string }>;
         const results = await Promise.all(
           tokenRows.map((row) =>
             sendFcmMessage(projectId, accessToken, {
@@ -748,11 +748,11 @@ Deno.serve(async (req: Request) => {
     if (vapidPublicKey && vapidPrivateKey) {
       let webSubQuery = supabaseClient
         .from('web_push_subscriptions')
-        .select('endpoint, p256dh, auth, userId')
-        .eq('familyId', notification.familyId)
-        .neq('userId', notification.actorId);
+        .select('endpoint, p256dh, auth, user_id')
+        .eq('family_id', notification.familyId)
+        .neq('user_id', notification.actorId);
       if (notification.targetUserIds && notification.targetUserIds.length > 0) {
-        webSubQuery = webSubQuery.in('userId', notification.targetUserIds);
+        webSubQuery = webSubQuery.in('user_id', notification.targetUserIds);
       }
       const { data: webSubs } = await webSubQuery;
 
