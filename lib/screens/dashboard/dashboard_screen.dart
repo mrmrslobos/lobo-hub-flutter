@@ -936,35 +936,94 @@ Return ONLY the JSON array, no markdown.''',
   }
 
   Widget _buildAnnouncementSection(BuildContext context, AppProvider provider, Family family) {
-    final hasAnnouncement = family.announcement != null && family.announcement != _dismissedAnnouncement;
+    final hasAnnouncement = family.announcement != null && family.announcement!.isNotEmpty && family.announcement != _dismissedAnnouncement;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-        decoration: BoxDecoration(
-          color: AppTheme.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: hasAnnouncement ? AppTheme.stone100 : AppTheme.primary.withValues(alpha: 0.25)),
-        ),
-        child: Row(children: [
-          Icon(Icons.campaign_outlined, color: hasAnnouncement ? AppTheme.stone500 : AppTheme.stone400, size: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              hasAnnouncement ? family.announcement! : 'Pin a family announcement here...',
-              style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: hasAnnouncement ? AppTheme.stone700 : AppTheme.stone400),
-            ),
+      child: GestureDetector(
+        onTap: () => _editAnnouncement(context, provider, family),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+          decoration: BoxDecoration(
+            color: AppTheme.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: hasAnnouncement ? AppTheme.stone100 : AppTheme.primary.withValues(alpha: 0.25)),
           ),
-          if (hasAnnouncement)
-            GestureDetector(
-              onTap: () { HapticFeedback.lightImpact(); _dismissAnnouncement(family.announcement!, family.id); },
-              child: const Icon(Icons.close, size: 16, color: AppTheme.stone400),
-            )
-          else
-            Icon(Icons.edit_outlined, size: 16, color: AppTheme.primary.withValues(alpha: 0.5)),
-        ]),
+          child: Row(children: [
+            Icon(Icons.campaign_outlined, color: hasAnnouncement ? AppTheme.stone500 : AppTheme.stone400, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                hasAnnouncement ? family.announcement! : 'Pin a family announcement here...',
+                style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: hasAnnouncement ? AppTheme.stone700 : AppTheme.stone400),
+              ),
+            ),
+            if (hasAnnouncement)
+              GestureDetector(
+                onTap: () { HapticFeedback.lightImpact(); _dismissAnnouncement(family.announcement!, family.id); },
+                child: const Icon(Icons.close, size: 16, color: AppTheme.stone400),
+              )
+            else
+              Icon(Icons.edit_outlined, size: 16, color: AppTheme.primary.withValues(alpha: 0.5)),
+          ]),
+        ),
       ),
     );
+  }
+
+  Future<void> _editAnnouncement(BuildContext context, AppProvider provider, Family family) async {
+    final controller = TextEditingController(text: family.announcement ?? '');
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Family Announcement'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: 3,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(
+            hintText: 'Type a family announcement...',
+            border: OutlineInputBorder(),
+          ),
+          onSubmitted: (v) => Navigator.of(ctx).pop(v),
+        ),
+        actions: [
+          if (family.announcement != null && family.announcement!.isNotEmpty)
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(''),
+              child: Text('Clear', style: TextStyle(color: Colors.red.shade400)),
+            ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(null),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(controller.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (result == null || !context.mounted) return; // cancelled
+
+    final user = provider.currentUser;
+    final authorName = user?.name ?? 'Someone';
+    // copyWith uses ?? so null means "keep old value".
+    // Use empty string to clear; the display treats empty as no announcement.
+    final updated = family.copyWith(
+      announcement: result.isEmpty ? '' : result,
+      announcementAuthor: result.isEmpty ? '' : authorName,
+    );
+    provider.updateFamily(updated);
+    final db = provider.db;
+    await provider.saveAndSync(db.copyWith(
+      families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
+    ));
+    // Clear dismiss state if the announcement changed
+    if (result.isNotEmpty) {
+      setState(() => _dismissedAnnouncement = null);
+    }
   }
 
   // ── Try AI Onboarding Card ──────────────────────────────────────────────
