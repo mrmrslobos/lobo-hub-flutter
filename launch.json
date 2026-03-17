@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "FamilyHub (dev)",
+      "request": "launch",
+      "type": "dart",
+      "args": [
+        "--dart-define=SUPABASE_URL=https://vinumlekpmddtbfkojkd.supabase.co",
+        "--dart-define=SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZpbnVtbGVrcG1kZHRiZmtvamtkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNDAyMzcsImV4cCI6MjA4NzcxNjIzN30.3IAsLPRRl3T3xlqzXmTU_PByZGYorDqWWeEF0wD6gWU",
+        "--dart-define=RC_IOS_KEY=",
+        "--dart-define=RC_ANDROID_KEY=goog_CwgYxPEaCFQNrnidwdMflZiRjeN
+      ]
+    }
+  ]
+}

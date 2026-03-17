@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "286600354710",
+    "project_id": "familyhub-b4ad8",
+    "storage_bucket": "familyhub-b4ad8.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:286600354710:android:2baa140789dacb3705dbb7",
+        "android_client_info": {
+          "package_name": "com.lobohub.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "286600354710-ohjik29hsvlpk1ecsu730ju8t7ovler8.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.lobohub.app",
+            "certificate_hash": "dc5d6d1ec3626edd8538d0088ff5f6c6a2f7af02"
+          }
+        },
+        {
+          "client_id": "286600354710-59iu329bk8otb6qcge8r34rkr0qt5ni3.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyClC8GENaCrI47_hfzS5-kQuqA47uM2Wcw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "286600354710-59iu329bk8otb6qcge8r34rkr0qt5ni3.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

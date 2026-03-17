@@ -1,9 +1,0 @@
-{
-  "name": "FamilyHub",
-  "description": "A comprehensive family management platform featuring tasks, meals, budget, fitness, and AI-driven insights.",
-  "requestFramePermissions": [
-    "camera",
-    "microphone",
-    "geolocation"
-  ]
-}
