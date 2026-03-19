@@ -2,6 +2,7 @@
 
 // ignore_for_file: avoid_catches_without_on_clauses
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:fl_chart/fl_chart.dart';
@@ -171,7 +172,7 @@ class _FitnessScreenState extends State<FitnessScreen> {
     }
     final familyId = family.id;
 
-    final logsCount = db.fitnessLogs.where((l) => l.familyId == familyId).length;
+    final logsCount = db.workoutSessions.where((l) => l.familyId == familyId).length;
     final habitsCount = db.dailyHabits.where((h) => h.familyId == familyId).length;
 
     final prompt = 'You are a supportive fitness coach. Keep it short and punchy.\n\n'
@@ -198,11 +199,15 @@ class _FitnessScreenState extends State<FitnessScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _FitnessLogSheet(
-        onSave: (log) async {
+      builder: (_) => _WorkoutSessionSheet(
+        onSave: (session, exercises, sets) async {
           final provider = context.read<AppProvider>();
           final db = provider.db;
-          await provider.saveAndSync(db.copyWith(fitnessLogs: [...db.fitnessLogs, log]));
+          await provider.saveAndSync(db.copyWith(
+            workoutSessions: [...db.workoutSessions, session],
+            workoutExercises: [...db.workoutExercises, ...exercises],
+            workoutSets: [...db.workoutSets, ...sets],
+          ));
         },
       ),
     );
@@ -243,13 +248,25 @@ class _FitnessScreenState extends State<FitnessScreen> {
     );
   }
 
-  Future<void> _deleteLog(BuildContext context, String id) async {
-    final ok = await _confirmRemove(context, 'Delete Log', 'Remove this fitness log?');
+  Future<void> _deleteLog(BuildContext context, String sessionId) async {
+    final ok = await _confirmRemove(context, 'Delete Session', 'Remove this workout session?');
     if (!ok) return;
     final provider = this.context.read<AppProvider>();
     final db = provider.db;
+    final exerciseIdsToDelete =
+        db.workoutExercises.where((e) => e.sessionId == sessionId).map((e) => e.id).toSet();
+    final exercisesToKeep =
+        db.workoutExercises.where((e) => e.sessionId != sessionId).toList();
+    final setsToKeep =
+        db.workoutSets.where((s) => !exerciseIdsToDelete.contains(s.exerciseId)).toList();
+    final sessionsToKeep =
+        db.workoutSessions.where((s) => s.id != sessionId).toList();
+
     await provider.saveAndSync(db.copyWith(
-        fitnessLogs: db.fitnessLogs.where((l) => l.id != id).toList()));
+      workoutSessions: sessionsToKeep,
+      workoutExercises: exercisesToKeep,
+      workoutSets: setsToKeep,
+    ));
   }
 
   @override
@@ -264,26 +281,26 @@ class _FitnessScreenState extends State<FitnessScreen> {
     final locale = context.read<LocaleService>().config;
     final unit = locale.useMetric ? 'kg' : 'lbs';
 
-    final allLogs = provider.db.fitnessLogs.where((l) => l.familyId == family.id).toList();
-    final myLogs = allLogs.where((l) => l.userId == user.id).toList();
-    final shown = _filter == _FitnessFilter.mine ? myLogs : allLogs;
+    final allSessions = provider.db.workoutSessions.where((s) => s.familyId == family.id).toList();
+    final mySessions = allSessions.where((s) => s.userId == user.id).toList();
+    final shown = _filter == _FitnessFilter.mine ? mySessions : allSessions;
     shown.sort((a, b) => b.date.compareTo(a.date));
 
     final now = DateTime.now();
 
-    // Weekly logs
+    // Weekly sessions
     final weekStart = now.subtract(Duration(days: now.weekday - 1));
-    final weekLogs = shown.where((l) => l.date.isAfter(weekStart.subtract(const Duration(days: 1)))).toList();
+    final weekLogs = shown.where((s) => s.date.isAfter(weekStart.subtract(const Duration(days: 1)))).toList();
 
     // Active streak
     int streak = 0;
     DateTime checkDate = DateTime(now.year, now.month, now.day);
     while (true) {
-      final hasLog = shown.any((l) =>
-          l.date.year == checkDate.year &&
-          l.date.month == checkDate.month &&
-          l.date.day == checkDate.day);
-      if (!hasLog) break;
+      final hasSession = shown.any((s) =>
+          s.date.year == checkDate.year &&
+          s.date.month == checkDate.month &&
+          s.date.day == checkDate.day);
+      if (!hasSession) break;
       streak++;
       checkDate = checkDate.subtract(const Duration(days: 1));
     }
@@ -313,7 +330,7 @@ class _FitnessScreenState extends State<FitnessScreen> {
     }
 
     // Total minutes this week
-    final weekMinutes = weekLogs.fold<int>(0, (sum, l) => sum + l.durationMinutes);
+    final weekMinutes = weekLogs.fold<int>(0, (sum, s) => sum + s.durationMinutes);
 
     return Scaffold(
       backgroundColor: AppTheme.background,
@@ -619,23 +636,23 @@ class _FitnessScreenState extends State<FitnessScreen> {
           if (shown.isEmpty)
             EmptyState(
               emoji: '💪',
-              title: 'No fitness logs yet',
-              subtitle: 'Track your workouts and activities to see them here.',
+              title: 'No workout sessions yet',
+              subtitle: 'Log a structured workout session to see it here.',
               actionLabel: 'Log Exercise',
               onAction: _showAddSheet,
             )
           else
-            ...shown.map((log) => Padding(
+            ...shown.map((session) => Padding(
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
                   child: Dismissible(
-                    key: ValueKey(log.id),
+                    key: ValueKey(session.id),
                     direction: DismissDirection.endToStart,
                     confirmDismiss: (_) async {
                       return await showDialog<bool>(
                         context: context,
                         builder: (ctx) => AlertDialog(
-                          title: const Text('Delete Log'),
-                          content: const Text('Remove this fitness log?'),
+                          title: const Text('Delete Session'),
+                          content: const Text('Remove this workout session?'),
                           actions: [
                             TextButton(
                               onPressed: () => Navigator.of(ctx).pop(false),
@@ -649,7 +666,7 @@ class _FitnessScreenState extends State<FitnessScreen> {
                         ),
                       );
                     },
-                    onDismissed: (_) => _deleteLog(context, log.id),
+                    onDismissed: (_) => _deleteLog(context, session.id),
                     background: Container(
                       alignment: Alignment.centerRight,
                       padding: const EdgeInsets.only(right: 20),
@@ -672,11 +689,12 @@ class _FitnessScreenState extends State<FitnessScreen> {
                         ],
                       ),
                     ),
-                    child: _LogCard(
-                      log: log,
-                      emoji: _activityEmoji(log.activity),
-                      memberName: provider.userById(log.userId)?.name ?? 'Member',
-                      onDelete: () => _deleteLog(context, log.id),
+                    child: _SessionCard(
+                      session: session,
+                      emoji: _activityEmoji(session.title),
+                      memberName:
+                          provider.userById(session.userId)?.name ?? 'Member',
+                      onDelete: () => _deleteLog(context, session.id),
                     ),
                   ),
                 )),
@@ -1450,6 +1468,111 @@ class _LogCard extends StatelessWidget {
   }
 }
 
+// ─── Workout Session Card ─────────────────────────────────────────────────
+class _SessionCard extends StatelessWidget {
+  final WorkoutSession session;
+  final String emoji;
+  final String memberName;
+  final VoidCallback onDelete;
+
+  const _SessionCard({
+    required this.session,
+    required this.emoji,
+    required this.memberName,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onLongPress: onDelete,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppTheme.stone100),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                color: AppTheme.primaryLight,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Center(child: Text(emoji, style: const TextStyle(fontSize: 22))),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    session.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
+                      color: AppTheme.stone900,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: [
+                      _Chip(label: '${session.durationMinutes} min', color: AppTheme.primary),
+                      _Chip(label: memberName.split(' ').first, color: AppTheme.stone500),
+                    ],
+                  ),
+                  if (session.notes != null && session.notes!.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      session.notes!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 12,
+                        color: AppTheme.stone400,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  DateFormat('MMM d').format(session.date),
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 12,
+                    color: AppTheme.stone400,
+                  ),
+                ),
+                Text(
+                  DateFormat('h:mm a').format(session.date),
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 11,
+                    color: AppTheme.stone300,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ─── Chip ─────────────────────────────────────────────────────────────────────
 
 class _Chip extends StatelessWidget {
@@ -1469,10 +1592,17 @@ class _Chip extends StatelessWidget {
   );
 }
 
-// ─── Fitness Log Sheet ────────────────────────────────────────────────────────
+// ─── Workout Session Sheet (Strong-like) ──────────────────────────────────
 
 class _FitnessLogSheet extends StatefulWidget {
-  final Future<void> Function(FitnessLog) onSave;
+  // Strong integration: one session contains exercises, and each exercise contains sets.
+  final Future<void> Function(
+    WorkoutSession session,
+    List<WorkoutExercise> exercises,
+    List<WorkoutSet> sets,
+  )
+      onSave;
+
   const _FitnessLogSheet({required this.onSave});
 
   @override
@@ -1480,26 +1610,61 @@ class _FitnessLogSheet extends StatefulWidget {
 }
 
 class _FitnessLogSheetState extends State<_FitnessLogSheet> {
-  final _activityCtrl = TextEditingController();
-  final _durationCtrl = TextEditingController();
-  final _caloriesCtrl = TextEditingController();
+  final _sessionTitleCtrl = TextEditingController();
   final _notesCtrl = TextEditingController();
+  final _exerciseNameCtrl = TextEditingController();
+
   DateTime _date = DateTime.now();
   bool _isSaving = false;
+
+  int _setsCount = 3;
+  int _restSeconds = 60;
+
+  // Per-set user inputs
+  late List<String> _reps;
+  late List<String?> _weights;
+  late List<bool> _completed;
+
+  // Simple Strong-style rest timer between sets
+  Timer? _restTimer;
+  int _restRemaining = 0;
+  int _restActiveSetIndex = -1;
 
   @override
   void initState() {
     super.initState();
-    _activityCtrl.addListener(() => setState(() {}));
+    _reps = List.generate(_setsCount, (_) => '');
+    _weights = List.generate(_setsCount, (_) => null);
+    _completed = List.generate(_setsCount, (_) => false);
   }
 
   @override
   void dispose() {
-    _activityCtrl.dispose();
-    _durationCtrl.dispose();
-    _caloriesCtrl.dispose();
+    _restTimer?.cancel();
+    _sessionTitleCtrl.dispose();
     _notesCtrl.dispose();
+    _exerciseNameCtrl.dispose();
     super.dispose();
+  }
+
+  void _syncSetListLengths(int newCount) {
+    setState(() {
+      _setsCount = newCount.clamp(1, 20);
+      _reps = List.generate(_setsCount, (i) => i < _reps.length ? _reps[i] : '');
+      _weights = List.generate(
+        _setsCount,
+        (i) => i < _weights.length ? _weights[i] : null,
+      );
+      _completed = List.generate(
+        _setsCount,
+        (i) => i < _completed.length ? _completed[i] : false,
+      );
+      // Reset timer if set list changed
+      _restTimer?.cancel();
+      _restTimer = null;
+      _restRemaining = 0;
+      _restActiveSetIndex = -1;
+    });
   }
 
   Future<void> _pickDate() async {
@@ -1512,140 +1677,1077 @@ class _FitnessLogSheetState extends State<_FitnessLogSheet> {
     if (d != null) setState(() => _date = d);
   }
 
+  void _startRestTimer(int activeSetIndex) {
+    _restTimer?.cancel();
+    setState(() {
+      _restActiveSetIndex = activeSetIndex;
+      _restRemaining = _restSeconds;
+    });
+
+    _restTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
+      setState(() {
+        if (_restRemaining <= 1) {
+          _restRemaining = 0;
+          timer.cancel();
+        } else {
+          _restRemaining -= 1;
+        }
+      });
+    });
+  }
+
+  String _formatRest(int seconds) {
+    final m = (seconds ~/ 60).toString().padLeft(2, '0');
+    final s = (seconds % 60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
+
   Future<void> _save() async {
-    if (_activityCtrl.text.trim().isEmpty) {
-      _showSnack(context, 'Please enter an activity name');
+    final sessionTitle = _sessionTitleCtrl.text.trim();
+    final exerciseName = _exerciseNameCtrl.text.trim();
+
+    if (sessionTitle.isEmpty) {
+      _showSnack(context, 'Please enter a workout title');
       return;
     }
-    if (_durationCtrl.text.trim().isEmpty) {
-      _showSnack(context, 'Please enter a duration');
+    if (exerciseName.isEmpty) {
+      _showSnack(context, 'Please enter an exercise name');
       return;
     }
-    final duration = int.tryParse(_durationCtrl.text);
-    if (duration == null || duration <= 0) {
-      _showSnack(context, 'Duration must be a positive number');
+    if (_setsCount <= 0) {
+      _showSnack(context, 'Please set a valid number of sets');
       return;
     }
+    for (var i = 0; i < _setsCount; i++) {
+      final r = _reps[i].trim();
+      if (r.isEmpty) {
+        _showSnack(context, 'Set ${i + 1}: reps are required');
+        return;
+      }
+    }
+
     setState(() => _isSaving = true);
     final provider = context.read<AppProvider>();
-    final log = FitnessLog(
+    final fid = provider.activeFamily?.id ?? '';
+    final uid = provider.activeUser?.id ?? '';
+    final now = DateTime.now();
+
+    final session = WorkoutSession(
       id: _uuid.v4(),
-      familyId: provider.activeFamily?.id ?? '',
-      userId: provider.activeUser?.id ?? '',
-      activity: _activityCtrl.text.trim(),
-      durationMinutes: duration,
-      caloriesBurned: int.tryParse(_caloriesCtrl.text),
-      notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+      familyId: fid,
+      userId: uid,
+      title: sessionTitle,
       date: _date,
+      durationMinutes: (_setsCount * 3) + (_restSeconds ~/ 60),
+      notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+      createdAt: now,
     );
-    await widget.onSave(log);
+
+    final exercise = WorkoutExercise(
+      id: _uuid.v4(),
+      familyId: fid,
+      userId: uid,
+      sessionId: session.id,
+      exerciseName: exerciseName,
+      order: 0,
+      restSeconds: _restSeconds,
+      notes: null,
+      createdAt: now,
+    );
+
+    final sets = <WorkoutSet>[];
+    for (var i = 0; i < _setsCount; i++) {
+      final weight = _weights[i];
+      sets.add(
+        WorkoutSet(
+          id: _uuid.v4(),
+          familyId: fid,
+          userId: uid,
+          exerciseId: exercise.id,
+          setNumber: i + 1,
+          reps: _reps[i].trim(),
+          weight: (weight == null || weight.trim().isEmpty) ? null : weight.trim(),
+          completed: _completed[i],
+          notes: null,
+          createdAt: now,
+        ),
+      );
+    }
+
+    await widget.onSave(session, [exercise], sets);
     if (mounted) Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
     return DraggableScrollableSheet(
-      initialChildSize: 0.8, maxChildSize: 0.95, minChildSize: 0.5, expand: false,
+      initialChildSize: 0.82,
+      maxChildSize: 0.98,
+      minChildSize: 0.5,
+      expand: false,
       builder: (_, controller) => Container(
         decoration: const BoxDecoration(
-            color: AppTheme.surface,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
         child: Column(children: [
           const SheetHandle(),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
-            child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              const Text('Log Workout',
-                  style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 20, color: AppTheme.stone900)),
-              TextButton(
-                onPressed: _isSaving ? null : _save,
-                child: _isSaving
-                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Text('Save', style: TextStyle(fontWeight: FontWeight.w700)),
-              ),
-            ]),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Workout Session',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontWeight: FontWeight.w700,
+                    fontSize: 20,
+                    color: AppTheme.stone900,
+                  ),
+                ),
+                TextButton(
+                  onPressed: _isSaving ? null : _save,
+                  child: _isSaving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Save',
+                          style: TextStyle(fontWeight: FontWeight.w700)),
+                ),
+              ],
+            ),
           ),
           Expanded(
-            child: ListView(controller: controller, padding: const EdgeInsets.fromLTRB(20, 12, 20, 32), children: [
-              TextField(
-                controller: _activityCtrl,
-                autofocus: true,
-                textCapitalization: TextCapitalization.words,
-                decoration: _styledInput('Activity *', icon: Icons.fitness_center_rounded),
-              ),
-              const SizedBox(height: 8),
-              // Quick suggestions
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: _activitySuggestions.map((s) => Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: GestureDetector(
-                      onTap: () => _activityCtrl.text = s,
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 150),
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: _activityCtrl.text == s ? AppTheme.primary.withValues(alpha: 0.1) : AppTheme.stone100,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: _activityCtrl.text == s ? AppTheme.primary.withValues(alpha: 0.4) : Colors.transparent,
-                          ),
+            child: ListView(
+              controller: controller,
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+              children: [
+                TextField(
+                  controller: _sessionTitleCtrl,
+                  autofocus: true,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration:
+                      _styledInput('Workout title *', icon: Icons.sports_gymnastics),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _exerciseNameCtrl,
+                  textCapitalization: TextCapitalization.words,
+                  decoration:
+                      _styledInput('Exercise *', icon: Icons.fitness_center_rounded),
+                ),
+                const SizedBox(height: 10),
+
+                Row(children: [
+                  Expanded(
+                    child: TextFormField(
+                      key: const ValueKey('restSeconds'),
+                      keyboardType: TextInputType.number,
+                      initialValue: _restSeconds.toString(),
+                      decoration: _styledInput(
+                        'Rest seconds',
+                        icon: Icons.timer_outlined,
+                      ),
+                      onChanged: (v) {
+                        final n = int.tryParse(v);
+                        if (n == null) return;
+                        setState(() => _restSeconds = n.clamp(10, 600));
+                      },
+                    ),
+                  ),
+                ]),
+
+                const SizedBox(height: 14),
+
+                // Sets count stepper
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Sets',
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.8,
+                          color: AppTheme.stone400,
                         ),
-                        child: Text(s,
-                            style: TextStyle(
-                                fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600,
-                                color: _activityCtrl.text == s ? AppTheme.primary : AppTheme.stone700)),
                       ),
                     ),
-                  )).toList(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      decoration: BoxDecoration(
+                        color: AppTheme.stone50,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: AppTheme.stone200),
+                      ),
+                      child: Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.remove_circle_outline_rounded),
+                            onPressed: _setsCount <= 1 ? null : () => _syncSetListLengths(_setsCount - 1),
+                          ),
+                          Text(
+                            '$_setsCount',
+                            style: const TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              color: AppTheme.stone900,
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.add_circle_outline_rounded),
+                            onPressed: _setsCount >= 20 ? null : () => _syncSetListLengths(_setsCount + 1),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 12),
-              Row(children: [
-                Expanded(
-                  child: TextField(
-                    controller: _durationCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: _styledInput('Duration (min) *', icon: Icons.timer_outlined),
+
+                const SizedBox(height: 14),
+
+                if (_restRemaining > 0) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppTheme.primary.withValues(alpha: 0.25)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.timer_rounded, size: 18, color: AppTheme.primary),
+                        const SizedBox(width: 10),
+                        Text(
+                          'Rest: ${_formatRest(_restRemaining)}',
+                          style: const TextStyle(
+                            fontFamily: 'Inter',
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14,
+                            color: AppTheme.stone900,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                ],
+
+                // Per-set inputs
+                ...List.generate(_setsCount, (i) {
+                  final setIndex = i;
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppTheme.stone50,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppTheme.stone200),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              'Set ${i + 1}',
+                              style: const TextStyle(
+                                fontFamily: 'Inter',
+                                fontWeight: FontWeight.w800,
+                                fontSize: 13,
+                                color: AppTheme.stone800,
+                              ),
+                            ),
+                            const Spacer(),
+                            if (_completed[i])
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.primary.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(999),
+                                  border: Border.all(color: AppTheme.primary.withValues(alpha: 0.25)),
+                                ),
+                                child: const Text(
+                                  'Done',
+                                  style: TextStyle(
+                                    fontFamily: 'Inter',
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppTheme.primary,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        TextFormField(
+                          key: ValueKey('reps_$setIndex'),
+                          keyboardType: TextInputType.number,
+                          initialValue: _reps[setIndex],
+                          decoration: _styledInput('Reps *'),
+                          onChanged: (v) => _reps[setIndex] = v,
+                        ),
+                        const SizedBox(height: 8),
+                        TextFormField(
+                          key: ValueKey('weight_$setIndex'),
+                          keyboardType: TextInputType.number,
+                          decoration: _styledInput('Weight (optional)'),
+                          onChanged: (v) => _weights[setIndex] = v,
+                          initialValue: _weights[setIndex] ?? '',
+                        ),
+                        const SizedBox(height: 10),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            onPressed: _completed[i]
+                                ? null
+                                : () {
+                                    setState(() => _completed[i] = true);
+                                    _startRestTimer(i);
+                                  },
+                            icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
+                            label: const Text('Complete set'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _notesCtrl,
+                  maxLines: 2,
+                  decoration: _styledInput('Notes (optional)'),
+                ),
+                const SizedBox(height: 12),
+                GestureDetector(
+                  onTap: _pickDate,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    decoration: BoxDecoration(
+                      color: AppTheme.stone50,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppTheme.stone200),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.calendar_today_outlined, size: 18, color: AppTheme.stone500),
+                        const SizedBox(width: 10),
+                        Text(
+                          DateFormat('EEE, MMM d, y').format(_date),
+                          style: const TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 14,
+                            color: AppTheme.stone800,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextField(
-                    controller: _caloriesCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: _styledInput('Calories (optional)', icon: Icons.local_fire_department_rounded),
-                  ),
-                ),
-              ]),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _notesCtrl,
-                maxLines: 2,
-                decoration: _styledInput('Notes (optional)'),
-              ),
-              const SizedBox(height: 12),
-              GestureDetector(
-                onTap: _pickDate,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  decoration: BoxDecoration(
-                    color: AppTheme.stone50,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppTheme.stone200),
-                  ),
-                  child: Row(children: [
-                    const Icon(Icons.calendar_today_outlined, size: 18, color: AppTheme.stone500),
-                    const SizedBox(width: 10),
-                    Text(DateFormat('EEE, MMM d, y').format(_date),
-                        style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone800)),
-                  ]),
-                ),
-              ),
-            ]),
+              ],
+            ),
           ),
         ]),
+      ),
+    );
+  }
+}
+
+// ─── Workout Session Sheet (Multi-Exercise Builder) ───────────────────────
+
+class _WorkoutExerciseDraft {
+  final String id;
+  String name;
+  int setsCount;
+  int restSeconds;
+  final List<String> reps;
+  final List<String?> weights;
+  final List<bool> completed;
+
+  _WorkoutExerciseDraft({
+    required this.id,
+    this.name = '',
+    this.setsCount = 3,
+    this.restSeconds = 60,
+  })  : reps = <String>[],
+        weights = <String?>[],
+        completed = <bool>[] {
+    syncSets(setsCount);
+  }
+
+  void syncSets(int newCount) {
+    setsCount = newCount.clamp(1, 20).toInt();
+
+    while (reps.length < setsCount) {
+      reps.add('');
+      weights.add(null);
+      completed.add(false);
+    }
+    if (reps.length > setsCount) {
+      reps.removeRange(setsCount, reps.length);
+      weights.removeRange(setsCount, weights.length);
+      completed.removeRange(setsCount, completed.length);
+    }
+  }
+}
+
+class _WorkoutSessionSheet extends StatefulWidget {
+  final Future<void> Function(
+    WorkoutSession session,
+    List<WorkoutExercise> exercises,
+    List<WorkoutSet> sets,
+  )
+      onSave;
+
+  const _WorkoutSessionSheet({required this.onSave});
+
+  @override
+  State<_WorkoutSessionSheet> createState() => _WorkoutSessionSheetState();
+}
+
+class _WorkoutSessionSheetState extends State<_WorkoutSessionSheet> {
+  final _sessionTitleCtrl = TextEditingController();
+  final _notesCtrl = TextEditingController();
+  final _newExerciseNameCtrl = TextEditingController();
+
+  DateTime _date = DateTime.now();
+  bool _isSaving = false;
+
+  final List<_WorkoutExerciseDraft> _exercises = [
+    _WorkoutExerciseDraft(id: _uuid.v4()),
+  ];
+
+  // Rest timer state (starts after completing a set, stops when starting the next).
+  Timer? _restTimer;
+  int _restRemaining = 0;
+  String? _restActiveExerciseId;
+  int _restActiveCompletedSetIndex = -1;
+
+  @override
+  void dispose() {
+    _restTimer?.cancel();
+    _sessionTitleCtrl.dispose();
+    _notesCtrl.dispose();
+    _newExerciseNameCtrl.dispose();
+    super.dispose();
+  }
+
+  void _cancelRestTimer() {
+    _restTimer?.cancel();
+    _restTimer = null;
+    setState(() {
+      _restRemaining = 0;
+      _restActiveExerciseId = null;
+      _restActiveCompletedSetIndex = -1;
+    });
+  }
+
+  void _startRestTimer({
+    required String exerciseId,
+    required int completedSetIndex,
+    required int durationSeconds,
+  }) {
+    _restTimer?.cancel();
+    setState(() {
+      _restActiveExerciseId = exerciseId;
+      _restActiveCompletedSetIndex = completedSetIndex;
+      _restRemaining = durationSeconds;
+    });
+
+    if (durationSeconds <= 0) return;
+
+    _restTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
+      setState(() {
+        if (_restRemaining <= 1) {
+          _restRemaining = 0;
+          timer.cancel();
+          _restActiveExerciseId = null;
+          _restActiveCompletedSetIndex = -1;
+        } else {
+          _restRemaining -= 1;
+        }
+      });
+    });
+  }
+
+  Future<void> _pickDate() async {
+    final d = await showDatePicker(
+      context: context,
+      initialDate: _date,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+    );
+    if (d != null) setState(() => _date = d);
+  }
+
+  void _onAddExercise() {
+    final name = _newExerciseNameCtrl.text.trim();
+    if (name.isEmpty) return;
+    setState(() {
+      _exercises.add(
+        _WorkoutExerciseDraft(id: _uuid.v4(), name: name),
+      );
+      _newExerciseNameCtrl.clear();
+    });
+  }
+
+  void _syncExerciseSetCount(int exerciseIndex, int newCount) {
+    final ex = _exercises[exerciseIndex];
+    ex.syncSets(newCount);
+
+    if (_restActiveExerciseId == ex.id) {
+      final nextSetIndex = _restActiveCompletedSetIndex + 1;
+      if (nextSetIndex < 0 || nextSetIndex >= ex.setsCount) {
+        _cancelRestTimer();
+      }
+    }
+    setState(() {});
+  }
+
+  void _onStartNextSet({
+    required _WorkoutExerciseDraft exercise,
+    required int setIndex,
+  }) {
+    if (_restActiveExerciseId != exercise.id) return;
+    final nextSetIndex = _restActiveCompletedSetIndex + 1;
+    if (setIndex != nextSetIndex) return;
+    _cancelRestTimer();
+  }
+
+  void _onCompleteSet({
+    required _WorkoutExerciseDraft exercise,
+    required int setIndex,
+  }) {
+    if (exercise.completed[setIndex]) return;
+
+    setState(() {
+      exercise.completed[setIndex] = true;
+    });
+
+    // Start rest after completing a set, except after the last set.
+    if (setIndex < exercise.setsCount - 1) {
+      _startRestTimer(
+        exerciseId: exercise.id,
+        completedSetIndex: setIndex,
+        durationSeconds: exercise.restSeconds,
+      );
+    } else {
+      _cancelRestTimer();
+    }
+  }
+
+  String _formatRest(int seconds) {
+    final m = (seconds ~/ 60).toString().padLeft(2, '0');
+    final s = (seconds % 60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
+
+  Future<void> _save() async {
+    final sessionTitle = _sessionTitleCtrl.text.trim();
+    if (sessionTitle.isEmpty) {
+      _showSnack(context, 'Please enter a workout title');
+      return;
+    }
+
+    if (_exercises.isEmpty) {
+      _showSnack(context, 'Please add at least one exercise');
+      return;
+    }
+
+    for (final ex in _exercises) {
+      if (ex.name.trim().isEmpty) {
+        _showSnack(context, 'Please name every exercise');
+        return;
+      }
+      for (var i = 0; i < ex.setsCount; i++) {
+        if (ex.reps[i].trim().isEmpty) {
+          _showSnack(
+            context,
+            'Reps are required for ${ex.name} set ${i + 1}',
+          );
+          return;
+        }
+      }
+    }
+
+    setState(() => _isSaving = true);
+
+    final provider = context.read<AppProvider>();
+    final fid = provider.activeFamily?.id ?? '';
+    final uid = provider.activeUser?.id ?? '';
+    final now = DateTime.now();
+
+    int totalMinutes = 0;
+    for (final ex in _exercises) {
+      final restMinutes = ex.restSeconds ~/ 60;
+      totalMinutes += ex.setsCount * 3 + ((ex.setsCount - 1) * restMinutes);
+    }
+
+    final session = WorkoutSession(
+      id: _uuid.v4(),
+      familyId: fid,
+      userId: uid,
+      title: sessionTitle,
+      date: _date,
+      durationMinutes: totalMinutes,
+      notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+      createdAt: now,
+    );
+
+    final exercises = <WorkoutExercise>[];
+    final sets = <WorkoutSet>[];
+
+    for (var exIndex = 0; exIndex < _exercises.length; exIndex++) {
+      final draft = _exercises[exIndex];
+
+      final exercise = WorkoutExercise(
+        id: _uuid.v4(),
+        familyId: fid,
+        userId: uid,
+        sessionId: session.id,
+        exerciseName: draft.name.trim(),
+        order: exIndex,
+        restSeconds: draft.restSeconds,
+        notes: null,
+        createdAt: now,
+      );
+      exercises.add(exercise);
+
+      for (var setIndex = 0; setIndex < draft.setsCount; setIndex++) {
+        final weightRaw = draft.weights[setIndex];
+        sets.add(
+          WorkoutSet(
+            id: _uuid.v4(),
+            familyId: fid,
+            userId: uid,
+            exerciseId: exercise.id,
+            setNumber: setIndex + 1,
+            reps: draft.reps[setIndex].trim(),
+            weight: (weightRaw == null || weightRaw.trim().isEmpty)
+                ? null
+                : weightRaw.trim(),
+            completed: draft.completed[setIndex],
+            notes: null,
+            createdAt: now,
+          ),
+        );
+      }
+    }
+
+    await widget.onSave(session, exercises, sets);
+    if (mounted) Navigator.pop(context);
+  }
+
+  Widget _exerciseCard(int exerciseIndex) {
+    final ex = _exercises[exerciseIndex];
+    final isRestActiveForThisExercise =
+        _restActiveExerciseId == ex.id && _restRemaining > 0;
+    final restNextSetIndex = _restActiveCompletedSetIndex + 1;
+    final isNextSetBlocked =
+        isRestActiveForThisExercise &&
+        restNextSetIndex >= 0 &&
+        restNextSetIndex < ex.setsCount;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.stone50,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.stone200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  key: ValueKey('exerciseName_${ex.id}'),
+                  initialValue: ex.name,
+                  decoration: _styledInput(
+                    'Exercise name *',
+                    icon: Icons.fitness_center_rounded,
+                  ),
+                  onChanged: (v) => setState(() => ex.name = v),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: 'Remove exercise',
+                onPressed: _exercises.length <= 1
+                    ? null
+                    : () {
+                        if (_restActiveExerciseId == ex.id) {
+                          _cancelRestTimer();
+                        }
+                        setState(() => _exercises.removeAt(exerciseIndex));
+                      },
+                icon: const Icon(Icons.delete_outline_rounded,
+                    color: AppTheme.error),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 10),
+
+          TextFormField(
+            key: ValueKey('exerciseRest_${ex.id}'),
+            keyboardType: TextInputType.number,
+            initialValue: ex.restSeconds.toString(),
+            decoration: _styledInput(
+              'Rest seconds',
+              icon: Icons.timer_outlined,
+            ),
+            onChanged: (v) {
+              final n = int.tryParse(v);
+              if (n == null) return;
+              setState(() => ex.restSeconds = n.clamp(10, 600).toInt());
+            },
+          ),
+
+          const SizedBox(height: 10),
+
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Sets',
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.8,
+                    color: AppTheme.stone400,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                decoration: BoxDecoration(
+                  color: AppTheme.stone50,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppTheme.stone200),
+                ),
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.remove_circle_outline_rounded),
+                      onPressed: ex.setsCount <= 1
+                          ? null
+                          : () => _syncExerciseSetCount(
+                                exerciseIndex,
+                                ex.setsCount - 1,
+                              ),
+                    ),
+                    Text(
+                      '${ex.setsCount}',
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.stone900,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.add_circle_outline_rounded),
+                      onPressed: ex.setsCount >= 20
+                          ? null
+                          : () => _syncExerciseSetCount(
+                                exerciseIndex,
+                                ex.setsCount + 1,
+                              ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 12),
+
+          if (isRestActiveForThisExercise) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppTheme.primary.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppTheme.primary.withValues(alpha: 0.25)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.timer_rounded, size: 18, color: AppTheme.primary),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Rest: ${_formatRest(_restRemaining)}',
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                      color: AppTheme.stone900,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          ...List.generate(ex.setsCount, (setIndex) {
+            final isNextSet = isRestActiveForThisExercise &&
+                isNextSetBlocked &&
+                setIndex == restNextSetIndex;
+            final isDone = ex.completed[setIndex];
+
+            return Container(
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppTheme.stone200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        'Set ${setIndex + 1}',
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                          color: AppTheme.stone800,
+                        ),
+                      ),
+                      const Spacer(),
+                      if (isDone)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primary.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: AppTheme.primary.withValues(alpha: 0.25),
+                            ),
+                          ),
+                          child: const Text(
+                            'Done',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              color: AppTheme.primary,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    key: ValueKey('reps_${ex.id}_$setIndex'),
+                    keyboardType: TextInputType.number,
+                    initialValue: ex.reps[setIndex],
+                    decoration: _styledInput('Reps *'),
+                    onChanged: (v) => setState(() => ex.reps[setIndex] = v),
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    key: ValueKey('weight_${ex.id}_$setIndex'),
+                    keyboardType: TextInputType.number,
+                    decoration: _styledInput('Weight (optional)'),
+                    initialValue: ex.weights[setIndex] ?? '',
+                    onChanged: (v) =>
+                        setState(() => ex.weights[setIndex] = v),
+                  ),
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        if (!isDone && isNextSet) ...[
+                          TextButton.icon(
+                            onPressed: () => _onStartNextSet(
+                              exercise: ex,
+                              setIndex: setIndex,
+                            ),
+                            icon: const Icon(Icons.play_arrow_rounded,
+                                size: 18),
+                            label: const Text('Start set (stop rest)'),
+                          ),
+                          const SizedBox(height: 6),
+                        ],
+                        TextButton.icon(
+                          onPressed: isDone || isNextSet
+                              ? null
+                              : () => _onCompleteSet(
+                                    exercise: ex,
+                                    setIndex: setIndex,
+                                  ),
+                          icon: const Icon(Icons.check_circle_outline_rounded,
+                              size: 18),
+                          label: const Text('Complete set'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.88,
+      maxChildSize: 0.98,
+      minChildSize: 0.55,
+      expand: false,
+      builder: (_, controller) => Container(
+        decoration: const BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          children: [
+            const SheetHandle(),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Workout Session',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontWeight: FontWeight.w700,
+                      fontSize: 20,
+                      color: AppTheme.stone900,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _isSaving ? null : _save,
+                    child: _isSaving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text(
+                            'Save',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                controller: controller,
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+                children: [
+                  TextField(
+                    controller: _sessionTitleCtrl,
+                    autofocus: true,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: _styledInput(
+                      'Workout title *',
+                      icon: Icons.sports_gymnastics,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _newExerciseNameCtrl,
+                          textCapitalization: TextCapitalization.words,
+                          decoration: _styledInput(
+                            'Add exercise name',
+                            icon: Icons.add_circle_outline_rounded,
+                          ),
+                          onSubmitted: (_) => _onAddExercise(),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Container(
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: AppTheme.primary,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: IconButton(
+                          tooltip: 'Add exercise',
+                          color: Colors.white,
+                          onPressed: _onAddExercise,
+                          icon: const Icon(Icons.add_rounded),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  ...List.generate(_exercises.length, (i) => _exerciseCard(i)),
+                  TextField(
+                    controller: _notesCtrl,
+                    maxLines: 2,
+                    decoration: _styledInput('Notes (optional)'),
+                  ),
+                  const SizedBox(height: 12),
+                  GestureDetector(
+                    onTap: _pickDate,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppTheme.stone50,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: AppTheme.stone200),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.calendar_today_outlined,
+                            size: 18,
+                            color: AppTheme.stone500,
+                          ),
+                          const SizedBox(width: 10),
+                          Text(
+                            DateFormat('EEE, MMM d, y').format(_date),
+                            style: const TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 14,
+                              color: AppTheme.stone800,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

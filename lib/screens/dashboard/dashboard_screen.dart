@@ -136,7 +136,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final devotionals = db.devotionalEntries.where((d) => d.familyId == familyId && d.date.isAfter(monthStart)).length;
     final workouts = db.fitnessLogs.where((f) => f.familyId == familyId && f.date.isAfter(monthStart)).length;
 
-    final budgetEntries = db.budgetEntries.where((e) => e.familyId == familyId && e.date.isAfter(monthStart)).toList();
+    final userId = provider.activeUser?.id ?? '';
+    final budgetEntries = db.budgetEntries.where((e) =>
+        e.familyId == familyId &&
+        e.date.isAfter(monthStart) &&
+        (e.visibility == Visibility.FAMILY || (e.visibility == Visibility.PRIVATE && e.creatorId == userId))).toList();
     final income = budgetEntries.where((e) => e.isIncome).fold<double>(0, (s, e) => s + e.amount);
     final expenses = budgetEntries.where((e) => !e.isIncome).fold<double>(0, (s, e) => s + e.amount);
 
@@ -418,11 +422,13 @@ Return ONLY the JSON array, no markdown.''',
                 e.familyId == familyId &&
                 !e.startDate.isBefore(monthStart))
             .length;
+        final userId = user.id;
         final spentThisMonth = db.budgetEntries
             .where((e) =>
                 e.familyId == familyId &&
                 e.type == TransactionType.EXPENSE &&
-                !e.date.isBefore(monthStart))
+                !e.date.isBefore(monthStart) &&
+                (e.visibility == Visibility.FAMILY || (e.visibility == Visibility.PRIVATE && e.creatorId == userId)))
             .fold<double>(0, (sum, e) => sum + e.amount);
 
         final habitsToday = db.dailyHabits
@@ -522,7 +528,7 @@ Return ONLY the JSON array, no markdown.''',
                 _buildTodayFocus(context, todayFocusTasks, overdueTasks, provider),
                 _buildUpcomingEvents(context, upcomingEvents),
                 _buildActiveLists(context, activeLists),
-                _buildBudgetSnapshot(context, db, familyId, monthStart),
+                _buildBudgetSnapshot(context, db, familyId, user.id, monthStart),
                 _buildPointsLeaderboard(db, familyId),
                 _buildTodayMeals(context, todayMealPlans),
                 _buildTodayChores(context, choresToday, choresCompletedToday),
@@ -1973,9 +1979,11 @@ Return ONLY the JSON array, no markdown.''',
 
   // ── Budget Snapshot with category breakdown ────────────────────────────────
 
-  Widget _buildBudgetSnapshot(BuildContext context, AppDB db, String familyId, DateTime monthStart) {
+  Widget _buildBudgetSnapshot(BuildContext context, AppDB db, String familyId, String userId, DateTime monthStart) {
     final monthEntries = db.budgetEntries.where((e) =>
-      e.familyId == familyId && !e.date.isBefore(monthStart)).toList();
+      e.familyId == familyId &&
+      !e.date.isBefore(monthStart) &&
+      (e.visibility == Visibility.FAMILY || (e.visibility == Visibility.PRIVATE && e.creatorId == userId))).toList();
     final income = monthEntries.where((e) => e.isIncome).fold<double>(0, (s, e) => s + e.amount);
     final expenses = monthEntries.where((e) => !e.isIncome).fold<double>(0, (s, e) => s + e.amount);
     final net = income - expenses;

@@ -36,8 +36,6 @@ create table if not exists tasks (
   reminder_minutes integer,
   priority text not null,
   completed boolean not null default false,
-  completed_by text,
-  updated_by text,
   visibility text not null default 'FAMILY',
   assignees jsonb not null default '[]'::jsonb,
   tags jsonb not null default '[]'::jsonb,
@@ -237,6 +235,8 @@ alter table events add column if not exists external_uid text;
 
 -- Migrate tasks and events to support recurrence (safe to run multiple times)
 alter table tasks add column if not exists recurrence text default 'NONE';
+alter table tasks add column if not exists completed_by text;
+alter table tasks add column if not exists updated_by text;
 alter table events add column if not exists recurrence text default 'NONE';
 
 -- Tables added after initial deployment (safe to run on existing schemas)
@@ -682,6 +682,8 @@ create policy "Users manage own period symptoms"
 alter table families add column if not exists daily_devotional_enabled boolean not null default false;
 alter table families add column if not exists daily_devotional_hour smallint not null default 7;
 alter table families add column if not exists daily_devotional_minute smallint not null default 0;
+alter table families add column if not exists currency text not null default 'AUD';
+alter table families add column if not exists trial_start_date timestamptz;
 
 -- Devotional favorites (per-entry, local-first but synced)
 alter table devotionals add column if not exists is_favorited boolean not null default false;

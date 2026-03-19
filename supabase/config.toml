@@ -6,3 +6,8 @@ verify_jwt = false
 
 [functions.weekly-digest]
 verify_jwt = false
+
+# App invokes with functions.invoke; session JWT is often missing/expired on background work.
+# Caller must be a real family member (checked in function).
+[functions.notify-family]
+verify_jwt = false

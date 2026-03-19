@@ -9,6 +9,7 @@ import 'package:uuid/uuid.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 
@@ -131,6 +132,16 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
           final db = provider.db;
           await provider.saveAndSync(
               db.copyWith(prayerRequests: [...db.prayerRequests, request]));
+          try {
+            final isGratitude = request.type == PrayerWallType.GRATITUDE;
+            NotificationService.notifyFamilyActivity(
+              title: isGratitude ? 'New gratitude shared 🙏' : 'New prayer request 🙏',
+              body: '${provider.activeUser?.name ?? 'Someone'} ${isGratitude ? 'shared a gratitude' : 'added a prayer request'}',
+              path: '/prayer-wall',
+              familyId: provider.activeFamily?.id,
+              excludeUserId: provider.activeUser?.id,
+            );
+          } catch (_) {}
         },
       ),
     );
@@ -709,9 +720,10 @@ class _AddPrayerSheetState extends State<_AddPrayerSheet> {
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
         child: Form(
           key: _formKey,
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const SheetHandle(),
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          child: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const SheetHandle(),
+              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
               const Text('Share with Family',
                   style: TextStyle(
                     fontFamily: 'Inter',
@@ -782,7 +794,8 @@ class _AddPrayerSheetState extends State<_AddPrayerSheet> {
                 alignLabelWithHint: true,
               ),
             ),
-          ]),
+            ]),
+          ),
         ),
       ),
     );

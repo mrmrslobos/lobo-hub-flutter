@@ -376,36 +376,42 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
     }
   }
 
-  /// Convert local day-of-week + hour to UTC day + hour.
+  /// 0=Sun … 6=Sat (matches weekly-digest edge function).
+  /// Converts using full timezone offset (minutes), not integer hours only.
   (int, int) _localToUtc(int localDay, int localHour) {
     final now = DateTime.now();
-    final offset = now.timeZoneOffset.inHours;
-    var utcHour = localHour - offset;
-    var utcDay = localDay;
-    if (utcHour < 0) {
-      utcHour += 24;
-      utcDay = (utcDay - 1) % 7;
-    } else if (utcHour >= 24) {
-      utcHour -= 24;
-      utcDay = (utcDay + 1) % 7;
+    final offMin = now.timeZoneOffset.inMinutes;
+    var utcTotalMin = localHour * 60 - offMin;
+    var dayRoll = 0;
+    while (utcTotalMin < 0) {
+      utcTotalMin += 24 * 60;
+      dayRoll--;
     }
-    return (utcDay, utcHour);
+    while (utcTotalMin >= 24 * 60) {
+      utcTotalMin -= 24 * 60;
+      dayRoll++;
+    }
+    var utcDay = (localDay + dayRoll) % 7;
+    if (utcDay < 0) utcDay += 7;
+    return (utcDay, utcTotalMin ~/ 60);
   }
 
-  /// Convert UTC day-of-week + hour to local day + hour.
   (int, int) _utcToLocal(int utcDay, int utcHour) {
     final now = DateTime.now();
-    final offset = now.timeZoneOffset.inHours;
-    var localHour = utcHour + offset;
-    var localDay = utcDay;
-    if (localHour < 0) {
-      localHour += 24;
-      localDay = (localDay - 1) % 7;
-    } else if (localHour >= 24) {
-      localHour -= 24;
-      localDay = (localDay + 1) % 7;
+    final offMin = now.timeZoneOffset.inMinutes;
+    var localTotalMin = utcHour * 60 + offMin;
+    var dayRoll = 0;
+    while (localTotalMin < 0) {
+      localTotalMin += 24 * 60;
+      dayRoll--;
     }
-    return (localDay, localHour);
+    while (localTotalMin >= 24 * 60) {
+      localTotalMin -= 24 * 60;
+      dayRoll++;
+    }
+    var localDay = (utcDay + dayRoll) % 7;
+    if (localDay < 0) localDay += 7;
+    return (localDay, localTotalMin ~/ 60);
   }
 
   /// Save weekly digest settings to the family record via provider.
@@ -446,11 +452,12 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
       ),
       child: _loading
           ? const SizedBox(height: 200, child: Center(child: CircularProgressIndicator()))
-          : Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Handle
+          : SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Handle
                 Center(
                   child: Container(
                     margin: const EdgeInsets.symmetric(vertical: 12),
@@ -880,7 +887,8 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
                     ],
                   ),
                 ),
-              ],
+                ],
+              ),
             ),
     );
   }
