@@ -205,6 +205,7 @@ class AppProvider extends ChangeNotifier {
     'lists',
     'devotionals',
     'budget_categories',
+    'budget_entries',
     'transactions',
     'chores',
     'chore_completions',

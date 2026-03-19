@@ -336,8 +336,8 @@ class DatabaseService {
           db.budgetCategories.map((b) => {...b.toJson(), 'family_id': fid}).toList(),
           db.budgetCategories.map((b) => b.id).toSet()),
       upAndClean('budget_entries',
-          db.budgetEntries.map((e) => {...e.toJson(), 'family_id': fid}).toList(),
-          db.budgetEntries.map((e) => e.id).toSet()),
+          db.budgetEntries.map((b) => {...b.toJson(), 'family_id': fid}).toList(),
+          db.budgetEntries.map((b) => b.id).toSet()),
       upAndClean('transactions',
           db.transactions.map((t) => {...t.toJson(), 'family_id': fid}).toList(),
           db.transactions.map((t) => t.id).toSet()),
@@ -738,10 +738,7 @@ class DatabaseService {
     addAll(db.users); addAll(db.families); addAll(db.familyMembers);
     addAll(db.tasks); addAll(db.events); addAll(db.recipes);
     addAll(db.mealPlans); addAll(db.lists); addAll(db.devotionals);
-    addAll(db.fitness); addAll(db.fitnessLogs); addAll(db.budgetCategories); addAll(db.budgetEntries); addAll(db.transactions);
-    addAll(db.workoutSessions);
-    addAll(db.workoutExercises);
-    addAll(db.workoutSets);
+    addAll(db.fitness); addAll(db.budgetCategories); addAll(db.budgetEntries); addAll(db.transactions);
     addAll(db.aiHistory); addAll(db.dailyHabits); addAll(db.dailyHabitCompletions);
     addAll(db.chores); addAll(db.choreCompletions); addAll(db.polls);
     addAll(db.pollVotes); addAll(db.rewardItems); addAll(db.rewardRedemptions);
