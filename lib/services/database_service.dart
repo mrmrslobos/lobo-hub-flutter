@@ -136,6 +136,9 @@ class DatabaseService {
       upAndClean('budget_categories',
           db.budgetCategories.map((b) => {...b.toJson(), 'family_id': fid}).toList(),
           db.budgetCategories.map((b) => b.id).toSet()),
+      upAndClean('budget_entries',
+          db.budgetEntries.map((b) => {...b.toJson(), 'family_id': fid}).toList(),
+          db.budgetEntries.map((b) => b.id).toSet()),
       upAndClean('transactions',
           db.transactions.map((t) => {...t.toJson(), 'family_id': fid}).toList(),
           db.transactions.map((t) => t.id).toSet()),
@@ -340,7 +343,7 @@ class DatabaseService {
     addAll(db.users); addAll(db.families); addAll(db.familyMembers);
     addAll(db.tasks); addAll(db.events); addAll(db.recipes);
     addAll(db.mealPlans); addAll(db.lists); addAll(db.devotionals);
-    addAll(db.fitness); addAll(db.budgetCategories); addAll(db.transactions);
+    addAll(db.fitness); addAll(db.budgetCategories); addAll(db.budgetEntries); addAll(db.transactions);
     addAll(db.aiHistory); addAll(db.dailyHabits); addAll(db.dailyHabitCompletions);
     addAll(db.chores); addAll(db.choreCompletions); addAll(db.polls);
     addAll(db.pollVotes); addAll(db.rewardItems); addAll(db.rewardRedemptions);
@@ -370,6 +373,7 @@ class DatabaseService {
       devotionals: _mergeById(local.devotionals, _safeParse(cloud['devotionals'], DevotionalEntry.fromJson)),
       fitness: _mergeById(local.fitness, _safeParse(cloud['fitness'], FitnessMetric.fromJson)),
       budgetCategories: _mergeById(local.budgetCategories, _safeParse(cloud['budget_categories'], BudgetCategoryRecord.fromJson)),
+      budgetEntries: _mergeById(local.budgetEntries, _safeParse(cloud['budget_entries'], BudgetEntry.fromJson)),
       transactions: _mergeById(local.transactions, _safeParse(cloud['transactions'], Transaction.fromJson)),
       aiHistory: _mergeById(local.aiHistory, _safeParse(cloud['ai_history'], AIHistory.fromJson)),
       dailyHabits: _mergeById(local.dailyHabits, _safeParse(cloud['daily_habits'], DailyHabit.fromJson)),

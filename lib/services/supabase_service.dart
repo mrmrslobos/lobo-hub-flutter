@@ -82,6 +82,7 @@ class SupabaseService {
       'lists',
       'devotionals',
       'budget_categories',
+      'budget_entries',
       'transactions',
       'chores',
       'polls',
