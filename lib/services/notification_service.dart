@@ -33,7 +33,13 @@ class NotificationService {
 
   /// Called when a FCM notification is tapped (background/terminated).
   static void _onFcmMessageTap(RemoteMessage message) {
-    final route = (message.data['path'] ?? message.data['route']) as String?;
+    var route = (message.data['path'] ?? message.data['route']) as String?;
+    final did = message.data['devotionalId']?.toString();
+    if ((route == null || route.isEmpty) &&
+        did != null &&
+        did.isNotEmpty) {
+      route = '/devotional?id=$did';
+    }
     if (route != null && route.isNotEmpty) {
       pendingRoute = route;
     }
@@ -82,7 +88,13 @@ class NotificationService {
             id: notification.hashCode,
             title: notification.title ?? '',
             body: notification.body ?? '',
-            payload: (message.data['path'] ?? message.data['route']) as String?,
+            payload: () {
+              final p = (message.data['path'] ?? message.data['route']) as String?;
+              if (p != null && p.isNotEmpty) return p;
+              final d = message.data['devotionalId']?.toString();
+              if (d != null && d.isNotEmpty) return '/devotional?id=$d';
+              return null;
+            }(),
           );
         }
       });
@@ -182,6 +194,55 @@ class NotificationService {
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
       matchDateTimeComponents: DateTimeComponents.time,
+    );
+  }
+
+  /// Schedule a one-time notification at [when] (local time).
+  static Future<void> scheduleOnce({
+    required int id,
+    required String title,
+    required String body,
+    required DateTime when,
+    String? payload,
+  }) async {
+    if (!_initialized) await init();
+
+    final scheduledDate = tz.TZDateTime(
+      tz.local,
+      when.year,
+      when.month,
+      when.day,
+      when.hour,
+      when.minute,
+      when.second,
+    );
+
+    if (scheduledDate.isBefore(tz.TZDateTime.now(tz.local))) return;
+
+    const androidDetails = AndroidNotificationDetails(
+      'lobohub_fertility_reminders',
+      'Fertility Reminders',
+      channelDescription: 'One-time fertility reminders for Flo predictions',
+      importance: Importance.high,
+      priority: Priority.high,
+    );
+
+    const iosDetails = DarwinNotificationDetails();
+    const details = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
+
+    await _plugin.zonedSchedule(
+      id,
+      title,
+      body,
+      scheduledDate,
+      details,
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+      payload: payload,
     );
   }
 

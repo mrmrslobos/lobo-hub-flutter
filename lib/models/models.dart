@@ -531,6 +531,8 @@ class Task {
   final List<String> assignees;
   final List<String> tags;
   final Recurrence recurrence;
+  /// Monotonic sync version — bump on every user edit so other devices pull the latest.
+  final DateTime updatedAt;
 
   Task({
     required this.id,
@@ -554,7 +556,9 @@ class Task {
     Recurrence? recurrence,
     TaskRecurrence? taskRecurrence,
     DateTime? createdAt,
-  }) : creatorId = creatorId ?? createdBy ?? '',
+    DateTime? updatedAt,
+  })  : updatedAt = updatedAt ?? DateTime.now(),
+        creatorId = creatorId ?? createdBy ?? '',
        assignees = assignees ?? assigneeIds ?? const [],
        priority = priority ?? _taskPriorityToPriority(taskPriority) ?? Priority.MEDIUM,
        recurrence = recurrence ?? _taskRecurrenceToRecurrence(taskRecurrence) ?? Recurrence.NONE;
@@ -576,6 +580,7 @@ class Task {
     assignees: _strList(j['assignees']),
     tags: _strList(j['tags']),
     recurrence: recurrenceFromString(j['recurrence'] as String?),
+    updatedAt: _parseDateOpt(j['updated_at']) ?? DateTime.fromMillisecondsSinceEpoch(0),
   );
 
   Map<String, dynamic> toJson() => {
@@ -595,6 +600,7 @@ class Task {
     'assignees': assignees,
     'tags': tags,
     'recurrence': recurrence.name,
+    'updated_at': updatedAt.toIso8601String(),
   };
 
   // Convenience getters for screen compatibility
@@ -607,7 +613,7 @@ class Task {
     String? notes, DateTime? dueDate, String? dueTime, int? reminderMinutes,
     Priority? priority, bool? completed, String? completedBy, String? updatedBy,
     Visibility? visibility, List<String>? assignees, List<String>? tags,
-    Recurrence? recurrence,
+    Recurrence? recurrence, DateTime? updatedAt,
   }) => Task(
     id: id ?? this.id,
     familyId: familyId ?? this.familyId,
@@ -625,6 +631,7 @@ class Task {
     assignees: assignees ?? this.assignees,
     tags: tags ?? this.tags,
     recurrence: recurrence ?? this.recurrence,
+    updatedAt: updatedAt ?? this.updatedAt,
   );
 }
 
@@ -647,6 +654,7 @@ class CalendarEvent {
   final double? budgetEstimate;
   final String? externalCalendarId;
   final Recurrence recurrence;
+  final DateTime updatedAt;
 
   CalendarEvent({
     required this.id,
@@ -668,7 +676,9 @@ class CalendarEvent {
     this.budgetEstimate,
     this.externalCalendarId,
     this.recurrence = Recurrence.NONE,
-  }) : creatorId = creatorId ?? createdBy ?? '',
+    DateTime? updatedAt,
+  })  : updatedAt = updatedAt ?? DateTime.now(),
+        creatorId = creatorId ?? createdBy ?? '',
        start = start ?? startDate ?? DateTime.now(),
        end = end ?? endDate ?? (startDate ?? DateTime.now()).add(const Duration(hours: 1));
 
@@ -689,6 +699,7 @@ class CalendarEvent {
         : null,
     externalCalendarId: j['external_calendar_id'] as String?,
     recurrence: recurrenceFromString(j['recurrence'] as String?),
+    updatedAt: _parseDateOpt(j['updated_at']) ?? DateTime.fromMillisecondsSinceEpoch(0),
   );
 
   Map<String, dynamic> toJson() => {
@@ -706,6 +717,7 @@ class CalendarEvent {
     'budget_estimate': budgetEstimate,
     'external_calendar_id': externalCalendarId,
     'recurrence': recurrence.name,
+    'updated_at': updatedAt.toIso8601String(),
   };
 
   // Convenience getters
@@ -720,6 +732,7 @@ class CalendarEvent {
     String? description, String? location, DateTime? start, DateTime? end,
     Visibility? visibility, List<String>? sharedWith, List<String>? checklist,
     double? budgetEstimate, String? externalCalendarId, Recurrence? recurrence,
+    DateTime? updatedAt,
   }) => CalendarEvent(
     id: id ?? this.id, familyId: familyId ?? this.familyId,
     creatorId: creatorId ?? this.creatorId, title: title ?? this.title,
@@ -730,6 +743,7 @@ class CalendarEvent {
     budgetEstimate: budgetEstimate ?? this.budgetEstimate,
     externalCalendarId: externalCalendarId ?? this.externalCalendarId,
     recurrence: recurrence ?? this.recurrence,
+    updatedAt: updatedAt ?? this.updatedAt,
   );
 }
 
@@ -836,6 +850,7 @@ class Recipe {
   final String? image;
   final int? prepMinutes;
   final int? cookMinutes;
+  final DateTime updatedAt;
 
   Recipe({
     required this.id,
@@ -853,7 +868,9 @@ class Recipe {
     String? sourceUrl,
     String? createdBy,
     String? creatorId,
-  }) : servings = servings ?? 4,
+    DateTime? updatedAt,
+  })  : updatedAt = updatedAt ?? DateTime.now(),
+        servings = servings ?? 4,
        ingredients = ingredients ?? const [];
 
   factory Recipe.fromJson(Map<String, dynamic> j) {
@@ -879,6 +896,7 @@ class Recipe {
       image: j['image'] as String?,
       prepMinutes: (j['prep_minutes'] ?? j['prepMinutes']) as int?,
       cookMinutes: (j['cook_minutes'] ?? j['cookMinutes']) as int?,
+      updatedAt: _parseDateOpt(j['updated_at']) ?? DateTime.fromMillisecondsSinceEpoch(0),
     );
   }
 
@@ -893,6 +911,7 @@ class Recipe {
     'image': image,
     if (prepMinutes != null) 'prepMinutes': prepMinutes,
     if (cookMinutes != null) 'cookMinutes': cookMinutes,
+    'updated_at': updatedAt.toIso8601String(),
   };
 
   // Convenience getters
@@ -902,7 +921,7 @@ class Recipe {
   Recipe copyWith({
     String? id, String? familyId, String? title, List<RecipeIngredient>? ingredients,
     List<String>? steps, int? servings, List<String>? tags, String? image,
-    int? prepMinutes, int? cookMinutes,
+    int? prepMinutes, int? cookMinutes, DateTime? updatedAt,
   }) => Recipe(
     id: id ?? this.id, familyId: familyId ?? this.familyId,
     title: title ?? this.title, ingredients: ingredients ?? this.ingredients,
@@ -910,6 +929,11 @@ class Recipe {
     tags: tags ?? this.tags, image: image ?? this.image,
     prepMinutes: prepMinutes ?? this.prepMinutes,
     cookMinutes: cookMinutes ?? this.cookMinutes,
+    updatedAt: updatedAt ??
+        ((title != null || ingredients != null || steps != null || servings != null ||
+                tags != null || image != null || prepMinutes != null || cookMinutes != null)
+            ? DateTime.now()
+            : this.updatedAt),
   );
 }
 
@@ -950,8 +974,9 @@ class MealPlanEntry {
   final String? recipeId;
   final String? customMeal;
   final String? notes;
+  final DateTime updatedAt;
 
-  const MealPlanEntry({
+  MealPlanEntry({
     required this.id,
     required this.familyId,
     required this.date,
@@ -962,7 +987,8 @@ class MealPlanEntry {
     String? title,
     String? createdBy,
     String? creatorId,
-  });
+    DateTime? updatedAt,
+  }) : updatedAt = updatedAt ?? DateTime.now();
 
   factory MealPlanEntry.fromJson(Map<String, dynamic> j) => MealPlanEntry(
     id: j['id'] as String? ?? '',
@@ -972,6 +998,7 @@ class MealPlanEntry {
     recipeId: j['recipe_id'] as String?,
     customMeal: j['custom_meal'] as String?,
     notes: j['notes'] as String?,
+    updatedAt: _parseDateOpt(j['updated_at']) ?? DateTime.fromMillisecondsSinceEpoch(0),
   );
 
   Map<String, dynamic> toJson() => {
@@ -981,6 +1008,7 @@ class MealPlanEntry {
     'meal_type': mealType,
     'recipe_id': recipeId,
     'custom_meal': customMeal,
+    'updated_at': updatedAt.toIso8601String(),
   };
 
   // Convenience getters
@@ -988,12 +1016,16 @@ class MealPlanEntry {
 
   MealPlanEntry copyWith({
     String? id, String? familyId, DateTime? date, String? mealType,
-    String? recipeId, String? customMeal, String? notes,
+    String? recipeId, String? customMeal, String? notes, DateTime? updatedAt,
   }) => MealPlanEntry(
     id: id ?? this.id, familyId: familyId ?? this.familyId,
     date: date ?? this.date, mealType: mealType ?? this.mealType,
     recipeId: recipeId ?? this.recipeId, customMeal: customMeal ?? this.customMeal,
     notes: notes ?? this.notes,
+    updatedAt: updatedAt ??
+        ((date != null || mealType != null || recipeId != null || customMeal != null || notes != null)
+            ? DateTime.now()
+            : this.updatedAt),
   );
 }
 
@@ -1064,6 +1096,7 @@ class ShoppingList {
   final ListCategory category;
   final Visibility visibility;
   final List<String> sharedWith;
+  final DateTime updatedAt;
 
   ShoppingList({
     required this.id,
@@ -1077,7 +1110,9 @@ class ShoppingList {
     this.visibility = Visibility.FAMILY,
     this.sharedWith = const [],
     DateTime? createdAt,
-  }) : creatorId = creatorId ?? createdBy ?? '',
+    DateTime? updatedAt,
+  })  : updatedAt = updatedAt ?? DateTime.now(),
+        creatorId = creatorId ?? createdBy ?? '',
        title = title ?? name ?? '';
 
   factory ShoppingList.fromJson(Map<String, dynamic> j) => ShoppingList(
@@ -1089,6 +1124,7 @@ class ShoppingList {
     category: listCategoryFromString(j['category'] as String?),
     visibility: visibilityFromString(j['visibility'] as String?),
     sharedWith: _strList(j['shared_with']),
+    updatedAt: _parseDateOpt(j['updated_at']) ?? DateTime.fromMillisecondsSinceEpoch(0),
   );
 
   Map<String, dynamic> toJson() => {
@@ -1099,6 +1135,7 @@ class ShoppingList {
     'items': items.map((e) => e.toJson()).toList(),
     'category': category.name,
     'visibility': visibility.name,
+    'updated_at': updatedAt.toIso8601String(),
   };
 
   // Convenience getters
@@ -1107,13 +1144,17 @@ class ShoppingList {
   ShoppingList copyWith({
     String? id, String? familyId, String? creatorId, String? title,
     List<ListItem>? items, ListCategory? category, Visibility? visibility,
-    List<String>? sharedWith,
+    List<String>? sharedWith, DateTime? updatedAt,
   }) => ShoppingList(
     id: id ?? this.id, familyId: familyId ?? this.familyId,
     creatorId: creatorId ?? this.creatorId, title: title ?? this.title,
     items: items ?? this.items, category: category ?? this.category,
     visibility: visibility ?? this.visibility,
     sharedWith: sharedWith ?? this.sharedWith,
+    updatedAt: updatedAt ??
+        ((title != null || items != null || category != null || visibility != null || sharedWith != null)
+            ? DateTime.now()
+            : this.updatedAt),
   );
 }
 
@@ -1135,6 +1176,7 @@ class DevotionalEntry {
   final DateTime date;
   final Visibility visibility;
   final bool isFavorited;
+  final DateTime updatedAt;
 
   DevotionalEntry({
     required this.id,
@@ -1151,7 +1193,9 @@ class DevotionalEntry {
     DateTime? date,
     this.visibility = Visibility.FAMILY,
     this.isFavorited = false,
-  }) : creatorId = creatorId ?? userId ?? '',
+    DateTime? updatedAt,
+  })  : updatedAt = updatedAt ?? DateTime.now(),
+        creatorId = creatorId ?? userId ?? '',
        date = date ?? DateTime.now();
 
   factory DevotionalEntry.fromJson(Map<String, dynamic> j) => DevotionalEntry(
@@ -1168,6 +1212,7 @@ class DevotionalEntry {
     date: _parseDate(j['date']),
     visibility: visibilityFromString(j['visibility'] as String?),
     isFavorited: (j['is_favorited'] ?? false) as bool,
+    updatedAt: _parseDateOpt(j['updated_at']) ?? _parseDate(j['date']),
   );
 
   Map<String, dynamic> toJson() => {
@@ -1184,6 +1229,7 @@ class DevotionalEntry {
     'date': date.toIso8601String(),
     'visibility': visibility.name,
     'is_favorited': isFavorited,
+    'updated_at': updatedAt.toIso8601String(),
   };
 
   // Convenience getter
@@ -1193,7 +1239,7 @@ class DevotionalEntry {
     String? id, String? familyId, String? creatorId, String? title,
     String? scripture, String? content, List<String>? reflectionPrompts,
     String? prayer, String? userPrayer, List<String>? tags,
-    DateTime? date, Visibility? visibility, bool? isFavorited,
+    DateTime? date, Visibility? visibility, bool? isFavorited, DateTime? updatedAt,
   }) => DevotionalEntry(
     id: id ?? this.id, familyId: familyId ?? this.familyId,
     creatorId: creatorId ?? this.creatorId, title: title ?? this.title,
@@ -1203,6 +1249,8 @@ class DevotionalEntry {
     tags: tags ?? this.tags, date: date ?? this.date,
     visibility: visibility ?? this.visibility,
     isFavorited: isFavorited ?? this.isFavorited,
+    updatedAt: updatedAt ??
+        ((title != null || content != null || isFavorited != null) ? DateTime.now() : this.updatedAt),
   );
 }
 
@@ -1267,22 +1315,29 @@ class FitnessLog {
     required this.date,
   });
 
-  factory FitnessLog.fromJson(Map<String, dynamic> j) => FitnessLog(
-    id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    userId: j['user_id'] as String? ?? '',
-    activity: j['activity'] as String? ?? '',
-    durationMinutes: (j['duration_minutes'] as int?) ?? 0,
-    caloriesBurned: (j['calories_burned'] as num?)?.toInt(),
-    notes: j['notes'] as String?,
-    date: _parseDate(j['date']),
-  );
+  factory FitnessLog.fromJson(Map<String, dynamic> j) {
+    final fid = j['family_id'] as String? ?? '';
+    return FitnessLog(
+      id: j['id'] as String? ?? '',
+      familyId: fid,
+      userId: j['user_id'] as String? ?? '',
+      activity: FieldEncryption.decryptField(j['activity'] as String?, fid) ?? '',
+      durationMinutes: FieldEncryption.decryptInt(j['duration_minutes'], fid) ?? 0,
+      caloriesBurned: FieldEncryption.decryptInt(j['calories_burned'], fid),
+      notes: FieldEncryption.decryptField(j['notes'] as String?, fid),
+      date: _parseDate(j['date']),
+    );
+  }
 
   Map<String, dynamic> toJson() => {
-    'id': id, 'family_id': familyId, 'user_id': userId,
-    'activity': activity, 'duration_minutes': durationMinutes,
-    'calories_burned': caloriesBurned,
-    'notes': notes, 'date': date.toIso8601String(),
+    'id': id,
+    'family_id': familyId,
+    'user_id': userId,
+    'activity': FieldEncryption.encryptField(activity, familyId) ?? activity,
+    'duration_minutes': FieldEncryption.encryptNum(durationMinutes, familyId) ?? durationMinutes.toString(),
+    'calories_burned': FieldEncryption.encryptNum(caloriesBurned, familyId),
+    'notes': FieldEncryption.encryptField(notes, familyId),
+    'date': date.toIso8601String(),
   };
 
   FitnessLog copyWith({
@@ -1295,6 +1350,235 @@ class FitnessLog {
     caloriesBurned: caloriesBurned ?? this.caloriesBurned,
     notes: notes ?? this.notes, date: date ?? this.date,
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Strong integration: WorkoutSession / WorkoutExercise / WorkoutSet
+// ─────────────────────────────────────────────────────────────────────────────
+
+class WorkoutSession {
+  final String id;
+  final String familyId;
+  final String userId;
+  final String title;
+  final DateTime date;
+  final int durationMinutes;
+  final String? notes;
+  final DateTime createdAt;
+
+  const WorkoutSession({
+    required this.id,
+    required this.familyId,
+    required this.userId,
+    required this.title,
+    required this.date,
+    this.durationMinutes = 0,
+    this.notes,
+    required this.createdAt,
+  });
+
+  factory WorkoutSession.fromJson(Map<String, dynamic> j) {
+    final fid = j['family_id'] as String? ?? '';
+    return WorkoutSession(
+      id: j['id'] as String? ?? '',
+      familyId: fid,
+      userId: j['user_id'] as String? ?? '',
+      title: FieldEncryption.decryptField(j['title'] as String?, fid) ?? '',
+      date: _parseDate(j['date']),
+      durationMinutes: ((j['duration_minutes'] as num?) ?? 0).toInt(),
+      notes: FieldEncryption.decryptField(j['notes'] as String?, fid),
+      createdAt: _parseDate(j['created_at']),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'family_id': familyId,
+        'user_id': userId,
+        'title': FieldEncryption.encryptField(title, familyId) ?? title,
+        'date': date.toIso8601String(),
+        'duration_minutes': durationMinutes,
+        'notes': FieldEncryption.encryptField(notes, familyId),
+        'created_at': createdAt.toIso8601String(),
+      };
+
+  WorkoutSession copyWith({
+    String? id,
+    String? familyId,
+    String? userId,
+    String? title,
+    DateTime? date,
+    int? durationMinutes,
+    String? notes,
+    DateTime? createdAt,
+  }) =>
+      WorkoutSession(
+        id: id ?? this.id,
+        familyId: familyId ?? this.familyId,
+        userId: userId ?? this.userId,
+        title: title ?? this.title,
+        date: date ?? this.date,
+        durationMinutes: durationMinutes ?? this.durationMinutes,
+        notes: notes ?? this.notes,
+        createdAt: createdAt ?? this.createdAt,
+      );
+}
+
+class WorkoutExercise {
+  final String id;
+  final String familyId;
+  final String userId;
+  final String sessionId;
+  final String exerciseName;
+  final int order;
+  final int restSeconds;
+  final String? notes;
+  final DateTime createdAt;
+
+  const WorkoutExercise({
+    required this.id,
+    required this.familyId,
+    required this.userId,
+    required this.sessionId,
+    required this.exerciseName,
+    this.order = 0,
+    this.restSeconds = 60,
+    this.notes,
+    required this.createdAt,
+  });
+
+  factory WorkoutExercise.fromJson(Map<String, dynamic> j) {
+    final fid = j['family_id'] as String? ?? '';
+    return WorkoutExercise(
+      id: j['id'] as String? ?? '',
+      familyId: fid,
+      userId: j['user_id'] as String? ?? '',
+      sessionId: j['session_id'] as String? ?? '',
+      exerciseName:
+          FieldEncryption.decryptField(j['exercise_name'] as String?, fid) ??
+              '',
+      order: ((j['order'] as num?) ?? 0).toInt(),
+      restSeconds: ((j['rest_seconds'] as num?) ?? 60).toInt(),
+      notes: FieldEncryption.decryptField(j['notes'] as String?, fid),
+      createdAt: _parseDate(j['created_at']),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'family_id': familyId,
+        'user_id': userId,
+        'session_id': sessionId,
+        'exercise_name': FieldEncryption.encryptField(exerciseName, familyId) ??
+            exerciseName,
+        'order': order,
+        'rest_seconds': restSeconds,
+        'notes': FieldEncryption.encryptField(notes, familyId),
+        'created_at': createdAt.toIso8601String(),
+      };
+
+  WorkoutExercise copyWith({
+    String? id,
+    String? familyId,
+    String? userId,
+    String? sessionId,
+    String? exerciseName,
+    int? order,
+    int? restSeconds,
+    String? notes,
+    DateTime? createdAt,
+  }) =>
+      WorkoutExercise(
+        id: id ?? this.id,
+        familyId: familyId ?? this.familyId,
+        userId: userId ?? this.userId,
+        sessionId: sessionId ?? this.sessionId,
+        exerciseName: exerciseName ?? this.exerciseName,
+        order: order ?? this.order,
+        restSeconds: restSeconds ?? this.restSeconds,
+        notes: notes ?? this.notes,
+        createdAt: createdAt ?? this.createdAt,
+      );
+}
+
+class WorkoutSet {
+  final String id;
+  final String familyId;
+  final String userId;
+  final String exerciseId;
+  final int setNumber;
+  final String reps; // stored as encrypted text in DB
+  final String? weight; // stored as encrypted text in DB
+  final bool completed;
+  final String? notes;
+  final DateTime createdAt;
+
+  const WorkoutSet({
+    required this.id,
+    required this.familyId,
+    required this.userId,
+    required this.exerciseId,
+    required this.setNumber,
+    required this.reps,
+    this.weight,
+    this.completed = false,
+    this.notes,
+    required this.createdAt,
+  });
+
+  factory WorkoutSet.fromJson(Map<String, dynamic> j) {
+    final fid = j['family_id'] as String? ?? '';
+    return WorkoutSet(
+      id: j['id'] as String? ?? '',
+      familyId: fid,
+      userId: j['user_id'] as String? ?? '',
+      exerciseId: j['exercise_id'] as String? ?? '',
+      setNumber: ((j['set_number'] as num?) ?? 0).toInt(),
+      reps: FieldEncryption.decryptField(j['reps'] as String?, fid) ?? '',
+      weight: FieldEncryption.decryptField(j['weight'] as String?, fid),
+      completed: (j['completed'] as bool?) ?? false,
+      notes: FieldEncryption.decryptField(j['notes'] as String?, fid),
+      createdAt: _parseDate(j['created_at']),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'family_id': familyId,
+        'user_id': userId,
+        'exercise_id': exerciseId,
+        'set_number': setNumber,
+        'reps': FieldEncryption.encryptField(reps, familyId) ?? reps,
+        'weight': FieldEncryption.encryptField(weight, familyId),
+        'completed': completed,
+        'notes': FieldEncryption.encryptField(notes, familyId),
+        'created_at': createdAt.toIso8601String(),
+      };
+
+  WorkoutSet copyWith({
+    String? id,
+    String? familyId,
+    String? userId,
+    String? exerciseId,
+    int? setNumber,
+    String? reps,
+    String? weight,
+    bool? completed,
+    String? notes,
+    DateTime? createdAt,
+  }) =>
+      WorkoutSet(
+        id: id ?? this.id,
+        familyId: familyId ?? this.familyId,
+        userId: userId ?? this.userId,
+        exerciseId: exerciseId ?? this.exerciseId,
+        setNumber: setNumber ?? this.setNumber,
+        reps: reps ?? this.reps,
+        weight: weight ?? this.weight,
+        completed: completed ?? this.completed,
+        notes: notes ?? this.notes,
+        createdAt: createdAt ?? this.createdAt,
+      );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1409,6 +1693,7 @@ class BudgetEntry {
   final BudgetCategory category;
   final DateTime date;
   final String? notes;
+  final Visibility visibility;
 
   BudgetEntry({
     required this.id,
@@ -1422,43 +1707,56 @@ class BudgetEntry {
     BudgetCategory? category,
     required this.date,
     this.notes,
+    Visibility? visibility,
   }) : creatorId = creatorId ?? createdBy ?? '',
        type = type ?? (isIncome == true ? TransactionType.INCOME : TransactionType.EXPENSE),
-       category = category ?? BudgetCategory.other;
+       category = category ?? BudgetCategory.other,
+       visibility = visibility ?? Visibility.FAMILY;
 
   bool get isIncome => type == TransactionType.INCOME;
 
-  factory BudgetEntry.fromJson(Map<String, dynamic> j) => BudgetEntry(
-    id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    creatorId: j['creator_id'] as String? ?? '',
-    title: j['title'] as String? ?? '',
-    amount: ((j['amount'] as num?) ?? 0).toDouble(),
-    type: transactionTypeFromString(j['type'] as String?),
-    category: BudgetCategory.values.firstWhere(
-      (e) => e.name == (j['category'] as String?),
-      orElse: () => BudgetCategory.other,
-    ),
-    date: _parseDate(j['date']),
-    notes: j['notes'] as String?,
-  );
+  factory BudgetEntry.fromJson(Map<String, dynamic> j) {
+    final fid = j['family_id'] as String? ?? '';
+    return BudgetEntry(
+      id: j['id'] as String? ?? '',
+      familyId: fid,
+      creatorId: j['creator_id'] as String? ?? '',
+      title: FieldEncryption.decryptField(j['title'] as String?, fid) ?? '',
+      amount: FieldEncryption.decryptDouble(j['amount'], fid) ?? 0,
+      type: transactionTypeFromString(FieldEncryption.decryptField(j['type'] as String?, fid)),
+      category: BudgetCategory.values.firstWhere(
+        (e) => e.name == (FieldEncryption.decryptField(j['category'] as String?, fid) ?? 'other'),
+        orElse: () => BudgetCategory.other,
+      ),
+      date: _parseDate(FieldEncryption.decryptField(j['date'] as String?, fid)),
+      notes: FieldEncryption.decryptField(j['notes'] as String?, fid),
+      visibility: visibilityFromString(j['visibility'] as String?),
+    );
+  }
 
   Map<String, dynamic> toJson() => {
-    'id': id, 'family_id': familyId, 'creator_id': creatorId,
-    'title': title, 'amount': amount, 'type': type.name,
-    'category': category.name, 'date': date.toIso8601String(), 'notes': notes,
+    'id': id,
+    'family_id': familyId,
+    'creator_id': creatorId,
+    'title': FieldEncryption.encryptField(title, familyId),
+    'amount': FieldEncryption.encryptNum(amount, familyId),
+    'type': FieldEncryption.encryptField(type.name, familyId),
+    'category': FieldEncryption.encryptField(category.name, familyId),
+    'date': FieldEncryption.encryptField(date.toIso8601String(), familyId),
+    'notes': FieldEncryption.encryptField(notes, familyId),
+    'visibility': visibility.name,
   };
 
   BudgetEntry copyWith({
     String? id, String? familyId, String? creatorId, String? title,
     double? amount, TransactionType? type, BudgetCategory? category,
-    DateTime? date, String? notes,
+    DateTime? date, String? notes, Visibility? visibility,
   }) => BudgetEntry(
     id: id ?? this.id, familyId: familyId ?? this.familyId,
     creatorId: creatorId ?? this.creatorId, title: title ?? this.title,
     amount: amount ?? this.amount, type: type ?? this.type,
     category: category ?? this.category, date: date ?? this.date,
-    notes: notes ?? this.notes,
+    notes: notes ?? this.notes, visibility: visibility ?? this.visibility,
   );
 }
 
@@ -1644,6 +1942,7 @@ class Chore {
   final Visibility visibility;
   final DateTime createdAt;
   final bool requiresApproval;
+  final DateTime updatedAt;
 
   Chore({
     required this.id,
@@ -1663,7 +1962,9 @@ class Chore {
     this.visibility = Visibility.FAMILY,
     DateTime? createdAt,
     this.requiresApproval = false,
-  }) : creatorId = creatorId ?? createdBy ?? '',
+    DateTime? updatedAt,
+  })  : updatedAt = updatedAt ?? DateTime.now(),
+        creatorId = creatorId ?? createdBy ?? '',
        assignees = assignees ?? assigneeIds ?? const [],
        createdAt = createdAt ?? DateTime.now();
 
@@ -1683,6 +1984,7 @@ class Chore {
     visibility: visibilityFromString(j['visibility'] as String?),
     createdAt: _parseDate(j['created_at']),
     requiresApproval: (j['requires_approval'] ?? false) as bool,
+    updatedAt: _parseDateOpt(j['updated_at']) ?? DateTime.fromMillisecondsSinceEpoch(0),
   );
 
   Map<String, dynamic> toJson() => {
@@ -1701,6 +2003,7 @@ class Chore {
     'visibility': visibility.name,
     'created_at': createdAt.toIso8601String(),
     'requires_approval': requiresApproval,
+    'updated_at': updatedAt.toIso8601String(),
   };
 
   // Convenience getters
@@ -1712,6 +2015,7 @@ class Chore {
     String? description, String? icon, int? points, double? reward,
     ChoreFrequency? frequency, List<int>? daysOfWeek, List<String>? assignees,
     String? color, Visibility? visibility, DateTime? createdAt, bool? requiresApproval,
+    DateTime? updatedAt,
   }) => Chore(
     id: id ?? this.id, familyId: familyId ?? this.familyId,
     creatorId: creatorId ?? this.creatorId, title: title ?? this.title,
@@ -1721,6 +2025,11 @@ class Chore {
     assignees: assignees ?? this.assignees, color: color ?? this.color,
     visibility: visibility ?? this.visibility, createdAt: createdAt ?? this.createdAt,
     requiresApproval: requiresApproval ?? this.requiresApproval,
+    updatedAt: updatedAt ??
+        ((title != null || description != null || points != null || frequency != null ||
+                daysOfWeek != null || assignees != null || requiresApproval != null)
+            ? DateTime.now()
+            : this.updatedAt),
   );
 }
 
@@ -1940,22 +2249,54 @@ class ReadingPlan {
     required this.createdAt,
   });
 
-  factory ReadingPlan.fromJson(Map<String, dynamic> j) => ReadingPlan(
-    id: j['id'] as String? ?? '',
-    familyId: j['family_id'] as String? ?? '',
-    creatorId: j['creator_id'] as String? ?? '',
-    title: j['title'] as String? ?? '',
-    description: j['description'] as String? ?? '',
-    totalDays: (j['total_days'] as int?) ?? 0,
-    days: (j['days'] is List) ? j['days'] as List : [],
-    entryIds: _strList(j['entry_ids']),
-    createdAt: _parseDate(j['created_at']),
-  );
+  factory ReadingPlan.fromJson(Map<String, dynamic> j) {
+    final daysList = (j['days'] is List) ? (j['days'] as List) : <dynamic>[];
+    final fromExplicit = _strList(j['entry_ids']);
+    final fromDays = <String>[];
+    for (final x in daysList) {
+      if (x is Map) {
+        final id = x['devotional_id']?.toString();
+        if (id != null && id.isNotEmpty) fromDays.add(id);
+      }
+    }
+    final ids = fromExplicit.isNotEmpty ? fromExplicit : fromDays;
+    final td = (j['total_days'] as num?)?.toInt() ?? 0;
+    final total = td > 0 ? td : (ids.isNotEmpty ? ids.length : daysList.length);
+    return ReadingPlan(
+      id: j['id'] as String? ?? '',
+      familyId: j['family_id'] as String? ?? '',
+      creatorId: j['creator_id'] as String? ?? '',
+      title: j['title'] as String? ?? '',
+      description: j['description'] as String? ?? '',
+      totalDays: total,
+      days: daysList,
+      entryIds: ids,
+      createdAt: _parseDate(j['created_at']),
+    );
+  }
+
+  /// Persist day→devotional links for local disk + Supabase (jsonb `days`).
+  List<dynamic> _daysPayload() {
+    if (days.isNotEmpty) return List<dynamic>.from(days);
+    return [
+      for (var i = 0; i < entryIds.length; i++)
+        <String, dynamic>{'devotional_id': entryIds[i], 'day': i + 1},
+    ];
+  }
+
+  int _totalDaysPayload() {
+    if (totalDays > 0) return totalDays;
+    if (entryIds.isNotEmpty) return entryIds.length;
+    if (days.isNotEmpty) return days.length;
+    return 0;
+  }
 
   Map<String, dynamic> toJson() => {
     'id': id, 'family_id': familyId, 'creator_id': creatorId,
     'title': title, 'description': description,
-    'total_days': totalDays, 'days': days,
+    'total_days': _totalDaysPayload(),
+    'days': _daysPayload(),
+    // entryIds are encoded inside [days][].devotional_id (no entry_ids DB column)
     'created_at': createdAt.toIso8601String(),
   };
 
@@ -2150,6 +2491,7 @@ class Poll {
   final DateTime? deadline;
   final Visibility visibility;
   final DateTime createdAt;
+  final DateTime updatedAt;
 
   Poll({
     required this.id,
@@ -2165,7 +2507,9 @@ class Poll {
     DateTime? expiresAt,
     this.visibility = Visibility.FAMILY,
     DateTime? createdAt,
-  }) : creatorId = creatorId ?? createdBy ?? '',
+    DateTime? updatedAt,
+  })  : updatedAt = updatedAt ?? DateTime.now(),
+        creatorId = creatorId ?? createdBy ?? '',
        deadline = deadline ?? expiresAt,
        createdAt = createdAt ?? DateTime.now();
 
@@ -2181,6 +2525,7 @@ class Poll {
     deadline: _parseDateOpt(j['deadline']),
     visibility: visibilityFromString(j['visibility'] as String?),
     createdAt: _parseDate(j['created_at']),
+    updatedAt: _parseDateOpt(j['updated_at']) ?? DateTime.fromMillisecondsSinceEpoch(0),
   );
 
   Map<String, dynamic> toJson() => {
@@ -2195,6 +2540,7 @@ class Poll {
     'deadline': deadline?.toIso8601String(),
     'visibility': visibility.name,
     'created_at': createdAt.toIso8601String(),
+    'updated_at': updatedAt.toIso8601String(),
   };
 
   // Convenience aliases
@@ -2206,6 +2552,7 @@ class Poll {
     String? id, String? familyId, String? creatorId, String? question,
     List<PollOption>? options, bool? allowMultiple, bool? anonymous,
     PollStatus? status, DateTime? deadline, Visibility? visibility, DateTime? createdAt,
+    DateTime? updatedAt,
   }) => Poll(
     id: id ?? this.id, familyId: familyId ?? this.familyId,
     creatorId: creatorId ?? this.creatorId, question: question ?? this.question,
@@ -2213,6 +2560,10 @@ class Poll {
     anonymous: anonymous ?? this.anonymous, status: status ?? this.status,
     deadline: deadline ?? this.deadline, visibility: visibility ?? this.visibility,
     createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ??
+        ((question != null || options != null || status != null || deadline != null)
+            ? DateTime.now()
+            : this.updatedAt),
   );
 }
 
@@ -2487,6 +2838,20 @@ class SpecialDate {
     createdAt: _parseDate(j['created_at']),
   );
 
+  /// DB column `emoji` is NOT NULL — use when local/cloud row has no emoji.
+  static String defaultEmojiForType(SpecialDateType t) {
+    switch (t) {
+      case SpecialDateType.BIRTHDAY:
+        return '🎂';
+      case SpecialDateType.ANNIVERSARY:
+        return '💝';
+      case SpecialDateType.MEMORIAL:
+        return '🕯️';
+      case SpecialDateType.OTHER:
+        return '📅';
+    }
+  }
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'family_id': familyId,
@@ -2496,7 +2861,7 @@ class SpecialDate {
     'month': month,
     'day': day,
     'year': year,
-    'emoji': emoji,
+    'emoji': emoji ?? defaultEmojiForType(type),
     'notes': notes,
     'reminder_days': reminderDays,
     'visibility': visibility.name,
@@ -2576,7 +2941,7 @@ class FamilyPhoto {
     'uploader_id': uploaderId,
     'url': url,
     'caption': caption,
-    'taken_at': takenAt?.toIso8601String(),
+    'taken_at': (takenAt ?? createdAt).toIso8601String(),
     'created_at': createdAt.toIso8601String(),
     'reactions': reactions.map((r) => r.toJson()).toList(),
     'milestone_id': milestoneId,
@@ -3215,6 +3580,9 @@ class AppDB {
   final List<FitnessMetric> fitness;
   final List<FitnessLog> fitnessLogs;
   final List<dynamic> fitnessPlans;
+  final List<WorkoutSession> workoutSessions;
+  final List<WorkoutExercise> workoutExercises;
+  final List<WorkoutSet> workoutSets;
   final List<BudgetCategoryRecord> budgetCategories;
   final List<BudgetEntry> budgetEntries;
   final List<Transaction> transactions;
@@ -3256,6 +3624,9 @@ class AppDB {
     this.fitness = const [],
     this.fitnessLogs = const [],
     this.fitnessPlans = const [],
+    this.workoutSessions = const [],
+    this.workoutExercises = const [],
+    this.workoutSets = const [],
     this.budgetCategories = const <BudgetCategoryRecord>[],
     this.budgetEntries = const [],
     this.transactions = const [],
@@ -3302,6 +3673,9 @@ class AppDB {
     fitnessPlans: (j['fitnessPlans'] ?? j['fitness_plans']) is List
         ? (j['fitnessPlans'] ?? j['fitness_plans']) as List
         : [],
+    workoutSessions: _parseList(j['workoutSessions'] ?? j['workout_sessions'], WorkoutSession.fromJson),
+    workoutExercises: _parseList(j['workoutExercises'] ?? j['workout_exercises'], WorkoutExercise.fromJson),
+    workoutSets: _parseList(j['workoutSets'] ?? j['workout_sets'], WorkoutSet.fromJson),
     budgetCategories: _parseList(j['budgetCategories'] ?? j['budget_categories'], BudgetCategoryRecord.fromJson),
     budgetEntries: _parseList(j['budgetEntries'] ?? j['budget_entries'], BudgetEntry.fromJson),
     transactions: _parseList(j['transactions'], Transaction.fromJson),
@@ -3345,6 +3719,9 @@ class AppDB {
     fitness: _parseList(cloud['fitness_metrics'], FitnessMetric.fromJson),
     fitnessLogs: _parseList(cloud['fitness_logs'], FitnessLog.fromJson),
     fitnessPlans: cloud['fitness_plans'] is List ? cloud['fitness_plans'] as List : [],
+    workoutSessions: _parseList(cloud['workout_sessions'], WorkoutSession.fromJson),
+    workoutExercises: _parseList(cloud['workout_exercises'], WorkoutExercise.fromJson),
+    workoutSets: _parseList(cloud['workout_sets'], WorkoutSet.fromJson),
     budgetCategories: _parseList(cloud['budget_categories'], BudgetCategoryRecord.fromJson),
     budgetEntries: _parseList(cloud['budget_entries'], BudgetEntry.fromJson),
     transactions: _parseList(cloud['transactions'], Transaction.fromJson),
@@ -3387,6 +3764,9 @@ class AppDB {
     'fitness': fitness.map((e) => e.toJson()).toList(),
     'fitnessLogs': fitnessLogs.map((e) => e.toJson()).toList(),
     'fitnessPlans': fitnessPlans,
+    'workoutSessions': workoutSessions.map((e) => e.toJson()).toList(),
+    'workoutExercises': workoutExercises.map((e) => e.toJson()).toList(),
+    'workoutSets': workoutSets.map((e) => e.toJson()).toList(),
     'budgetCategories': budgetCategories.map((e) => e.toJson()).toList(),
     'budgetEntries': budgetEntries.map((e) => e.toJson()).toList(),
     'transactions': transactions.map((e) => e.toJson()).toList(),
@@ -3429,6 +3809,9 @@ class AppDB {
     List<FitnessMetric>? fitness,
     List<FitnessLog>? fitnessLogs,
     List<dynamic>? fitnessPlans,
+    List<WorkoutSession>? workoutSessions,
+    List<WorkoutExercise>? workoutExercises,
+    List<WorkoutSet>? workoutSets,
     List<BudgetCategoryRecord>? budgetCategories,
     List<BudgetEntry>? budgetEntries,
     List<Transaction>? transactions,
@@ -3478,6 +3861,9 @@ class AppDB {
     fitness: fitness ?? this.fitness,
     fitnessLogs: fitnessLogs ?? this.fitnessLogs,
     fitnessPlans: fitnessPlans ?? this.fitnessPlans,
+    workoutSessions: workoutSessions ?? this.workoutSessions,
+    workoutExercises: workoutExercises ?? this.workoutExercises,
+    workoutSets: workoutSets ?? this.workoutSets,
     budgetCategories: budgetCategories ?? this.budgetCategories,
     budgetEntries: budgetEntries ?? this.budgetEntries,
     transactions: transactions ?? this.transactions,
@@ -3506,6 +3892,233 @@ class AppDB {
     readingPlans: readingPlans ?? this.readingPlans,
     externalCalendars: externalCalendars ?? this.externalCalendars,
   );
+
+  /// After [FieldEncryption.init], re-decrypt rows that were parsed while the
+  /// cipher was not ready (cloud pull / login order bugs).
+  AppDB applySensitiveDecryption(String familyId) {
+    if (!FieldEncryption.isReady(familyId)) return this;
+    String ds(String? s) {
+      if (s == null) return '';
+      final d = FieldEncryption.decryptField(s, familyId);
+      return d ?? s;
+    }
+
+    return copyWith(
+      messages: messages.map((m) {
+        if (m.familyId != familyId) return m;
+        return ChatMessage(
+          id: m.id,
+          familyId: m.familyId,
+          userId: m.userId,
+          text: ds(m.text),
+          replyToId: m.replyToId,
+          reactions: m.reactions,
+          editedAt: m.editedAt,
+          createdAt: m.createdAt,
+        );
+      }).toList(),
+      budgetCategories: budgetCategories.map((c) {
+        if (c.familyId != familyId) return c;
+        return BudgetCategoryRecord(
+          id: c.id,
+          familyId: c.familyId,
+          creatorId: c.creatorId,
+          name: ds(c.name),
+          limit: c.limit,
+          color: c.color,
+          visibility: c.visibility,
+        );
+      }).toList(),
+      budgetEntries: budgetEntries.map((e) {
+        if (e.familyId != familyId) return e;
+        return BudgetEntry(
+          id: e.id,
+          familyId: e.familyId,
+          creatorId: e.creatorId,
+          title: ds(e.title),
+          amount: e.amount,
+          type: e.type,
+          category: e.category,
+          date: e.date,
+          notes: e.notes != null ? ds(e.notes) : null,
+          visibility: e.visibility,
+        );
+      }).toList(),
+      transactions: transactions.map((t) {
+        if (t.familyId != familyId) return t;
+        return Transaction(
+          id: t.id,
+          familyId: t.familyId,
+          creatorId: t.creatorId,
+          categoryId: t.categoryId,
+          amount: t.amount,
+          type: t.type,
+          date: t.date,
+          description: ds(t.description),
+          visibility: t.visibility,
+        );
+      }).toList(),
+      fitnessLogs: fitnessLogs.map((l) {
+        if (l.familyId != familyId) return l;
+        return FitnessLog(
+          id: l.id,
+          familyId: l.familyId,
+          userId: l.userId,
+          activity: ds(l.activity),
+          durationMinutes: l.durationMinutes,
+          caloriesBurned: l.caloriesBurned,
+          notes: l.notes != null ? ds(l.notes) : null,
+          date: l.date,
+        );
+      }).toList(),
+      workoutSessions: workoutSessions.map((s) {
+        if (s.familyId != familyId) return s;
+        return WorkoutSession(
+          id: s.id,
+          familyId: s.familyId,
+          userId: s.userId,
+          title: ds(s.title),
+          date: s.date,
+          durationMinutes: s.durationMinutes,
+          notes: s.notes != null ? ds(s.notes) : null,
+          createdAt: s.createdAt,
+        );
+      }).toList(),
+      workoutExercises: workoutExercises.map((e) {
+        if (e.familyId != familyId) return e;
+        return WorkoutExercise(
+          id: e.id,
+          familyId: e.familyId,
+          userId: e.userId,
+          sessionId: e.sessionId,
+          exerciseName: ds(e.exerciseName),
+          order: e.order,
+          restSeconds: e.restSeconds,
+          notes: e.notes != null ? ds(e.notes) : null,
+          createdAt: e.createdAt,
+        );
+      }).toList(),
+      workoutSets: workoutSets.map((set) {
+        if (set.familyId != familyId) return set;
+        return WorkoutSet(
+          id: set.id,
+          familyId: set.familyId,
+          userId: set.userId,
+          exerciseId: set.exerciseId,
+          setNumber: set.setNumber,
+          reps: ds(set.reps),
+          weight: set.weight != null ? ds(set.weight) : null,
+          completed: set.completed,
+          notes: set.notes != null ? ds(set.notes) : null,
+          createdAt: set.createdAt,
+        );
+      }).toList(),
+      savingsGoals: savingsGoals.map((g) {
+        if (g.familyId != familyId) return g;
+        return SavingsGoal(
+          id: g.id,
+          familyId: g.familyId,
+          userId: g.userId,
+          title: ds(g.title),
+          icon: g.icon,
+          imageUrl: g.imageUrl,
+          targetAmount: g.targetAmount,
+          savedAmount: g.savedAmount,
+          createdAt: g.createdAt,
+          completedAt: g.completedAt,
+        );
+      }).toList(),
+      healthRecords: healthRecords.map((h) {
+        if (h.familyId != familyId) return h;
+        return HealthRecord(
+          id: h.id,
+          familyId: h.familyId,
+          userId: h.memberId,
+          updatedBy: h.updatedBy,
+          bloodType: h.bloodType,
+          allergies: h.allergies
+              .map((a) => HealthAllergy(
+                    id: a.id,
+                    name: ds(a.name),
+                    severity: a.severity,
+                    reaction: a.reaction != null ? ds(a.reaction) : null,
+                  ))
+              .toList(),
+          medications: h.medications
+              .map((m) => HealthMedication(
+                    id: m.id,
+                    name: ds(m.name),
+                    dose: m.dose != null ? ds(m.dose) : null,
+                    frequency: m.frequency != null ? ds(m.frequency) : null,
+                    startDate: m.startDate,
+                  ))
+              .toList(),
+          conditions: h.conditions
+              .map((c) => HealthCondition(
+                    id: c.id,
+                    name: ds(c.name),
+                    diagnosedDate: c.diagnosedDate,
+                    notes: c.notes != null ? ds(c.notes) : null,
+                  ))
+              .toList(),
+          immunizations: h.immunizations
+              .map((i) => HealthImmunization(
+                    id: i.id,
+                    name: ds(i.name),
+                    date: i.date,
+                    nextDue: i.nextDue,
+                  ))
+              .toList(),
+          emergencyContacts: h.emergencyContacts
+              .map((e) => EmergencyContact(
+                    id: e.id,
+                    name: ds(e.name),
+                    phone: ds(e.phone),
+                    relation: e.relation != null ? ds(e.relation) : null,
+                  ))
+              .toList(),
+          doctorName: h.doctorName != null ? ds(h.doctorName) : null,
+          doctorPhone: h.doctorPhone != null ? ds(h.doctorPhone) : null,
+          insuranceProvider:
+              h.insuranceProvider != null ? ds(h.insuranceProvider) : null,
+          insurancePolicyNumber:
+              h.insurancePolicyNumber != null ? ds(h.insurancePolicyNumber) : null,
+          notes: h.notes != null ? ds(h.notes) : null,
+          updatedAt: h.updatedAt,
+          type: h.type,
+          title: h.title,
+          data: h.data,
+        );
+      }).toList(),
+      periodCycles: periodCycles.map((p) {
+        if (p.familyId != familyId) return p;
+        return PeriodCycle(
+          id: p.id,
+          userId: p.userId,
+          familyId: p.familyId,
+          startDate: p.startDate,
+          endDate: p.endDate,
+          flowLevel: p.flowLevel,
+          notes: p.notes != null ? ds(p.notes) : null,
+          createdAt: p.createdAt,
+        );
+      }).toList(),
+      periodSymptoms: periodSymptoms.map((p) {
+        if (p.familyId != familyId) return p;
+        return PeriodSymptomLog(
+          id: p.id,
+          userId: p.userId,
+          familyId: p.familyId,
+          date: p.date,
+          symptoms: p.symptoms.map((s) => ds(s)).toList(),
+          mood: p.mood,
+          painLevel: p.painLevel,
+          notes: p.notes != null ? ds(p.notes) : null,
+          createdAt: p.createdAt,
+        );
+      }).toList(),
+    );
+  }
 
   // Convenience alias getters for screen compatibility
   List<PrayerWallEntry> get prayerRequests => prayerWall;

@@ -1,15 +1,19 @@
 // lib/screens/period_tracker/period_tracker_screen.dart
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../services/notification_service.dart';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -156,11 +160,234 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
   int _selectedTab = 0;
   late DateTime _currentMonth;
 
+  bool _fertilityRemindersEnabled = false;
+  String? _fertilityRemindersLastScheduleKey;
+
+  DateTime? _lastFertileStartDate;
+  DateTime? _lastOvulationDate;
+
+  bool _fertilityScheduleInFlight = false;
+
   @override
   void initState() {
     super.initState();
     final now = DateTime.now();
     _currentMonth = DateTime(now.year, now.month);
+
+    // Load reminder toggle after providers are ready.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadFertilityReminderPrefs();
+    });
+  }
+
+  String _prefsKeyFor(String userId, String suffix) =>
+      'fertility_reminders_${suffix}_$userId';
+
+  String _dateOnlyKey(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  int _fertilityNotifId({
+    required String userId,
+    required String kind,
+    required DateTime dateOnly,
+  }) {
+    final dateKey = _dateOnlyKey(dateOnly);
+    final s = '${kind}_${userId}_$dateKey';
+    return s.hashCode.abs() % 2147483647;
+  }
+
+  String _scheduleKey({
+    required String userId,
+    required DateTime fertileStartDateOnly,
+    required DateTime ovulationDateOnly,
+  }) {
+    return 'fertility_${userId}_${_dateOnlyKey(fertileStartDateOnly)}_${_dateOnlyKey(ovulationDateOnly)}';
+  }
+
+  Future<void> _loadFertilityReminderPrefs() async {
+    final provider = context.read<AppProvider>();
+    final userId = provider.activeUser?.id;
+    if (userId == null) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final enabled = prefs.getBool(_prefsKeyFor(userId, 'enabled')) ?? false;
+    final lastKey = prefs.getString(_prefsKeyFor(userId, 'last_schedule_key'));
+    final lastFertileStr =
+        prefs.getString(_prefsKeyFor(userId, 'last_fertile_start'));
+    final lastOvulationStr =
+        prefs.getString(_prefsKeyFor(userId, 'last_ovulation_date'));
+
+    DateTime? parseDateOnly(String? s) {
+      if (s == null || s.isEmpty) return null;
+      // We store as ISO date; parsing is safe.
+      return DateTime.tryParse(s);
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _fertilityRemindersEnabled = enabled;
+      _fertilityRemindersLastScheduleKey = lastKey;
+      _lastFertileStartDate = parseDateOnly(lastFertileStr);
+      _lastOvulationDate = parseDateOnly(lastOvulationStr);
+    });
+  }
+
+  List<DateTime?> _predictFertilityDates(List<PeriodEntry> entries, int? avgCycle) {
+    if (avgCycle == null || entries.isEmpty) return [null, null];
+    final sorted = [...entries]..sort((a, b) => b.startDate.compareTo(a.startDate));
+    final lastStart = DateTime(sorted.first.startDate.year, sorted.first.startDate.month, sorted.first.startDate.day);
+    final nextPeriodStart = lastStart.add(Duration(days: avgCycle));
+    final nextPeriodStartDateOnly = DateTime(nextPeriodStart.year, nextPeriodStart.month, nextPeriodStart.day);
+    final ovulationDateOnly = nextPeriodStartDateOnly.subtract(const Duration(days: 14));
+    final fertileStartDateOnly = ovulationDateOnly.subtract(const Duration(days: 5));
+    return [fertileStartDateOnly, ovulationDateOnly];
+  }
+
+  Future<void> _cancelFertilityRemindersForLastDates() async {
+    final provider = context.read<AppProvider>();
+    final userId = provider.activeUser?.id;
+    if (userId == null) return;
+    final fertile = _lastFertileStartDate;
+    final ovulation = _lastOvulationDate;
+    if (fertile == null && ovulation == null) return;
+
+    if (fertile != null) {
+      final fertileId = _fertilityNotifId(userId: userId, kind: 'fertile', dateOnly: fertile);
+      await NotificationService.cancel(fertileId);
+    }
+    if (ovulation != null) {
+      final ovulationId = _fertilityNotifId(userId: userId, kind: 'ovulation', dateOnly: ovulation);
+      await NotificationService.cancel(ovulationId);
+    }
+  }
+
+  Future<void> _setFertilityRemindersEnabled(bool enabled) async {
+    final provider = context.read<AppProvider>();
+    final userId = provider.activeUser?.id;
+    if (userId == null) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_prefsKeyFor(userId, 'enabled'), enabled);
+
+    if (!enabled) {
+      await _cancelFertilityRemindersForLastDates();
+      await prefs.remove(_prefsKeyFor(userId, 'last_schedule_key'));
+      await prefs.remove(_prefsKeyFor(userId, 'last_fertile_start'));
+      await prefs.remove(_prefsKeyFor(userId, 'last_ovulation_date'));
+
+      if (!mounted) return;
+      setState(() {
+        _fertilityRemindersEnabled = false;
+        _fertilityRemindersLastScheduleKey = null;
+        _lastFertileStartDate = null;
+        _lastOvulationDate = null;
+      });
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() => _fertilityRemindersEnabled = true);
+  }
+
+  Future<void> _maybeScheduleFertilityReminders({
+    required DateTime? fertileStartDateOnly,
+    required DateTime? ovulationDateOnly,
+  }) async {
+    if (!_fertilityRemindersEnabled) return;
+    if (fertileStartDateOnly == null || ovulationDateOnly == null) return;
+
+    final provider = context.read<AppProvider>();
+    final userId = provider.activeUser?.id;
+    if (userId == null) return;
+    if (_fertilityScheduleInFlight) return;
+
+    final now = DateTime.now();
+    final nowDateOnly = DateTime(now.year, now.month, now.day);
+    const maxDaysAhead = 45;
+    if (fertileStartDateOnly.isBefore(nowDateOnly) ||
+        ovulationDateOnly.isBefore(nowDateOnly)) return;
+    final daysToFertile = fertileStartDateOnly.difference(nowDateOnly).inDays;
+    final daysToOvulation = ovulationDateOnly.difference(nowDateOnly).inDays;
+    if (daysToFertile > maxDaysAhead || daysToOvulation > maxDaysAhead) return;
+
+    final scheduleKey = _scheduleKey(
+      userId: userId,
+      fertileStartDateOnly: fertileStartDateOnly,
+      ovulationDateOnly: ovulationDateOnly,
+    );
+
+    if (_fertilityRemindersLastScheduleKey == scheduleKey) return;
+
+    setState(() {
+      _fertilityScheduleInFlight = true;
+    });
+
+    try {
+      // Cancel old notifications if we had a previous schedule.
+      if (_lastFertileStartDate != null || _lastOvulationDate != null) {
+        await _cancelFertilityRemindersForLastDates();
+      }
+
+      final nowLocal = DateTime.now();
+      final fertileWhen = DateTime(
+        fertileStartDateOnly.year,
+        fertileStartDateOnly.month,
+        fertileStartDateOnly.day,
+        9,
+        0,
+        0,
+      );
+      final ovulationWhen = DateTime(
+        ovulationDateOnly.year,
+        ovulationDateOnly.month,
+        ovulationDateOnly.day,
+        9,
+        0,
+        0,
+      );
+
+      await NotificationService.scheduleOnce(
+        id: _fertilityNotifId(
+          userId: userId,
+          kind: 'fertile',
+          dateOnly: fertileStartDateOnly,
+        ),
+        title: 'Fertile window starts',
+        body:
+            'Predicted fertile window starts on ${DateFormat('MMM d').format(fertileStartDateOnly)}.',
+        when: fertileWhen,
+        payload: '/period_tracker',
+      );
+
+      await NotificationService.scheduleOnce(
+        id: _fertilityNotifId(
+          userId: userId,
+          kind: 'ovulation',
+          dateOnly: ovulationDateOnly,
+        ),
+        title: 'Ovulation predicted',
+        body:
+            'Predicted ovulation day is ${DateFormat('MMM d').format(ovulationDateOnly)}.',
+        when: ovulationWhen,
+        payload: '/period_tracker',
+      );
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefsKeyFor(userId, 'last_schedule_key'), scheduleKey);
+      await prefs.setString(_prefsKeyFor(userId, 'last_fertile_start'), fertileStartDateOnly.toIso8601String());
+      await prefs.setString(_prefsKeyFor(userId, 'last_ovulation_date'), ovulationDateOnly.toIso8601String());
+
+      if (!mounted) return;
+      setState(() {
+        _fertilityRemindersLastScheduleKey = scheduleKey;
+        _lastFertileStartDate = fertileStartDateOnly;
+        _lastOvulationDate = ovulationDateOnly;
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _fertilityScheduleInFlight = false);
+      }
+    }
   }
 
   void _showLogSheet({PeriodEntry? existing, DateTime? initialDate}) {
@@ -428,6 +655,20 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     final avgCycle = _cycleLengthDays(entries);
     final daysUntil = _daysUntilNext(entries);
 
+    final prediction = _predictFertilityDates(entries, avgCycle);
+    final predictedFertileStart = prediction[0];
+    final predictedOvulationDate = prediction[1];
+
+    if (_selectedTab == 0 || _selectedTab == 2) {
+      // One-time local notifications for upcoming fertile window/ovulation.
+      unawaited(
+        _maybeScheduleFertilityReminders(
+          fertileStartDateOnly: predictedFertileStart,
+          ovulationDateOnly: predictedOvulationDate,
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: AppTheme.background,
       drawer: const AppDrawer(),
@@ -463,6 +704,19 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
                   backgroundColor: _pinkDark,
                   foregroundColor: Colors.white,
                   isPrimary: true,
+                ),
+                ActionChipButton(
+                  icon: Icons.notifications_active_rounded,
+                  label: _fertilityRemindersEnabled
+                      ? 'Fertility reminders: On'
+                      : 'Fertility reminders',
+                  onTap: () {
+                    unawaited(
+                      _setFertilityRemindersEnabled(!_fertilityRemindersEnabled),
+                    );
+                  },
+                  backgroundColor: AppTheme.stone100,
+                  foregroundColor: AppTheme.stone700,
                 ),
               ],
             ),
@@ -524,6 +778,29 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     final provider = context.watch<AppProvider>();
     final user = provider.activeUser;
 
+    // Flo F1: predicted fertile window + ovulation date.
+    final fertileDates = <DateTime>{};
+    final ovulationDates = <DateTime>{};
+    final avgCycle = _cycleLengthDays(entries);
+    if (avgCycle != null && entries.isNotEmpty) {
+      final sorted = [...entries]..sort((a, b) => b.startDate.compareTo(a.startDate));
+      final lastStartDate = DateTime(
+        sorted.first.startDate.year,
+        sorted.first.startDate.month,
+        sorted.first.startDate.day,
+      );
+      final nextPeriodStart = lastStartDate.add(Duration(days: avgCycle));
+      final nextPeriodStartDateOnly = DateTime(nextPeriodStart.year, nextPeriodStart.month, nextPeriodStart.day);
+      final ovulationDate = nextPeriodStartDateOnly.subtract(const Duration(days: 14));
+      final fertileStart = ovulationDate.subtract(const Duration(days: 5));
+
+      for (int i = 0; i <= 6; i++) {
+        final d = fertileStart.add(Duration(days: i));
+        fertileDates.add(DateTime(d.year, d.month, d.day));
+      }
+      ovulationDates.add(DateTime(ovulationDate.year, ovulationDate.month, ovulationDate.day));
+    }
+
     final symptomLogs = user != null
         ? provider.db.periodSymptoms.where((s) => s.userId == user.id).toList()
         : <PeriodSymptomLog>[];
@@ -542,6 +819,8 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
           periodDates: periodDates,
           symptomDates: symptomDates,
           intimateDates: intimateDates,
+          fertileDates: fertileDates,
+          ovulationDates: ovulationDates,
           onPrevMonth: () => setState(() {
             _currentMonth = DateTime(_currentMonth.year, _currentMonth.month - 1);
           }),
@@ -759,6 +1038,28 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
         ? (withEnd.fold<int>(0, (sum, e) => sum + e.endDate!.difference(e.startDate).inDays + 1) / withEnd.length).round()
         : null;
 
+    // Flo F3: fertility timing predictions.
+    final today = DateTime.now();
+    final todayDateOnly = DateTime(today.year, today.month, today.day);
+
+    DateTime? fertileStart;
+    DateTime? ovulationDate;
+    if (avgCycle != null && entries.isNotEmpty) {
+      final sorted = [...entries]..sort((a, b) => b.startDate.compareTo(a.startDate));
+      final lastStart = DateTime(
+        sorted.first.startDate.year,
+        sorted.first.startDate.month,
+        sorted.first.startDate.day,
+      );
+      final nextPeriodStart = lastStart.add(Duration(days: avgCycle));
+      final nextPeriodStartDateOnly = DateTime(nextPeriodStart.year, nextPeriodStart.month, nextPeriodStart.day);
+      ovulationDate = nextPeriodStartDateOnly.subtract(const Duration(days: 14));
+      fertileStart = ovulationDate.subtract(const Duration(days: 5));
+    }
+
+    final daysUntilFertileStart = fertileStart?.difference(todayDateOnly).inDays;
+    final daysUntilOvulation = ovulationDate?.difference(todayDateOnly).inDays;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Column(children: [
@@ -791,6 +1092,22 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
             value: avgDuration != null ? '$avgDuration days' : '—',
             emoji: '🩸',
             color: const Color(0xFFEF4444),
+          )),
+        ]),
+        const SizedBox(height: 10),
+        Row(children: [
+          Expanded(child: StatCard(
+            label: 'Fertile window starts',
+            value: daysUntilFertileStart != null && daysUntilFertileStart >= 0 ? '${daysUntilFertileStart} days' : '—',
+            emoji: '🌿',
+            color: const Color(0xFF86EFAC),
+          )),
+          const SizedBox(width: 10),
+          Expanded(child: StatCard(
+            label: 'Ovulation',
+            value: daysUntilOvulation != null && daysUntilOvulation >= 0 ? '${daysUntilOvulation} days' : '—',
+            emoji: '⭐',
+            color: const Color(0xFF16A34A),
           )),
         ]),
         const SizedBox(height: 16),
@@ -857,6 +1174,8 @@ class _PeriodCalendar extends StatelessWidget {
   final Set<DateTime> periodDates;
   final Set<DateTime> symptomDates;
   final Set<DateTime> intimateDates;
+  final Set<DateTime> fertileDates;
+  final Set<DateTime> ovulationDates;
   final VoidCallback onPrevMonth;
   final VoidCallback onNextMonth;
   final ValueChanged<DateTime> onDayTap;
@@ -867,6 +1186,8 @@ class _PeriodCalendar extends StatelessWidget {
     required this.periodDates,
     this.symptomDates = const {},
     this.intimateDates = const {},
+    this.fertileDates = const {},
+    this.ovulationDates = const {},
     required this.onPrevMonth,
     required this.onNextMonth,
     required this.onDayTap,
@@ -944,6 +1265,8 @@ class _PeriodCalendar extends StatelessWidget {
                   final isPeriod = periodDates.contains(date);
                   final hasSymptom = symptomDates.contains(date);
                   final hasIntimate = intimateDates.contains(date);
+                  final isFertile = fertileDates.contains(date);
+                  final isOvulation = ovulationDates.contains(date);
 
                   return Expanded(
                     child: GestureDetector(
@@ -971,13 +1294,16 @@ class _PeriodCalendar extends StatelessWidget {
                               ),
                             ),
                             const SizedBox(height: 1),
-                            if (isPeriod || hasSymptom || hasIntimate)
+                            if (isPeriod || hasSymptom || hasIntimate || isFertile || isOvulation)
                               Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   if (isPeriod) _dot(const Color(0xFFDC2626)),
                                   if (hasSymptom) _dot(const Color(0xFF8B5CF6)),
                                   if (hasIntimate) _dot(const Color(0xFF991B1B)),
+                                  if (isFertile) _dot(const Color(0xFF86EFAC)),
+                                  if (isOvulation)
+                                    Icon(Icons.star, size: 10, color: const Color(0xFF16A34A)),
                                 ],
                               ),
                           ],

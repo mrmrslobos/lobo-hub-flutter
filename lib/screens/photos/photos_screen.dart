@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../services/notification_service.dart';
 import '../../services/supabase_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
@@ -106,6 +107,16 @@ class _PhotosScreenState extends State<PhotosScreen> {
       createdAt: DateTime.now(),
     );
     await provider.saveAndSync(db.copyWith(photos: [...db.photos, photo]));
+
+    try {
+      NotificationService.notifyFamilyActivity(
+        title: 'New photo added 📷',
+        body: '${provider.activeUser?.name ?? 'Someone'} added a photo to the family album',
+        path: '/photos',
+        familyId: provider.activeFamily?.id,
+        excludeUserId: provider.activeUser?.id,
+      );
+    } catch (_) {}
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(

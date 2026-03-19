@@ -117,6 +117,7 @@ interface FcmMessage {
   title: string;
   body: string;
   path: string;
+  devotionalId: string;
 }
 
 async function sendFcmMessage(
@@ -135,9 +136,20 @@ async function sendFcmMessage(
       message: {
         token: msg.token,
         notification: { title: msg.title, body: msg.body },
-        data: { path: msg.path },
+        data: {
+          path: msg.path,
+          devotionalId: msg.devotionalId,
+          click_action: 'FLUTTER_NOTIFICATION_CLICK',
+        },
         apns: { payload: { aps: { badge: 1, sound: 'default' } } },
-        android: { notification: { sound: 'default', channel_id: 'default' } },
+        android: {
+          priority: 'high',
+          notification: {
+            sound: 'default',
+            channel_id: 'default',
+            click_action: 'FLUTTER_NOTIFICATION_CLICK',
+          },
+        },
       },
     }),
   });
@@ -453,18 +465,19 @@ Deno.serve(async (req: Request) => {
     let totalPruned = 0;
 
     for (const family of families) {
-      // Check if today's devotional already exists for this family
-      const { data: existing } = await supabase
+      const { data: existingRows } = await supabase
         .from('devotionals')
-        .select('id')
+        .select('id, tags')
         .eq('family_id', family.id)
-        .contains('tags', ['daily-auto'])
-        .gte('date', `${todayStr}T00:00:00`)
-        .lte('date', `${todayStr}T23:59:59`)
-        .limit(1);
+        .gte('date', `${todayStr}T00:00:00.000Z`)
+        .lte('date', `${todayStr}T23:59:59.999Z`);
 
-      if (existing && existing.length > 0) {
-        console.info(`[daily-devotional] Family ${family.name} already has today's devotional, skipping.`);
+      const hasAutoToday = (existingRows ?? []).some((row: { tags?: unknown }) => {
+        const t = row.tags;
+        return Array.isArray(t) && (t as string[]).includes('daily-auto');
+      });
+      if (hasAutoToday) {
+        console.info(`[daily-devotional] Family ${family.name} already has today's auto devotional, skipping.`);
         continue;
       }
 
@@ -509,7 +522,7 @@ Deno.serve(async (req: Request) => {
 
       const notifTitle = 'Daily Devotional Ready \u2728';
       const notifBody = `"${devotional.title}" \u2014 Your family\u2019s devotional for today is here. Open to read and reflect together.`;
-      const notifPath = '/devotional';
+      const notifPath = `/devotional?id=${entryId}`;
 
       // -------------------------------------------------------------------
       // Channel 1: FCM (native iOS/Android)
@@ -532,6 +545,7 @@ Deno.serve(async (req: Request) => {
                 title: notifTitle,
                 body: notifBody,
                 path: notifPath,
+                devotionalId: entryId,
               })
             ),
           );

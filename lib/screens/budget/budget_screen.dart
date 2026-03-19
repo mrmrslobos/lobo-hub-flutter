@@ -3,7 +3,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Visibility;
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -485,8 +485,11 @@ class _BudgetScreenState extends State<BudgetScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
+    final userId = user.id;
     final allEntries = provider.db.budgetEntries
-        .where((e) => e.familyId == family.id)
+        .where((e) =>
+            e.familyId == family.id &&
+            (e.visibility == Visibility.FAMILY || (e.visibility == Visibility.PRIVATE && e.creatorId == userId)))
         .toList();
 
     final monthEntries = allEntries
@@ -506,7 +509,9 @@ class _BudgetScreenState extends State<BudgetScreen> {
         .toList();
 
     final categories = provider.db.budgetCategories
-        .where((c) => c.familyId == family.id)
+        .where((c) =>
+            c.familyId == family.id &&
+            (c.visibility == Visibility.FAMILY || (c.visibility == Visibility.PRIVATE && c.creatorId == userId)))
         .toList();
 
     List<BudgetEntry> shown;
@@ -1602,6 +1607,7 @@ class _BudgetEntrySheetState extends State<_BudgetEntrySheet> {
   BudgetCategory _category = BudgetCategory.other;
   DateTime _date = DateTime.now();
   bool _isSaving = false;
+  Visibility _entryVisibility = Visibility.FAMILY;
   final _uuid = const Uuid();
 
   @override
@@ -1615,6 +1621,7 @@ class _BudgetEntrySheetState extends State<_BudgetEntrySheet> {
       _isIncome = e.isIncome;
       _category = e.category;
       _date = e.date;
+      _entryVisibility = e.visibility;
     }
   }
 
@@ -1659,6 +1666,7 @@ class _BudgetEntrySheetState extends State<_BudgetEntrySheet> {
       type: _isIncome ? TransactionType.INCOME : TransactionType.EXPENSE,
       date: _date,
       notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+      visibility: _entryVisibility,
     );
     await widget.onSave(entry);
     if (mounted) Navigator.pop(context);
@@ -1838,6 +1846,17 @@ class _BudgetEntrySheetState extends State<_BudgetEntrySheet> {
                                 color: AppTheme.stone800)),
                       ]),
                     ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('Visibility', style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.stone500)),
+                  const SizedBox(height: 6),
+                  SegmentedButton<Visibility>(
+                    segments: [
+                      ButtonSegment(value: Visibility.FAMILY, label: const Text('Shared'), icon: const Icon(Icons.group_rounded, size: 18)),
+                      ButtonSegment(value: Visibility.PRIVATE, label: const Text('Private'), icon: const Icon(Icons.lock_rounded, size: 18)),
+                    ],
+                    selected: {_entryVisibility},
+                    onSelectionChanged: (s) => setState(() => _entryVisibility = s.first),
                   ),
                   const SizedBox(height: 12),
                   TextField(
@@ -2265,6 +2284,7 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
   String _selectedColor = 'blue';
   String? _editingId;
   bool _isSaving = false;
+  Visibility _categoryVisibility = Visibility.FAMILY;
 
   static const _colorPresets = [
     'amber', 'blue', 'pink', 'emerald', 'purple', 'red', 'cyan',
@@ -2295,6 +2315,7 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
       name: name,
       limit: limit,
       color: _selectedColor,
+      visibility: _categoryVisibility,
     );
     await provider.saveAndSync(db.copyWith(
       budgetCategories: [...db.budgetCategories, cat],
@@ -2319,7 +2340,7 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
       name: name,
       limit: limit,
       color: _selectedColor,
-      visibility: cat.visibility,
+      visibility: _categoryVisibility,
     );
     await provider.saveAndSync(db.copyWith(
       budgetCategories: db.budgetCategories.map((c) => c.id == cat.id ? updated : c).toList(),
@@ -2358,14 +2379,19 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
       _nameCtrl.text = cat.name;
       _limitCtrl.text = cat.limit.toStringAsFixed(0);
       _selectedColor = cat.color ?? 'blue';
+      _categoryVisibility = cat.visibility;
     });
   }
 
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
+    final familyId = provider.activeFamily?.id ?? '';
+    final userId = provider.activeUser?.id ?? '';
     final categories = provider.db.budgetCategories
-        .where((c) => c.familyId == (provider.activeFamily?.id ?? ''))
+        .where((c) =>
+            c.familyId == familyId &&
+            (c.visibility == Visibility.FAMILY || (c.visibility == Visibility.PRIVATE && c.creatorId == userId)))
         .toList();
 
     return DraggableScrollableSheet(
@@ -2418,6 +2444,21 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
                         decoration: const InputDecoration(labelText: 'Monthly budget limit', prefixIcon: Icon(Icons.attach_money_rounded)),
                       ),
+                      const SizedBox(height: 12),
+                      const Text('Visibility', style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.stone500)),
+                      const SizedBox(height: 6),
+                      Row(children: [
+                        Expanded(
+                          child: SegmentedButton<Visibility>(
+                            segments: [
+                              ButtonSegment(value: Visibility.FAMILY, label: const Text('Shared'), icon: const Icon(Icons.group_rounded, size: 18)),
+                              ButtonSegment(value: Visibility.PRIVATE, label: const Text('Private'), icon: const Icon(Icons.lock_rounded, size: 18)),
+                            ],
+                            selected: {_categoryVisibility},
+                            onSelectionChanged: (s) => setState(() => _categoryVisibility = s.first),
+                          ),
+                        ),
+                      ]),
                       const SizedBox(height: 10),
                       const Text('Color', style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.stone500)),
                       const SizedBox(height: 6),
@@ -2441,7 +2482,7 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
                       Row(children: [
                         if (_editingId != null) ...[
                           TextButton(
-                            onPressed: () => setState(() { _editingId = null; _nameCtrl.clear(); _limitCtrl.clear(); }),
+                            onPressed: () => setState(() { _editingId = null; _nameCtrl.clear(); _limitCtrl.clear(); _categoryVisibility = Visibility.FAMILY; }),
                             child: const Text('Cancel'),
                           ),
                           const SizedBox(width: 8),

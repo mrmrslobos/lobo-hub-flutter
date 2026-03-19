@@ -82,6 +82,7 @@ class SupabaseService {
       'lists',
       'devotionals',
       'budget_categories',
+      'budget_entries',
       'transactions',
       'chores',
       'polls',
@@ -97,6 +98,10 @@ class SupabaseService {
       'external_calendars',
       'rewards',
       'reading_plans',
+      // Strong integration: family-visible structured workouts
+      'workout_sessions',
+      'workout_exercises',
+      'workout_sets',
     ];
 
     const familyIdTables = [
@@ -111,6 +116,7 @@ class SupabaseService {
     const userScopedTables = [
       'fitness',
       'fitness_plans',
+      'fitness_logs',
       'ai_history',
       'daily_habits',
       'daily_habit_completions',

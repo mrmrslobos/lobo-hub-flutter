@@ -132,14 +132,6 @@ class _FamilyHubAppState extends State<FamilyHubApp> with WidgetsBindingObserver
         final isAuthenticated = provider.isAuthenticated;
         final isOnAuth = state.matchedLocation == '/auth';
 
-        // Routes always accessible without module gating
-        final alwaysAccessible = {
-          '/auth',
-          '/',
-          '/ai-history',
-          '/habits',
-        };
-
         if (!isAuthenticated && !isOnAuth) return '/auth';
         // Don't redirect away from auth during password recovery
         final isResetFlow =
@@ -166,21 +158,23 @@ class _FamilyHubAppState extends State<FamilyHubApp> with WidgetsBindingObserver
             );
           },
         ),
+        // Dashboard: back does nothing (prevents accidental app exit on Android).
         GoRoute(
           path: '/',
           name: 'dashboard',
-          builder: (context, state) => const DashboardScreen(),
+          builder: (context, state) => PopScope(
+            canPop: false,
+            child: const DashboardScreen(),
+          ),
         ),
-        // Wrap all module screens so Android back gesture returns to
-        // dashboard instead of closing the app.
+        // All module screens: back goes to dashboard (or closes in-screen detail first).
         ShellRoute(
           builder: (context, state, child) => PopScope(
             canPop: false,
             onPopInvokedWithResult: (didPop, _) {
               if (didPop) return;
-              // Let the screen handle back first (e.g. close a detail view)
+              // Let the screen handle back first (e.g. close list/plan detail)
               if (BackNavigationScope.invokeActive()) return;
-              // Nothing to go back to within the screen — go to dashboard
               context.go('/');
             },
             child: child,
@@ -234,7 +228,11 @@ class _FamilyHubAppState extends State<FamilyHubApp> with WidgetsBindingObserver
             GoRoute(
               path: '/devotional',
               name: 'devotional',
-              builder: (context, state) => const DevotionalScreen(),
+              builder: (context, state) {
+                final id = state.uri.queryParameters['id'] ??
+                    state.uri.queryParameters['devotionalId'];
+                return DevotionalScreen(initialDevotionalId: id);
+              },
             ),
             GoRoute(
               path: '/prayer-wall',

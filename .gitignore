@@ -109,3 +109,18 @@ android/app/*.jks
 **/ios/Flutter/Generated.xcconfig
 **/ios/Flutter/ephemeral/
 **/ios/Runner/GeneratedPluginRegistrant.*
+
+# Firebase config
+google-services.json
+android/app/google-services.json
+
+# Secrets / keys
+*.key
+*.pem
+*.p12
+*.pfx
+*.cer
+supabase/keys/
+supabase/.env
+supabase/.env.*
+

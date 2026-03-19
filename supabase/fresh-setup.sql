@@ -267,6 +267,59 @@ CREATE TABLE IF NOT EXISTS fitness_plans (
 );
 
 -- ---------------------------------------------------------------------------
+-- fitness_logs (personal workout logs)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS fitness_logs (
+  id               text PRIMARY KEY,
+  family_id       text NOT NULL,
+  user_id         text NOT NULL,
+  activity        text NOT NULL,
+  duration_minutes text NOT NULL,
+  calories_burned  text,
+  notes            text,
+  date             text NOT NULL
+);
+
+-- ---------------------------------------------------------------------------
+-- workout_sessions / workout_exercises / workout_sets (Strong integration)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS workout_sessions (
+  id                 text PRIMARY KEY,
+  family_id         text NOT NULL,
+  user_id           text NOT NULL,
+  title             text NOT NULL,
+  date              text NOT NULL,
+  duration_minutes  integer NOT NULL DEFAULT 0,
+  notes             text,
+  created_at        text NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS workout_exercises (
+  id              text PRIMARY KEY,
+  family_id      text NOT NULL,
+  user_id        text NOT NULL,
+  session_id     text NOT NULL,
+  exercise_name  text NOT NULL,
+  "order"        integer NOT NULL DEFAULT 0,
+  rest_seconds   integer NOT NULL DEFAULT 60,
+  notes          text,
+  created_at     text NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS workout_sets (
+  id           text PRIMARY KEY,
+  family_id   text NOT NULL,
+  user_id     text NOT NULL,
+  exercise_id text NOT NULL,
+  set_number  integer NOT NULL,
+  reps         text NOT NULL,
+  weight       text,
+  completed    boolean NOT NULL DEFAULT false,
+  notes        text,
+  created_at   text NOT NULL
+);
+
+-- ---------------------------------------------------------------------------
 -- budget_categories
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS budget_categories (
@@ -952,6 +1005,104 @@ ALTER TABLE fitness_plans ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "fitness_plans_all" ON fitness_plans FOR ALL
   USING (user_id = auth.uid()::text)
   WITH CHECK (user_id = auth.uid()::text);
+
+ALTER TABLE fitness_logs ENABLE ROW LEVEL SECURITY;
+-- Family members can READ all logs for their family.
+CREATE POLICY "fitness_logs_select_family" ON fitness_logs FOR SELECT
+  USING (auth_is_member_of(family_id));
+
+-- Only the owner can INSERT/UPDATE/DELETE their own logs.
+CREATE POLICY "fitness_logs_insert_own" ON fitness_logs FOR INSERT
+  WITH CHECK (
+    user_id = auth.uid()::text
+    AND auth_is_member_of(family_id)
+  );
+
+CREATE POLICY "fitness_logs_update_own" ON fitness_logs FOR UPDATE
+  USING (
+    user_id = auth.uid()::text
+    AND auth_is_member_of(family_id)
+  )
+  WITH CHECK (
+    user_id = auth.uid()::text
+    AND auth_is_member_of(family_id)
+  );
+
+CREATE POLICY "fitness_logs_delete_own" ON fitness_logs FOR DELETE
+  USING (
+    user_id = auth.uid()::text
+    AND auth_is_member_of(family_id)
+  );
+
+-- workout_sessions / workout_exercises / workout_sets — Strong integration
+ALTER TABLE workout_sessions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "workout_sessions_select_family" ON workout_sessions FOR SELECT
+USING (auth_is_member_of(family_id));
+CREATE POLICY "workout_sessions_insert_own" ON workout_sessions FOR INSERT
+WITH CHECK (
+  user_id = auth.uid()::text
+  AND auth_is_member_of(family_id)
+);
+CREATE POLICY "workout_sessions_update_own" ON workout_sessions FOR UPDATE
+USING (
+  user_id = auth.uid()::text
+  AND auth_is_member_of(family_id)
+)
+WITH CHECK (
+  user_id = auth.uid()::text
+  AND auth_is_member_of(family_id)
+);
+CREATE POLICY "workout_sessions_delete_own" ON workout_sessions FOR DELETE
+USING (
+  user_id = auth.uid()::text
+  AND auth_is_member_of(family_id)
+);
+
+ALTER TABLE workout_exercises ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "workout_exercises_select_family" ON workout_exercises FOR SELECT
+USING (auth_is_member_of(family_id));
+CREATE POLICY "workout_exercises_insert_own" ON workout_exercises FOR INSERT
+WITH CHECK (
+  user_id = auth.uid()::text
+  AND auth_is_member_of(family_id)
+);
+CREATE POLICY "workout_exercises_update_own" ON workout_exercises FOR UPDATE
+USING (
+  user_id = auth.uid()::text
+  AND auth_is_member_of(family_id)
+)
+WITH CHECK (
+  user_id = auth.uid()::text
+  AND auth_is_member_of(family_id)
+);
+CREATE POLICY "workout_exercises_delete_own" ON workout_exercises FOR DELETE
+USING (
+  user_id = auth.uid()::text
+  AND auth_is_member_of(family_id)
+);
+
+ALTER TABLE workout_sets ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "workout_sets_select_family" ON workout_sets FOR SELECT
+USING (auth_is_member_of(family_id));
+CREATE POLICY "workout_sets_insert_own" ON workout_sets FOR INSERT
+WITH CHECK (
+  user_id = auth.uid()::text
+  AND auth_is_member_of(family_id)
+);
+CREATE POLICY "workout_sets_update_own" ON workout_sets FOR UPDATE
+USING (
+  user_id = auth.uid()::text
+  AND auth_is_member_of(family_id)
+)
+WITH CHECK (
+  user_id = auth.uid()::text
+  AND auth_is_member_of(family_id)
+);
+CREATE POLICY "workout_sets_delete_own" ON workout_sets FOR DELETE
+USING (
+  user_id = auth.uid()::text
+  AND auth_is_member_of(family_id)
+);
 
 ALTER TABLE daily_habits ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "daily_habits_all" ON daily_habits FOR ALL
