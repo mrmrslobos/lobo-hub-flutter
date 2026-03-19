@@ -544,6 +544,22 @@ class AppProvider extends ChangeNotifier {
     }
     return total;
   }
+
+  /// Returns total spent (approved redemptions) for a given user
+  double redemptionSpentForUser(String userId) {
+    if (_activeFamily == null) return 0;
+    return db.rewardRedemptions
+        .where((r) =>
+            r.userId == userId &&
+            r.familyId == _activeFamily!.id &&
+            r.status == RedemptionStatus.APPROVED)
+        .fold(0.0, (sum, r) => sum + r.amount);
+  }
+
+  /// Available balance = earnings - approved redemptions
+  double availableBalanceForUser(String userId) {
+    return choreEarningsForUser(userId) - redemptionSpentForUser(userId);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
