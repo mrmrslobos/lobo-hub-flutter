@@ -10,22 +10,59 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/models.dart';
+import 'field_encryption_service.dart';
 import 'supabase_service.dart';
 
 class DatabaseService {
+  /// Families columns omitted on upsert until DB has them (see migrations/06).
+  static const _familiesCloudOmit = {'currency', 'trial_start_date'};
+
+  /// Tasks columns some older DBs lack (PGRST204).
+  static const _tasksCloudOmit = {'completed_by', 'updated_by', 'due_time', 'reminder_minutes'};
+
+  /// Events columns some older DBs lack (PGRST204).
+  static const _eventsCloudOmit = {'shared_with'};
+
+  /// Prayer wall columns some older DBs lack (PGRST204).
+  static const _prayerWallCloudOmit = {'prayed_by_ids'};
+
   static const String _dbKey = 'familyhub_db';
+  static const String _tombstoneKey = 'fh_merge_tombstones';
   static AppDB? _cache;
 
-  /// Keys that were intentionally deleted locally.  Prevents cloud merges
-  /// from re-adding them before the sync has propagated the delete.
-  /// Cleared after a successful cloud sync.
+  /// Keys intentionally removed locally. Persisted so restarts + failed cloud
+  /// deletes don't let merged pulls resurrect rows (family members, tasks, …).
   static final Set<String> _deletedKeys = {};
 
   static AppDB get db => _cache ?? AppDB.empty();
 
   // ── Local persistence ─────────────────────────────────────────────────────
 
+  static Future<void> _loadTombstones() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final list = prefs.getStringList(_tombstoneKey);
+      if (list != null && list.isNotEmpty) {
+        _deletedKeys
+          ..clear()
+          ..addAll(list);
+        if (_deletedKeys.length > 800) {
+          _deletedKeys.clear();
+          await prefs.remove(_tombstoneKey);
+        }
+      }
+    } catch (_) {}
+  }
+
+  static Future<void> _persistTombstones() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_tombstoneKey, _deletedKeys.toList());
+    } catch (_) {}
+  }
+
   static Future<AppDB> loadLocal() async {
+    await _loadTombstones();
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_dbKey);
     if (raw == null) {
@@ -42,23 +79,27 @@ class DatabaseService {
     }
   }
 
-  static Future<void> saveLocal(AppDB db) async {
+  static Future<void> saveLocal(AppDB db, {AppDB? tombstoneBase}) async {
     // Track keys that disappeared (intentional deletes) so cloud merge
-    // doesn't re-add them.
-    if (_cache != null) {
-      final oldKeys = _collectKeys(_cache!);
+    // doesn't re-add them. [tombstoneBase] = state before merge (e.g. reconcile).
+    final base = tombstoneBase ?? _cache;
+    if (base != null) {
+      final oldKeys = _collectKeys(base);
       final newKeys = _collectKeys(db);
       _deletedKeys.addAll(oldKeys.difference(newKeys));
     }
     _cache = db;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_dbKey, jsonEncode(db.toJson()));
+    await _persistTombstones();
   }
 
   static Future<void> clearLocal() async {
     _cache = AppDB.empty();
+    _deletedKeys.clear();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_dbKey);
+    await prefs.remove(_tombstoneKey);
   }
 
   // ── Cloud sync ────────────────────────────────────────────────────────────
@@ -69,39 +110,139 @@ class DatabaseService {
     await syncToCloud(db, familyId);
   }
 
+  static Map<String, dynamic> _taskRowForCloud(Task t) {
+    final m = Map<String, dynamic>.from(t.toJson());
+    m.remove('updated_at');
+    for (final k in _tasksCloudOmit) {
+      m.remove(k);
+    }
+    return m;
+  }
+
+  /// Upserts all tasks for [familyId] and applies tombstone deletes. Await after
+  /// saves so new tasks reach Supabase even when the full background sync fails
+  /// (RLS batch issues, payload size, or tasks from other families polluting the batch).
+  static Future<void> pushFamilyTasksToCloudNow(AppDB db, String familyId) async {
+    if (!SupabaseService.isConfigured) return;
+    final familyTasks = db.tasks.where((t) => t.familyId == familyId).toList();
+    final localIds = familyTasks.map((t) => t.id).toSet();
+    const chunk = 40;
+    for (var i = 0; i < familyTasks.length; i += chunk) {
+      final slice = familyTasks.sublist(
+          i, math.min(i + chunk, familyTasks.length));
+      final rows = slice.map(_taskRowForCloud).toList();
+      try {
+        await SupabaseService.upsertTable('tasks', rows);
+      } catch (e) {
+        debugPrint('[DatabaseService] tasks chunk upsert failed, retry per row: $e');
+        for (final t in slice) {
+          try {
+            await SupabaseService.upsertTable('tasks', [_taskRowForCloud(t)]);
+          } catch (e2) {
+            debugPrint('[DatabaseService] task ${t.id} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedRows('tasks', localIds, familyId);
+  }
+
   /// Push local data to Supabase. Safe to fire-and-forget.
   static Future<void> syncToCloud(AppDB db, String familyId) async {
     if (!SupabaseService.isConfigured) return;
     try {
       await _syncToCloud(db, familyId);
-      // Deletes have been pushed to cloud — safe to clear the set so
-      // future merges from other devices can add genuinely new items.
-      _deletedKeys.clear();
+      // Tombstones stay until prune (server row gone) so failed deletes
+      // don't resurrect rows on the next pull.
     } catch (e) {
       debugPrint('[DatabaseService] Cloud sync failed: $e');
     }
   }
 
   static Future<void> _syncToCloud(AppDB db, String familyId) async {
+    /// Strip columns the app model sends but many Supabase DBs don't have yet
+    /// (see migrations/05_row_updated_at_for_sync.sql). Unknown columns make the
+    /// entire batch fail — tables look empty in the dashboard.
+    /// Strip [updated_at] for tables where the column may not exist yet.
+    /// Keep it for [user_locations] — NOT NULL; omitting it on upsert sets NULL.
+    List<Map<String, dynamic>> _sanitizeForUpsert(
+      List<Map<String, dynamic>> rows,
+      String table,
+    ) {
+      const keepUpdatedAt = {'user_locations'};
+      return rows.map((r) {
+        final m = Map<String, dynamic>.from(r);
+        if (keepUpdatedAt.contains(table)) {
+          final u = m['updated_at'];
+          if (u == null ||
+              (u is String && u.isEmpty) ||
+              (u is! String && u is! DateTime)) {
+            m['updated_at'] = DateTime.now().toUtc().toIso8601String();
+          } else if (u is DateTime) {
+            m['updated_at'] = u.toUtc().toIso8601String();
+          }
+        } else {
+          m.remove('updated_at');
+        }
+        if (table == 'families') {
+          for (final k in _familiesCloudOmit) {
+            m.remove(k);
+          }
+        }
+        if (table == 'tasks') {
+          for (final k in _tasksCloudOmit) {
+            m.remove(k);
+          }
+        }
+        if (table == 'events') {
+          for (final k in _eventsCloudOmit) {
+            m.remove(k);
+          }
+        }
+        if (table == 'prayer_wall') {
+          for (final k in _prayerWallCloudOmit) {
+            m.remove(k);
+          }
+        }
+        return m;
+      }).toList();
+    }
+
     Future<void> up(String table, List<Map<String, dynamic>> rows,
         {String onConflict = 'id'}) async {
       if (rows.isNotEmpty) {
         try {
-          await SupabaseService.upsertTable(table, rows,
-              onConflict: onConflict);
+          await SupabaseService.upsertTable(
+              table, _sanitizeForUpsert(rows, table), onConflict: onConflict);
         } catch (e) {
+          final msg = e.toString();
+          if (msg.contains('PGRST205') || msg.contains('Could not find the table')) {
+            return; // table not in schema — skip quietly
+          }
           debugPrint('[DatabaseService] Failed to sync $table: $e');
         }
       }
     }
 
     final fid = familyId;
+    final currentUserId = SupabaseService.currentUser?.id;
 
     // Helper to upsert then delete removed rows in one step
     Future<void> upAndClean(String table, List<Map<String, dynamic>> rows,
         Set<String> localIds, {String onConflict = 'id'}) async {
       await up(table, rows, onConflict: onConflict);
       await _deleteRemovedRows(table, localIds, fid);
+    }
+
+    Future<void> upAndCleanUser(
+      String table,
+      List<Map<String, dynamic>> rows,
+      Set<String> localIds, {
+      required String userId,
+      String onConflict = 'id',
+    }) async {
+      await up(table, rows, onConflict: onConflict);
+      await _deleteRemovedUserRows(table, localIds, userId);
     }
 
     // Core identity tables first (other tables may reference these)
@@ -113,9 +254,13 @@ class DatabaseService {
 
     // All other tables in parallel — they're independent of each other
     await Future.wait([
-      upAndClean('tasks',
-          db.tasks.map((t) => {...t.toJson(), 'family_id': fid}).toList(),
-          db.tasks.map((t) => t.id).toSet()),
+      upAndClean(
+          'tasks',
+          db.tasks
+              .where((t) => t.familyId == fid)
+              .map((t) => t.toJson())
+              .toList(),
+          db.tasks.where((t) => t.familyId == fid).map((t) => t.id).toSet()),
       upAndClean('events',
           db.events.map((e) => {...e.toJson(), 'family_id': fid}).toList(),
           db.events.map((e) => e.id).toSet()),
@@ -131,8 +276,62 @@ class DatabaseService {
       upAndClean('devotionals',
           db.devotionals.map((d) => {...d.toJson(), 'family_id': fid}).toList(),
           db.devotionals.map((d) => d.id).toSet()),
-      up('fitness',
-          db.fitness.map((f) => f.toJson()).toList()),
+      if (currentUserId != null)
+        upAndCleanUser(
+          'fitness',
+          db.fitness
+              .where((f) => f.userId == currentUserId)
+              .map((f) => f.toJson())
+              .toList(),
+          db.fitness
+              .where((f) => f.userId == currentUserId)
+              .map((f) => f.id)
+              .toSet(),
+          userId: currentUserId,
+        )
+      else
+        Future.value(),
+      upAndClean(
+        'fitness_logs',
+        db.fitnessLogs
+            .where((l) => l.familyId == fid && l.userId == SupabaseService.currentUser?.id)
+            .map((l) => {...l.toJson(), 'family_id': fid}).toList(),
+        db.fitnessLogs
+            .where((l) => l.familyId == fid && l.userId == SupabaseService.currentUser?.id)
+            .map((l) => l.id)
+            .toSet(),
+      ),
+      // Strong integration: family-visible workouts, owner-only writes via RLS
+      upAndClean(
+        'workout_sessions',
+        db.workoutSessions
+            .where((s) => s.familyId == fid && s.userId == SupabaseService.currentUser?.id)
+            .map((s) => {...s.toJson(), 'family_id': fid}).toList(),
+        db.workoutSessions
+            .where((s) => s.familyId == fid && s.userId == SupabaseService.currentUser?.id)
+            .map((s) => s.id)
+            .toSet(),
+      ),
+      upAndClean(
+        'workout_exercises',
+        db.workoutExercises
+            .where((e) => e.familyId == fid && e.userId == SupabaseService.currentUser?.id)
+            .map((e) => {...e.toJson(), 'family_id': fid}).toList(),
+        db.workoutExercises
+            .where((e) => e.familyId == fid && e.userId == SupabaseService.currentUser?.id)
+            .map((e) => e.id)
+            .toSet(),
+      ),
+      upAndClean(
+        'workout_sets',
+        db.workoutSets
+            .where((set) => set.familyId == fid && set.userId == SupabaseService.currentUser?.id)
+            .map((set) => {...set.toJson(), 'family_id': fid}).toList(),
+        db.workoutSets
+            .where((set) => set.familyId == fid && set.userId == SupabaseService.currentUser?.id)
+            .map((set) => set.id)
+            .toSet(),
+      ),
       upAndClean('budget_categories',
           db.budgetCategories.map((b) => {...b.toJson(), 'family_id': fid}).toList(),
           db.budgetCategories.map((b) => b.id).toSet()),
@@ -148,8 +347,21 @@ class DatabaseService {
       upAndClean('daily_habits',
           db.dailyHabits.map((h) => h.toJson()).toList(),
           db.dailyHabits.map((h) => h.id).toSet()),
-      up('daily_habit_completions',
-          db.dailyHabitCompletions.map((c) => c.toJson()).toList()),
+      if (currentUserId != null)
+        upAndCleanUser(
+          'daily_habit_completions',
+          db.dailyHabitCompletions
+              .where((c) => c.userId == currentUserId)
+              .map((c) => c.toJson())
+              .toList(),
+          db.dailyHabitCompletions
+              .where((c) => c.userId == currentUserId)
+              .map((c) => c.id)
+              .toSet(),
+          userId: currentUserId,
+        )
+      else
+        Future.value(),
       upAndClean('chores',
           db.chores.map((c) => {...c.toJson(), 'family_id': fid}).toList(),
           db.chores.map((c) => c.id).toSet()),
@@ -273,6 +485,41 @@ class DatabaseService {
         await SupabaseService.deleteRows(table, {'id': id});
       }
     } catch (e) {
+      final msg = e.toString();
+      if (msg.contains('PGRST205') || msg.contains('Could not find the table')) {
+        return; // table not in this project's schema — skip quietly
+      }
+      debugPrint('[DatabaseService] Failed to delete removed $table rows: $e');
+    }
+  }
+
+  /// Delete cloud rows for a user-scoped table that were intentionally removed
+  /// locally (tracked in [_deletedKeys]).
+  ///
+  /// This is the non-family variant for tables that don't have `family_id`.
+  static Future<void> _deleteRemovedUserRows(
+    String table,
+    Set<String> localIds,
+    String userId,
+  ) async {
+    if (!SupabaseService.isConfigured || _deletedKeys.isEmpty) return;
+    try {
+      final cloudRows = await SupabaseService.client
+          .from(table)
+          .select('id')
+          .eq('user_id', userId);
+      final cloudIds = (cloudRows as List)
+          .map((r) => r['id'] as String)
+          .toSet();
+      final removed = cloudIds.intersection(_deletedKeys);
+      for (final id in removed) {
+        await SupabaseService.deleteRows(table, {'id': id});
+      }
+    } catch (e) {
+      final msg = e.toString();
+      if (msg.contains('PGRST205') || msg.contains('Could not find the table')) {
+        return; // table not in this project's schema — skip quietly
+      }
       debugPrint('[DatabaseService] Failed to delete removed $table rows: $e');
     }
   }
@@ -288,10 +535,13 @@ class DatabaseService {
     if (!SupabaseService.isConfigured) return local;
     try {
       final cloudData = await SupabaseService.fetchAllTables(familyId);
-      final merged = _mergeWithCloud(local, cloudData);
-      // Update static cache and persist so authenticate() picks up cloud data
-      _cache = merged;
-      await saveLocal(merged);
+      _pruneTombstonesAgainstCloud(cloudData);
+      await _persistTombstones();
+      var merged = _mergeWithCloud(local, cloudData, familyId);
+      if (FieldEncryption.isReady(familyId)) {
+        merged = merged.applySensitiveDecryption(familyId);
+      }
+      await saveLocal(merged, tombstoneBase: local);
       return merged;
     } catch (e, st) {
       lastError = '$e\n$st';
@@ -299,12 +549,91 @@ class DatabaseService {
     }
   }
 
-  /// Merge two lists by [id].
+  /// Drop tombstones once Supabase no longer has that row (delete succeeded).
+  static void _pruneTombstonesAgainstCloud(Map<String, dynamic> cloud) {
+    final fmKeys = <String>{};
+    for (final m in (cloud['family_members'] as List?) ?? []) {
+      if (m is Map) {
+        final u = m['user_id']?.toString() ?? '';
+        final f = m['family_id']?.toString() ?? '';
+        if (u.isNotEmpty && f.isNotEmpty) fmKeys.add('${u}_$f');
+      }
+    }
+    final fmRe = RegExp(
+      r'^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$',
+      caseSensitive: false,
+    );
+    _deletedKeys.removeWhere((k) => fmRe.hasMatch(k) && !fmKeys.contains(k));
+
+    void pruneTable(String tableKey) {
+      final ids = (cloud[tableKey] as List?)
+              ?.map((x) => (x as Map)['id']?.toString())
+              .whereType<String>()
+              .toSet() ??
+          {};
+      final uuidRe = RegExp(
+        r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+        caseSensitive: false,
+      );
+      _deletedKeys.removeWhere((k) => uuidRe.hasMatch(k) && !ids.contains(k));
+    }
+
+    pruneTable('tasks');
+    pruneTable('events');
+    pruneTable('lists');
+    pruneTable('recipes');
+    pruneTable('chores');
+    pruneTable('devotionals');
+    pruneTable('messages');
+    pruneTable('polls');
+    pruneTable('family_photos');
+    pruneTable('milestones');
+    pruneTable('saved_places');
+    pruneTable('prayer_wall');
+    pruneTable('special_dates');
+    pruneTable('reward_items');
+    pruneTable('savings_goals');
+    pruneTable('external_calendars');
+    // User-scoped tables
+    pruneTable('fitness');
+    pruneTable('daily_habit_completions');
+    pruneTable('workout_sessions');
+    pruneTable('workout_exercises');
+    pruneTable('workout_sets');
+  }
+
+  static final DateTime _epoch = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Per-record version for last-write-wins across family devices.
+  static DateTime _entityVersion(dynamic o) {
+    if (o == null) return _epoch;
+    if (o is ChatMessage) return o.editedAt ?? o.createdAt;
+    if (o is Task) return o.updatedAt;
+    try {
+      final u = (o as dynamic).updatedAt;
+      if (u is DateTime && u.millisecondsSinceEpoch > 0) return u;
+    } catch (_) {}
+    try {
+      final c = (o as dynamic).createdAt;
+      if (c is DateTime) return c;
+    } catch (_) {}
+    try {
+      final d = (o as dynamic).date;
+      if (d is DateTime) return d;
+    } catch (_) {}
+    try {
+      final d = (o as dynamic).start;
+      if (d is DateTime) return d;
+    } catch (_) {}
+    return _epoch;
+  }
+
+  /// Merge two lists by [id] using last-write-wins on [_entityVersion].
   ///
-  /// - Items in both local & cloud: local wins (local is source of truth).
-  /// - Items only in cloud: added (new from another device) UNLESS the key
-  ///   is in [_deletedKeys] (was intentionally deleted on this device).
-  /// - Items only in local: kept (offline-created, not yet synced).
+  /// - Same id: keep whichever record has the newer [updatedAt]/createdAt/date.
+  /// - Tie → prefer cloud so the other family member's latest push applies.
+  /// - Only in cloud: add (unless [_deletedKeys]).
+  /// - Only in local: keep (offline-created).
   static String _mergeKeyOf(dynamic item) {
     try { return item.mergeKey as String; } catch (_) {}
     return item.id as String;
@@ -321,12 +650,78 @@ class DatabaseService {
     for (final item in cloud) {
       try {
         final key = _mergeKeyOf(item);
-        if (!localMap.containsKey(key) && !_deletedKeys.contains(key)) {
-          // Genuinely new item from another device — add it
+        if (_deletedKeys.contains(key)) continue;
+        final loc = localMap[key];
+        if (loc == null) {
+          map[key] = item;
+          continue;
+        }
+        final tc = _entityVersion(item);
+        final tl = _entityVersion(loc);
+        if (tc.isAfter(tl)) {
+          map[key] = item;
+        } else if (tl.isAfter(tc)) {
+          map[key] = loc;
+        } else {
           map[key] = item;
         }
-        // If it exists locally, keep the local version (local wins).
-        // If it's in _deletedKeys, skip it (intentional delete).
+      } catch (_) {}
+    }
+    return map.values.toList();
+  }
+
+  /// How many day→devotional links the plan has (used to avoid empty cloud
+  /// rows wiping a full plan after sync — the root cause of "only day 1").
+  static int _readingPlanRichness(ReadingPlan p) {
+    if (p.entryIds.isNotEmpty) return p.entryIds.length;
+    var n = 0;
+    for (final x in p.days) {
+      if (x is Map && (x['devotional_id']?.toString().isNotEmpty ?? false)) n++;
+    }
+    return n;
+  }
+
+  static List<ReadingPlan> _mergeReadingPlans(
+    List<ReadingPlan> local,
+    List<ReadingPlan> cloud,
+  ) {
+    if (cloud.isEmpty) return local;
+    final localMap = <String, ReadingPlan>{};
+    for (final p in local) {
+      localMap[p.id] = p;
+    }
+    final map = Map<String, ReadingPlan>.from(localMap);
+    for (final c in cloud) {
+      try {
+        if (_deletedKeys.contains(c.id)) continue;
+        final loc = localMap[c.id];
+        if (loc == null) {
+          map[c.id] = c;
+          continue;
+        }
+        final rl = _readingPlanRichness(loc);
+        final rc = _readingPlanRichness(c);
+        if (rl > 0 && rc == 0) {
+          map[c.id] = loc;
+          continue;
+        }
+        if (rc > 0 && rl == 0) {
+          map[c.id] = c;
+          continue;
+        }
+        if (rl > 0 && rc > 0 && rl != rc) {
+          map[c.id] = rl >= rc ? loc : c;
+          continue;
+        }
+        final tc = c.createdAt;
+        final tl = loc.createdAt;
+        if (tc.isAfter(tl)) {
+          map[c.id] = c;
+        } else if (tl.isAfter(tc)) {
+          map[c.id] = loc;
+        } else {
+          map[c.id] = rc > rl ? c : loc;
+        }
       } catch (_) {}
     }
     return map.values.toList();
@@ -358,13 +753,26 @@ class DatabaseService {
   static AppDB _mergeWithCloud(
     AppDB local,
     Map<String, dynamic> cloud,
+    String activeFamilyId,
   ) {
+    final cloudFm =
+        _safeParse(cloud['family_members'], FamilyMember.fromJson);
+    final membersThisFamily =
+        cloudFm.where((m) => m.familyId == activeFamilyId).toList();
+    final membersOtherFamilies = local.familyMembers
+        .where((m) => m.familyId != activeFamilyId)
+        .toList();
+    final mergedFamilyMembers = [
+      ...membersOtherFamilies,
+      ...membersThisFamily,
+    ];
+
     // Parse each table individually so one bad table doesn't kill everything.
     // Merge by ID so offline-created items aren't lost.
     return AppDB(
       users: _mergeById(local.users, _safeParse(cloud['users'], User.fromJson)),
       families: _mergeById(local.families, _safeParse(cloud['families'], Family.fromJson)),
-      familyMembers: _mergeById(local.familyMembers, _safeParse(cloud['family_members'], FamilyMember.fromJson)),
+      familyMembers: mergedFamilyMembers,
       tasks: _mergeById(local.tasks, _safeParse(cloud['tasks'], Task.fromJson)),
       events: _mergeById(local.events, _safeParse(cloud['events'], CalendarEvent.fromJson)),
       recipes: _mergeById(local.recipes, _safeParse(cloud['recipes'], Recipe.fromJson)),
@@ -372,6 +780,16 @@ class DatabaseService {
       lists: _mergeById(local.lists, _safeParse(cloud['lists'], ShoppingList.fromJson)),
       devotionals: _mergeById(local.devotionals, _safeParse(cloud['devotionals'], DevotionalEntry.fromJson)),
       fitness: _mergeById(local.fitness, _safeParse(cloud['fitness'], FitnessMetric.fromJson)),
+      fitnessLogs: _mergeById(
+          local.fitnessLogs, _safeParse(cloud['fitness_logs'], FitnessLog.fromJson)),
+      workoutSessions: _mergeById(
+          local.workoutSessions,
+          _safeParse(cloud['workout_sessions'], WorkoutSession.fromJson)),
+      workoutExercises: _mergeById(
+          local.workoutExercises,
+          _safeParse(cloud['workout_exercises'], WorkoutExercise.fromJson)),
+      workoutSets: _mergeById(
+          local.workoutSets, _safeParse(cloud['workout_sets'], WorkoutSet.fromJson)),
       budgetCategories: _mergeById(local.budgetCategories, _safeParse(cloud['budget_categories'], BudgetCategoryRecord.fromJson)),
       budgetEntries: _mergeById(local.budgetEntries, _safeParse(cloud['budget_entries'], BudgetEntry.fromJson)),
       transactions: _mergeById(local.transactions, _safeParse(cloud['transactions'], Transaction.fromJson)),
@@ -396,7 +814,9 @@ class DatabaseService {
       periodCycles: _mergeById(local.periodCycles, _safeParse(cloud['period_cycles'], PeriodCycle.fromJson)),
       periodSymptoms: _mergeById(local.periodSymptoms, _safeParse(cloud['period_symptoms'], PeriodSymptomLog.fromJson)),
       rewards: _mergeById(local.rewards, _safeParse(cloud['rewards'], Reward.fromJson)),
-      readingPlans: _mergeById(local.readingPlans, _safeParse(cloud['reading_plans'], ReadingPlan.fromJson)),
+      readingPlans: _mergeReadingPlans(
+          local.readingPlans,
+          _safeParse(cloud['reading_plans'], ReadingPlan.fromJson)),
       externalCalendars: _mergeById(local.externalCalendars, _safeParse(cloud['external_calendars'], ExternalCalendar.fromJson)),
     );
   }

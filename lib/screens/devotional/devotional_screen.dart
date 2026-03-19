@@ -43,7 +43,10 @@ String _extractRef(String scripture) {
 // ─── Main Screen ─────────────────────────────────────────────────────────────
 
 class DevotionalScreen extends StatefulWidget {
-  const DevotionalScreen({super.key});
+  /// Opens this entry after sync (e.g. daily devotional notification).
+  final String? initialDevotionalId;
+
+  const DevotionalScreen({super.key, this.initialDevotionalId});
 
   @override
   State<DevotionalScreen> createState() => _DevotionalScreenState();
@@ -55,12 +58,59 @@ class _DevotionalScreenState extends State<DevotionalScreen>
   DevotionalEntry? _selectedEntry;
   ReadingPlan? _selectedPlan;
   bool _dismissedAutoOpen = false;
+  bool _deepLinkHandled = false;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(() => setState(() {}));
+  }
+
+  @override
+  void didUpdateWidget(DevotionalScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialDevotionalId != oldWidget.initialDevotionalId) {
+      _deepLinkHandled = false;
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final id = widget.initialDevotionalId;
+    if (id != null && id.isNotEmpty && !_deepLinkHandled) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _openDevotionalFromNotification(id));
+    }
+  }
+
+  Future<void> _openDevotionalFromNotification(String id) async {
+    if (!mounted || _deepLinkHandled) return;
+    final provider = context.read<AppProvider>();
+    DevotionalEntry? match(Iterable<DevotionalEntry> list) {
+      for (final e in list) {
+        if (e.id == id) return e;
+      }
+      return null;
+    }
+
+    var e = match(provider.db.devotionalEntries);
+    if (e == null) {
+      await provider.refreshFromCloud();
+      if (!mounted) return;
+      e = match(context.read<AppProvider>().db.devotionalEntries);
+    }
+    if (!mounted) return;
+    if (e != null) {
+      setState(() {
+        _selectedEntry = e;
+        _tabController.index = 0;
+        _deepLinkHandled = true;
+      });
+    } else {
+      _deepLinkHandled = true;
+      _showSnack(context, 'Still loading today\'s devotional — open Devotional again in a few seconds.');
+    }
   }
 
   @override
@@ -875,12 +925,23 @@ Make it warm, kid-friendly, and relatable.''';
           newEntries.add(entry);
         }
 
+        final planDays = newEntries
+            .asMap()
+            .entries
+            .map((e) => <String, dynamic>{
+                  'devotional_id': e.value.id,
+                  'day': e.key + 1,
+                  'title': e.value.title,
+                })
+            .toList();
         final plan = ReadingPlan(
           id: planId,
           familyId: widget.familyId,
           creatorId: provider.activeUser?.id ?? '',
           title: data['title'] as String? ?? '$topic Reading Plan',
           description: (data['description'] as String?) ?? '',
+          totalDays: newEntries.length,
+          days: planDays,
           entryIds: newEntries.map((e) => e.id).toList(),
           createdAt: DateTime.now(),
         );

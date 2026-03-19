@@ -327,12 +327,12 @@ Deno.serve(async (req: Request) => {
 
       const dueTasks = (dueTasksRows ?? []).length;
 
-      // Skip families with nothing interesting to report
-      if (totalChores === 0 && upcomingEvents === 0 && dueTasks === 0) continue;
-
       const stats: DigestStats = { totalChores, topContributorName, topContributorCount, upcomingEvents, dueTasks };
       const notifTitle = `📊 ${family.name} — Weekly Digest`;
-      const notifBody = buildDigestBody(stats);
+      const notifBody =
+        totalChores === 0 && upcomingEvents === 0 && dueTasks === 0
+          ? 'Quiet week ahead — no tasks due or events in the next 7 days. Open the app to plan together.'
+          : buildDigestBody(stats);
 
       // ---------------------------------------------------------------------
       // Fetch all device tokens for this family and send

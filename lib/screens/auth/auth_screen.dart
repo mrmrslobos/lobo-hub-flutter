@@ -16,6 +16,7 @@ import '../../config/app_config.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../services/database_service.dart';
+import '../../services/field_encryption_service.dart';
 
 // ─── Auth view enum ───────────────────────────────────────────────────────────
 
@@ -215,7 +216,17 @@ class _AuthScreenState extends State<AuthScreen> {
             final cloudMembership = memberships.first as Map<String, dynamic>;
             final familyId = cloudMembership['family_id'] as String?;
             if (familyId != null) {
-              // Fetch all cloud data for this family and merge
+              final famRow = await Supabase.instance.client
+                  .from('families')
+                  .select('join_code')
+                  .eq('id', familyId)
+                  .maybeSingle();
+              final jc = famRow != null
+                  ? famRow['join_code'] as String?
+                  : null;
+              if (jc != null && jc.isNotEmpty) {
+                await FieldEncryption.init(familyId, jc);
+              }
               final db = await DatabaseService.reconcileCloud(provider.db, familyId);
               provider.setDb(db);
 
@@ -363,7 +374,7 @@ class _AuthScreenState extends State<AuthScreen> {
           if (result != null && (result as List).isNotEmpty) {
             final data = result[0] as Map<String, dynamic>;
             final familyId = data['id'] as String;
-            // Reconcile cloud data for this family
+            await FieldEncryption.init(familyId, code);
             final db =
                 await DatabaseService.reconcileCloud(provider.db, familyId);
             provider.setDb(db);

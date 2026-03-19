@@ -1,10 +1,13 @@
 // lib/screens/tasks/tasks_screen.dart
 // Task management screen for FamilyHub
 
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../config/theme.dart';
@@ -35,6 +38,9 @@ class _TasksScreenState extends State<TasksScreen> {
   String? _selectedMemberId;
   String _searchQuery = '';
   final _searchCtrl = TextEditingController();
+  List<String> _customFolderNames = [];
+  bool _customFoldersLoaded = false;
+  static const _taskFoldersKeyPrefix = 'task_folders_';
 
   static const _folderNames = ['Home', 'Work', 'Personal', 'Shopping', 'AI Generated', 'Event'];
 
@@ -46,6 +52,83 @@ class _TasksScreenState extends State<TasksScreen> {
     'AI Generated': Icons.auto_awesome_outlined,
     'Event': Icons.event_outlined,
   };
+
+  /// All folder names: defaults + custom (custom first so they appear at top after defaults).
+  List<String> get _allFolderNames => [
+    ..._folderNames,
+    ..._customFolderNames.where((n) => !_folderNames.any((d) => d.toLowerCase() == n.toLowerCase())),
+  ];
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_customFoldersLoaded && context.read<AppProvider>().activeFamily != null) {
+      _customFoldersLoaded = true;
+      _loadCustomFolders();
+    }
+  }
+
+  Future<void> _loadCustomFolders() async {
+    final prefs = await SharedPreferences.getInstance();
+    final familyId = context.read<AppProvider>().activeFamily?.id;
+    if (familyId == null) return;
+    final key = '$_taskFoldersKeyPrefix$familyId';
+    final json = prefs.getString(key);
+    if (json == null) return;
+    try {
+      final list = jsonDecode(json) as List<dynamic>?;
+      if (list != null && mounted) setState(() => _customFolderNames = list.map((e) => e.toString()).toList());
+    } catch (_) {}
+  }
+
+  Future<void> _saveCustomFolders() async {
+    final familyId = context.read<AppProvider>().activeFamily?.id;
+    if (familyId == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    final key = '$_taskFoldersKeyPrefix$familyId';
+    await prefs.setString(key, jsonEncode(_customFolderNames));
+  }
+
+  Future<void> _showCreateFolderDialog() async {
+    final nameCtrl = TextEditingController();
+    final created = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('New folder', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700)),
+          content: TextField(
+            controller: nameCtrl,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: 'Folder name',
+              hintText: 'e.g. Errands, Projects',
+            ),
+            textCapitalization: TextCapitalization.sentences,
+            onSubmitted: (_) => Navigator.pop(ctx, true),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Create'),
+            ),
+          ],
+        );
+      },
+    );
+    if (created != true || !mounted) return;
+    final name = nameCtrl.text.trim();
+    if (name.isEmpty) return;
+    final exists = _allFolderNames.any((f) => f.toLowerCase() == name.toLowerCase());
+    if (exists) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('A folder named "$name" already exists'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
+    setState(() => _customFolderNames = [..._customFolderNames, name]..sort());
+    await _saveCustomFolders();
+  }
 
   @override
   void dispose() {
@@ -124,6 +207,7 @@ class _TasksScreenState extends State<TasksScreen> {
     final updated = task.copyWith(
       completed: !task.completed,
       completedBy: !task.completed ? provider.activeUser?.id : null,
+      updatedAt: DateTime.now(),
     );
     var tasks = db.tasks.map((t) => t.id == task.id ? updated : t).toList();
 
@@ -135,6 +219,7 @@ class _TasksScreenState extends State<TasksScreen> {
         completed: false,
         completedBy: null,
         dueDate: nextDue,
+        updatedAt: DateTime.now(),
       );
       tasks = [...tasks, nextTask];
       if (nextTask.dueDate != null && nextTask.reminderMinutes != null && nextTask.dueTime != null) {
@@ -149,6 +234,7 @@ class _TasksScreenState extends State<TasksScreen> {
     }
 
     await provider.saveAndSync(db.copyWith(tasks: tasks));
+    if (provider.activeFamily != null) await provider.syncTasksNow();
     if (updated.completed) {
       NotificationService.cancelTaskReminder(task.id);
     }
@@ -171,6 +257,7 @@ class _TasksScreenState extends State<TasksScreen> {
     final db = provider.db;
     final tasks = db.tasks.where((t) => t.id != task.id).toList();
     await provider.saveAndSync(db.copyWith(tasks: tasks));
+    if (provider.activeFamily != null) await provider.syncTasksNow();
     NotificationService.cancelTaskReminder(task.id);
   }
 
@@ -458,7 +545,7 @@ class _TasksScreenState extends State<TasksScreen> {
                         isSelected: _selectedFolder == null,
                         onTap: () => setState(() { _selectedFolder = null; _selectedMemberId = null; }),
                       ),
-                      for (final folder in _folderNames) ...[
+                      for (final folder in _allFolderNames) ...[
                         const Divider(height: 1),
                         _buildFolderItem(
                           folder,
@@ -468,6 +555,26 @@ class _TasksScreenState extends State<TasksScreen> {
                           onTap: () => setState(() { _selectedFolder = folder; _selectedMemberId = null; }),
                         ),
                       ],
+                      const Divider(height: 1),
+                      InkWell(
+                        onTap: _showCreateFolderDialog,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          child: Row(
+                            children: [
+                              Icon(Icons.create_new_folder_outlined, size: 20, color: AppTheme.primary),
+                              const SizedBox(width: 10),
+                              Text(
+                                'Create folder',
+                                style: TextStyle(
+                                  fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600,
+                                  color: AppTheme.primary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -901,6 +1008,7 @@ class _AiBreakdownSheetState extends State<_AiBreakdownSheet> {
 
       final updatedTasks = [...db.tasks, ...newTasks];
       await provider.saveAndSync(db.copyWith(tasks: updatedTasks));
+      if (provider.activeFamily != null) await provider.syncTasksNow();
 
       if (mounted) {
         Navigator.pop(context);
@@ -1526,9 +1634,11 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
           reminderMinutes: _reminderMinutes,
           assignees: _assigneeIds,
           tags: tags,
+          updatedAt: DateTime.now(),
         );
         final tasks = db.tasks.map((t) => t.id == savedTask.id ? savedTask : t).toList();
         await provider.saveAndSync(db.copyWith(tasks: tasks));
+        if (provider.activeFamily != null) await provider.syncTasksNow();
       } else {
         savedTask = Task(
           id: uuid.v4(),
@@ -1547,6 +1657,7 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
         );
         final tasks = [...db.tasks, savedTask];
         await provider.saveAndSync(db.copyWith(tasks: tasks));
+        if (provider.activeFamily != null) await provider.syncTasksNow();
 
         // Notify family about new shared task
         try {

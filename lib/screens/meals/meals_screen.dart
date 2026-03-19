@@ -9,6 +9,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../services/ai_service.dart';
@@ -488,6 +489,17 @@ Return a JSON array of 7 objects, each with:
       db = db.copyWith(tasks: [...db.tasks, ...mealTasks]);
 
       await provider.saveAndSync(db);
+      if (provider.activeFamily != null) await provider.syncTasksNow();
+
+      try {
+        NotificationService.notifyFamilyActivity(
+          title: 'New meal plan generated 🍽️',
+          body: '${provider.activeUser?.name ?? 'Someone'} generated a meal plan for the week',
+          path: '/meals',
+          familyId: provider.activeFamily?.id,
+          excludeUserId: provider.activeUser?.id,
+        );
+      } catch (_) {}
 
       if (mounted) {
         setState(() => _weekPlannerLoading = false);
@@ -663,6 +675,16 @@ Return a JSON array of 7 objects, each with:
       );
 
       await provider.saveAndSync(db);
+
+      try {
+        NotificationService.notifyFamilyActivity(
+          title: 'Meal plan updated 🍽️',
+          body: '${provider.activeUser?.name ?? 'Someone'} refined the meal plan',
+          path: '/meals',
+          familyId: provider.activeFamily?.id,
+          excludeUserId: provider.activeUser?.id,
+        );
+      } catch (_) {}
 
       if (mounted) setState(() {
         _refineLoading = false;
@@ -1812,6 +1834,15 @@ class _AddMealSheetState extends State<_AddMealSheet> {
       );
       final meals = [...db.mealPlans, newMeal];
       await provider.saveAndSync(db.copyWith(mealPlans: meals));
+      try {
+        NotificationService.notifyFamilyActivity(
+          title: 'New meal added 🍽️',
+          body: '${provider.activeUser?.name ?? 'Someone'} added a meal to the plan',
+          path: '/meals',
+          familyId: provider.activeFamily?.id,
+          excludeUserId: provider.activeUser?.id,
+        );
+      } catch (_) {}
     }
 
     if (mounted) Navigator.pop(context);

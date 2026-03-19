@@ -86,6 +86,11 @@ class AppProvider extends ChangeNotifier {
     // Authenticate immediately from local data for fast startup
     if (user != null) {
       _setActiveUserFamily(user, knownFamilyId);
+      if (knownFamilyId != null &&
+          FieldEncryption.isReady(knownFamilyId)) {
+        _db = _db.applySensitiveDecryption(knownFamilyId);
+        await DatabaseService.saveLocal(_db);
+      }
     }
 
     // If user not found locally, look up membership from cloud
@@ -98,7 +103,9 @@ class AppProvider extends ChangeNotifier {
         if (memberships is List && memberships.isNotEmpty) {
           knownFamilyId = memberships.first['family_id'] as String?;
         }
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('[AppProvider] Error fetching cloud membership: $e');
+      }
     }
 
     // Reconcile with cloud
@@ -106,9 +113,26 @@ class AppProvider extends ChangeNotifier {
       // If user not in local DB, we must sync from cloud first
       if (user == null) {
         try {
+          final famRow = await SupabaseService.client
+              .from('families')
+              .select('join_code')
+              .eq('id', knownFamilyId)
+              .maybeSingle();
+          final jc = famRow != null
+              ? famRow['join_code'] as String?
+              : null;
+          if (jc != null && jc.isNotEmpty) {
+            await FieldEncryption.init(knownFamilyId, jc);
+          }
           _db = await DatabaseService.reconcileCloud(_db, knownFamilyId);
           user = _db.users.firstWhereOrNull((u) => u.id == userId);
-          if (user != null) _setActiveUserFamily(user, knownFamilyId);
+          if (user != null) {
+            _setActiveUserFamily(user, knownFamilyId);
+            if (FieldEncryption.isReady(knownFamilyId)) {
+              _db = _db.applySensitiveDecryption(knownFamilyId);
+              await DatabaseService.saveLocal(_db);
+            }
+          }
         } catch (e) {
           debugPrint('[AppProvider] Cloud reconciliation failed: $e');
         }
@@ -152,6 +176,8 @@ class AppProvider extends ChangeNotifier {
     if (_db.families.isEmpty) {
       _db = DatabaseService.db;
     }
+    _db = _db.applySensitiveDecryption(family.id);
+    DatabaseService.saveLocal(_db);
     _startRealtimeListener();
     // Register FCM token so push notifications reach this device
     NotificationService.registerDeviceToken(family.id, user.id);
@@ -197,6 +223,7 @@ class AppProvider extends ChangeNotifier {
     'health_records',
     'reading_plans',
     'rewards',
+    'external_calendars',
   ];
 
   /// Start listening for realtime changes — both from other clients
@@ -309,6 +336,19 @@ class AppProvider extends ChangeNotifier {
     _db = newDb;
     DatabaseService.saveLocal(newDb);
     notifyListeners();
+  }
+
+  /// Await after task create/edit/delete so this family’s tasks hit Supabase
+  /// (full [saveAndSync] sync can fail silently or race).
+  Future<void> syncTasksNow() async {
+    final fam = _activeFamily;
+    if (fam == null || !SupabaseService.isConfigured) return;
+    try {
+      await DatabaseService.pushFamilyTasksToCloudNow(_db, fam.id);
+      _broadcastChange();
+    } catch (e) {
+      debugPrint('[AppProvider] syncTasksNow: $e');
+    }
   }
 
   /// Update DB, notify listeners immediately, then persist + cloud sync.
