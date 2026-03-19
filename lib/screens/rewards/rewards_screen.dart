@@ -111,11 +111,6 @@ class _RewardsScreenState extends State<RewardsScreen>
 
   Future<void> _requestRedemption(Reward reward, String userId) async {
     final provider = context.read<AppProvider>();
-    final balance = provider.availableBalanceForUser(userId);
-    if (balance < reward.pointCost) {
-      if (mounted) _showSnack(context, 'Not enough points');
-      return;
-    }
 
     final hasPending = provider.db.rewardRedemptions.any((r) =>
         r.userId == userId &&
@@ -126,13 +121,17 @@ class _RewardsScreenState extends State<RewardsScreen>
       return;
     }
 
+    final balance = provider.availableBalanceForUser(userId);
+    final lowBalance = balance < reward.pointCost;
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Request Reward?'),
         content: Text(
           'Request "${reward.title}" for ${reward.pointCost} points?\n\n'
-          'A parent will review your request.',
+          'A parent will review your request.'
+          '${lowBalance ? '\n\nNote: Your current balance (\$${balance.toStringAsFixed(0)}) is below the cost.' : ''}',
         ),
         actions: [
           TextButton(
@@ -756,14 +755,13 @@ class _StoreTab extends StatelessWidget {
                 itemCount: rewards.length,
                 itemBuilder: (ctx, i) {
                   final reward = rewards[i];
-                  final canAfford = myBalance >= reward.pointCost;
                   final hasPending = pendingRequests.any(
                       (r) => r.userId == user.id && r.rewardId == reward.id);
                   return _RewardCard(
                     reward: reward,
-                    canRedeem: canAfford && !hasPending,
+                    canRedeem: !hasPending,
                     hasPendingRequest: hasPending,
-                    onRedeem: canAfford && !hasPending
+                    onRedeem: !hasPending
                         ? () => onRedeem(reward)
                         : null,
                     onDelete: () => onDelete(reward.id),
@@ -799,10 +797,10 @@ class _RequestsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final myPending =
-        pendingRequests.where((r) => r.userId == currentUserId).toList();
-    final othersPending =
-        pendingRequests.where((r) => r.userId != currentUserId).toList();
+    final approvable = isOwner ? pendingRequests : <RewardRedemption>[];
+    final myPending = isOwner
+        ? <RewardRedemption>[]
+        : pendingRequests.where((r) => r.userId == currentUserId).toList();
     final myHistory =
         resolvedRequests.where((r) => r.userId == currentUserId).toList();
     final allHistory = resolvedRequests;
@@ -844,19 +842,19 @@ class _RequestsTab extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Pending: others' requests (visible to owner/parent) ──
-          if (isOwner && othersPending.isNotEmpty) ...[
+          // ── Pending: requests awaiting approval (visible to owner/parent) ──
+          if (approvable.isNotEmpty) ...[
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
               child: Row(children: [
                 const Expanded(
                     child: SectionHeader(title: 'AWAITING YOUR APPROVAL')),
                 _CountBadge(
-                    count: othersPending.length,
+                    count: approvable.length,
                     color: const Color(0xFFF59E0B)),
               ]),
             ),
-            ...othersPending.map((r) => _PendingRequestCard(
+            ...approvable.map((r) => _PendingRequestCard(
                   redemption: r,
                   provider: provider,
                   showReviewButton: true,
