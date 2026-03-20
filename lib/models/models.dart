@@ -2144,6 +2144,7 @@ class RewardRedemption {
   final DateTime requestedAt;
   final DateTime? resolvedAt;
   final String? resolvedBy;
+  final String? resolvedNote;
 
   const RewardRedemption({
     required this.id,
@@ -2156,6 +2157,7 @@ class RewardRedemption {
     required this.requestedAt,
     this.resolvedAt,
     this.resolvedBy,
+    this.resolvedNote,
   });
 
   factory RewardRedemption.fromJson(Map<String, dynamic> j) => RewardRedemption(
@@ -2169,6 +2171,7 @@ class RewardRedemption {
     requestedAt: _parseDate(j['requested_at']),
     resolvedAt: _parseDateOpt(j['resolved_at']),
     resolvedBy: j['resolved_by'] as String?,
+    resolvedNote: j['resolved_note'] as String?,
   );
 
   Map<String, dynamic> toJson() => {
@@ -2182,7 +2185,34 @@ class RewardRedemption {
     'requested_at': requestedAt.toIso8601String(),
     'resolved_at': resolvedAt?.toIso8601String(),
     'resolved_by': resolvedBy,
+    'resolved_note': resolvedNote,
   };
+
+  RewardRedemption copyWith({
+    String? id,
+    String? familyId,
+    String? userId,
+    String? rewardId,
+    String? rewardTitle,
+    int? amount,
+    RedemptionStatus? status,
+    DateTime? requestedAt,
+    DateTime? resolvedAt,
+    String? resolvedBy,
+    String? resolvedNote,
+  }) => RewardRedemption(
+    id: id ?? this.id,
+    familyId: familyId ?? this.familyId,
+    userId: userId ?? this.userId,
+    rewardId: rewardId ?? this.rewardId,
+    rewardTitle: rewardTitle ?? this.rewardTitle,
+    amount: amount ?? this.amount,
+    status: status ?? this.status,
+    requestedAt: requestedAt ?? this.requestedAt,
+    resolvedAt: resolvedAt ?? this.resolvedAt,
+    resolvedBy: resolvedBy ?? this.resolvedBy,
+    resolvedNote: resolvedNote ?? this.resolvedNote,
+  );
 }
 
 class Reward {
