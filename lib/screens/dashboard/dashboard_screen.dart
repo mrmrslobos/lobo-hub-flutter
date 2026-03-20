@@ -20,6 +20,7 @@ import '../../services/ai_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/subscription_modal.dart';
+import '../onboarding/walkthrough_screen.dart';
 
 // ─── AI Suggestion model ─────────────────────────────────────────────────────
 
@@ -88,7 +89,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
     _loadDismissedAnnouncement();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadAISuggestions());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadAISuggestions();
+      _showWalkthroughIfNeeded();
+    });
+  }
+
+  Future<void> _showWalkthroughIfNeeded() async {
+    final completed = await isWalkthroughCompleted();
+    if (!completed && mounted) {
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => WalkthroughScreen(
+          onComplete: () => Navigator.of(context).pop(),
+        ),
+      ));
+    }
   }
 
   Future<void> _loadDismissedAnnouncement() async {

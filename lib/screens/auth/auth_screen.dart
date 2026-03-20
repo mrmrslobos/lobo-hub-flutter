@@ -447,16 +447,7 @@ class _AuthScreenState extends State<AuthScreen> {
       provider.authenticate(user, family);
       await DatabaseService.saveAndSync(db, family.id);
 
-      if (mounted) {
-        Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) => WalkthroughScreen(
-            onComplete: () {
-              Navigator.of(context).pop();
-              if (mounted) context.go('/');
-            },
-          ),
-        ));
-      }
+      if (mounted) context.go('/');
     } catch (e) {
       _setError(friendlyErrorMessage(e));
     } finally {
