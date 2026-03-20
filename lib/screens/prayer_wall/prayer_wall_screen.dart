@@ -696,6 +696,7 @@ class _AddPrayerSheetState extends State<_AddPrayerSheet> {
       id: _uuid.v4(),
       familyId: provider.activeFamily!.id,
       userId: provider.activeUser!.id,
+      type: _type == 'gratitude' ? PrayerWallType.GRATITUDE : PrayerWallType.REQUEST,
       title: _titleCtrl.text.trim(),
       body: _bodyCtrl.text.trim().isEmpty ? null : _bodyCtrl.text.trim(),
       answered: false,

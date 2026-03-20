@@ -48,6 +48,27 @@ class _PollsScreenState extends State<PollsScreen> {
   }
 
   Future<void> _closePoll(Poll poll) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Close Poll?'),
+        content: const Text(
+          'Once closed, no more votes can be cast. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: AppTheme.warning),
+            child: const Text('Close Poll'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
     final updatedPoll = poll.copyWith(status: PollStatus.closed);
@@ -82,23 +103,30 @@ class _PollsScreenState extends State<PollsScreen> {
     await provider.saveAndSync(db.copyWith(polls: db.polls.where((p) => p.id != pollId).toList()));
   }
 
-  void _showCreatePollSheet() {
+  void _showCreatePollSheet({Poll? editPoll}) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => _CreatePollSheet(
+        editPoll: editPoll,
         onSave: (poll) async {
           final provider = context.read<AppProvider>();
           final db = provider.db;
-          await provider.saveAndSync(db.copyWith(polls: [...db.polls, poll]));
-          NotificationService.notifyFamilyActivity(
-            title: 'New Poll',
-            body: '${provider.activeUser?.name ?? "Someone"} asks: ${poll.question}',
-            path: '/polls',
-            familyId: provider.activeFamily?.id,
-            excludeUserId: provider.activeUser?.id,
-          );
+          if (editPoll != null) {
+            await provider.saveAndSync(db.copyWith(
+              polls: db.polls.map((p) => p.id == editPoll.id ? poll : p).toList(),
+            ));
+          } else {
+            await provider.saveAndSync(db.copyWith(polls: [...db.polls, poll]));
+            NotificationService.notifyFamilyActivity(
+              title: 'New Poll',
+              body: '${provider.activeUser?.name ?? "Someone"} asks: ${poll.question}',
+              path: '/polls',
+              familyId: provider.activeFamily?.id,
+              excludeUserId: provider.activeUser?.id,
+            );
+          }
         },
       ),
     );
@@ -291,6 +319,7 @@ class _PollsScreenState extends State<PollsScreen> {
                       }),
                       onVote: poll.status == PollStatus.open ? (optId) => _vote(poll, optId) : null,
                       onClose: poll.status == PollStatus.open ? () => _closePoll(poll) : null,
+                      onEdit: poll.status == PollStatus.open ? () => _showCreatePollSheet(editPoll: poll) : null,
                       onDelete: () => _deletePoll(poll.id),
                     ),
                   ),
@@ -462,6 +491,7 @@ class _PollCard extends StatelessWidget {
   final VoidCallback onTap;
   final Future<void> Function(String)? onVote;
   final VoidCallback? onClose;
+  final VoidCallback? onEdit;
   final VoidCallback onDelete;
 
   const _PollCard({
@@ -471,6 +501,7 @@ class _PollCard extends StatelessWidget {
     required this.onTap,
     required this.onVote,
     required this.onClose,
+    this.onEdit,
     required this.onDelete,
   });
 
@@ -752,7 +783,30 @@ class _PollCard extends StatelessWidget {
                   const Divider(height: 1, color: AppTheme.stone100),
                   const SizedBox(height: 8),
                   Row(children: [
-                    if (_isOpen && onClose != null)
+                    if (_isOpen && onEdit != null)
+                      GestureDetector(
+                        onTap: onEdit,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primaryLight,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: AppTheme.primary.withValues(alpha: 0.2)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.edit_rounded, size: 14, color: AppTheme.primary),
+                              const SizedBox(width: 6),
+                              Text('Edit', style: TextStyle(
+                                fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.primary,
+                              )),
+                            ],
+                          ),
+                        ),
+                      ),
+                    if (_isOpen && onClose != null) ...[
+                      const SizedBox(width: 8),
                       GestureDetector(
                         onTap: onClose,
                         child: Container(
@@ -767,13 +821,14 @@ class _PollCard extends StatelessWidget {
                             children: [
                               Icon(Icons.lock_outline_rounded, size: 14, color: AppTheme.stone600),
                               SizedBox(width: 6),
-                              Text('Close Poll', style: TextStyle(
+                              Text('Close', style: TextStyle(
                                 fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.stone600,
                               )),
                             ],
                           ),
                         ),
                       ),
+                    ],
                     const Spacer(),
                     GestureDetector(
                       onTap: onDelete,
@@ -811,22 +866,37 @@ class _PollCard extends StatelessWidget {
 
 class _CreatePollSheet extends StatefulWidget {
   final Future<void> Function(Poll) onSave;
-  const _CreatePollSheet({required this.onSave});
+  final Poll? editPoll;
+  const _CreatePollSheet({required this.onSave, this.editPoll});
 
   @override
   State<_CreatePollSheet> createState() => _CreatePollSheetState();
 }
 
 class _CreatePollSheetState extends State<_CreatePollSheet> {
-  final _questionCtrl = TextEditingController();
-  final List<TextEditingController> _optionCtrls = [
-    TextEditingController(),
-    TextEditingController(),
-  ];
+  late final TextEditingController _questionCtrl;
+  late final List<TextEditingController> _optionCtrls;
   DateTime? _expiresAt;
   bool _anonymous = false;
   bool _isSaving = false;
   final _uuid = const Uuid();
+
+  @override
+  void initState() {
+    super.initState();
+    final p = widget.editPoll;
+    if (p != null) {
+      _questionCtrl = TextEditingController(text: p.question);
+      _optionCtrls = p.options
+          .map((o) => TextEditingController(text: o.text))
+          .toList();
+      _expiresAt = p.deadline;
+      _anonymous = p.anonymous;
+    } else {
+      _questionCtrl = TextEditingController();
+      _optionCtrls = [TextEditingController(), TextEditingController()];
+    }
+  }
 
   @override
   void dispose() {
@@ -875,14 +945,26 @@ class _CreatePollSheetState extends State<_CreatePollSheet> {
     }
     setState(() => _isSaving = true);
     final provider = context.read<AppProvider>();
+    final ep = widget.editPoll;
     final poll = Poll(
-      id: _uuid.v4(),
+      id: ep?.id ?? _uuid.v4(),
       familyId: provider.activeFamily!.id,
       question: _questionCtrl.text.trim(),
-      options: validOptions.map((t) => PollOption(id: _uuid.v4(), text: t, voterIds: [])).toList(),
-      status: PollStatus.open,
-      creatorId: provider.activeUser!.id,
-      createdAt: DateTime.now(),
+      options: ep != null
+          ? validOptions.asMap().entries.map((e) {
+              final idx = e.key;
+              final text = e.value;
+              final existing = idx < ep.options.length ? ep.options[idx] : null;
+              return PollOption(
+                id: existing?.id ?? _uuid.v4(),
+                text: text,
+                voterIds: existing?.voterIds ?? [],
+              );
+            }).toList()
+          : validOptions.map((t) => PollOption(id: _uuid.v4(), text: t, voterIds: [])).toList(),
+      status: ep?.status ?? PollStatus.open,
+      creatorId: ep?.creatorId ?? provider.activeUser!.id,
+      createdAt: ep?.createdAt ?? DateTime.now(),
       deadline: _expiresAt,
       anonymous: _anonymous,
     );

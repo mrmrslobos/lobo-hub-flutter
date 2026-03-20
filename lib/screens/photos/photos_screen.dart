@@ -36,8 +36,10 @@ class PhotosScreen extends StatefulWidget {
 
 class _PhotosScreenState extends State<PhotosScreen> {
   final _picker = ImagePicker();
+  final _searchCtrl = TextEditingController();
   int _tabIndex = 0;
   bool _isUploading = false;
+  String _searchQuery = '';
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -453,10 +455,23 @@ class _PhotosScreenState extends State<PhotosScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    final photos = provider.db.photos.where((p) => p.familyId == family.id).toList()
+    final allPhotos = provider.db.photos.where((p) => p.familyId == family.id).toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    final milestones = provider.db.milestones.where((m) => m.familyId == family.id).toList()
+    final allMilestones = provider.db.milestones.where((m) => m.familyId == family.id).toList()
       ..sort((a, b) => b.date.compareTo(a.date));
+
+    final q = _searchQuery.toLowerCase();
+    final photos = q.isEmpty
+        ? allPhotos
+        : allPhotos.where((p) =>
+            (p.caption ?? '').toLowerCase().contains(q) ||
+            p.tags.any((t) => t.toLowerCase().contains(q))).toList();
+    final milestones = q.isEmpty
+        ? allMilestones
+        : allMilestones.where((m) =>
+            m.title.toLowerCase().contains(q) ||
+            (m.notes ?? '').toLowerCase().contains(q) ||
+            (m.category ?? '').toLowerCase().contains(q)).toList();
 
     // Group photos by month
     final byMonth = <String, List<Photo>>{};
@@ -494,6 +509,30 @@ class _PhotosScreenState extends State<PhotosScreen> {
                   isPrimary: true,
                 ),
               ],
+            ),
+
+            // ─── Search ────────────────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              child: TextField(
+                controller: _searchCtrl,
+                onChanged: (v) => setState(() => _searchQuery = v),
+                decoration: InputDecoration(
+                  hintText: 'Search photos & milestones...',
+                  prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                  suffixIcon: _searchQuery.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.close_rounded, size: 18),
+                          onPressed: () {
+                            _searchCtrl.clear();
+                            setState(() => _searchQuery = '');
+                          },
+                        )
+                      : null,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                  isDense: true,
+                ),
+              ),
             ),
 
             // ─── Upload progress ──────────────────────────────────

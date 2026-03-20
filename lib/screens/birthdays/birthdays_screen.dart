@@ -67,6 +67,40 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
     return age > 0 ? age : null;
   }
 
+  void _scheduleReminders(Occasion occasion) {
+    final now = DateTime.now();
+    final thisYear = DateTime(now.year, occasion.date.month, occasion.date.day);
+    final nextOccurrence = thisYear.isBefore(now)
+        ? DateTime(now.year + 1, occasion.date.month, occasion.date.day)
+        : thisYear;
+
+    final idBase = occasion.id.hashCode.abs() % 100000;
+
+    // Day-of reminder at 9 AM
+    final dayOf = DateTime(nextOccurrence.year, nextOccurrence.month, nextOccurrence.day, 9);
+    if (dayOf.isAfter(now)) {
+      NotificationService.scheduleOnce(
+        id: idBase,
+        title: '🎉 Today: ${occasion.title}',
+        body: 'Don\'t forget — it\'s ${occasion.title} today!',
+        when: dayOf,
+        payload: '/birthdays',
+      );
+    }
+
+    // 7 days before at 9 AM
+    final weekBefore = dayOf.subtract(const Duration(days: 7));
+    if (weekBefore.isAfter(now)) {
+      NotificationService.scheduleOnce(
+        id: idBase + 1,
+        title: '📅 Coming up: ${occasion.title}',
+        body: '${occasion.title} is in 1 week!',
+        when: weekBefore,
+        payload: '/birthdays',
+      );
+    }
+  }
+
   Color _badgeColor(int days) {
     if (days == 0) return const Color(0xFFEC4899); // pink for today
     if (days <= 7) return AppTheme.success;
@@ -120,6 +154,7 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
               excludeUserId: provider.activeUser?.id,
             );
           }
+          _scheduleReminders(occasion);
         },
       ),
     );
