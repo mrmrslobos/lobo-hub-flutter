@@ -257,6 +257,24 @@ class _BudgetScreenState extends State<BudgetScreen> {
               ),
               const SizedBox(height: 8),
               ListTile(
+                leading: const Icon(Icons.text_snippet_rounded, color: AppTheme.primary),
+                title: const Text('Copy Full Report', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+                subtitle: const Text('Copy formatted summary to clipboard', style: TextStyle(fontSize: 12)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                tileColor: AppTheme.stone50,
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _copyReport(
+                    entries: entries,
+                    categories: categories,
+                    totalIncome: totalIncome,
+                    totalExpenses: totalExpenses,
+                    familyName: familyName,
+                  );
+                },
+              ),
+              const SizedBox(height: 8),
+              ListTile(
                 leading: const Icon(Icons.summarize_rounded, color: AppTheme.primary),
                 title: const Text('View Report', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
                 subtitle: const Text('View formatted finance summary', style: TextStyle(fontSize: 12)),
@@ -295,6 +313,57 @@ class _BudgetScreenState extends State<BudgetScreen> {
     }
     Clipboard.setData(ClipboardData(text: lines.join('\n')));
     if (mounted) _showSnack(context, 'CSV copied to clipboard!');
+  }
+
+  void _copyReport({
+    required List<BudgetEntry> entries,
+    required List<BudgetCategoryRecord> categories,
+    required double totalIncome,
+    required double totalExpenses,
+    required String familyName,
+  }) {
+    final net = totalIncome - totalExpenses;
+    final sorted = List<BudgetEntry>.from(entries)
+      ..sort((a, b) => b.date.compareTo(a.date));
+
+    final buf = StringBuffer();
+    buf.writeln('$familyName — Finance Report');
+    buf.writeln('Generated: ${DateFormat.yMMMd().format(DateTime.now())}');
+    buf.writeln('');
+    buf.writeln('SUMMARY');
+    buf.writeln('  Income:   \$${totalIncome.toStringAsFixed(2)}');
+    buf.writeln('  Expenses: \$${totalExpenses.toStringAsFixed(2)}');
+    buf.writeln('  Net:      \$${net.toStringAsFixed(2)}');
+    buf.writeln('');
+
+    // Spending by category
+    final catTotals = <String, double>{};
+    for (final e in entries.where((e) => !e.isIncome)) {
+      catTotals[e.category.name] = (catTotals[e.category.name] ?? 0) + e.amount;
+    }
+    if (catTotals.isNotEmpty) {
+      buf.writeln('SPENDING BY CATEGORY');
+      final sortedCats = catTotals.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      for (final cat in sortedCats) {
+        final pct = totalExpenses > 0
+            ? (cat.value / totalExpenses * 100).toStringAsFixed(0)
+            : '0';
+        buf.writeln('  ${cat.key}: \$${cat.value.toStringAsFixed(2)} ($pct%)');
+      }
+      buf.writeln('');
+    }
+
+    // Transactions list
+    buf.writeln('TRANSACTIONS (${sorted.length})');
+    for (final e in sorted) {
+      final date = DateFormat('MM/dd').format(e.date);
+      final sign = e.isIncome ? '+' : '-';
+      buf.writeln('  $date  $sign\$${e.amount.toStringAsFixed(2)}  ${e.title}');
+    }
+
+    Clipboard.setData(ClipboardData(text: buf.toString()));
+    if (mounted) _showSnack(context, 'Full report copied to clipboard!');
   }
 
   void _showReportView({

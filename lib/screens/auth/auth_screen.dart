@@ -17,6 +17,8 @@ import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../services/database_service.dart';
 import '../../services/field_encryption_service.dart';
+import '../../utils/error_messages.dart';
+import '../onboarding/walkthrough_screen.dart';
 
 // ─── Auth view enum ───────────────────────────────────────────────────────────
 
@@ -255,7 +257,7 @@ class _AuthScreenState extends State<AuthScreen> {
         if (mounted) context.go('/');
       }
     } catch (e) {
-      _setError(e.toString().replaceAll('Exception: ', ''));
+      _setError(friendlyErrorMessage(e));
     } finally {
       _setLoading(false);
     }
@@ -298,7 +300,7 @@ class _AuthScreenState extends State<AuthScreen> {
       _pendingUser = user;
       _setView(_AuthView.onboarding);
     } catch (e) {
-      _setError(e.toString().replaceAll('Exception: ', ''));
+      _setError(friendlyErrorMessage(e));
     } finally {
       _setLoading(false);
     }
@@ -317,7 +319,7 @@ class _AuthScreenState extends State<AuthScreen> {
       }
       setState(() => _resetSent = true);
     } catch (e) {
-      _setError(e.toString().replaceAll('Exception: ', ''));
+      _setError(friendlyErrorMessage(e));
     } finally {
       _setLoading(false);
     }
@@ -343,7 +345,7 @@ class _AuthScreenState extends State<AuthScreen> {
       _pendingFamily = family;
       _setView(_AuthView.moduleSetup);
     } catch (e) {
-      _setError(e.toString());
+      _setError(friendlyErrorMessage(e));
     } finally {
       _setLoading(false);
     }
@@ -411,7 +413,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
       if (mounted) context.go('/');
     } catch (e) {
-      _setError(e.toString());
+      _setError(friendlyErrorMessage(e));
     } finally {
       _setLoading(false);
     }
@@ -445,9 +447,18 @@ class _AuthScreenState extends State<AuthScreen> {
       provider.authenticate(user, family);
       await DatabaseService.saveAndSync(db, family.id);
 
-      if (mounted) context.go('/');
+      if (mounted) {
+        Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => WalkthroughScreen(
+            onComplete: () {
+              Navigator.of(context).pop();
+              if (mounted) context.go('/');
+            },
+          ),
+        ));
+      }
     } catch (e) {
-      _setError(e.toString());
+      _setError(friendlyErrorMessage(e));
     } finally {
       _setLoading(false);
     }
@@ -474,7 +485,7 @@ class _AuthScreenState extends State<AuthScreen> {
         redirectTo: AppConfig.oauthRedirectScheme,
       );
     } catch (e) {
-      _setError(e.toString().replaceAll('Exception: ', ''));
+      _setError(friendlyErrorMessage(e));
     } finally {
       _setLoading(false);
     }
@@ -493,9 +504,12 @@ class _AuthScreenState extends State<AuthScreen> {
     return null;
   }
 
-  String? _passwordValidator(String? v) {
+  String? _passwordValidator(String? v, {bool enforceStrength = false}) {
     if (v == null || v.isEmpty) return 'Password is required';
     if (v.length < 6) return 'Password must be at least 6 characters';
+    if (enforceStrength && _PasswordStrengthBar._calculateStrength(v) < 2) {
+      return 'Password too weak. Add uppercase, numbers, or symbols.';
+    }
     return null;
   }
 
@@ -870,7 +884,7 @@ class _AuthScreenState extends State<AuthScreen> {
       }
       setState(() => _passwordUpdated = true);
     } catch (e) {
-      _setError(e.toString().replaceAll('Exception: ', ''));
+      _setError(friendlyErrorMessage(e));
     } finally {
       _setLoading(false);
     }
@@ -1390,7 +1404,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
   Widget _passwordField({bool isNewPassword = false}) => TextFormField(
         controller: _passwordCtrl,
-        validator: _passwordValidator,
+        validator: (v) => _passwordValidator(v, enforceStrength: isNewPassword),
         obscureText: _obscurePassword,
         autofillHints: [isNewPassword ? AutofillHints.newPassword : AutofillHints.password],
         textInputAction: TextInputAction.done,
