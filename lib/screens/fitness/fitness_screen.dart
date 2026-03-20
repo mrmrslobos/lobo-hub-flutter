@@ -333,7 +333,7 @@ class _FitnessScreenState extends State<FitnessScreen> {
     final weekMinutes = weekLogs.fold<int>(0, (sum, s) => sum + s.durationMinutes);
 
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const FamilyHubAppBar(),
       body: ListView(

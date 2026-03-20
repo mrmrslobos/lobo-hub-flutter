@@ -468,7 +468,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
 
     return Scaffold(
       drawer: const AppDrawer(),
-      backgroundColor: AppTheme.background,
+      // backgroundColor handled by theme
       appBar: const FamilyHubAppBar(),
       body: ListView(
         padding: EdgeInsets.zero,

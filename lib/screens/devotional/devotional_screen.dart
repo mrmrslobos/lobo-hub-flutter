@@ -263,7 +263,7 @@ class _DevotionalScreenState extends State<DevotionalScreen>
     final favCount = entries.where((e) => e.isFavorited).length;
 
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const FamilyHubAppBar(),
       body: SingleChildScrollView(
@@ -1202,7 +1202,7 @@ class _EntryDetailView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      // backgroundColor handled by theme
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
@@ -1524,7 +1524,7 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
     final completedCount = entries.where((e) => e.userPrayer != null && e.userPrayer!.isNotEmpty).length;
 
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      // backgroundColor handled by theme
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,

@@ -434,7 +434,7 @@ class _ListsScreenState extends State<ListsScreen> {
     final checkedItems = lists.fold<int>(0, (s, l) => s + l.items.where((i) => i.checked).length);
 
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const FamilyHubAppBar(),
       body: ListView(
@@ -1219,7 +1219,7 @@ class _ListDetailViewState extends State<_ListDetailView> {
     }
 
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      // backgroundColor handled by theme
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,

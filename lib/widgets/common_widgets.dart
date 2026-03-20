@@ -21,7 +21,7 @@ class SectionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final card = Container(
       decoration: BoxDecoration(
-        color: color ?? AppTheme.surface,
+        color: color ?? Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: AppTheme.stone100),
       ),

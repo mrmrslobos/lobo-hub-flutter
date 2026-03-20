@@ -806,7 +806,7 @@ Return a JSON array of 7 objects, each with:
         .length;
 
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const FamilyHubAppBar(),
       body: SingleChildScrollView(

@@ -483,7 +483,7 @@ class _PhotosScreenState extends State<PhotosScreen> {
     final totalReactions = photos.fold<int>(0, (n, p) => n + p.reactions.length);
 
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const FamilyHubAppBar(),
       body: SingleChildScrollView(

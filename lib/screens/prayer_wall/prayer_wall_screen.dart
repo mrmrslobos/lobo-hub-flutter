@@ -194,7 +194,7 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
     }
 
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const FamilyHubAppBar(),
       body: ListView(

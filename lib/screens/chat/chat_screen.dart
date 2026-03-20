@@ -280,7 +280,7 @@ class _ChatScreenState extends State<ChatScreen> {
         });
 
         return Scaffold(
-          backgroundColor: AppTheme.background,
+          // backgroundColor handled by theme
           resizeToAvoidBottomInset: true,
           drawer: const AppDrawer(),
           appBar: AppBar(

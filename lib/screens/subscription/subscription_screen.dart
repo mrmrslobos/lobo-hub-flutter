@@ -103,7 +103,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         final isOnTrial = currentTier == SubscriptionTier.trial;
 
         return Scaffold(
-          backgroundColor: AppTheme.background,
+          // backgroundColor handled by theme
           appBar: AppBar(
             backgroundColor: AppTheme.surface,
             elevation: 0,

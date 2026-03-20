@@ -372,7 +372,7 @@ class _RewardsScreenState extends State<RewardsScreen>
         savingsGoals.where((g) => g.savedAmount >= g.targetAmount).length;
 
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const FamilyHubAppBar(),
       body: Column(

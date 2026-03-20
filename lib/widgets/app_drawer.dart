@@ -107,7 +107,7 @@ class _AppDrawerState extends State<AppDrawer> {
     final currentRoute = GoRouterState.of(context).matchedLocation;
 
     return Drawer(
-      backgroundColor: AppTheme.surface,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       child: SafeArea(
         child: Column(
           children: [
