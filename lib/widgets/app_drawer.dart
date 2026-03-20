@@ -512,6 +512,52 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
                 ),
                 const SizedBox(height: 16),
 
+                // Appearance / Dark Mode
+                const Text(
+                  'APPEARANCE',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    letterSpacing: 0.5,
+                    color: AppTheme.stone500,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Builder(builder: (ctx) {
+                  final provider = ctx.watch<AppProvider>();
+                  final mode = provider.themeMode;
+                  return Container(
+                    decoration: BoxDecoration(
+                      color: AppTheme.stone50,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(children: [
+                      _ThemeOption(
+                        icon: Icons.light_mode_rounded,
+                        label: 'Light',
+                        selected: mode == ThemeMode.light,
+                        onTap: () => provider.setThemeMode(ThemeMode.light),
+                      ),
+                      const Divider(height: 1, indent: 16, endIndent: 16),
+                      _ThemeOption(
+                        icon: Icons.dark_mode_rounded,
+                        label: 'Dark',
+                        selected: mode == ThemeMode.dark,
+                        onTap: () => provider.setThemeMode(ThemeMode.dark),
+                      ),
+                      const Divider(height: 1, indent: 16, endIndent: 16),
+                      _ThemeOption(
+                        icon: Icons.settings_brightness_rounded,
+                        label: 'System',
+                        selected: mode == ThemeMode.system,
+                        onTap: () => provider.setThemeMode(ThemeMode.system),
+                      ),
+                    ]),
+                  );
+                }),
+                const SizedBox(height: 16),
+
                 // Weekly Digest settings
                 Builder(builder: (ctx) {
                   final provider = ctx.watch<AppProvider>();
@@ -1750,6 +1796,47 @@ class _EditableMember {
     this.moduleAccess,
     required this.displayName,
   });
+}
+
+// ─────────────────────────────────────────────
+// Theme option tile
+// ─────────────────────────────────────────────
+
+class _ThemeOption extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ThemeOption({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Icon(icon, size: 20, color: selected ? AppTheme.primary : AppTheme.stone500),
+      title: Text(
+        label,
+        style: TextStyle(
+          fontFamily: 'Inter',
+          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+          fontSize: 14,
+          color: selected ? AppTheme.primary : AppTheme.stone800,
+        ),
+      ),
+      trailing: selected
+          ? const Icon(Icons.check_circle_rounded, color: AppTheme.primary, size: 20)
+          : null,
+      onTap: onTap,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      dense: true,
+      visualDensity: VisualDensity.compact,
+    );
+  }
 }
 
 // ─────────────────────────────────────────────

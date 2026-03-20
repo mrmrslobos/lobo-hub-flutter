@@ -4,6 +4,8 @@
 // ignore_for_file: avoid_catches_without_on_clauses
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart' show ThemeMode;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show PostgresChangeEvent, PostgresChangeFilter, PostgresChangeFilterType, RealtimeChannel, Supabase;
 
@@ -24,6 +26,7 @@ class AppProvider extends ChangeNotifier {
   RealtimeChannel? _realtimeChannel;
   RealtimeChannel? _postgresChannel;
   bool _isSyncing = false;
+  ThemeMode _themeMode = ThemeMode.light;
 
   // ── Getters ───────────────────────────────────────────────────────────────
 
@@ -34,6 +37,7 @@ class AppProvider extends ChangeNotifier {
   bool get isLocked => _isLocked;
   bool get isAuthenticated => _activeUser != null && _activeFamily != null;
   bool get isSyncing => _isSyncing;
+  ThemeMode get themeMode => _themeMode;
   Set<String> get unreadModules => _unreadModules;
 
   /// Returns the up-to-date Family from the DB (reflects any edits).
@@ -50,6 +54,7 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
+      await _loadThemeMode();
       _db = await DatabaseService.loadLocal();
 
       if (SupabaseService.isConfigured) {
@@ -528,6 +533,27 @@ class AppProvider extends ChangeNotifier {
   /// Resolve a display name for a family member, preferring the User record name
   String memberDisplayName(FamilyMember member) =>
       userById(member.id)?.name ?? member.name;
+
+  // ── Theme ────────────────────────────────────────────────────────────────
+
+  static const _themePrefKey = 'lobohub_theme_mode';
+
+  Future<void> _loadThemeMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    final value = prefs.getString(_themePrefKey);
+    switch (value) {
+      case 'dark': _themeMode = ThemeMode.dark;
+      case 'system': _themeMode = ThemeMode.system;
+      default: _themeMode = ThemeMode.light;
+    }
+  }
+
+  Future<void> setThemeMode(ThemeMode mode) async {
+    _themeMode = mode;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_themePrefKey, mode.name);
+  }
 
   /// Returns total approved chore earnings (dollar value) for a given user
   double choreEarningsForUser(String userId) {
