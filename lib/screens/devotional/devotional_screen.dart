@@ -122,9 +122,29 @@ class _DevotionalScreenState extends State<DevotionalScreen>
   Future<void> _deleteEntry(String id) async {
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
-      devotionalEntries: db.devotionalEntries.where((e) => e.id != id).toList(),
-    ));
+    final entry = db.devotionalEntries.where((e) => e.id == id).firstOrNull;
+    final isDailyAuto = entry != null && entry.tags.contains('daily-auto');
+
+    if (isDailyAuto) {
+      // Mark as dismissed instead of deleting so the edge function
+      // doesn't recreate it on the next cron run.
+      await provider.saveAndSync(db.copyWith(
+        devotionalEntries: db.devotionalEntries.map((e) {
+          if (e.id == id) {
+            final newTags = e.tags
+                .where((t) => t != 'daily-auto')
+                .toList()
+              ..add('daily-auto-dismissed');
+            return e.copyWith(tags: newTags);
+          }
+          return e;
+        }).toList(),
+      ));
+    } else {
+      await provider.saveAndSync(db.copyWith(
+        devotionalEntries: db.devotionalEntries.where((e) => e.id != id).toList(),
+      ));
+    }
     if (_selectedEntry?.id == id) setState(() => _selectedEntry = null);
   }
 
@@ -137,7 +157,7 @@ class _DevotionalScreenState extends State<DevotionalScreen>
     }
 
     final entries = provider.db.devotionalEntries
-        .where((e) => e.familyId == family.id)
+        .where((e) => e.familyId == family.id && !e.tags.contains('daily-auto-dismissed'))
         .toList()
       ..sort((a, b) => b.date.compareTo(a.date));
 

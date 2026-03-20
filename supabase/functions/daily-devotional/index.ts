@@ -474,10 +474,12 @@ Deno.serve(async (req: Request) => {
 
       const hasAutoToday = (existingRows ?? []).some((row: { tags?: unknown }) => {
         const t = row.tags;
-        return Array.isArray(t) && (t as string[]).includes('daily-auto');
+        if (!Array.isArray(t)) return false;
+        const tags = t as string[];
+        return tags.includes('daily-auto') || tags.includes('daily-auto-dismissed');
       });
       if (hasAutoToday) {
-        console.info(`[daily-devotional] Family ${family.name} already has today's auto devotional, skipping.`);
+        console.info(`[daily-devotional] Family ${family.name} already has today's auto devotional (or dismissed), skipping.`);
         continue;
       }
 
