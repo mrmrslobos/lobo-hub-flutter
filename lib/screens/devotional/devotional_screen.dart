@@ -16,6 +16,7 @@ import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
 import '../../services/database_service.dart';
 import '../../services/notification_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
@@ -59,12 +60,19 @@ class _DevotionalScreenState extends State<DevotionalScreen>
   ReadingPlan? _selectedPlan;
   bool _dismissedAutoOpen = false;
   bool _deepLinkHandled = false;
+  Set<String> _localDismissedDates = {};
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(() => setState(() {}));
+    _loadDismissedDates();
+  }
+
+  Future<void> _loadDismissedDates() async {
+    final dates = await _getDismissedDates();
+    if (mounted) setState(() => _localDismissedDates = dates);
   }
 
   @override
@@ -126,8 +134,14 @@ class _DevotionalScreenState extends State<DevotionalScreen>
     final isDailyAuto = entry != null && entry.tags.contains('daily-auto');
 
     if (isDailyAuto) {
-      // Mark as dismissed instead of deleting so the edge function
-      // doesn't recreate it on the next cron run.
+      // 1) Locally remember that we dismissed today's auto devotional.
+      //    This survives _deletedKeys clearing and blocks any new auto
+      //    devotional for the same date from appearing during merge.
+      final dateKey = DateFormat('yyyy-MM-dd').format(entry.date);
+      await _dismissAutoDate(dateKey);
+
+      // 2) Mark as dismissed in the DB so the edge function sees it
+      //    and won't regenerate.
       await provider.saveAndSync(db.copyWith(
         devotionalEntries: db.devotionalEntries.map((e) {
           if (e.id == id) {
@@ -148,6 +162,27 @@ class _DevotionalScreenState extends State<DevotionalScreen>
     if (_selectedEntry?.id == id) setState(() => _selectedEntry = null);
   }
 
+  /// Track dismissed auto-devotional dates in SharedPreferences.
+  static const _dismissedKey = 'dismissed_auto_devotional_dates';
+
+  Future<Set<String>> _getDismissedDates() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList(_dismissedKey)?.toSet() ?? {};
+  }
+
+  Future<void> _dismissAutoDate(String dateKey) async {
+    final prefs = await SharedPreferences.getInstance();
+    final dates = prefs.getStringList(_dismissedKey)?.toSet() ?? {};
+    dates.add(dateKey);
+    // Only keep last 7 days to prevent unbounded growth
+    final cutoff = DateTime.now().subtract(const Duration(days: 7));
+    dates.removeWhere((d) {
+      try { return DateTime.parse(d).isBefore(cutoff); } catch (_) { return true; }
+    });
+    await prefs.setStringList(_dismissedKey, dates.toList());
+    setState(() => _localDismissedDates = dates);
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
@@ -157,7 +192,17 @@ class _DevotionalScreenState extends State<DevotionalScreen>
     }
 
     final entries = provider.db.devotionalEntries
-        .where((e) => e.familyId == family.id && !e.tags.contains('daily-auto-dismissed'))
+        .where((e) {
+          if (e.familyId != family.id) return false;
+          if (e.tags.contains('daily-auto-dismissed')) return false;
+          // Also hide auto-generated devotionals for locally dismissed dates.
+          // This catches new devotionals created by the cron with different IDs.
+          if (e.tags.contains('daily-auto') && _localDismissedDates.isNotEmpty) {
+            final dateKey = DateFormat('yyyy-MM-dd').format(e.date);
+            if (_localDismissedDates.contains(dateKey)) return false;
+          }
+          return true;
+        })
         .toList()
       ..sort((a, b) => b.date.compareTo(a.date));
 
