@@ -62,6 +62,84 @@ class _ListsScreenState extends State<ListsScreen> {
     if (_selectedList?.id == list.id) setState(() => _selectedList = null);
   }
 
+  void _showListActions(ShoppingList list) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.all(20),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text(list.title, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16)),
+          const SizedBox(height: 16),
+          ListTile(
+            leading: const Icon(Icons.edit_rounded, color: AppTheme.primary),
+            title: const Text('Rename', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            onTap: () {
+              Navigator.pop(ctx);
+              _showRenameDialog(list);
+            },
+          ),
+          ListTile(
+            leading: Icon(Icons.delete_rounded, color: AppTheme.error),
+            title: Text('Delete', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, color: AppTheme.error)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            onTap: () {
+              Navigator.pop(ctx);
+              _deleteList(list);
+            },
+          ),
+          const SizedBox(height: 8),
+        ]),
+      ),
+    );
+  }
+
+  void _showRenameDialog(ShoppingList list) {
+    final ctrl = TextEditingController(text: list.title);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rename List'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(labelText: 'List name'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final newName = ctrl.text.trim();
+              if (newName.isEmpty) return;
+              Navigator.pop(ctx);
+              final provider = context.read<AppProvider>();
+              final db = provider.db;
+              final updated = list.copyWith(title: newName);
+              await provider.saveAndSync(db.copyWith(
+                shoppingLists: db.shoppingLists
+                    .map((l) => l.id == list.id ? updated : l)
+                    .toList(),
+              ));
+              if (_selectedList?.id == list.id) {
+                setState(() => _selectedList = updated);
+              }
+            },
+            child: const Text('Rename'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _addItem(ShoppingList list, String name) async {
     final provider = context.read<AppProvider>();
     final db = provider.db;
@@ -571,6 +649,7 @@ class _ListsScreenState extends State<ListsScreen> {
                       onDismissed: (_) => _deleteList(list),
                       child: GestureDetector(
                         onTap: () => setState(() => _selectedList = list),
+                        onLongPress: () => _showListActions(list),
                         child: Container(
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(

@@ -1,5 +1,6 @@
 // lib/screens/health/health_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
@@ -165,6 +166,64 @@ class _HealthScreenState extends State<HealthScreen> {
     await provider.saveAndSync(db.copyWith(healthRecords: [...filtered, withTimestamp]));
   }
 
+  void _shareEmergencyCard(HealthRecord record, String name) {
+    final buf = StringBuffer();
+    buf.writeln('EMERGENCY MEDICAL CARD');
+    buf.writeln('Name: $name');
+    buf.writeln('Blood Type: ${_bloodTypeLabel(record.bloodType)}');
+    buf.writeln('');
+
+    if (record.allergies.isNotEmpty) {
+      buf.writeln('ALLERGIES');
+      for (final a in record.allergies) {
+        buf.writeln('  \u2022 ${a.name}${a.severity != null ? ' (${a.severity})' : ''}');
+      }
+      buf.writeln('');
+    }
+
+    if (record.medications.isNotEmpty) {
+      buf.writeln('MEDICATIONS');
+      for (final m in record.medications) {
+        buf.writeln('  \u2022 ${m.name}${m.dose != null ? ' — ${m.dose}' : ''}');
+      }
+      buf.writeln('');
+    }
+
+    if (record.conditions.isNotEmpty) {
+      buf.writeln('CONDITIONS');
+      for (final c in record.conditions) {
+        buf.writeln('  \u2022 ${c.name}');
+      }
+      buf.writeln('');
+    }
+
+    if (record.emergencyContacts.isNotEmpty) {
+      buf.writeln('EMERGENCY CONTACTS');
+      for (final c in record.emergencyContacts) {
+        buf.writeln('  \u2022 ${c.name}${c.relation != null ? ' (${c.relation})' : ''}: ${c.phone}');
+      }
+      buf.writeln('');
+    }
+
+    if (record.doctorName != null && record.doctorName!.isNotEmpty) {
+      buf.writeln('DOCTOR: ${record.doctorName}');
+      if (record.doctorPhone != null) buf.writeln('  Phone: ${record.doctorPhone}');
+    }
+    if (record.insuranceProvider != null && record.insuranceProvider!.isNotEmpty) {
+      buf.writeln('INSURANCE: ${record.insuranceProvider}');
+      if (record.insurancePolicyNumber != null) buf.writeln('  Policy: ${record.insurancePolicyNumber}');
+    }
+
+    Clipboard.setData(ClipboardData(text: buf.toString()));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('Emergency card copied to clipboard'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ));
+    }
+  }
+
   void _toggleSection(String section) {
     setState(() {
       if (_expandedSections.contains(section)) {
@@ -206,9 +265,17 @@ class _HealthScreenState extends State<HealthScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // ─── Header ──────────────────────────────────────────
-            const PageHeader(
+            PageHeader(
               title: '\u{1FA7A} Health Records',
               subtitle: 'Allergies, medications & emergency info',
+              actions: [
+                ActionChipButton(
+                  icon: Icons.share_rounded,
+                  label: 'Emergency Card',
+                  onTap: () => _shareEmergencyCard(record, selectedName),
+                  isPrimary: true,
+                ),
+              ],
             ),
 
             // ─── Stat cards ──────────────────────────────────────

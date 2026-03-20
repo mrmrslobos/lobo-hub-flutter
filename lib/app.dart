@@ -12,6 +12,7 @@ import 'config/app_config.dart';
 import 'providers/app_provider.dart';
 import 'services/notification_service.dart';
 import 'widgets/biometric_lock.dart';
+import 'widgets/offline_banner.dart';
 
 // Screens
 import 'screens/auth/auth_screen.dart';
@@ -331,6 +332,8 @@ class _FamilyHubAppState extends State<FamilyHubApp> with WidgetsBindingObserver
         darkTheme: AppTheme.darkTheme,
         themeMode: ThemeMode.light,
         routerConfig: _router,
+        builder: (context, child) =>
+            ConnectivityWrapper(child: child ?? const SizedBox.shrink()),
       ),
     );
   }
