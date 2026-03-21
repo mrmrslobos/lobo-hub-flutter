@@ -477,7 +477,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
         return Scaffold(
           drawer: const AppDrawer(),
-          backgroundColor: AppTheme.background,
+          // backgroundColor handled by theme
           appBar: AppBar(
             backgroundColor: Colors.white,
             elevation: 0,

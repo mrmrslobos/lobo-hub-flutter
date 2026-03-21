@@ -107,7 +107,7 @@ class _AppDrawerState extends State<AppDrawer> {
     final currentRoute = GoRouterState.of(context).matchedLocation;
 
     return Drawer(
-      backgroundColor: AppTheme.surface,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       child: SafeArea(
         child: Column(
           children: [
@@ -1750,6 +1750,47 @@ class _EditableMember {
     this.moduleAccess,
     required this.displayName,
   });
+}
+
+// ─────────────────────────────────────────────
+// Theme option tile
+// ─────────────────────────────────────────────
+
+class _ThemeOption extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ThemeOption({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Icon(icon, size: 20, color: selected ? AppTheme.primary : AppTheme.stone500),
+      title: Text(
+        label,
+        style: TextStyle(
+          fontFamily: 'Inter',
+          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+          fontSize: 14,
+          color: selected ? AppTheme.primary : AppTheme.stone800,
+        ),
+      ),
+      trailing: selected
+          ? const Icon(Icons.check_circle_rounded, color: AppTheme.primary, size: 20)
+          : null,
+      onTap: onTap,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      dense: true,
+      visualDensity: VisualDensity.compact,
+    );
+  }
 }
 
 // ─────────────────────────────────────────────

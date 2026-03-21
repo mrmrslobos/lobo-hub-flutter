@@ -256,7 +256,7 @@ class _HealthScreenState extends State<HealthScreen> {
     final emergencyCount = record.emergencyContacts.length;
 
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const FamilyHubAppBar(),
       body: SingleChildScrollView(

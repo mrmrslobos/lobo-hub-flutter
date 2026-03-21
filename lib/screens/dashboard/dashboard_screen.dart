@@ -512,7 +512,7 @@ Return ONLY the JSON array, no markdown.''',
 
         return Scaffold(
           drawer: const AppDrawer(),
-          backgroundColor: AppTheme.background,
+          // backgroundColor handled by theme
           appBar: const FamilyHubAppBar(),
           body: RefreshIndicator(
             onRefresh: _onRefresh,
@@ -606,7 +606,7 @@ Return ONLY the JSON array, no markdown.''',
     final myChoresCompleted = myChores.where((c) => completedChoreIds.contains(c.id)).length;
 
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      // backgroundColor handled by theme
       appBar: AppBar(
         backgroundColor: AppTheme.surface,
         elevation: 0,

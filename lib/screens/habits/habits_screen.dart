@@ -88,7 +88,7 @@ class _HabitsScreenState extends State<HabitsScreen> {
     }
 
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const FamilyHubAppBar(),
       body: SingleChildScrollView(

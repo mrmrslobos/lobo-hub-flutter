@@ -302,9 +302,16 @@ async function sendWebPushNotification(
 // Gemini AI call (same logic as ai-proxy)
 // ---------------------------------------------------------------------------
 
-async function generateDevotional(apiKey: string): Promise<{ title: string; scripture: string; scriptureRef: string; content: string; reflectionPrompts: string[]; prayer: string } | null> {
-  const prompt = `Write a kids-friendly family devotional for today.
-Pick a random Bible verse and build a short, warm devotional around it.
+async function generateDevotional(apiKey: string, recentRefs: string[] = []): Promise<{ title: string; scripture: string; scriptureRef: string; content: string; reflectionPrompts: string[]; prayer: string } | null> {
+  const today = new Date();
+  const dateStr = today.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const seed = Math.floor(Math.random() * 100000);
+  const avoidClause = recentRefs.length > 0
+    ? `\nIMPORTANT: Do NOT use any of these recently-used verses: ${recentRefs.join(', ')}. Pick a completely different passage.`
+    : '';
+
+  const prompt = `Write a kids-friendly family devotional for ${dateStr}. (seed: ${seed})
+Pick a Bible verse and build a short, warm devotional around it.${avoidClause}
 Return JSON with these exact fields: title, scripture, scriptureRef, content, reflectionPrompts (array of 3 discussion questions), prayer.
 For "scripture", write out the FULL verse text (e.g. "For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.").
 For "scriptureRef", provide only the reference (e.g. "John 3:16").
@@ -318,6 +325,7 @@ Make the content warm, relatable, and suitable for children.`;
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: {
         responseMimeType: 'application/json',
+        temperature: 1.0,
       },
     };
 
@@ -474,15 +482,34 @@ Deno.serve(async (req: Request) => {
 
       const hasAutoToday = (existingRows ?? []).some((row: { tags?: unknown }) => {
         const t = row.tags;
-        return Array.isArray(t) && (t as string[]).includes('daily-auto');
+        if (!Array.isArray(t)) return false;
+        const tags = t as string[];
+        return tags.includes('daily-auto') || tags.includes('daily-auto-dismissed');
       });
       if (hasAutoToday) {
-        console.info(`[daily-devotional] Family ${family.name} already has today's auto devotional, skipping.`);
+        console.info(`[daily-devotional] Family ${family.name} already has today's auto devotional (or dismissed), skipping.`);
         continue;
       }
 
+      // Fetch recent scripture references to avoid repetition
+      const recentRefs: string[] = [];
+      try {
+        const { data: recentRows } = await supabase
+          .from('devotionals')
+          .select('scripture')
+          .eq('family_id', family.id)
+          .order('date', { ascending: false })
+          .limit(14);
+        for (const row of (recentRows ?? [])) {
+          const s = row.scripture as string | null;
+          if (!s) continue;
+          const refMatch = s.match(/—\s*(.+)$/m);
+          if (refMatch) recentRefs.push(refMatch[1].trim());
+        }
+      } catch { /* non-critical */ }
+
       // Generate the devotional via Gemini
-      const devotional = await generateDevotional(apiKey);
+      const devotional = await generateDevotional(apiKey, recentRefs);
       if (!devotional) {
         console.error(`[daily-devotional] Failed to generate for family ${family.name}`);
         continue;

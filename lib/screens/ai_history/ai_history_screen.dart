@@ -89,7 +89,7 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
         : allEntries.where((e) => e.module == _selectedModule).toList();
 
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const FamilyHubAppBar(),
       body: SingleChildScrollView(

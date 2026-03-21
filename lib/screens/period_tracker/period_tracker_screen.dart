@@ -670,7 +670,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     }
 
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const FamilyHubAppBar(),
       body: SingleChildScrollView(

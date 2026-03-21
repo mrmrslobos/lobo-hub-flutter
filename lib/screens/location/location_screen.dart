@@ -462,7 +462,7 @@ class _LocationScreenState extends State<LocationScreen> {
     final sharingCount = locationShares.where((l) => l.isSharing).length;
 
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const FamilyHubAppBar(),
       body: SingleChildScrollView(

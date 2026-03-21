@@ -607,7 +607,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
     shown.sort((a, b) => b.date.compareTo(a.date));
 
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const FamilyHubAppBar(),
       body: ListView(
