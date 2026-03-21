@@ -43,7 +43,7 @@ const moduleGroups = [
       ModuleInfo(path: '/meals', name: 'Meals', emoji: '🍽️', desc: 'Meal planning & recipes'),
       ModuleInfo(path: '/fitness', name: 'Fitness', emoji: '💪', desc: 'Health & workout tracking'),
       ModuleInfo(path: '/period-tracker', name: 'Period Tracker', emoji: '🌸', desc: 'Cycle & wellness tracking'),
-      ModuleInfo(path: '/devotional', name: 'Devotional', emoji: '📖', desc: 'Daily faith & reflection'),
+      ModuleInfo(path: '/devotional', name: 'Devotional', emoji: '📖', desc: 'Daily Scripture for real life'),
       ModuleInfo(path: '/prayer-wall', name: 'Prayer Wall', emoji: '🙏', desc: 'Gratitude & prayer sharing'),
     ],
   ),

@@ -458,12 +458,21 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
     setState(() => _isGenerating = true);
     try {
       final provider = context.read<AppProvider>();
-      const prompt = '''Write a kids-friendly family devotional for today.
-Pick a random Bible verse and build a short, warm devotional around it.
-Return JSON with these exact fields: title, scripture, scriptureRef, content, reflectionPrompts (array of 3 discussion questions), prayer.
+      const prompt = '''Write an adult-oriented daily devotional for today.
+Audience: mature adults navigating real life—work stress, relationships, parenting fatigue, grief, temptation, doubt, health, money worries, and ordinary discouragement. Speak with honesty and compassion; do not talk down, use childish language, or rely on simplistic moral tales.
+
+Pick a random Bible verse or short passage and build a focused devotional around it.
+
+Requirements:
+- Be direct where it helps: name common adult struggles without being graphic or sensational.
+- Anchor hope in God's character and in specific promises from Scripture (quote or paraphrase faithfully).
+- Close the main message on an uplifting, faith-filled note—realistic, not trite.
+- Aim for roughly 250–400 words in "content" when possible.
+
+Return JSON with these exact fields: title, scripture, scriptureRef, content, reflectionPrompts (array of 3 personal reflection or journaling prompts for an adult), prayer.
 For "scripture", write out the FULL verse text (e.g. "For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.").
 For "scriptureRef", provide only the reference (e.g. "John 3:16").
-Make the content warm, relatable, and suitable for children.''';
+For "prayer", write a sincere, adult-voiced prayer that names real tension and rests on God's promises.''';
 
       final raw = await AiService.ask(
         prompt: prompt,
@@ -530,11 +539,19 @@ Make the content warm, relatable, and suitable for children.''';
     try {
       final topic = _topicCtrl.text.trim().isEmpty ? 'a random Bible verse' : _topicCtrl.text.trim();
       final provider = context.read<AppProvider>();
-      final prompt = '''Write a kids-friendly family devotional based on: $topic.
-Return JSON with these exact fields: title, scripture, scriptureRef, content, reflectionPrompts (array of 3 discussion questions), prayer.
+      final prompt = '''Write an adult-oriented daily devotional based on: $topic.
+Audience: mature adults navigating real life—work stress, relationships, parenting fatigue, grief, temptation, doubt, health, money worries, and ordinary discouragement. Speak with honesty and compassion; do not talk down, use childish language, or rely on simplistic moral tales.
+
+Requirements:
+- Be direct where it helps: name common adult struggles without being graphic or sensational.
+- Anchor hope in God's character and in specific promises from Scripture (quote or paraphrase faithfully).
+- Close the main message on an uplifting, faith-filled note—realistic, not trite.
+- Aim for roughly 250–400 words in "content" when possible.
+
+Return JSON with these exact fields: title, scripture, scriptureRef, content, reflectionPrompts (array of 3 personal reflection or journaling prompts for an adult), prayer.
 For "scripture", write out the FULL verse text (e.g. "For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.").
 For "scriptureRef", provide only the reference (e.g. "John 3:16").
-Make the content warm, relatable, and suitable for children.''';
+For "prayer", write a sincere, adult-voiced prayer that names real tension and rests on God's promises.''';
 
       final raw = await AiService.ask(
         prompt: prompt,
@@ -609,7 +626,7 @@ Make the content warm, relatable, and suitable for children.''';
             icon: Icons.auto_awesome,
             gradientColors: const [Color(0xFFF59E0B), Color(0xFFF97316)],
             title: 'AI Faith Assistant',
-            hintText: 'e.g. Patience, Hope, Forgiveness...',
+            hintText: 'e.g. Anxiety, burnout, forgiveness, grief...',
             controller: _topicCtrl,
             loading: _isGenerating,
             buttonLabel: 'Generate Now',
@@ -949,11 +966,13 @@ class _ReadingPlansTabState extends State<_ReadingPlansTab> {
     setState(() => _isGenerating = true);
     try {
       final provider = context.read<AppProvider>();
-      final prompt = '''Generate a $_duration-day family Bible reading plan on "$topic".
+      final prompt = '''Generate a $_duration-day adult Bible reading plan on "$topic".
+Each day should speak to grown believers facing daily life: stress, relationships, weariness, sin and repentance, hope, and God's promises—honest and direct, Scripture-centered, uplifting without being shallow.
+
 Return JSON: { "title": string, "description": string, "entries": [{ "day": number, "title": string, "scripture": string, "scriptureRef": string, "content": string, "discussion": string }] }
 For each entry's "scripture", write out the FULL verse text (e.g. "For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.").
 For "scriptureRef", provide only the book/chapter/verse reference (e.g. "John 3:16").
-Make it warm, kid-friendly, and relatable.''';
+For each entry's "discussion" field, provide one substantive personal reflection prompt for an adult (not a children's discussion question).''';
 
       final raw = await AiService.ask(
         prompt: prompt,
@@ -1299,7 +1318,7 @@ class _EntryDetailView extends StatelessWidget {
                       children: [
                         Icon(Icons.favorite_outline_rounded, size: 16, color: const Color(0xFFEC4899)),
                         const SizedBox(width: 6),
-                        const Text('FAMILY REFLECTION', style: TextStyle(
+                        const Text('PERSONAL REFLECTION', style: TextStyle(
                           fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 11,
                           color: Color(0xFFEC4899), letterSpacing: 0.5,
                         )),
@@ -1677,7 +1696,7 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
                 const SizedBox(height: 20),
               ],
 
-              // Discussion
+              // Reflection prompts
               if (currentEntry.reflectionPrompts.isNotEmpty)
                 Container(
                   width: double.infinity,
@@ -1690,7 +1709,7 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('FAMILY DISCUSSION', style: TextStyle(
+                      const Text('REFLECT & APPLY', style: TextStyle(
                         fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 11,
                         color: Color(0xFFEA580C), letterSpacing: 0.5,
                       )),
@@ -1852,8 +1871,8 @@ class _DailyDevotionalCard extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               enabled
-                  ? 'A fresh devotional is generated and delivered to your family every day \u2014 even if the app is closed.'
-                  : 'Enable to receive a fresh AI devotional at your chosen time each day.',
+                  ? 'A fresh adult-focused devotional is generated and delivered every day \u2014 even if the app is closed.'
+                  : 'Enable to receive a fresh adult-focused AI devotional at your chosen time each day.',
               style: TextStyle(
                 fontFamily: 'Inter', fontSize: 12, height: 1.4,
                 color: Colors.white.withValues(alpha: 0.8),
