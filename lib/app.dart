@@ -330,7 +330,7 @@ class _FamilyHubAppState extends State<FamilyHubApp> with WidgetsBindingObserver
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
-        themeMode: context.watch<AppProvider>().themeMode,
+        themeMode: ThemeMode.light,
         routerConfig: _router,
         builder: (context, child) =>
             ConnectivityWrapper(child: child ?? const SizedBox.shrink()),

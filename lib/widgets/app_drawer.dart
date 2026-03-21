@@ -512,52 +512,6 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
                 ),
                 const SizedBox(height: 16),
 
-                // Appearance / Dark Mode
-                const Text(
-                  'APPEARANCE',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                    letterSpacing: 0.5,
-                    color: AppTheme.stone500,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Builder(builder: (ctx) {
-                  final provider = ctx.watch<AppProvider>();
-                  final mode = provider.themeMode;
-                  return Container(
-                    decoration: BoxDecoration(
-                      color: AppTheme.stone50,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Column(children: [
-                      _ThemeOption(
-                        icon: Icons.light_mode_rounded,
-                        label: 'Light',
-                        selected: mode == ThemeMode.light,
-                        onTap: () => provider.setThemeMode(ThemeMode.light),
-                      ),
-                      const Divider(height: 1, indent: 16, endIndent: 16),
-                      _ThemeOption(
-                        icon: Icons.dark_mode_rounded,
-                        label: 'Dark',
-                        selected: mode == ThemeMode.dark,
-                        onTap: () => provider.setThemeMode(ThemeMode.dark),
-                      ),
-                      const Divider(height: 1, indent: 16, endIndent: 16),
-                      _ThemeOption(
-                        icon: Icons.settings_brightness_rounded,
-                        label: 'System',
-                        selected: mode == ThemeMode.system,
-                        onTap: () => provider.setThemeMode(ThemeMode.system),
-                      ),
-                    ]),
-                  );
-                }),
-                const SizedBox(height: 16),
-
                 // Weekly Digest settings
                 Builder(builder: (ctx) {
                   final provider = ctx.watch<AppProvider>();
