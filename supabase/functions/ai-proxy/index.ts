@@ -111,11 +111,18 @@ Deno.serve(async (req) => {
       const reqBody: Record<string, unknown> = {
         contents: [{ parts: [{ text: prompt }] }],
       };
+      const genConfig: Record<string, unknown> = {};
       if (responseMimeType) {
-        reqBody.generationConfig = {
-          responseMimeType,
-          ...(responseSchema ? { responseSchema } : {}),
-        };
+        genConfig.responseMimeType = responseMimeType;
+        if (responseSchema) genConfig.responseSchema = responseSchema;
+      }
+      // Devotionals were repeating with default sampling; nudge variety for this feature only.
+      if (feature === 'ai_devotional') {
+        genConfig.temperature = 1.12;
+        genConfig.topP = 0.92;
+      }
+      if (Object.keys(genConfig).length > 0) {
+        reqBody.generationConfig = genConfig;
       }
 
       // Gemini 2.5+ models return "thinking" parts by default which can
