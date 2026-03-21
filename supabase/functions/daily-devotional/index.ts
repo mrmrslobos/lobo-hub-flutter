@@ -5,7 +5,7 @@
  * On each invocation it selects families whose daily devotional is enabled
  * and whose scheduled local time (stored as UTC hour + minute) matches the
  * current 15-minute window. For each matching family it:
- *   - Generates a kids-friendly AI devotional via the Gemini API
+ *   - Generates an adult-oriented AI devotional via the Gemini API
  *   - Inserts the devotional into the devotional_entries table
  *   - Sends FCM + Web Push notifications to every family member
  *
@@ -310,12 +310,21 @@ async function generateDevotional(apiKey: string, recentRefs: string[] = []): Pr
     ? `\nIMPORTANT: Do NOT use any of these recently-used verses: ${recentRefs.join(', ')}. Pick a completely different passage.`
     : '';
 
-  const prompt = `Write a kids-friendly family devotional for ${dateStr}. (seed: ${seed})
-Pick a Bible verse and build a short, warm devotional around it.${avoidClause}
-Return JSON with these exact fields: title, scripture, scriptureRef, content, reflectionPrompts (array of 3 discussion questions), prayer.
+  const prompt = `Write an adult-oriented daily devotional for ${dateStr}. (seed: ${seed})
+Audience: mature adults navigating real life—work stress, relationships, parenting fatigue, grief, temptation, doubt, health, money worries, and ordinary discouragement. Speak with honesty and compassion; do not talk down, use childish language, or rely on simplistic moral tales.
+
+Pick one Bible verse or short passage and build a focused devotional around it.${avoidClause}
+
+Requirements:
+- Be direct where it helps: name common adult struggles without being graphic or sensational.
+- Anchor hope in God's character and in specific promises from Scripture (quote or paraphrase faithfully).
+- Close the main message on an uplifting, faith-filled note—realistic, not trite.
+- Aim for roughly 250–400 words in "content" when possible.
+
+Return JSON with these exact fields: title, scripture, scriptureRef, content, reflectionPrompts (array of 3 personal reflection or journaling prompts for an adult), prayer.
 For "scripture", write out the FULL verse text (e.g. "For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.").
 For "scriptureRef", provide only the reference (e.g. "John 3:16").
-Make the content warm, relatable, and suitable for children.`;
+For "prayer", write a sincere, adult-voiced prayer that names real tension and rests on God's promises.`;
 
   const MODEL_CANDIDATES = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
   let lastError: unknown;
