@@ -32,13 +32,109 @@ void _showSnack(BuildContext context, String msg) {
   ));
 }
 
-/// Extract the reference portion from a combined scripture string.
-/// e.g. "For God so loved...\n— John 3:16" → "John 3:16"
-/// Falls back to the full string if no em-dash separator is found.
-String _extractRef(String scripture) {
-  final idx = scripture.lastIndexOf('\u2014');
-  if (idx >= 0) return scripture.substring(idx + 1).trim();
-  return scripture;
+/// Pull a reference from stored scripture (em/en/hyphen dash lines, or a ref-only line).
+String? _scriptureRefForAvoidList(String? scripture) {
+  if (scripture == null || scripture.trim().isEmpty) return null;
+  final lines = scripture
+      .split(RegExp(r'\r?\n'))
+      .map((l) => l.trim())
+      .where((l) => l.isNotEmpty)
+      .toList();
+  for (var i = lines.length - 1; i >= 0; i--) {
+    final line = lines[i];
+    final dash = RegExp(r'^[\u2014\u2013\-]\s*(.+)$');
+    final m = dash.firstMatch(line);
+    if (m != null) return m.group(1)!.trim();
+    if (line.length <= 120 &&
+        RegExp(r'\d+\s*:\s*\d+').hasMatch(line) &&
+        RegExp(r'[A-Za-z\u00C0-\u024F]').hasMatch(line)) {
+      return line;
+    }
+  }
+  final em = scripture.lastIndexOf('\u2014');
+  if (em >= 0) return scripture.substring(em + 1).trim();
+  final en = scripture.lastIndexOf('\u2013');
+  if (en >= 0) return scripture.substring(en + 1).trim();
+  return null;
+}
+
+/// Extract the reference portion for UI badges (short label when possible).
+String _extractRef(String scripture) =>
+    _scriptureRefForAvoidList(scripture) ?? scripture.trim();
+
+const _kScriptureBucketsDevotional = <String>[
+  'Old Testament narrative or Torah (not used in your avoid-list)',
+  'Wisdom literature — Job, Psalms, Proverbs, or Ecclesiastes',
+  'Major or minor prophets',
+  'The Gospels — life or teaching of Jesus',
+  'Acts and the early church',
+  'Pauline epistles (Romans through Philemon)',
+  'Hebrews, general epistles, or Revelation',
+];
+
+String _dailyScriptureBucket(String familyId, DateTime now) {
+  final dayKey =
+      '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+  var h = 0;
+  for (final cu in '$familyId$dayKey'.codeUnits) {
+    h = (h * 31 + cu) & 0x7fffffff;
+  }
+  return _kScriptureBucketsDevotional[h % _kScriptureBucketsDevotional.length];
+}
+
+/// Recent passages, titles, daily bucket, and a unique nonce so AI output varies run-to-run.
+String _devotionalVarietyBlock(AppDB db, String familyId) {
+  final sorted = db.devotionals
+      .where((e) => e.familyId == familyId)
+      .toList()
+    ..sort((a, b) {
+      final c = b.date.compareTo(a.date);
+      if (c != 0) return c;
+      return b.updatedAt.compareTo(a.updatedAt);
+    });
+
+  final refs = <String>[];
+  final titles = <String>[];
+  final seenR = <String>{};
+  final seenT = <String>{};
+
+  for (final e in sorted) {
+    if (refs.length < 16) {
+      final r = _scriptureRefForAvoidList(e.scripture);
+      if (r != null && r.isNotEmpty && seenR.add(r)) refs.add(r);
+    }
+    if (titles.length < 10) {
+      final t = e.title.trim();
+      if (t.isNotEmpty && t != 'Daily Devotional' && seenT.add(t)) titles.add(t);
+    }
+    if (refs.length >= 16 && titles.length >= 10) break;
+  }
+
+  final bucket = _dailyScriptureBucket(familyId, DateTime.now());
+  final nonce = const Uuid().v4();
+  final ts = DateTime.now().toUtc().toIso8601String();
+
+  final buf = StringBuffer()
+    ..write("\n\nToday's Scripture focus (choose ONE tight passage within this region): $bucket.")
+    ..write(
+      '\nAvoid overused default choices (e.g. John 3:16, Psalm 23, Philippians 4:6-7, Jeremiah 29:11) unless they truly fit and are not excluded below.',
+    );
+  if (refs.isNotEmpty) {
+    buf
+      ..write('\nIMPORTANT: Do NOT use these recently used passages (different book/chapter): ')
+      ..write(refs.join('; '))
+      ..write('.');
+  }
+  if (titles.isNotEmpty) {
+    buf
+      ..write('\nDo NOT reuse or lightly rephrase these recent titles: ')
+      ..write(titles.join('; '))
+      ..write('.');
+  }
+  buf
+    ..write('\nVary tone, metaphors, and structure; avoid boilerplate openings.')
+    ..write('\nUnique generation id (do not echo): $nonce at $ts.');
+  return buf.toString();
 }
 
 // ─── Main Screen ─────────────────────────────────────────────────────────────
@@ -458,10 +554,11 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
     setState(() => _isGenerating = true);
     try {
       final provider = context.read<AppProvider>();
-      const prompt = '''Write an adult-oriented daily devotional for today.
+      final variety = _devotionalVarietyBlock(provider.db, familyId);
+      final prompt = '''Write an adult-oriented daily devotional for today.
 Audience: mature adults navigating real life—work stress, relationships, parenting fatigue, grief, temptation, doubt, health, money worries, and ordinary discouragement. Speak with honesty and compassion; do not talk down, use childish language, or rely on simplistic moral tales.
 
-Pick a random Bible verse or short passage and build a focused devotional around it.
+Pick one Bible verse or short passage (within the assigned Scripture region below) and build a focused devotional around it.
 
 Requirements:
 - Be direct where it helps: name common adult struggles without being graphic or sensational.
@@ -472,7 +569,7 @@ Requirements:
 Return JSON with these exact fields: title, scripture, scriptureRef, content, reflectionPrompts (array of 3 personal reflection or journaling prompts for an adult), prayer.
 For "scripture", write out the FULL verse text (e.g. "For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.").
 For "scriptureRef", provide only the reference (e.g. "John 3:16").
-For "prayer", write a sincere, adult-voiced prayer that names real tension and rests on God's promises.''';
+For "prayer", write a sincere, adult-voiced prayer that names real tension and rests on God's promises.$variety''';
 
       final raw = await AiService.ask(
         prompt: prompt,
@@ -539,8 +636,11 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
     try {
       final topic = _topicCtrl.text.trim().isEmpty ? 'a random Bible verse' : _topicCtrl.text.trim();
       final provider = context.read<AppProvider>();
+      final variety = _devotionalVarietyBlock(provider.db, widget.familyId);
       final prompt = '''Write an adult-oriented daily devotional based on: $topic.
 Audience: mature adults navigating real life—work stress, relationships, parenting fatigue, grief, temptation, doubt, health, money worries, and ordinary discouragement. Speak with honesty and compassion; do not talk down, use childish language, or rely on simplistic moral tales.
+
+Center the passage in the Scripture region below unless the topic requires a specific text.
 
 Requirements:
 - Be direct where it helps: name common adult struggles without being graphic or sensational.
@@ -551,7 +651,7 @@ Requirements:
 Return JSON with these exact fields: title, scripture, scriptureRef, content, reflectionPrompts (array of 3 personal reflection or journaling prompts for an adult), prayer.
 For "scripture", write out the FULL verse text (e.g. "For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.").
 For "scriptureRef", provide only the reference (e.g. "John 3:16").
-For "prayer", write a sincere, adult-voiced prayer that names real tension and rests on God's promises.''';
+For "prayer", write a sincere, adult-voiced prayer that names real tension and rests on God's promises.$variety''';
 
       final raw = await AiService.ask(
         prompt: prompt,
@@ -1258,7 +1358,7 @@ class _EntryDetailView extends StatelessWidget {
             // Scripture badge
             if (entry.scripture != null) ...[
               Text(
-                'KIDS FRIENDLY BASED ON ${_extractRef(entry.scripture!).toUpperCase()}',
+                'SCRIPTURE ROOT — ${_extractRef(entry.scripture!).toUpperCase()}',
                 style: const TextStyle(
                   fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700,
                   color: AppTheme.stone400, letterSpacing: 0.5,

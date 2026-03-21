@@ -302,29 +302,98 @@ async function sendWebPushNotification(
 // Gemini AI call (same logic as ai-proxy)
 // ---------------------------------------------------------------------------
 
-async function generateDevotional(apiKey: string, recentRefs: string[] = []): Promise<{ title: string; scripture: string; scriptureRef: string; content: string; reflectionPrompts: string[]; prayer: string } | null> {
+/** Stable 32-bit hash for rotating prompts by family + calendar day. */
+function simpleHash(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = Math.imul(31, h) + s.charCodeAt(i) | 0;
+  return h === 0 ? 1 : h;
+}
+
+/**
+ * Pull a scripture reference from the stored `scripture` field (verse text + "— Ref"
+ * or common dash variants). Returns null if we cannot infer one.
+ */
+function extractScriptureRefFromStored(scripture: string | null | undefined): string | null {
+  if (!scripture || typeof scripture !== 'string') return null;
+  const lines = scripture
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    const dashRef = line.match(/^[\u2014\u2013\-]\s*(.+)$/);
+    if (dashRef) return dashRef[1].trim();
+    if (line.length > 0 && line.length <= 120 && /\d+\s*:\s*\d+/.test(line) && /[A-Za-z\u00C0-\u024F]/.test(line)) {
+      return line;
+    }
+  }
+  const em = scripture.lastIndexOf('\u2014');
+  if (em >= 0) return scripture.slice(em + 1).trim();
+  const en = scripture.lastIndexOf('\u2013');
+  if (en >= 0) return scripture.slice(en + 1).trim();
+  return null;
+}
+
+const SCRIPTURE_BUCKETS = [
+  'Old Testament narrative or Torah (not used in your avoid-list)',
+  'Wisdom literature — Job, Psalms, Proverbs, or Ecclesiastes',
+  'Major or minor prophets',
+  'The Gospels — life or teaching of Jesus',
+  'Acts and the early church',
+  'Pauline epistles (Romans through Philemon)',
+  'Hebrews, general epistles, or Revelation',
+] as const;
+
+interface GenerateDevotionalOptions {
+  familyId: string;
+  recentRefs: string[];
+  recentTitles: string[];
+}
+
+async function generateDevotional(
+  apiKey: string,
+  opts: GenerateDevotionalOptions,
+): Promise<{ title: string; scripture: string; scriptureRef: string; content: string; reflectionPrompts: string[]; prayer: string } | null> {
   const today = new Date();
   const dateStr = today.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-  const seed = Math.floor(Math.random() * 100000);
-  const avoidClause = recentRefs.length > 0
-    ? `\nIMPORTANT: Do NOT use any of these recently-used verses: ${recentRefs.join(', ')}. Pick a completely different passage.`
-    : '';
+  const todayKey = today.toISOString().slice(0, 10);
+  const entropy = new Uint32Array(2);
+  crypto.getRandomValues(entropy);
+  const nonce = crypto.randomUUID();
+  const bucket = SCRIPTURE_BUCKETS[Math.abs(simpleHash(opts.familyId + todayKey)) % SCRIPTURE_BUCKETS.length];
 
-  const prompt = `Write an adult-oriented daily devotional for ${dateStr}. (seed: ${seed})
+  const avoidParts: string[] = [];
+  if (opts.recentRefs.length > 0) {
+    avoidParts.push(
+      `Do NOT use these recently featured passages or the same primary chapter (choose a different book or chapter): ${opts.recentRefs.join('; ')}.`,
+    );
+  }
+  if (opts.recentTitles.length > 0) {
+    avoidParts.push(
+      `Do NOT reuse or lightly rephrase these recent devotional titles: ${opts.recentTitles.join('; ')}.`,
+    );
+  }
+  const avoidClause = avoidParts.length > 0 ? `\n${avoidParts.join('\n')}` : '';
+
+  const prompt = `Write an adult-oriented daily devotional for ${dateStr}.
 Audience: mature adults navigating real life—work stress, relationships, parenting fatigue, grief, temptation, doubt, health, money worries, and ordinary discouragement. Speak with honesty and compassion; do not talk down, use childish language, or rely on simplistic moral tales.
 
-Pick one Bible verse or short passage and build a focused devotional around it.${avoidClause}
+Today's Scripture focus (still pick exactly ONE tight verse or passage within this region): ${bucket}.
+Avoid overused "default" choices (e.g. John 3:16, Psalm 23, Philippians 4:6-7, Jeremiah 29:11) unless they truly fit and are not excluded below.${avoidClause}
 
 Requirements:
 - Be direct where it helps: name common adult struggles without being graphic or sensational.
 - Anchor hope in God's character and in specific promises from Scripture (quote or paraphrase faithfully).
 - Close the main message on an uplifting, faith-filled note—realistic, not trite.
 - Aim for roughly 250–400 words in "content" when possible.
+- Vary tone, metaphors, and structure from one day to the next; do not repeat boilerplate openings.
 
 Return JSON with these exact fields: title, scripture, scriptureRef, content, reflectionPrompts (array of 3 personal reflection or journaling prompts for an adult), prayer.
 For "scripture", write out the FULL verse text (e.g. "For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.").
 For "scriptureRef", provide only the reference (e.g. "John 3:16").
-For "prayer", write a sincere, adult-voiced prayer that names real tension and rests on God's promises.`;
+For "prayer", write a sincere, adult-voiced prayer that names real tension and rests on God's promises.
+
+Internal uniqueness (do not echo in output): nonce=${nonce} entropy=${entropy[0]}-${entropy[1]}`;
 
   const MODEL_CANDIDATES = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
   let lastError: unknown;
@@ -334,7 +403,8 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: {
         responseMimeType: 'application/json',
-        temperature: 1.0,
+        temperature: 1.14,
+        topP: 0.92,
       },
     };
 
@@ -500,25 +570,38 @@ Deno.serve(async (req: Request) => {
         continue;
       }
 
-      // Fetch recent scripture references to avoid repetition
+      // Recent scripture refs + titles so the model does not repeat the same passage
       const recentRefs: string[] = [];
+      const recentTitles: string[] = [];
       try {
         const { data: recentRows } = await supabase
           .from('devotionals')
-          .select('scripture')
+          .select('scripture, title')
           .eq('family_id', family.id)
           .order('date', { ascending: false })
-          .limit(14);
+          .limit(40);
+        const seenRefs = new Set<string>();
+        const seenTitles = new Set<string>();
         for (const row of (recentRows ?? [])) {
-          const s = row.scripture as string | null;
-          if (!s) continue;
-          const refMatch = s.match(/—\s*(.+)$/m);
-          if (refMatch) recentRefs.push(refMatch[1].trim());
+          const ref = extractScriptureRefFromStored(row.scripture as string | null);
+          if (ref && !seenRefs.has(ref) && seenRefs.size < 16) {
+            seenRefs.add(ref);
+            recentRefs.push(ref);
+          }
+          const t = (row.title as string | null)?.trim();
+          if (t && t.length > 0 && t !== 'Daily Devotional' && !seenTitles.has(t) && seenTitles.size < 10) {
+            seenTitles.add(t);
+            recentTitles.push(t);
+          }
         }
       } catch { /* non-critical */ }
 
       // Generate the devotional via Gemini
-      const devotional = await generateDevotional(apiKey, recentRefs);
+      const devotional = await generateDevotional(apiKey, {
+        familyId: family.id,
+        recentRefs,
+        recentTitles,
+      });
       if (!devotional) {
         console.error(`[daily-devotional] Failed to generate for family ${family.name}`);
         continue;
