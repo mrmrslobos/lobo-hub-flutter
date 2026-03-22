@@ -113,10 +113,20 @@ class AppProvider extends ChangeNotifier {
       }
     }
 
-    // Reconcile with cloud
+    // Reconcile with cloud. We must pull family + membership whenever the local
+    // DB is incomplete — not only when `user == null`. Otherwise a stale user
+    // row without `family_members` / `families` (reinstall, migration, cache
+    // glitch) leaves `knownFamilyId` from the cloud unused and the app shows
+    // "create home" even though the account already belongs to a family.
     if (knownFamilyId != null && SupabaseService.isConfigured) {
-      // If user not in local DB, we must sync from cloud first
-      if (user == null) {
+      final mem = _db.familyMembers.firstWhereOrNull((m) => m.userId == userId);
+      final fam = _db.families.firstWhereOrNull((f) => f.id == knownFamilyId);
+      final needsReconcile = user == null ||
+          mem == null ||
+          fam == null ||
+          mem.familyId != knownFamilyId;
+
+      if (needsReconcile) {
         try {
           final famRow = await SupabaseService.client
               .from('families')
@@ -159,6 +169,7 @@ class AppProvider extends ChangeNotifier {
         _activeUser = user;
         _activeFamily = family;
         FieldEncryption.init(family.id, family.joinCode);
+        _syncAIFlag();
         _startRealtimeListener();
         NotificationService.registerDeviceToken(family.id, user.id);
       }
