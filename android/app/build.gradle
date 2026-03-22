@@ -84,4 +84,6 @@ dependencies {
     implementation 'androidx.multidex:multidex:2.0.1'
     implementation 'androidx.window:window:1.2.0'
     implementation 'androidx.window:window-java:1.2.0'
+    // MainActivity.enableEdgeToEdge() (predictable insets on Android 15+)
+    implementation 'androidx.activity:activity-ktx:1.9.3'
 }
