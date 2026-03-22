@@ -759,12 +759,21 @@ class DatabaseService {
         _safeParse(cloud['family_members'], FamilyMember.fromJson);
     final membersThisFamily =
         cloudFm.where((m) => m.familyId == activeFamilyId).toList();
+    final localThisFamily = local.familyMembers
+        .where((m) => m.familyId == activeFamilyId)
+        .toList();
+    // If the cloud returns no members for this family (failed fetch, RLS
+    // timing, transient error — [fetch] swallows errors as []), do not wipe
+    // local membership; that stranded users on the "create home" screen.
+    final membersForActiveFamily = membersThisFamily.isNotEmpty
+        ? membersThisFamily
+        : localThisFamily;
     final membersOtherFamilies = local.familyMembers
         .where((m) => m.familyId != activeFamilyId)
         .toList();
     final mergedFamilyMembers = [
       ...membersOtherFamilies,
-      ...membersThisFamily,
+      ...membersForActiveFamily,
     ];
 
     // Parse each table individually so one bad table doesn't kill everything.
@@ -826,9 +835,9 @@ class DatabaseService {
     if (raw == null || raw is! List) return [];
     final results = <T>[];
     for (final item in raw) {
-      if (item is Map<String, dynamic>) {
+      if (item is Map) {
         try {
-          results.add(fromJson(item));
+          results.add(fromJson(Map<String, dynamic>.from(item)));
         } catch (e) {
           lastError = (lastError ?? '') + 'Parse error in ${T.toString()}: $e\n';
         }

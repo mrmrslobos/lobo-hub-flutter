@@ -57,6 +57,37 @@ class SupabaseService {
 
   static User? get currentUser => auth.currentUser;
 
+  /// Idempotent server RPC: re-links `users` / `family_members` / `families`
+  /// rows from a legacy random profile id to the current Supabase Auth UUID
+  /// when the email matches. Without this, RLS sees no membership and the
+  /// app offers "create home" even for existing accounts.
+  static Future<void> claimOwnedFamilies() async {
+    if (!isConfigured) return;
+    try {
+      await client.rpc('claim_owned_families');
+    } catch (e) {
+      debugPrint('[SupabaseService] claim_owned_families failed: $e');
+    }
+  }
+
+  /// Normalizes a PostgREST `.select()` result to row maps.
+  static List<Map<String, dynamic>> rowsFromSelect(dynamic response) {
+    if (response == null) return [];
+    if (response is List) {
+      return response
+          .whereType<Map>()
+          .map((m) => Map<String, dynamic>.from(m))
+          .toList();
+    }
+    if (response is Iterable) {
+      return response
+          .whereType<Map>()
+          .map((m) => Map<String, dynamic>.from(m))
+          .toList();
+    }
+    return [];
+  }
+
   static Future<void> resetPasswordForEmail(
     String email, {
     String? redirectTo,
