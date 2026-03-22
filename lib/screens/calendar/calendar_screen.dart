@@ -477,28 +477,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
         return Scaffold(
           drawer: const AppDrawer(),
-          // backgroundColor handled by theme
-          appBar: AppBar(
-            backgroundColor: Colors.white,
-            elevation: 0,
-            scrolledUnderElevation: 0,
-            leading: Builder(
-              builder: (context) => IconButton(
-                icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
-                onPressed: () => Scaffold.of(context).openDrawer(),
-              ),
-            ),
-            title: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
-                const SizedBox(width: 6),
-                const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
-              ],
-            ),
-            centerTitle: false,
-            titleSpacing: 0,
-          ),
+          appBar: const FamilyHubAppBar(),
           body: ListView(
             padding: EdgeInsets.zero,
             children: [
@@ -511,8 +490,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     icon: Icons.calendar_month_outlined,
                     label: 'My Calendars',
                     onTap: _showMyCalendars,
-                    backgroundColor: Colors.white,
-                    foregroundColor: AppTheme.stone700,
+                    backgroundColor: Theme.of(context).colorScheme.surface,
+                    foregroundColor: Theme.of(context).colorScheme.onSurface,
                   ),
                   ActionChipButton(
                     icon: Icons.sync_rounded,

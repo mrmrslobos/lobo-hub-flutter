@@ -1218,18 +1218,19 @@ class _ListDetailViewState extends State<_ListDetailView> {
       }
     }
 
+    final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      // backgroundColor handled by theme
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: cs.surface,
+        foregroundColor: cs.onSurface,
         elevation: 0,
         scrolledUnderElevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: AppTheme.stone700),
+          icon: Icon(Icons.arrow_back_rounded, color: cs.onSurface.withValues(alpha: 0.85)),
           onPressed: widget.onBack,
         ),
-        title: Text(widget.list.title, style: const TextStyle(
-          fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: AppTheme.stone900,
+        title: Text(widget.list.title, style: TextStyle(
+          fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: cs.onSurface,
         )),
         centerTitle: false,
         titleSpacing: 0,
