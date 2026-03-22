@@ -395,15 +395,16 @@ class _AuthScreenState extends State<AuthScreen> {
         _setError('No home found with that code. Check and try again.');
         return;
       }
+      final joinedFamily = family!;
 
       // Real owners re-joining their own home must stay OWNER — never append
       // MEMBER after reconcile already loaded OWNER, or upsert overwrites OWNER
       // in Postgres with MEMBER (same user_id + family_id).
       final role =
-          family.ownerId == user.id ? Role.OWNER : Role.MEMBER;
+          joinedFamily.ownerId == user.id ? Role.OWNER : Role.MEMBER;
 
       final existingIdx = provider.db.familyMembers.indexWhere(
-        (m) => m.userId == user.id && m.familyId == family.id,
+        (m) => m.userId == user.id && m.familyId == joinedFamily.id,
       );
 
       final FamilyMember membership;
@@ -421,7 +422,7 @@ class _AuthScreenState extends State<AuthScreen> {
       } else {
         membership = FamilyMember(
           userId: user.id,
-          familyId: family.id,
+          familyId: joinedFamily.id,
           role: role,
           displayName: user.name,
         );
@@ -438,8 +439,8 @@ class _AuthScreenState extends State<AuthScreen> {
         familyMembers: DatabaseService.dedupeFamilyMembers(nextMembers),
       );
       provider.setDb(db);
-      provider.authenticate(user, family);
-      await DatabaseService.saveAndSync(db, family.id);
+      provider.authenticate(user, joinedFamily);
+      await DatabaseService.saveAndSync(db, joinedFamily.id);
 
       if (mounted) context.go('/');
     } catch (e) {
