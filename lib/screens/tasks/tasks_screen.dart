@@ -1213,11 +1213,6 @@ class _TaskCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final assignees = task.assigneeIds
-        .map((id) => provider.userById(id))
-        .whereType<User>()
-        .toList();
-
     return Dismissible(
       key: Key(task.id),
       background: Container(
@@ -1380,17 +1375,24 @@ class _TaskCard extends StatelessWidget {
                   ),
                 ),
                 // Assignee avatars
-                if (assignees.isNotEmpty && !task.completed) ...[
+                if (task.assigneeIds.isNotEmpty && !task.completed) ...[
                   const SizedBox(width: 8),
                   SizedBox(
-                    width: assignees.length == 1 ? 28 : 28 + (assignees.length - 1) * 16.0,
+                    width: task.assigneeIds.length == 1
+                        ? 28
+                        : 28 + (task.assigneeIds.length - 1) * 16.0,
                     height: 28,
                     child: Stack(
                       children: [
-                        for (int i = 0; i < assignees.length; i++)
+                        for (int i = 0; i < task.assigneeIds.length; i++)
                           Positioned(
                             left: i * 16.0,
-                            child: AvatarInitials(name: assignees[i].name, size: 28),
+                            child: AvatarInitials(
+                              name: provider.displayNameForUserId(
+                                task.assigneeIds[i],
+                              ),
+                              size: 28,
+                            ),
                           ),
                       ],
                     ),
