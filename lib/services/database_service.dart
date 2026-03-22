@@ -557,6 +557,66 @@ class DatabaseService {
   /// [lastError] is set if a non-fatal parse error occurred (for debugging).
   static String? lastError;
 
+  /// Ensures every [family_members] row for [familyId] has a matching [users]
+  /// row (tasks/chores join on `users` for names). Fetches missing profiles
+  /// from Supabase, then stubs from `display_name` so UI never shows generic
+  /// "Member" for everyone after a partial sync.
+  static Future<AppDB> backfillMissingUsersForFamily(AppDB db, String familyId) async {
+    final memberIds = <String>{};
+    for (final m in db.familyMembers) {
+      if (m.familyId == familyId) memberIds.add(m.userId);
+    }
+    final missing = memberIds
+        .where((id) => !db.users.any((u) => u.id == id))
+        .toList();
+    if (missing.isEmpty) return db;
+
+    FamilyMember? fmFor(String uid) {
+      for (final m in db.familyMembers) {
+        if (m.userId == uid && m.familyId == familyId) return m;
+      }
+      return null;
+    }
+
+    String stubName(FamilyMember? fm) {
+      final d = fm?.displayName?.trim();
+      if (d != null && d.isNotEmpty) return d;
+      return 'Family member';
+    }
+
+    var users = List<User>.from(db.users);
+    final have = users.map((u) => u.id).toSet();
+
+    try {
+      if (SupabaseService.isConfigured) {
+        final response = await SupabaseService.client
+            .from('users')
+            .select()
+            .inFilter('id', missing);
+        final rows = response is List ? response : <dynamic>[];
+        for (final raw in rows) {
+          if (raw is! Map) continue;
+          try {
+            final u = User.fromJson(Map<String, dynamic>.from(raw));
+            if (u.id.isEmpty || have.contains(u.id)) continue;
+            users.add(u);
+            have.add(u.id);
+          } catch (_) {}
+        }
+      }
+    } catch (e) {
+      debugPrint('[DatabaseService] backfillMissingUsersForFamily fetch: $e');
+    }
+
+    for (final id in missing) {
+      if (have.contains(id)) continue;
+      users.add(User(id: id, name: stubName(fmFor(id)), email: ''));
+      have.add(id);
+    }
+
+    return db.copyWith(users: users);
+  }
+
   static Future<AppDB> reconcileCloud(AppDB local, String familyId) async {
     lastError = null;
     if (!SupabaseService.isConfigured) return local;
@@ -568,6 +628,7 @@ class DatabaseService {
       if (FieldEncryption.isReady(familyId)) {
         merged = merged.applySensitiveDecryption(familyId);
       }
+      merged = await backfillMissingUsersForFamily(merged, familyId);
       await saveLocal(merged, tombstoneBase: local);
       return merged;
     } catch (e, st) {

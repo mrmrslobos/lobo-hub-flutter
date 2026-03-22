@@ -281,7 +281,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
   }
 
   Widget _buildPendingApprovals(AppProvider provider, User user, String familyId,
-      List<Chore> allChores, List<ChoreCompletion> completions, List<User> members) {
+      List<Chore> allChores, List<ChoreCompletion> completions) {
     final myRole = provider.db.familyMembers
         .firstWhereOrNull((m) => m.familyId == familyId && m.userId == user.id)?.role;
     if (myRole != Role.OWNER && myRole != Role.ADMIN) return const SizedBox.shrink();
@@ -330,11 +330,12 @@ class _ChoresScreenState extends State<ChoresScreen> {
             const SizedBox(height: 14),
             ...pending.map((cc) {
               final chore = allChores.firstWhereOrNull((c) => c.id == cc.choreId);
-              final member = members.firstWhereOrNull((m) => m.id == cc.userId);
+              final displayName = provider.displayNameForUserId(cc.userId);
+              final firstName = displayName.split(' ').first;
               return Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: Row(children: [
-                  AvatarInitials(name: member?.name ?? '?', size: 28),
+                  AvatarInitials(name: displayName, size: 28),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(
@@ -343,7 +344,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
                         Text(chore?.title ?? 'Chore', style: const TextStyle(
                           fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone800,
                         )),
-                        Text('${member?.name.split(' ').first ?? 'Member'} \u00B7 ${DateFormat.MMMd().format(cc.date)}',
+                        Text('$firstName \u00B7 ${DateFormat.MMMd().format(cc.date)}',
                           style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
                         ),
                       ],
@@ -456,11 +457,13 @@ class _ChoresScreenState extends State<ChoresScreen> {
         choreRows.add(_ChoreRow(chore: chore, userId: user.id, userName: 'You'));
       } else {
         for (final assigneeId in chore.assigneeIds) {
-          final m = members.where((u) => u.id == assigneeId).firstOrNull;
+          final label = assigneeId == user.id
+              ? 'You'
+              : provider.displayNameForUserId(assigneeId).split(' ').first;
           choreRows.add(_ChoreRow(
             chore: chore,
             userId: assigneeId,
-            userName: assigneeId == user.id ? 'You' : (m?.name.split(' ').first ?? 'Member'),
+            userName: label,
           ));
         }
       }
@@ -870,7 +873,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
           const SizedBox(height: 16),
 
           // ── Pending Approvals (owners/admins only) ────────────────
-          _buildPendingApprovals(provider, user, familyId, allChores, completions, members),
+          _buildPendingApprovals(provider, user, familyId, allChores, completions),
 
           // ── Family Status Today ───────────────────────────────────
           Padding(
@@ -1498,8 +1501,10 @@ class _ChoreFormSheetState extends State<_ChoreFormSheet> {
                       spacing: 8, runSpacing: 8,
                       children: members.map((m) {
                         final isAssigned = _assigneeIds.contains(m.userId);
-                        final memberUser = provider.userById(m.userId);
-                        final name = memberUser?.name ?? m.displayName ?? 'Member';
+                        final name = provider.displayNameForUserId(
+                          m.userId,
+                          fallback: m.displayName ?? 'Member',
+                        );
                         final isMe = m.userId == currentUser?.id;
                         return GestureDetector(
                           onTap: () => setState(() {

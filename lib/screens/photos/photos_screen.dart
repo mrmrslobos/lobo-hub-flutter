@@ -672,7 +672,8 @@ class _PhotosScreenState extends State<PhotosScreen> {
                 itemCount: entry.value.length,
                 itemBuilder: (ctx, i) {
                   final photo = entry.value[i];
-                  final uploaderName = provider.userById(photo.uploadedBy)?.name ?? 'Member';
+                  final uploaderName =
+                      provider.displayNameForUserId(photo.uploadedBy);
                   return GestureDetector(
                     onTap: () => _openLightbox(context, photo, uploaderName, provider),
                     onLongPress: () => _showPhotoActions(photo),

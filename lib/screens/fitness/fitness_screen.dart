@@ -693,7 +693,7 @@ class _FitnessScreenState extends State<FitnessScreen> {
                       session: session,
                       emoji: _activityEmoji(session.title),
                       memberName:
-                          provider.userById(session.userId)?.name ?? 'Member',
+                          provider.displayNameForUserId(session.userId),
                       onDelete: () => _deleteLog(context, session.id),
                     ),
                   ),

@@ -239,12 +239,35 @@ class AppProvider extends ChangeNotifier {
     NotificationService.registerDeviceToken(family.id, user.id);
     notifyListeners();
     unawaited(_repairOwnerMembershipIfNeeded());
+    unawaited(_backfillMissingUsersIfNeeded(family.id));
+  }
+
+  /// When [users] rows are missing for people in [family_members], load or stub
+  /// them so chores/tasks show real names (not generic "Member").
+  Future<void> _backfillMissingUsersIfNeeded(String familyId) async {
+    final needs = _db.familyMembers
+        .where((m) => m.familyId == familyId)
+        .any((m) => !_db.users.any((u) => u.id == m.userId));
+    if (!needs) return;
+    try {
+      final updated =
+          await DatabaseService.backfillMissingUsersForFamily(_db, familyId);
+      _db = updated;
+      await DatabaseService.saveLocal(_db);
+      notifyListeners();
+    } catch (e) {
+      debugPrint('[AppProvider] backfillMissingUsersIfNeeded: $e');
+    }
   }
 
   /// Update the in-memory DB (e.g. after cloud reconciliation).
   void setDb(AppDB db) {
     _db = db;
     notifyListeners();
+    final fid = _activeFamily?.id;
+    if (fid != null) {
+      unawaited(_backfillMissingUsersIfNeeded(fid));
+    }
   }
 
   /// Switch the active user (for kid account switching)
@@ -583,9 +606,28 @@ class AppProvider extends ChangeNotifier {
   User? userById(String id) =>
       db.users.firstWhereOrNull((u) => u.id == id);
 
+  /// Display name for any [userId] in the active family (user row, then
+  /// `family_members.display_name`, then [fallback] — avoids bare "Member").
+  String displayNameForUserId(String userId, {String fallback = 'Member'}) {
+    final u = userById(userId);
+    if (u != null && u.name.trim().isNotEmpty) return u.name;
+    final fid = activeFamily?.id;
+    if (fid != null) {
+      for (final m in db.familyMembers) {
+        if (m.userId == userId && m.familyId == fid) {
+          final dn = m.displayName?.trim();
+          if (dn != null && dn.isNotEmpty) return dn;
+          break;
+        }
+      }
+    }
+    if (u != null && u.name.isNotEmpty) return u.name;
+    return fallback;
+  }
+
   /// Resolve a display name for a family member, preferring the User record name
   String memberDisplayName(FamilyMember member) =>
-      userById(member.id)?.name ?? member.name;
+      displayNameForUserId(member.id, fallback: member.name);
 
   // ── Theme ────────────────────────────────────────────────────────────────
 
