@@ -425,13 +425,40 @@ class DatabaseService {
     ]);
   }
 
+  /// Collapse duplicate `(user_id, family_id)` rows, keeping the highest role.
+  /// Join-with-code used to append MEMBER after reconcile had OWNER; upsert then
+  /// overwrote OWNER in Postgres with MEMBER.
+  static List<FamilyMember> dedupeFamilyMembers(List<FamilyMember> members) {
+    int rank(Role r) {
+      switch (r) {
+        case Role.OWNER:
+          return 3;
+        case Role.ADMIN:
+          return 2;
+        case Role.MEMBER:
+          return 1;
+      }
+    }
+
+    FamilyMember prefer(FamilyMember a, FamilyMember b) =>
+        rank(b.role) > rank(a.role) ? b : a;
+
+    final map = <String, FamilyMember>{};
+    for (final m in members) {
+      final k = m.mergeKey;
+      map[k] = map[k] == null ? m : prefer(map[k]!, m);
+    }
+    return map.values.toList();
+  }
+
   /// Upsert family members and delete removed ones (composite key: userId+familyId).
   static Future<void> _syncFamilyMembers(AppDB db, String familyId) async {
-    if (db.familyMembers.isNotEmpty) {
+    final members = dedupeFamilyMembers(db.familyMembers);
+    if (members.isNotEmpty) {
       try {
         await SupabaseService.upsertTable(
           'family_members',
-          db.familyMembers.map((m) => m.toJson()).toList(),
+          members.map((m) => m.toJson()).toList(),
           onConflict: 'user_id,family_id',
         );
       } catch (e) {
@@ -444,9 +471,9 @@ class DatabaseService {
           .from('family_members')
           .select('user_id, family_id')
           .eq('family_id', familyId);
-      final localKeys = db.familyMembers
+      final localKeys = members
           .where((m) => m.familyId == familyId)
-          .map((m) => '${m.userId}_${m.familyId}')
+          .map((m) => m.mergeKey)
           .toSet();
       for (final row in (cloudRows as List)) {
         final key = '${row['user_id']}_${row['family_id']}';

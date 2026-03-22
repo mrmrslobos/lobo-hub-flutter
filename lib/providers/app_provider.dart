@@ -3,6 +3,8 @@
 
 // ignore_for_file: avoid_catches_without_on_clauses
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show ThemeMode;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -175,8 +177,43 @@ class AppProvider extends ChangeNotifier {
         _syncAIFlag();
         _startRealtimeListener();
         NotificationService.registerDeviceToken(family.id, user.id);
+        unawaited(_repairOwnerMembershipIfNeeded());
       }
     }
+  }
+
+  /// If [families.owner_id] matches the active user but [family_members.role]
+  /// was downgraded (e.g. join-with-code upsert), restore OWNER and sync.
+  Future<void> _repairOwnerMembershipIfNeeded() async {
+    final user = _activeUser;
+    final fam = _activeFamily;
+    if (user == null || fam == null) return;
+
+    var members = DatabaseService.dedupeFamilyMembers(
+      List<FamilyMember>.from(_db.familyMembers),
+    );
+    final idx = members.indexWhere(
+      (m) => m.userId == user.id && m.familyId == fam.id,
+    );
+    if (idx < 0) return;
+
+    var changed = members.length != _db.familyMembers.length;
+    if (fam.ownerId == user.id && members[idx].role != Role.OWNER) {
+      members[idx] = members[idx].copyWith(role: Role.OWNER);
+      changed = true;
+    }
+    if (!changed) return;
+
+    _db = _db.copyWith(familyMembers: members);
+    await DatabaseService.saveLocal(_db);
+    if (SupabaseService.isConfigured) {
+      try {
+        await DatabaseService.syncToCloud(_db, fam.id);
+      } catch (e) {
+        debugPrint('[AppProvider] Owner membership repair sync failed: $e');
+      }
+    }
+    notifyListeners();
   }
 
   // ── Auth ──────────────────────────────────────────────────────────────────
@@ -201,6 +238,7 @@ class AppProvider extends ChangeNotifier {
     // Register FCM token so push notifications reach this device
     NotificationService.registerDeviceToken(family.id, user.id);
     notifyListeners();
+    unawaited(_repairOwnerMembershipIfNeeded());
   }
 
   /// Update the in-memory DB (e.g. after cloud reconciliation).
@@ -312,6 +350,7 @@ class AppProvider extends ChangeNotifier {
     try {
       final merged = await DatabaseService.reconcileCloud(_db, familyId);
       _db = merged;
+      await _repairOwnerMembershipIfNeeded();
     } catch (e) {
       debugPrint('[AppProvider] pullFromCloud error: $e');
     } finally {
