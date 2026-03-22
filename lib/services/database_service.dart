@@ -476,11 +476,17 @@ class DatabaseService {
           .map((m) => m.mergeKey)
           .toSet();
       for (final row in (cloudRows as List)) {
-        final key = '${row['user_id']}_${row['family_id']}';
-        if (!localKeys.contains(key)) {
+        final uid = row['user_id'] as String?;
+        final fid = row['family_id'] as String?;
+        if (uid == null || fid == null) continue;
+        final key = '${uid}_$fid';
+        // Never delete server members just because this device has a stale /
+        // partial list (that wiped other people's rows). Only delete when the
+        // user explicitly removed someone and we recorded a tombstone.
+        if (!localKeys.contains(key) && _deletedKeys.contains(key)) {
           await SupabaseService.deleteRows('family_members', {
-            'user_id': row['user_id'] as String,
-            'family_id': row['family_id'] as String,
+            'user_id': uid,
+            'family_id': fid,
           });
         }
       }
@@ -850,12 +856,19 @@ class DatabaseService {
     final localThisFamily = local.familyMembers
         .where((m) => m.familyId == activeFamilyId)
         .toList();
-    // If the cloud returns no members for this family (failed fetch, RLS
-    // timing, transient error — [fetch] swallows errors as []), do not wipe
-    // local membership; that stranded users on the "create home" screen.
-    final membersForActiveFamily = membersThisFamily.isNotEmpty
-        ? membersThisFamily
-        : localThisFamily;
+    // Union local + cloud by (user_id, family_id). Cloud overwrites the same
+    // key so server stays authoritative, but **partial** cloud responses (e.g.
+    // only the owner) must not drop everyone else who still exists locally or
+    // on other devices — that hid Ana/Grayson/Scarlett in Manage Members.
+    final byMemberKey = <String, FamilyMember>{};
+    for (final m in localThisFamily) {
+      byMemberKey[m.mergeKey] = m;
+    }
+    for (final m in membersThisFamily) {
+      byMemberKey[m.mergeKey] = m;
+    }
+    final membersForActiveFamily =
+        dedupeFamilyMembers(byMemberKey.values.toList());
     final membersOtherFamilies = local.familyMembers
         .where((m) => m.familyId != activeFamilyId)
         .toList();
