@@ -102,13 +102,22 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         final isTrialExpired = family.isTrialExpired;
         final isOnTrial = currentTier == SubscriptionTier.trial;
 
+        final cs = Theme.of(context).colorScheme;
         return Scaffold(
-          // backgroundColor handled by theme
           appBar: AppBar(
-            backgroundColor: AppTheme.surface,
+            backgroundColor: cs.surface,
+            foregroundColor: cs.onSurface,
             elevation: 0,
             scrolledUnderElevation: 0,
-            title: const Text('Choose Your Plan', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.stone900)),
+            title: Text(
+              'Choose Your Plan',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontWeight: FontWeight.w800,
+                fontSize: 18,
+                color: cs.onSurface,
+              ),
+            ),
             centerTitle: true,
           ),
           body: ListView(

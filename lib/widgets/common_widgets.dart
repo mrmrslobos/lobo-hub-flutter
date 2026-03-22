@@ -19,11 +19,12 @@ class SectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final outline = Theme.of(context).dividerColor;
     final card = Container(
       decoration: BoxDecoration(
         color: color ?? Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppTheme.stone100),
+        border: Border.all(color: outline),
       ),
       padding: padding ?? const EdgeInsets.all(16),
       child: child,
@@ -70,7 +71,7 @@ class EmptyState extends StatelessWidget {
             Text(
               title,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: AppTheme.stone700,
+                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.8),
               ),
               textAlign: TextAlign.center,
             ),
@@ -78,7 +79,7 @@ class EmptyState extends StatelessWidget {
             Text(
               subtitle,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: AppTheme.stone400,
+                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
               ),
               textAlign: TextAlign.center,
             ),
@@ -105,15 +106,15 @@ class PriorityBadge extends StatelessWidget {
     String label;
     switch (priority.toUpperCase()) {
       case 'HIGH':
-        color = const Color(0xFFDC2626);
+        color = AppTheme.error;
         label = 'High';
         break;
       case 'MEDIUM':
-        color = const Color(0xFFD97706);
+        color = AppTheme.warning;
         label = 'Med';
         break;
       default:
-        color = const Color(0xFF16A34A);
+        color = AppTheme.success;
         label = 'Low';
     }
 
@@ -594,6 +595,7 @@ class PageHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
       child: Column(
@@ -601,11 +603,11 @@ class PageHeader extends StatelessWidget {
         children: [
           Text(
             title,
-            style: const TextStyle(
+            style: TextStyle(
               fontFamily: 'Inter',
               fontSize: 28,
               fontWeight: FontWeight.w900,
-              color: AppTheme.stone900,
+              color: cs.onSurface,
               height: 1.2,
             ),
           ),
@@ -613,11 +615,11 @@ class PageHeader extends StatelessWidget {
             const SizedBox(height: 6),
             Text(
               subtitle!,
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 14,
                 fontWeight: FontWeight.w400,
-                color: AppTheme.stone500,
+                color: cs.onSurface.withValues(alpha: 0.55),
                 height: 1.4,
               ),
             ),
@@ -778,20 +780,24 @@ class OnboardingCard extends StatelessWidget {
 // ─── Custom App Bar for FamilyHub ────────────────────────────────────────────
 class FamilyHubAppBar extends StatelessWidget implements PreferredSizeWidget {
   final VoidCallback? onMenuTap;
+  final List<Widget>? actions;
 
-  const FamilyHubAppBar({super.key, this.onMenuTap});
+  const FamilyHubAppBar({super.key, this.onMenuTap, this.actions});
 
   @override
   Size get preferredSize => const Size.fromHeight(56);
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final onSurf = cs.onSurface;
     return AppBar(
-      backgroundColor: AppTheme.surface,
+      backgroundColor: cs.surface,
+      foregroundColor: onSurf,
       elevation: 0,
       scrolledUnderElevation: 0,
       leading: IconButton(
-        icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
+        icon: Icon(Icons.menu_rounded, color: onSurf.withValues(alpha: 0.8)),
         onPressed: onMenuTap ?? () => Scaffold.of(context).openDrawer(),
       ),
       title: Row(
@@ -799,23 +805,23 @@ class FamilyHubAppBar extends StatelessWidget implements PreferredSizeWidget {
         children: [
           Text(
             String.fromCharCode(0x2728), // sparkle
-            style: const TextStyle(fontSize: 18),
+            style: TextStyle(fontSize: 18, color: onSurf.withValues(alpha: 0.9)),
           ),
           const SizedBox(width: 6),
-          const Text(
+          Text(
             'FamilyHub',
             style: TextStyle(
               fontFamily: 'Inter',
               fontWeight: FontWeight.w800,
               fontSize: 18,
-              color: AppTheme.primary,
+              color: cs.primary,
             ),
           ),
         ],
       ),
       centerTitle: false,
       titleSpacing: 0,
-      actions: const [],
+      actions: actions ?? const [],
     );
   }
 }

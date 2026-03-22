@@ -1320,14 +1320,15 @@ class _EntryDetailView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      // backgroundColor handled by theme
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: cs.surface,
+        foregroundColor: cs.onSurface,
         elevation: 0,
         scrolledUnderElevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: AppTheme.stone700),
+          icon: Icon(Icons.arrow_back_rounded, color: cs.onSurface.withValues(alpha: 0.85)),
           onPressed: onBack,
         ),
         actions: [
@@ -1642,14 +1643,15 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
     final currentEntry = _currentDay < entries.length ? entries[_currentDay] : null;
     final completedCount = entries.where((e) => e.userPrayer != null && e.userPrayer!.isNotEmpty).length;
 
+    final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      // backgroundColor handled by theme
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: cs.surface,
+        foregroundColor: cs.onSurface,
         elevation: 0,
         scrolledUnderElevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: AppTheme.stone700),
+          icon: Icon(Icons.arrow_back_rounded, color: cs.onSurface.withValues(alpha: 0.85)),
           onPressed: widget.onBack,
         ),
       ),

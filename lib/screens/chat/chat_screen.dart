@@ -280,32 +280,15 @@ class _ChatScreenState extends State<ChatScreen> {
         });
 
         return Scaffold(
-          // backgroundColor handled by theme
           resizeToAvoidBottomInset: true,
           drawer: const AppDrawer(),
-          appBar: AppBar(
-            backgroundColor: AppTheme.surface,
-            elevation: 0,
-            scrolledUnderElevation: 0,
-            leading: Builder(
-              builder: (context) => IconButton(
-                icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
-                onPressed: () => Scaffold.of(context).openDrawer(),
-              ),
-            ),
-            title: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(String.fromCharCode(0x2728), style: const TextStyle(fontSize: 18)),
-                const SizedBox(width: 6),
-                const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
-              ],
-            ),
-            centerTitle: false,
-            titleSpacing: 0,
+          appBar: FamilyHubAppBar(
             actions: [
               IconButton(
-                icon: Icon(_showSearch ? Icons.close_rounded : Icons.search_rounded, color: AppTheme.stone500),
+                icon: Icon(
+                  _showSearch ? Icons.close_rounded : Icons.search_rounded,
+                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55),
+                ),
                 onPressed: () => setState(() {
                   _showSearch = !_showSearch;
                   if (!_showSearch) _searchQuery = '';
@@ -318,7 +301,7 @@ class _ChatScreenState extends State<ChatScreen> {
               // ─── Search bar ────────────────────────────────────────────
               if (_showSearch)
                 Container(
-                  color: AppTheme.surface,
+                  color: Theme.of(context).colorScheme.surface,
                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
                   child: TextField(
                     autofocus: true,
