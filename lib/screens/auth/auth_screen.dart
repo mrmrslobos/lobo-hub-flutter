@@ -16,6 +16,7 @@ import '../../config/app_config.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../services/database_service.dart';
+import '../../services/supabase_service.dart';
 import '../../services/field_encryption_service.dart';
 import '../../utils/error_messages.dart';
 import '../onboarding/walkthrough_screen.dart';
@@ -178,6 +179,7 @@ class _AuthScreenState extends State<AuthScreen> {
             .signInWithPassword(email: email, password: password);
         if (res.user == null) throw Exception('Login failed. Check your credentials.');
         final su = res.user!;
+        await SupabaseService.claimOwnedFamilies();
         user = User(
           id: su.id,
           name: su.userMetadata?['name'] as String? ??
@@ -214,9 +216,9 @@ class _AuthScreenState extends State<AuthScreen> {
               .from('family_members')
               .select()
               .eq('user_id', user.id);
-          if (memberships is List && memberships.isNotEmpty) {
-            final cloudMembership = memberships.first as Map<String, dynamic>;
-            final familyId = cloudMembership['family_id'] as String?;
+          final memberRows = SupabaseService.rowsFromSelect(memberships);
+          if (memberRows.isNotEmpty) {
+            final familyId = memberRows.first['family_id'] as String?;
             if (familyId != null) {
               final famRow = await Supabase.instance.client
                   .from('families')

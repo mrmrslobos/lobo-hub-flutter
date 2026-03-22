@@ -75,6 +75,8 @@ class AppProvider extends ChangeNotifier {
   }
 
   Future<void> _resolveUserFromSession(String userId, String email) async {
+    await SupabaseService.claimOwnedFamilies();
+
     var user = _db.users.firstWhereOrNull((u) => u.id == userId);
 
     // Determine which family this user belongs to
@@ -105,8 +107,9 @@ class AppProvider extends ChangeNotifier {
             .from('family_members')
             .select()
             .eq('user_id', userId);
-        if (memberships is List && memberships.isNotEmpty) {
-          knownFamilyId = memberships.first['family_id'] as String?;
+        final rows = SupabaseService.rowsFromSelect(memberships);
+        if (rows.isNotEmpty) {
+          knownFamilyId = rows.first['family_id'] as String?;
         }
       } catch (e) {
         debugPrint('[AppProvider] Error fetching cloud membership: $e');
