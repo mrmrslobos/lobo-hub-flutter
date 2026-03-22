@@ -395,23 +395,52 @@ class _AuthScreenState extends State<AuthScreen> {
         _setError('No home found with that code. Check and try again.');
         return;
       }
+      final joinedFamily = family!;
 
-      // Create membership linking user to family
-      final membership = FamilyMember(
-        userId: user.id,
-        familyId: family.id,
-        role: Role.MEMBER,
-        displayName: user.name,
+      // Real owners re-joining their own home must stay OWNER — never append
+      // MEMBER after reconcile already loaded OWNER, or upsert overwrites OWNER
+      // in Postgres with MEMBER (same user_id + family_id).
+      final role =
+          joinedFamily.ownerId == user.id ? Role.OWNER : Role.MEMBER;
+
+      final existingIdx = provider.db.familyMembers.indexWhere(
+        (m) => m.userId == user.id && m.familyId == joinedFamily.id,
       );
+
+      final FamilyMember membership;
+      final List<FamilyMember> nextMembers;
+      if (existingIdx >= 0) {
+        final existing = provider.db.familyMembers[existingIdx];
+        final mergedRole = role == Role.OWNER || existing.role == Role.OWNER
+            ? Role.OWNER
+            : role;
+        membership = existing.copyWith(
+          role: mergedRole,
+          displayName: user.name,
+        );
+        nextMembers = [...provider.db.familyMembers]..[existingIdx] = membership;
+      } else {
+        membership = FamilyMember(
+          userId: user.id,
+          familyId: joinedFamily.id,
+          role: role,
+          displayName: user.name,
+        );
+        nextMembers = [...provider.db.familyMembers, membership];
+      }
+
+      final users = provider.db.users.any((u) => u.id == user.id)
+          ? provider.db.users
+          : [...provider.db.users, user];
 
       // Add user and membership to DB, then persist + sync
       final db = provider.db.copyWith(
-        users: [...provider.db.users, user],
-        familyMembers: [...provider.db.familyMembers, membership],
+        users: users,
+        familyMembers: DatabaseService.dedupeFamilyMembers(nextMembers),
       );
       provider.setDb(db);
-      provider.authenticate(user, family);
-      await DatabaseService.saveAndSync(db, family.id);
+      provider.authenticate(user, joinedFamily);
+      await DatabaseService.saveAndSync(db, joinedFamily.id);
 
       if (mounted) context.go('/');
     } catch (e) {
