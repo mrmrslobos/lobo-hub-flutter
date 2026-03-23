@@ -11,6 +11,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../services/meal_plan_shopping.dart';
+import '../../services/meal_macros.dart';
 import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
@@ -1338,6 +1339,129 @@ class _MealPlanTabState extends State<_MealPlanTab> {
     });
   }
 
+  bool _isSameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
+  Future<void> _repeatMealWeekly(BuildContext context, MealPlanEntry source) async {
+    final provider = context.read<AppProvider>();
+    final familyId = provider.activeFamily?.id ?? '';
+    if (familyId.isEmpty) return;
+    final nextWeek = source.date.add(const Duration(days: 7));
+    final exists = provider.db.mealPlans.any(
+      (m) =>
+          m.familyId == familyId &&
+          _isSameDay(m.date, nextWeek) &&
+          m.mealType == source.mealType,
+    );
+    if (exists) {
+      _showSnack(context, 'That slot next week is already filled.');
+      return;
+    }
+    final copy = MealPlanEntry(
+      id: const Uuid().v4(),
+      familyId: familyId,
+      date: nextWeek,
+      mealType: source.mealType,
+      recipeId: source.recipeId,
+      customMeal: source.customMeal,
+      notes: source.notes,
+      servings: source.servings,
+      prepNotes: source.prepNotes,
+      repeatRule: 'weekly_same_slot',
+      sourceMealPlanId: source.id,
+    );
+    final db = provider.db;
+    await provider.saveAndSync(db.copyWith(mealPlans: [...db.mealPlans, copy]));
+    if (context.mounted) _showSnack(context, 'Copied to ${DateFormat('EEE MMM d').format(nextWeek)}');
+  }
+
+  Future<void> _scheduleLeftovers(
+    BuildContext context,
+    MealPlanEntry source, {
+    required String targetMealType,
+    required DateTime targetDay,
+  }) async {
+    final provider = context.read<AppProvider>();
+    final familyId = provider.activeFamily?.id ?? '';
+    if (familyId.isEmpty) return;
+    final exists = provider.db.mealPlans.any(
+      (m) =>
+          m.familyId == familyId &&
+          _isSameDay(m.date, targetDay) &&
+          m.mealType == targetMealType,
+    );
+    if (exists) {
+      _showSnack(context, 'Target meal slot is already filled.');
+      return;
+    }
+    final copy = MealPlanEntry(
+      id: const Uuid().v4(),
+      familyId: familyId,
+      date: targetDay,
+      mealType: targetMealType,
+      recipeId: source.recipeId,
+      customMeal: source.customMeal == null || source.customMeal!.isEmpty
+          ? 'Leftovers: ${source.title}'
+          : 'Leftovers: ${source.customMeal}',
+      notes: source.notes,
+      servings: source.servings,
+      prepNotes: 'Leftovers from ${DateFormat('MMM d').format(source.date)}',
+      leftoverMealPlanId: source.id,
+    );
+    final db = provider.db;
+    await provider.saveAndSync(db.copyWith(mealPlans: [...db.mealPlans, copy]));
+    if (context.mounted) {
+      _showSnack(context, 'Leftovers scheduled for ${DateFormat('EEE').format(targetDay)} $targetMealType');
+    }
+  }
+
+  Future<void> _showLeftoverTargetPicker(BuildContext context, MealPlanEntry source) async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SheetHandle(),
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text(
+                'Schedule leftovers for',
+                style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 16),
+              ),
+            ),
+            ListTile(
+              title: const Text('Tomorrow — lunch'),
+              onTap: () => Navigator.pop(ctx, 'tomorrow_lunch'),
+            ),
+            ListTile(
+              title: const Text('Tomorrow — dinner'),
+              onTap: () => Navigator.pop(ctx, 'tomorrow_dinner'),
+            ),
+            ListTile(
+              title: const Text('Next day — same meal type'),
+              onTap: () => Navigator.pop(ctx, 'nextday_same'),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (choice == null || !context.mounted) return;
+    final tomorrow = DateTime(source.date.year, source.date.month, source.date.day)
+        .add(const Duration(days: 1));
+    if (choice == 'tomorrow_lunch') {
+      await _scheduleLeftovers(context, source, targetMealType: 'lunch', targetDay: tomorrow);
+    } else if (choice == 'tomorrow_dinner') {
+      await _scheduleLeftovers(context, source, targetMealType: 'dinner', targetDay: tomorrow);
+    } else if (choice == 'nextday_same') {
+      await _scheduleLeftovers(context, source, targetMealType: source.mealType, targetDay: tomorrow);
+    }
+  }
+
   Future<void> _addWeekIngredientsToGrocery(BuildContext context) async {
     final provider = context.read<AppProvider>();
     final familyId = provider.activeFamily?.id ?? '';
@@ -1412,9 +1536,6 @@ class _MealPlanTabState extends State<_MealPlanTab> {
     }
     await Share.share(buf.toString().trim(), subject: 'Family meal plan');
   }
-
-  bool _isSameDay(DateTime a, DateTime b) =>
-      a.year == b.year && a.month == b.month && a.day == b.day;
 
   bool _isToday(DateTime d) => _isSameDay(d, DateTime.now());
 
@@ -1553,6 +1674,11 @@ class _MealPlanTabState extends State<_MealPlanTab> {
               mealType: type,
               meal: meal,
               day: _selectedDay,
+              onRepeatWeekly:
+                  meal != null ? () => _repeatMealWeekly(context, meal!) : null,
+              onScheduleLeftovers: meal != null
+                  ? () => _showLeftoverTargetPicker(context, meal!)
+                  : null,
             ),
           );
         }),
@@ -1596,15 +1722,36 @@ class _MealSlotCard extends StatelessWidget {
   final String mealType;
   final MealPlan? meal;
   final DateTime day;
+  final VoidCallback? onRepeatWeekly;
+  final VoidCallback? onScheduleLeftovers;
 
   const _MealSlotCard({
     required this.mealType,
     required this.meal,
     required this.day,
+    this.onRepeatWeekly,
+    this.onScheduleLeftovers,
   });
 
   @override
   Widget build(BuildContext context) {
+    final provider = context.watch<AppProvider>();
+    Recipe? linkedRecipe;
+    if (meal?.recipeId != null) {
+      for (final r in provider.db.recipes) {
+        if (r.id == meal!.recipeId) {
+          linkedRecipe = r;
+          break;
+        }
+      }
+    }
+    final macros = scaledMacrosForMeal(linkedRecipe, meal?.servings);
+    final kcal = macros['kcal'];
+    final hasMacros = kcal != null ||
+        macros['protein'] != null ||
+        macros['carbs'] != null ||
+        macros['fat'] != null;
+
     final emoji = _mealTypeEmojis[mealType] ?? '🍽️';
     final label = _mealTypeLabels[mealType] ?? mealType;
 
@@ -1691,6 +1838,36 @@ class _MealSlotCard extends StatelessWidget {
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
+                        ),
+                      if (hasMacros)
+                        Text(
+                          [
+                            if (kcal != null) '${kcal.round()} kcal',
+                            if (macros['protein'] != null) 'P ${macros['protein']!.toStringAsFixed(0)}g',
+                            if (macros['carbs'] != null) 'C ${macros['carbs']!.toStringAsFixed(0)}g',
+                            if (macros['fat'] != null) 'F ${macros['fat']!.toStringAsFixed(0)}g',
+                          ].join(' · '),
+                          style: const TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 10,
+                            color: AppTheme.stone400,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      if (meal!.repeatRule != null && meal!.repeatRule!.isNotEmpty)
+                        Text(
+                          meal!.repeatRule == 'weekly_same_slot'
+                              ? 'Repeats weekly'
+                              : meal!.repeatRule == 'daily'
+                                  ? 'Repeats daily'
+                                  : 'Repeat: ${meal!.repeatRule}',
+                          style: const TextStyle(fontFamily: 'Inter', fontSize: 10, color: Color(0xFF6366F1)),
+                        ),
+                      if (meal!.leftoverMealPlanId != null)
+                        const Text(
+                          'Leftovers',
+                          style: TextStyle(fontFamily: 'Inter', fontSize: 10, color: Color(0xFF16A34A), fontWeight: FontWeight.w600),
                         ),
                     ] else
                       Text(
@@ -1781,6 +1958,41 @@ class _MealSlotCard extends StatelessWidget {
                 _aiSwapMeal(context);
               },
             ),
+            if (onRepeatWeekly != null)
+              ListTile(
+                leading: Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF6366F1).withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.repeat_rounded, size: 18, color: Color(0xFF6366F1)),
+                ),
+                title: const Text('Repeat next week', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600)),
+                subtitle: const Text('Copy to same weekday + meal slot', style: TextStyle(fontSize: 11)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  onRepeatWeekly!();
+                },
+              ),
+            if (onScheduleLeftovers != null)
+              ListTile(
+                leading: Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF16A34A).withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.takeout_dining_rounded, size: 18, color: Color(0xFF16A34A)),
+                ),
+                title: const Text('Schedule leftovers', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  onScheduleLeftovers!();
+                },
+              ),
             ListTile(
               leading: Container(
                 width: 36, height: 36,
@@ -3148,6 +3360,11 @@ class _AddRecipeSheetState extends State<_AddRecipeSheet> {
   final _prepController = TextEditingController();
   final _cookController = TextEditingController();
   final _servingsController = TextEditingController();
+  final _kcalController = TextEditingController();
+  final _proteinController = TextEditingController();
+  final _carbsController = TextEditingController();
+  final _fatController = TextEditingController();
+  final _fiberController = TextEditingController();
 
   final List<_IngredientRow> _ingredients = [];
   final List<TextEditingController> _steps = [];
@@ -3165,6 +3382,11 @@ class _AddRecipeSheetState extends State<_AddRecipeSheet> {
       _prepController.text = r.prepMinutes?.toString() ?? '';
       _cookController.text = r.cookMinutes?.toString() ?? '';
       _servingsController.text = r.servings?.toString() ?? '';
+      if (r.kcal != null) _kcalController.text = r.kcal!.toString();
+      if (r.proteinG != null) _proteinController.text = r.proteinG!.toString();
+      if (r.carbsG != null) _carbsController.text = r.carbsG!.toString();
+      if (r.fatG != null) _fatController.text = r.fatG!.toString();
+      if (r.fiberG != null) _fiberController.text = r.fiberG!.toString();
       _ingredients.addAll(r.ingredients.map((i) => _IngredientRow(
             nameController: TextEditingController(text: i.name),
             amountController: TextEditingController(text: i.amount),
@@ -3185,6 +3407,11 @@ class _AddRecipeSheetState extends State<_AddRecipeSheet> {
     _prepController.dispose();
     _cookController.dispose();
     _servingsController.dispose();
+    _kcalController.dispose();
+    _proteinController.dispose();
+    _carbsController.dispose();
+    _fatController.dispose();
+    _fiberController.dispose();
     for (final ing in _ingredients) {
       ing.nameController.dispose();
       ing.amountController.dispose();
@@ -3251,6 +3478,18 @@ class _AddRecipeSheetState extends State<_AddRecipeSheet> {
         .where((s) => s.isNotEmpty)
         .toList();
 
+    int? pInt(String s) {
+      final t = s.trim();
+      if (t.isEmpty) return null;
+      return int.tryParse(t);
+    }
+
+    double? pDbl(String s) {
+      final t = s.trim();
+      if (t.isEmpty) return null;
+      return double.tryParse(t);
+    }
+
     if (widget.existingRecipe != null) {
       final updated = widget.existingRecipe!.copyWith(
         title: _titleController.text.trim(),
@@ -3258,6 +3497,11 @@ class _AddRecipeSheetState extends State<_AddRecipeSheet> {
         steps: steps,
         servings: int.tryParse(_servingsController.text),
         tags: List.from(_selectedTags),
+        kcal: pInt(_kcalController.text),
+        proteinG: pDbl(_proteinController.text),
+        carbsG: pDbl(_carbsController.text),
+        fatG: pDbl(_fatController.text),
+        fiberG: pDbl(_fiberController.text),
       );
       final recipes = db.recipes
           .map((r) => r.id == updated.id ? updated : r)
@@ -3272,6 +3516,11 @@ class _AddRecipeSheetState extends State<_AddRecipeSheet> {
         steps: steps,
         servings: int.tryParse(_servingsController.text),
         tags: List.from(_selectedTags),
+        kcal: pInt(_kcalController.text),
+        proteinG: pDbl(_proteinController.text),
+        carbsG: pDbl(_carbsController.text),
+        fatG: pDbl(_fatController.text),
+        fiberG: pDbl(_fiberController.text),
         createdBy: userId,
       );
       await provider.saveAndSync(
@@ -3391,6 +3640,61 @@ class _AddRecipeSheetState extends State<_AddRecipeSheet> {
                           controller: _servingsController,
                           keyboardType: TextInputType.number,
                           decoration: _fieldDecoration('Servings'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  const Text('NUTRITION (full recipe)', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.0)),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Shown on the planner scaled by servings vs recipe servings.',
+                    style: TextStyle(fontFamily: 'Inter', fontSize: 10, color: AppTheme.stone400.withValues(alpha: 0.9)),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _kcalController,
+                          keyboardType: TextInputType.number,
+                          decoration: _fieldDecoration('kcal'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: _proteinController,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          decoration: _fieldDecoration('Protein g'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _carbsController,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          decoration: _fieldDecoration('Carbs g'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: _fatController,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          decoration: _fieldDecoration('Fat g'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: _fiberController,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          decoration: _fieldDecoration('Fiber g'),
                         ),
                       ),
                     ],

@@ -136,6 +136,7 @@ class SupabaseService {
       'workout_sessions',
       'workout_exercises',
       'workout_sets',
+      'exercise_prs',
     ];
 
     const familyIdTables = [

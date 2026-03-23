@@ -51,6 +51,10 @@
 	<string>FamilyHub uses Face ID to keep your family data private.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>FamilyHub needs microphone access to record voice messages for family members.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>FamilyHub can read workout-related data from Apple Health when you choose to connect it.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>FamilyHub saves completed workouts to Apple Health when you enable sync in Fitness.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
