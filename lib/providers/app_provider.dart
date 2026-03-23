@@ -611,11 +611,9 @@ class AppProvider extends ChangeNotifier {
   User? userById(String id) =>
       db.users.firstWhereOrNull((u) => u.id == id);
 
-  /// Display name for any [userId] in the active family (user row, then
-  /// `family_members.display_name`, then [fallback] — avoids bare "Member").
+  /// Display name for any [userId] in the active family (`family_members.display_name`
+  /// first so admins can override raw signup names, then [User.name], then [fallback]).
   String displayNameForUserId(String userId, {String fallback = 'Member'}) {
-    final u = userById(userId);
-    if (u != null && u.name.trim().isNotEmpty) return u.name;
     final fid = activeFamily?.id;
     if (fid != null) {
       for (final m in db.familyMembers) {
@@ -626,7 +624,8 @@ class AppProvider extends ChangeNotifier {
         }
       }
     }
-    if (u != null && u.name.isNotEmpty) return u.name;
+    final u = userById(userId);
+    if (u != null && u.name.trim().isNotEmpty) return u.name;
     return fallback;
   }
 
