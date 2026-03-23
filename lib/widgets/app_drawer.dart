@@ -1312,6 +1312,8 @@ class _ManageMembersSheet extends StatefulWidget {
 }
 
 class _ManageMembersSheetState extends State<_ManageMembersSheet> {
+  final Map<String, TextEditingController> _nameControllers = {};
+
   static const _kidsPresetRoutes = ['/', '/calendar', '/meals', '/chores', '/rewards'];
 
   static const _allModules = [
@@ -1351,14 +1353,33 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
         .map((m) {
       // Resolve display name from users list
       final user = db.users.where((u) => u.id == m.userId).firstOrNull;
+      late final String initialName;
+      if (m.displayName != null && m.displayName!.trim().isNotEmpty) {
+        initialName = m.displayName!.trim();
+      } else if (user != null && user.name.trim().isNotEmpty) {
+        initialName = user.name.trim();
+      } else {
+        initialName = (user?.email != null && user!.email.isNotEmpty)
+            ? user.email
+            : m.userId;
+      }
+      _nameControllers[m.userId] ??= TextEditingController(text: initialName);
       return _EditableMember(
         userId: m.userId,
         familyId: m.familyId,
         role: m.role,
         moduleAccess: m.moduleAccess != null ? List<String>.from(m.moduleAccess!) : null,
-        displayName: m.displayName ?? user?.name ?? m.userId,
+        displayName: initialName,
       );
     }).toList();
+  }
+
+  @override
+  void dispose() {
+    for (final c in _nameControllers.values) {
+      c.dispose();
+    }
+    super.dispose();
   }
 
   bool _isKidsPreset(List<String>? access) {
@@ -1396,23 +1417,62 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
   Future<void> _save() async {
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    final familyId = provider.activeFamily?.id;
+    final family = provider.activeFamily;
+    final familyId = family?.id;
     if (familyId == null) return;
+
+    for (final e in _members) {
+      final trimmed =
+          (_nameControllers[e.userId]?.text ?? e.displayName).trim();
+      if (trimmed.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text(
+                'Please enter a display name for every family member.',
+                style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600),
+              ),
+              backgroundColor: AppTheme.error,
+            ),
+          );
+        }
+        return;
+      }
+    }
 
     // Build updated familyMembers list
     final updated = db.familyMembers.map((m) {
       if (m.familyId != familyId) return m;
       final edited = _members.where((e) => e.userId == m.userId).firstOrNull;
       if (edited == null) return m;
+      final displayName =
+          (_nameControllers[edited.userId]?.text ?? edited.displayName).trim();
+      final ownerId = family!.ownerId;
+      final resolvedRole = m.userId == ownerId
+          ? Role.OWNER
+          : (provider.isOwner ? edited.role : m.role);
       return m.copyWith(
-        role: edited.role,
+        role: resolvedRole,
         moduleAccess: edited.moduleAccess,
-        displayName: edited.displayName,
+        displayName: displayName,
       );
     }).toList();
 
+    // Keep local User rows aligned for code paths that read user.name directly.
+    final users = List<User>.from(db.users);
+    for (final e in _members) {
+      final displayName =
+          (_nameControllers[e.userId]?.text ?? e.displayName).trim();
+      final idx = users.indexWhere((u) => u.id == e.userId);
+      if (idx >= 0) {
+        users[idx] = users[idx].copyWith(name: displayName);
+      } else {
+        users.add(User(id: e.userId, name: displayName, email: ''));
+      }
+    }
+
     try {
-      await provider.saveAndSync(db.copyWith(familyMembers: updated));
+      await provider.saveAndSync(db.copyWith(familyMembers: updated, users: users));
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context)
@@ -1548,10 +1608,16 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
   }
 
   Widget _buildMemberCard(int index) {
+    final provider = context.watch<AppProvider>();
+    final family = provider.activeFamily;
+    final ownerId = family?.ownerId;
+    final isFamilyOwner = provider.isOwner;
     final m = _members[index];
     final isExpanded = _expandedUserId == m.userId;
     final isKid = _isKidsPreset(m.moduleAccess);
     final isRestricted = m.moduleAccess != null;
+    final isMemberOwner = ownerId != null && m.userId == ownerId;
+    final nameController = _nameControllers[m.userId]!;
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
@@ -1564,9 +1630,9 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
             onTap: () => setState(() {
               _expandedUserId = isExpanded ? null : m.userId;
             }),
-            leading: UserAvatarWidget(name: m.displayName, radius: 20),
+            leading: UserAvatarWidget(name: nameController.text, radius: 20),
             title: Text(
-              m.displayName,
+              nameController.text.isEmpty ? '…' : nameController.text,
               style: const TextStyle(
                 fontFamily: 'Inter',
                 fontWeight: FontWeight.w600,
@@ -1628,6 +1694,83 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (provider.isAdmin) ...[
+                    const Text(
+                      'DISPLAY NAME',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontWeight: FontWeight.w700,
+                        fontSize: 10,
+                        letterSpacing: 1.0,
+                        color: AppTheme.stone400,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: nameController,
+                      onChanged: (v) => setState(() => m.displayName = v),
+                      textCapitalization: TextCapitalization.words,
+                      decoration: InputDecoration(
+                        hintText: 'Name shown to your family',
+                        filled: true,
+                        fillColor: Colors.white,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: AppTheme.stone200),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: AppTheme.stone200),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        isDense: true,
+                      ),
+                      style: const TextStyle(fontFamily: 'Inter', fontSize: 15),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
+                  if (isFamilyOwner && !isMemberOwner) ...[
+                    const Text(
+                      'ROLE',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontWeight: FontWeight.w700,
+                        fontSize: 10,
+                        letterSpacing: 1.0,
+                        color: AppTheme.stone400,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SegmentedButton<Role>(
+                      segments: const [
+                        ButtonSegment<Role>(
+                          value: Role.MEMBER,
+                          label: Text('Member', style: TextStyle(fontFamily: 'Inter', fontSize: 12)),
+                        ),
+                        ButtonSegment<Role>(
+                          value: Role.ADMIN,
+                          label: Text('Admin', style: TextStyle(fontFamily: 'Inter', fontSize: 12)),
+                        ),
+                      ],
+                      selected: {
+                        m.role == Role.ADMIN ? Role.ADMIN : Role.MEMBER,
+                      },
+                      onSelectionChanged: (set) {
+                        final r = set.first;
+                        setState(() => m.role = r);
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Admins can manage members and module access. Only the family owner can change roles.',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 11,
+                        color: AppTheme.stone500,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
                   // Quick action buttons
                   Row(
                     children: [
@@ -1739,9 +1882,9 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
 class _EditableMember {
   final String userId;
   final String familyId;
-  final Role role;
+  Role role;
   List<String>? moduleAccess;
-  final String displayName;
+  String displayName;
 
   _EditableMember({
     required this.userId,
