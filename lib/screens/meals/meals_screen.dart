@@ -492,7 +492,8 @@ Return a JSON array of 7 objects, each with:
       if (provider.activeFamily != null) await provider.syncTasksNow();
 
       try {
-        NotificationService.notifyFamilyActivity(
+        NotificationService.notifyFamilyActivityWithDb(
+          provider.db,
           title: 'New meal plan generated 🍽️',
           body: '${provider.activeUser?.name ?? 'Someone'} generated a meal plan for the week',
           path: '/meals',
@@ -677,7 +678,8 @@ Return a JSON array of 7 objects, each with:
       await provider.saveAndSync(db);
 
       try {
-        NotificationService.notifyFamilyActivity(
+        NotificationService.notifyFamilyActivityWithDb(
+          provider.db,
           title: 'Meal plan updated 🍽️',
           body: '${provider.activeUser?.name ?? 'Someone'} refined the meal plan',
           path: '/meals',
@@ -790,6 +792,58 @@ Return a JSON array of 7 objects, each with:
     return int.tryParse(v.toString());
   }
 
+  Future<void> _addPantryItem() async {
+    final provider = context.read<AppProvider>();
+    final fam = provider.activeFamily;
+    if (fam == null) return;
+    final nameCtrl = TextEditingController();
+    final qtyCtrl = TextEditingController();
+    final unitCtrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add pantry item', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameCtrl,
+              decoration: const InputDecoration(labelText: 'Name', hintText: 'e.g. Rice, Olive oil'),
+              textCapitalization: TextCapitalization.sentences,
+            ),
+            TextField(controller: qtyCtrl, decoration: const InputDecoration(labelText: 'Quantity (optional)')),
+            TextField(controller: unitCtrl, decoration: const InputDecoration(labelText: 'Unit (optional)')),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Add')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final name = nameCtrl.text.trim();
+    if (name.isEmpty) return;
+    final db = provider.db;
+    final item = PantryItem(
+      id: const Uuid().v4(),
+      familyId: fam.id,
+      name: name,
+      quantity: qtyCtrl.text.trim().isEmpty ? null : qtyCtrl.text.trim(),
+      unit: unitCtrl.text.trim().isEmpty ? null : unitCtrl.text.trim(),
+      updatedAt: DateTime.now(),
+    );
+    await provider.saveAndSync(db.copyWith(pantryItems: [...db.pantryItems, item]));
+  }
+
+  Future<void> _removePantryItem(PantryItem item) async {
+    final provider = context.read<AppProvider>();
+    final db = provider.db;
+    await provider.saveAndSync(
+      db.copyWith(pantryItems: db.pantryItems.where((p) => p.id != item.id).toList()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
@@ -804,6 +858,10 @@ Return a JSON array of 7 objects, each with:
     final mealsThisWeek = provider.db.mealPlans
         .where((m) => m.familyId == familyId && m.date.isAfter(monday.subtract(const Duration(days: 1))) && m.date.isBefore(sunday.add(const Duration(days: 1))))
         .length;
+    final pantry = provider.db.pantryItems
+        .where((p) => p.familyId == familyId)
+        .toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
     return Scaffold(
       // backgroundColor handled by theme
@@ -860,6 +918,74 @@ Return a JSON array of 7 objects, each with:
                   label: 'Favorites',
                 ),
               ]),
+            ),
+
+            // ── Pantry staples ──
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+              child: SectionCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Pantry staples',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontWeight: FontWeight.w800,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ),
+                        TextButton.icon(
+                          onPressed: _addPantryItem,
+                          icon: const Icon(Icons.add_rounded, size: 18),
+                          label: const Text('Add'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Track what you usually keep on hand. Helps when meal planning and shopping.',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55),
+                      ),
+                    ),
+                    if (pantry.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Text(
+                          'No items yet — add rice, oil, spices, etc.',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 13,
+                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.45),
+                          ),
+                        ),
+                      )
+                    else
+                      ...pantry.map((p) => ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(p.name, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+                            subtitle: (p.quantity != null || p.unit != null)
+                                ? Text(
+                                    [p.quantity, p.unit].whereType<String>().where((s) => s.isNotEmpty).join(' '),
+                                    style: const TextStyle(fontFamily: 'Inter', fontSize: 12),
+                                  )
+                                : null,
+                            trailing: IconButton(
+                              icon: const Icon(Icons.delete_outline_rounded, size: 20),
+                              onPressed: () => _removePantryItem(p),
+                            ),
+                          )),
+                  ],
+                ),
+              ),
             ),
 
             // ── Tab chips ──
@@ -1835,7 +1961,8 @@ class _AddMealSheetState extends State<_AddMealSheet> {
       final meals = [...db.mealPlans, newMeal];
       await provider.saveAndSync(db.copyWith(mealPlans: meals));
       try {
-        NotificationService.notifyFamilyActivity(
+        NotificationService.notifyFamilyActivityWithDb(
+          provider.db,
           title: 'New meal added 🍽️',
           body: '${provider.activeUser?.name ?? 'Someone'} added a meal to the plan',
           path: '/meals',

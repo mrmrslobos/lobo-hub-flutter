@@ -134,7 +134,8 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
               db.copyWith(prayerRequests: [...db.prayerRequests, request]));
           try {
             final isGratitude = request.type == PrayerWallType.GRATITUDE;
-            NotificationService.notifyFamilyActivity(
+            NotificationService.notifyFamilyActivityWithDb(
+              provider.db,
               title: isGratitude ? 'New gratitude shared 🙏' : 'New prayer request 🙏',
               body: '${provider.activeUser?.name ?? 'Someone'} ${isGratitude ? 'shared a gratitude' : 'added a prayer request'}',
               path: '/prayer-wall',

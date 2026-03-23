@@ -146,7 +146,8 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
             ));
           } else {
             await provider.saveAndSync(db.copyWith(occasions: [...db.occasions, occasion]));
-            NotificationService.notifyFamilyActivity(
+            NotificationService.notifyFamilyActivityWithDb(
+              provider.db,
               title: 'New Occasion Added',
               body: '${provider.activeUser?.name ?? "Someone"} added: ${occasion.title}',
               path: '/birthdays',

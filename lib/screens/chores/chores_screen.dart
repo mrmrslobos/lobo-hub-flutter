@@ -108,9 +108,22 @@ class _ChoresScreenState extends State<ChoresScreen> {
         completedAt: DateTime.now(),
         approvalStatus: chore.requiresApproval ? ApprovalStatus.PENDING : ApprovalStatus.APPROVED,
       );
-      await provider.saveAndSync(db.copyWith(
+      var nextDb = db.copyWith(
         choreCompletions: [...db.choreCompletions, completion],
-      ));
+      );
+      if (!chore.requiresApproval &&
+          chore.rotationEnabled &&
+          chore.assignees.length > 1) {
+        final nextCursor =
+            (chore.rotationCursor + 1) % chore.assignees.length;
+        nextDb = nextDb.copyWith(
+          chores: nextDb.chores
+              .map((c) =>
+                  c.id == chore.id ? c.copyWith(rotationCursor: nextCursor) : c)
+              .toList(),
+        );
+      }
+      await provider.saveAndSync(nextDb);
       if (mounted && !chore.requiresApproval) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('${chore.title} done! +${chore.points} pts'),
@@ -159,7 +172,24 @@ class _ChoresScreenState extends State<ChoresScreen> {
         approvalStatus: approve ? ApprovalStatus.APPROVED : ApprovalStatus.REJECTED,
       );
     }).toList();
-    await provider.saveAndSync(db.copyWith(choreCompletions: updated));
+    var nextDb = db.copyWith(choreCompletions: updated);
+    if (approve) {
+      final cc = db.choreCompletions.firstWhere((c) => c.id == completionId);
+      final chore = db.chores.firstWhereOrNull((c) => c.id == cc.choreId);
+      if (chore != null &&
+          chore.rotationEnabled &&
+          chore.assignees.length > 1) {
+        final nextCursor =
+            (chore.rotationCursor + 1) % chore.assignees.length;
+        nextDb = nextDb.copyWith(
+          chores: nextDb.chores
+              .map((c) =>
+                  c.id == chore.id ? c.copyWith(rotationCursor: nextCursor) : c)
+              .toList(),
+        );
+      }
+    }
+    await provider.saveAndSync(nextDb);
     if (mounted) {
       final chore = db.chores.where((c) => c.id == db.choreCompletions.firstWhere((cc) => cc.id == completionId).choreId).firstOrNull;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -188,7 +218,8 @@ class _ChoresScreenState extends State<ChoresScreen> {
             ));
           } else {
             await provider.saveAndSync(db.copyWith(chores: [...db.chores, chore]));
-            NotificationService.notifyFamilyActivity(
+            NotificationService.notifyFamilyActivityWithDb(
+              provider.db,
               title: 'New Chore Added',
               body: '${provider.activeUser?.name ?? "Someone"} added: ${chore.title}',
               path: '/chores',
@@ -1128,6 +1159,7 @@ class _ChoreFormSheetState extends State<_ChoreFormSheet> {
   List<int> _customDays = [];
   List<String> _assigneeIds = [];
   bool _requiresApproval = false;
+  bool _rotationEnabled = false;
   bool _isSaving = false;
 
   bool get _isEditing => widget.editChore != null;
@@ -1148,6 +1180,7 @@ class _ChoreFormSheetState extends State<_ChoreFormSheet> {
       _customDays = List.from(c.daysOfWeek);
       _assigneeIds = List.from(c.assigneeIds);
       _requiresApproval = c.requiresApproval;
+      _rotationEnabled = c.rotationEnabled;
       if (c.color != null) {
         final parsed = Color(int.tryParse(c.color!.replaceFirst('#', '0xFF')) ?? 0xFF7C6BFF);
         final idx = _choreColors.indexWhere((cc) => cc.value == parsed.value);
@@ -1191,6 +1224,8 @@ class _ChoreFormSheetState extends State<_ChoreFormSheet> {
       assignees: _assigneeIds,
       color: '#${_choreColors[_selectedColorIndex].value.toRadixString(16).substring(2)}',
       requiresApproval: _requiresApproval,
+      rotationEnabled: _assigneeIds.length > 1 && _rotationEnabled,
+      rotationCursor: widget.editChore?.rotationCursor ?? 0,
       createdAt: widget.editChore?.createdAt ?? DateTime.now(),
     );
     await widget.onSave(chore);
@@ -1538,6 +1573,52 @@ class _ChoreFormSheetState extends State<_ChoreFormSheet> {
                       }).toList(),
                     ),
                     const SizedBox(height: 20),
+                  ],
+
+                  if (_assigneeIds.length > 1) ...[
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: _rotationEnabled ? AppTheme.primary.withValues(alpha: 0.05) : AppTheme.stone50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: _rotationEnabled ? AppTheme.primary.withValues(alpha: 0.3) : AppTheme.stone200,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 32,
+                            height: 32,
+                            decoration: BoxDecoration(
+                              color: AppTheme.primary.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(Icons.rotate_right_rounded, size: 16, color: AppTheme.primary),
+                          ),
+                          const SizedBox(width: 10),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Rotate assignees', style: TextStyle(
+                                  fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 14, color: AppTheme.stone800,
+                                )),
+                                Text('After someone completes it, the next person is “up next”', style: TextStyle(
+                                  fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400,
+                                )),
+                              ],
+                            ),
+                          ),
+                          Switch.adaptive(
+                            value: _rotationEnabled,
+                            onChanged: (v) => setState(() => _rotationEnabled = v),
+                            activeColor: AppTheme.primary,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
                   ],
 
                   // Requires Parental Approval

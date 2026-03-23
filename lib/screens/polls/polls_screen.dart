@@ -119,7 +119,8 @@ class _PollsScreenState extends State<PollsScreen> {
             ));
           } else {
             await provider.saveAndSync(db.copyWith(polls: [...db.polls, poll]));
-            NotificationService.notifyFamilyActivity(
+            NotificationService.notifyFamilyActivityWithDb(
+              provider.db,
               title: 'New Poll',
               body: '${provider.activeUser?.name ?? "Someone"} asks: ${poll.question}',
               path: '/polls',
