@@ -80,6 +80,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<_AISuggestion> _suggestions = [];
   bool _suggestionsLoading = true;
   bool _suggestionsLoaded = false;
+  bool _startTipDismissed = false;
+  bool _startTipReady = false;
 
   // Monthly Summary
   Map<String, dynamic>? _monthlySummary;
@@ -92,7 +94,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadAISuggestions();
       _showWalkthroughIfNeeded();
+      _loadStartTipDismissed();
     });
+  }
+
+  Future<void> _loadStartTipDismissed() async {
+    if (!mounted) return;
+    final fam = context.read<AppProvider>().activeFamily?.id;
+    if (fam == null) return;
+    final p = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _startTipDismissed = p.getBool('lobohub_dashboard_tip_$fam') ?? false;
+      _startTipReady = true;
+    });
+  }
+
+  Future<void> _dismissStartTip(String familyId) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setBool('lobohub_dashboard_tip_$familyId', true);
+    if (mounted) setState(() => _startTipDismissed = true);
   }
 
   Future<void> _showWalkthroughIfNeeded() async {
@@ -521,7 +542,9 @@ Return ONLY the JSON array, no markdown.''',
               padding: EdgeInsets.zero,
               children: [
                 _buildHeroSection(family),
+                _buildPlanChip(context, family),
                 _buildTrialBanner(context, family),
+                if (_startTipReady && !_startTipDismissed) _buildOnboardingHint(context, family.id),
                 _buildActionButtons(context),
                 _buildAnnouncementSection(context, provider, family),
                 if (!family.welcomeDismissed)
@@ -858,6 +881,141 @@ Return ONLY the JSON array, no markdown.''',
           Text(
             "It's $dayName, $monthDay$suffix. Here's your family at a glance.",
             style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone500),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPlanChip(BuildContext context, Family family) {
+    String label;
+    switch (family.subscriptionTier) {
+      case SubscriptionTier.trial:
+        label = 'Plan: Free trial';
+        break;
+      case SubscriptionTier.base:
+        label = 'Plan: Base';
+        break;
+      case SubscriptionTier.ai:
+        label = 'Plan: AI';
+        break;
+      case SubscriptionTier.ai_family:
+        label = 'Plan: AI Family';
+        break;
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+      child: Material(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => context.go('/subscription'),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            child: Row(
+              children: [
+                Icon(Icons.workspace_premium_outlined, size: 18, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+                Text(
+                  'Manage',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded, size: 18, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOnboardingHint(BuildContext context, String familyId) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      child: SectionCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Get started',
+                    style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 16),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => _dismissStartTip(familyId),
+                  icon: const Icon(Icons.close_rounded, size: 20),
+                  tooltip: 'Dismiss',
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'A few quick wins for your home:',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 13,
+                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+              ),
+            ),
+            const SizedBox(height: 10),
+            _onboardingBullet(context, 'Add this week’s tasks and assign them'),
+            _onboardingBullet(context, 'Put dinner on the meal plan'),
+            _onboardingBullet(context, 'Create a shared shopping list'),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                ActionChip(
+                  label: const Text('Tasks', style: TextStyle(fontFamily: 'Inter')),
+                  onPressed: () => context.go('/tasks'),
+                ),
+                ActionChip(
+                  label: const Text('Meals', style: TextStyle(fontFamily: 'Inter')),
+                  onPressed: () => context.go('/meals'),
+                ),
+                ActionChip(
+                  label: const Text('Lists', style: TextStyle(fontFamily: 'Inter')),
+                  onPressed: () => context.go('/lists'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _onboardingBullet(BuildContext context, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.check_circle_outline_rounded, size: 18, color: Theme.of(context).colorScheme.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(text, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, height: 1.35)),
           ),
         ],
       ),
