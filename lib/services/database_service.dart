@@ -23,6 +23,12 @@ class DatabaseService {
   /// Chores columns older DBs may lack until migration.
   static const _choresCloudOmit = {'rotation_enabled', 'rotation_cursor'};
 
+  /// Workout exercise columns older DBs may lack until migration 16.
+  static const _workoutExerciseCloudOmit = {'technique_notes', 'reference_url'};
+
+  /// Meal plan columns older DBs may lack until migration 16.
+  static const _mealPlanCloudOmit = <String>{};
+
   /// Events columns some older DBs lack (PGRST204).
   static const _eventsCloudOmit = {'shared_with'};
 
@@ -278,9 +284,20 @@ class DatabaseService {
       upAndClean('recipes',
           db.recipes.map((r) => {...r.toJson(), 'family_id': fid}).toList(),
           db.recipes.map((r) => r.id).toSet()),
-      upAndClean('meal_plans',
-          db.mealPlans.map((m) => {...m.toJson(), 'family_id': fid}).toList(),
-          db.mealPlans.map((m) => m.id).toSet()),
+      upAndClean(
+          'meal_plans',
+          db.mealPlans
+              .where((m) => m.familyId == fid)
+              .map((m) {
+                final row = Map<String, dynamic>.from(m.toJson());
+                row['family_id'] = fid;
+                for (final k in _mealPlanCloudOmit) {
+                  row.remove(k);
+                }
+                return row;
+              })
+              .toList(),
+          db.mealPlans.where((m) => m.familyId == fid).map((m) => m.id).toSet()),
       upAndClean('lists',
           db.lists.map((l) => {...l.toJson(), 'family_id': fid}).toList(),
           db.lists.map((l) => l.id).toSet()),
@@ -327,7 +344,15 @@ class DatabaseService {
         'workout_exercises',
         db.workoutExercises
             .where((e) => e.familyId == fid && e.userId == SupabaseService.currentUser?.id)
-            .map((e) => {...e.toJson(), 'family_id': fid}).toList(),
+            .map((e) {
+              final row = Map<String, dynamic>.from(e.toJson());
+              row['family_id'] = fid;
+              for (final k in _workoutExerciseCloudOmit) {
+                row.remove(k);
+              }
+              return row;
+            })
+            .toList(),
         db.workoutExercises
             .where((e) => e.familyId == fid && e.userId == SupabaseService.currentUser?.id)
             .map((e) => e.id)

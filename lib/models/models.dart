@@ -334,6 +334,8 @@ class Family {
   final bool dailyDevotionalEnabled;
   final int dailyDevotionalHour;   // 0–23 (local)
   final int dailyDevotionalMinute; // 0–59
+  /// Flexible JSON (food budget caps, simple debt list, integrations flags). Synced when `settings` column exists in DB.
+  final Map<String, dynamic> settings;
 
   const Family({
     required this.id,
@@ -354,6 +356,7 @@ class Family {
     this.dailyDevotionalEnabled = false,
     this.dailyDevotionalHour = 7,
     this.dailyDevotionalMinute = 0,
+    this.settings = const {},
   });
 
   factory Family.fromJson(Map<String, dynamic> j) => Family(
@@ -375,6 +378,9 @@ class Family {
     dailyDevotionalEnabled: (j['daily_devotional_enabled'] ?? false) as bool,
     dailyDevotionalHour: (j['daily_devotional_hour'] as num?)?.toInt() ?? 7,
     dailyDevotionalMinute: (j['daily_devotional_minute'] as num?)?.toInt() ?? 0,
+    settings: j['settings'] is Map
+        ? Map<String, dynamic>.from(j['settings'] as Map)
+        : const {},
   );
 
   Map<String, dynamic> toJson() => {
@@ -396,6 +402,7 @@ class Family {
     'daily_devotional_enabled': dailyDevotionalEnabled,
     'daily_devotional_hour': dailyDevotionalHour,
     'daily_devotional_minute': dailyDevotionalMinute,
+    'settings': settings,
   };
 
   Family copyWith({
@@ -405,6 +412,7 @@ class Family {
     DateTime? createdAt, bool? welcomeDismissed, bool? weeklyDigest,
     int? weeklyDigestDay, int? weeklyDigestHour,
     bool? dailyDevotionalEnabled, int? dailyDevotionalHour, int? dailyDevotionalMinute,
+    Map<String, dynamic>? settings,
   }) => Family(
     id: id ?? this.id,
     name: name ?? this.name,
@@ -424,6 +432,7 @@ class Family {
     dailyDevotionalEnabled: dailyDevotionalEnabled ?? this.dailyDevotionalEnabled,
     dailyDevotionalHour: dailyDevotionalHour ?? this.dailyDevotionalHour,
     dailyDevotionalMinute: dailyDevotionalMinute ?? this.dailyDevotionalMinute,
+    settings: settings ?? this.settings,
   );
 
   // ── Trial helpers ──────────────────────────────────────────────────────
@@ -996,6 +1005,8 @@ class MealPlanEntry {
   final String? recipeId;
   final String? customMeal;
   final String? notes;
+  final int? servings;
+  final String? prepNotes;
   final DateTime updatedAt;
 
   MealPlanEntry({
@@ -1006,6 +1017,8 @@ class MealPlanEntry {
     this.recipeId,
     this.customMeal,
     this.notes,
+    this.servings,
+    this.prepNotes,
     String? title,
     String? createdBy,
     String? creatorId,
@@ -1020,6 +1033,8 @@ class MealPlanEntry {
     recipeId: j['recipe_id'] as String?,
     customMeal: j['custom_meal'] as String?,
     notes: j['notes'] as String?,
+    servings: (j['servings'] as num?)?.toInt(),
+    prepNotes: j['prep_notes'] as String?,
     updatedAt: _parseDateOpt(j['updated_at']) ?? DateTime.fromMillisecondsSinceEpoch(0),
   );
 
@@ -1030,6 +1045,9 @@ class MealPlanEntry {
     'meal_type': mealType,
     'recipe_id': recipeId,
     'custom_meal': customMeal,
+    'notes': notes,
+    'servings': servings,
+    'prep_notes': prepNotes,
     'updated_at': updatedAt.toIso8601String(),
   };
 
@@ -1038,14 +1056,17 @@ class MealPlanEntry {
 
   MealPlanEntry copyWith({
     String? id, String? familyId, DateTime? date, String? mealType,
-    String? recipeId, String? customMeal, String? notes, DateTime? updatedAt,
+    String? recipeId, String? customMeal, String? notes, int? servings,
+    String? prepNotes, DateTime? updatedAt,
   }) => MealPlanEntry(
     id: id ?? this.id, familyId: familyId ?? this.familyId,
     date: date ?? this.date, mealType: mealType ?? this.mealType,
     recipeId: recipeId ?? this.recipeId, customMeal: customMeal ?? this.customMeal,
     notes: notes ?? this.notes,
+    servings: servings ?? this.servings,
+    prepNotes: prepNotes ?? this.prepNotes,
     updatedAt: updatedAt ??
-        ((date != null || mealType != null || recipeId != null || customMeal != null || notes != null)
+        ((date != null || mealType != null || recipeId != null || customMeal != null || notes != null || servings != null || prepNotes != null)
             ? DateTime.now()
             : this.updatedAt),
   );
@@ -1455,6 +1476,10 @@ class WorkoutExercise {
   final int order;
   final int restSeconds;
   final String? notes;
+  /// Step-by-step how-to (AI or user). Prefer text over video for cost.
+  final String? techniqueNotes;
+  /// Optional link to a free demo (e.g. YouTube / ExRx).
+  final String? referenceUrl;
   final DateTime createdAt;
 
   const WorkoutExercise({
@@ -1466,6 +1491,8 @@ class WorkoutExercise {
     this.order = 0,
     this.restSeconds = 60,
     this.notes,
+    this.techniqueNotes,
+    this.referenceUrl,
     required this.createdAt,
   });
 
@@ -1482,6 +1509,10 @@ class WorkoutExercise {
       order: ((j['order'] as num?) ?? 0).toInt(),
       restSeconds: ((j['rest_seconds'] as num?) ?? 60).toInt(),
       notes: FieldEncryption.decryptField(j['notes'] as String?, fid),
+      techniqueNotes:
+          FieldEncryption.decryptField(j['technique_notes'] as String?, fid),
+      referenceUrl:
+          FieldEncryption.decryptField(j['reference_url'] as String?, fid),
       createdAt: _parseDate(j['created_at']),
     );
   }
@@ -1496,6 +1527,9 @@ class WorkoutExercise {
         'order': order,
         'rest_seconds': restSeconds,
         'notes': FieldEncryption.encryptField(notes, familyId),
+        'technique_notes':
+            FieldEncryption.encryptField(techniqueNotes, familyId),
+        'reference_url': FieldEncryption.encryptField(referenceUrl, familyId),
         'created_at': createdAt.toIso8601String(),
       };
 
@@ -1508,6 +1542,8 @@ class WorkoutExercise {
     int? order,
     int? restSeconds,
     String? notes,
+    String? techniqueNotes,
+    String? referenceUrl,
     DateTime? createdAt,
   }) =>
       WorkoutExercise(
@@ -1519,6 +1555,8 @@ class WorkoutExercise {
         order: order ?? this.order,
         restSeconds: restSeconds ?? this.restSeconds,
         notes: notes ?? this.notes,
+        techniqueNotes: techniqueNotes ?? this.techniqueNotes,
+        referenceUrl: referenceUrl ?? this.referenceUrl,
         createdAt: createdAt ?? this.createdAt,
       );
 }
@@ -4253,6 +4291,10 @@ class AppDB {
           order: e.order,
           restSeconds: e.restSeconds,
           notes: e.notes != null ? ds(e.notes) : null,
+          techniqueNotes:
+              e.techniqueNotes != null ? ds(e.techniqueNotes) : null,
+          referenceUrl:
+              e.referenceUrl != null ? ds(e.referenceUrl) : null,
           createdAt: e.createdAt,
         );
       }).toList(),
