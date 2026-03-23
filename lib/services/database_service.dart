@@ -20,6 +20,9 @@ class DatabaseService {
   /// Tasks columns some older DBs lack (PGRST204).
   static const _tasksCloudOmit = {'completed_by', 'updated_by', 'due_time', 'reminder_minutes'};
 
+  /// Chores columns older DBs may lack until migration.
+  static const _choresCloudOmit = {'rotation_enabled', 'rotation_cursor'};
+
   /// Events columns some older DBs lack (PGRST204).
   static const _eventsCloudOmit = {'shared_with'};
 
@@ -114,6 +117,14 @@ class DatabaseService {
     final m = Map<String, dynamic>.from(t.toJson());
     m.remove('updated_at');
     for (final k in _tasksCloudOmit) {
+      m.remove(k);
+    }
+    return m;
+  }
+
+  static Map<String, dynamic> _choreRowForCloud(Chore c) {
+    final m = Map<String, dynamic>.from(c.toJson());
+    for (final k in _choresCloudOmit) {
       m.remove(k);
     }
     return m;
@@ -362,9 +373,13 @@ class DatabaseService {
         )
       else
         Future.value(),
-      upAndClean('chores',
-          db.chores.map((c) => {...c.toJson(), 'family_id': fid}).toList(),
-          db.chores.map((c) => c.id).toSet()),
+      upAndClean(
+          'chores',
+          db.chores
+              .where((c) => c.familyId == fid)
+              .map((c) => _choreRowForCloud(c))
+              .toList(),
+          db.chores.where((c) => c.familyId == fid).map((c) => c.id).toSet()),
       upAndClean('chore_completions',
           db.choreCompletions.map((c) => c.toJson()).toList(),
           db.choreCompletions.map((c) => c.id).toSet()),
@@ -422,6 +437,33 @@ class DatabaseService {
       upAndClean('reading_plans',
           db.readingPlans.map((r) => {...r.toJson(), 'family_id': fid}).toList(),
           db.readingPlans.map((r) => r.id).toSet()),
+      upAndClean(
+          'pantry_items',
+          db.pantryItems
+              .where((p) => p.familyId == fid)
+              .map((p) => p.toJson())
+              .toList(),
+          db.pantryItems.where((p) => p.familyId == fid).map((p) => p.id).toSet()),
+      upAndClean(
+          'family_activity_logs',
+          db.familyActivityLogs
+              .where((a) => a.familyId == fid)
+              .map((a) => a.toJson())
+              .toList(),
+          db.familyActivityLogs
+              .where((a) => a.familyId == fid)
+              .map((a) => a.id)
+              .toSet()),
+      upAndClean(
+          'wellness_check_ins',
+          db.wellnessCheckIns
+              .where((w) => w.familyId == fid)
+              .map((w) => w.toJson())
+              .toList(),
+          db.wellnessCheckIns
+              .where((w) => w.familyId == fid)
+              .map((w) => w.id)
+              .toSet()),
     ]);
   }
 
@@ -688,6 +730,9 @@ class DatabaseService {
     pruneTable('reward_items');
     pruneTable('savings_goals');
     pruneTable('external_calendars');
+    pruneTable('pantry_items');
+    pruneTable('family_activity_logs');
+    pruneTable('wellness_check_ins');
     // User-scoped tables
     pruneTable('fitness');
     pruneTable('daily_habit_completions');
@@ -841,6 +886,9 @@ class DatabaseService {
     addAll(db.userLocations); addAll(db.messages); addAll(db.healthRecords);
     addAll(db.periodCycles); addAll(db.periodSymptoms);
     addAll(db.rewards); addAll(db.readingPlans); addAll(db.externalCalendars);
+    addAll(db.pantryItems);
+    addAll(db.familyActivityLogs);
+    addAll(db.wellnessCheckIns);
     return keys;
   }
 
@@ -928,6 +976,13 @@ class DatabaseService {
           local.readingPlans,
           _safeParse(cloud['reading_plans'], ReadingPlan.fromJson)),
       externalCalendars: _mergeById(local.externalCalendars, _safeParse(cloud['external_calendars'], ExternalCalendar.fromJson)),
+      pantryItems: _mergeById(local.pantryItems, _safeParse(cloud['pantry_items'], PantryItem.fromJson)),
+      familyActivityLogs: _mergeById(
+          local.familyActivityLogs,
+          _safeParse(cloud['family_activity_logs'], FamilyActivityLog.fromJson)),
+      wellnessCheckIns: _mergeById(
+          local.wellnessCheckIns,
+          _safeParse(cloud['wellness_check_ins'], WellnessCheckIn.fromJson)),
     );
   }
 
