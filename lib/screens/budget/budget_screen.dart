@@ -2516,7 +2516,8 @@ class _DebtTrackerSheetState extends State<_DebtTrackerSheet> {
       }
     }
     if (family == null) return const SizedBox.shrink();
-    final debts = _debtsFrom(family);
+    final fam = family;
+    final debts = _debtsFrom(fam);
 
     return DraggableScrollableSheet(
       initialChildSize: 0.75,
@@ -2565,7 +2566,7 @@ class _DebtTrackerSheetState extends State<_DebtTrackerSheet> {
                   icon: const Icon(Icons.delete_outline_rounded, color: AppTheme.error),
                   onPressed: () async {
                     final nextList = List<Map<String, dynamic>>.from(debts)..removeAt(i);
-                    await _persist(family, nextList);
+                    await _persist(fam, nextList);
                   },
                 ),
               );
@@ -2609,7 +2610,7 @@ class _DebtTrackerSheetState extends State<_DebtTrackerSheet> {
                   'aprPercent': rate,
                   'minPayment': minP,
                 }];
-                await _persist(family, nextList);
+                await _persist(fam, nextList);
                 _nameCtrl.clear();
                 _balCtrl.clear();
                 _rateCtrl.text = '0';

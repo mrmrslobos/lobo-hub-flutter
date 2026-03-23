@@ -1153,7 +1153,7 @@ class ListItem {
     this.notes,
     this.aiCategory,
   }) : text = text ?? name ?? '',
-       quantity = quantity ?? (rawQuantity != null ? rawQuantity.toString() : null);
+       quantity = quantity ?? rawQuantity?.toString();
 
   factory ListItem.fromJson(Map<String, dynamic> j) => ListItem(
     id: j['id'] as String? ?? '',

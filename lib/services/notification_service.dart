@@ -7,7 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
-import '../models/models.dart';
+import '../models/models.dart' hide Priority;
 
 /// Simple time-of-day container (replaces the removed flutter_local_notifications Time class).
 class Time {
