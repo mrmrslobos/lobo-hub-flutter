@@ -4,6 +4,7 @@
 // ignore_for_file: avoid_catches_without_on_clauses
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show ThemeMode;
@@ -18,8 +19,11 @@ import '../services/ai_service.dart';
 import '../services/field_encryption_service.dart';
 import '../services/supabase_service.dart';
 import '../services/purchase_service.dart';
+import '../services/family_activity_service.dart';
 
 class AppProvider extends ChangeNotifier {
+  static const _notificationPrefsKey = 'lobohub_notification_prefs_v1';
+
   User? _activeUser;
   Family? _activeFamily;
   AppDB _db = AppDB.empty();
@@ -29,6 +33,8 @@ class AppProvider extends ChangeNotifier {
   RealtimeChannel? _realtimeChannel;
   RealtimeChannel? _postgresChannel;
   bool _isSyncing = false;
+  DateTime? _lastSuccessfulSyncAt;
+  String? _lastSyncError;
   ThemeMode _themeMode = ThemeMode.light;
 
   // ── Getters ───────────────────────────────────────────────────────────────
@@ -40,6 +46,8 @@ class AppProvider extends ChangeNotifier {
   bool get isLocked => _isLocked;
   bool get isAuthenticated => _activeUser != null && _activeFamily != null;
   bool get isSyncing => _isSyncing;
+  DateTime? get lastSuccessfulSyncAt => _lastSuccessfulSyncAt;
+  String? get lastSyncError => _lastSyncError;
   ThemeMode get themeMode => _themeMode;
   Set<String> get unreadModules => _unreadModules;
 
@@ -59,6 +67,7 @@ class AppProvider extends ChangeNotifier {
     try {
       await _loadThemeMode();
       _db = await DatabaseService.loadLocal();
+      await _loadNotificationPrefsIntoDb();
 
       if (SupabaseService.isConfigured) {
         final session = SupabaseService.currentSession;
@@ -307,6 +316,9 @@ class AppProvider extends ChangeNotifier {
     'reading_plans',
     'rewards',
     'external_calendars',
+    'pantry_items',
+    'family_activity_logs',
+    'wellness_check_ins',
   ];
 
   /// Start listening for realtime changes — both from other clients
@@ -377,8 +389,11 @@ class AppProvider extends ChangeNotifier {
       final merged = await DatabaseService.reconcileCloud(_db, familyId);
       _db = merged;
       await _repairOwnerMembershipIfNeeded();
+      _lastSuccessfulSyncAt = DateTime.now();
+      _lastSyncError = null;
     } catch (e) {
       debugPrint('[AppProvider] pullFromCloud error: $e');
+      _lastSyncError = e.toString();
     } finally {
       _isSyncing = false;
       notifyListeners();
@@ -451,13 +466,17 @@ class AppProvider extends ChangeNotifier {
       _isSyncing = true;
       final familyId = _activeFamily!.id;
       DatabaseService.syncToCloud(newDb, familyId).then((_) {
+        _lastSuccessfulSyncAt = DateTime.now();
+        _lastSyncError = null;
         // Broadcast again after sync completes so other devices pick up
         // the data that's now definitely in the cloud.
         _broadcastChange();
       }).catchError((e) {
+        _lastSyncError = e.toString();
         debugPrint('[AppProvider] cloud sync error: $e');
       }).whenComplete(() {
         _isSyncing = false;
+        notifyListeners();
       });
     } else {
       await DatabaseService.saveLocal(newDb);
@@ -684,6 +703,58 @@ class AppProvider extends ChangeNotifier {
   /// Available balance = earnings - approved redemptions
   double availableBalanceForUser(String userId) {
     return choreEarningsForUser(userId) - redemptionSpentForUser(userId);
+  }
+
+  /// First saved notification prefs row, or defaults (device-local).
+  NotificationPrefs get deviceNotificationPrefs {
+    for (final p in _db.notificationPrefs) {
+      return p;
+    }
+    return const NotificationPrefs();
+  }
+
+  Future<void> _loadNotificationPrefsIntoDb() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_notificationPrefsKey);
+      if (raw == null || raw.isEmpty) return;
+      final j = jsonDecode(raw) as Map<String, dynamic>;
+      final p = NotificationPrefs.fromJson(j);
+      _db = _db.copyWith(notificationPrefs: [p]);
+    } catch (e) {
+      debugPrint('[AppProvider] notification prefs load: $e');
+    }
+  }
+
+  Future<void> setDeviceNotificationPrefs(NotificationPrefs prefs) async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      await sp.setString(_notificationPrefsKey, jsonEncode(prefs.toJson()));
+      _db = _db.copyWith(notificationPrefs: [prefs]);
+      notifyListeners();
+    } catch (e) {
+      debugPrint('[AppProvider] notification prefs save: $e');
+    }
+  }
+
+  /// Record a trust / audit event for the active family.
+  Future<void> logFamilyActivity({
+    required String action,
+    String? detail,
+    String? relatedUserId,
+  }) async {
+    final fam = _activeFamily;
+    final uid = _activeUser?.id;
+    if (fam == null || uid == null) return;
+    final next = FamilyActivityService.append(
+      _db,
+      familyId: fam.id,
+      actorUserId: uid,
+      action: action,
+      detail: detail,
+      relatedUserId: relatedUserId,
+    );
+    await saveAndSync(next);
   }
 }
 

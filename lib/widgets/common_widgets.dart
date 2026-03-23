@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart' hide Visibility;
+import 'package:go_router/go_router.dart';
+
+import '../config/module_config.dart';
 import '../config/theme.dart';
 import '../models/models.dart';
 
@@ -784,6 +787,110 @@ class FamilyHubAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   const FamilyHubAppBar({super.key, this.onMenuTap, this.actions});
 
+  void _openJumpTo(BuildContext context) {
+    final q = ValueNotifier<String>('');
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.55,
+          minChildSize: 0.35,
+          maxChildSize: 0.92,
+          expand: false,
+          builder: (_, scrollCtrl) {
+            return Container(
+              decoration: BoxDecoration(
+                color: Theme.of(ctx).colorScheme.surface,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                children: [
+                  const SizedBox(height: 10),
+                  Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Theme.of(ctx).dividerColor,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                    child: ValueListenableBuilder<String>(
+                      valueListenable: q,
+                      builder: (_, query, __) {
+                        return TextField(
+                          autofocus: true,
+                          onChanged: (v) => q.value = v,
+                          decoration: InputDecoration(
+                            hintText: 'Jump to a screen…',
+                            prefixIcon: const Icon(Icons.search_rounded),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                            isDense: true,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  Expanded(
+                    child: ValueListenableBuilder<String>(
+                      valueListenable: q,
+                      builder: (_, query, __) {
+                        final qq = query.trim().toLowerCase();
+                        final extra = [
+                          (path: '/subscription', name: 'Subscription', emoji: '👑', group: 'Account'),
+                          (path: '/ai-history', name: 'AI History', emoji: '🤖', group: 'Account'),
+                          (path: '/habits', name: 'Habits', emoji: '🎯', group: 'Lifestyle'),
+                          (path: '/period-tracker', name: 'Period Tracker', emoji: '🌸', group: 'Lifestyle'),
+                          (path: '/health', name: 'Health', emoji: '❤️', group: 'Family'),
+                          (path: '/location', name: 'Location', emoji: '📍', group: 'Family'),
+                        ];
+                        final items = <({String path, String name, String emoji, String group})>[];
+                        for (final g in moduleGroups) {
+                          for (final m in g.modules) {
+                            items.add((path: m.path, name: m.name, emoji: m.emoji, group: g.label));
+                          }
+                        }
+                        items.addAll(extra);
+                        final filtered = qq.isEmpty
+                            ? items
+                            : items
+                                .where((e) =>
+                                    e.name.toLowerCase().contains(qq) ||
+                                    e.path.toLowerCase().contains(qq) ||
+                                    e.group.toLowerCase().contains(qq))
+                                .toList();
+                        return ListView.builder(
+                          controller: scrollCtrl,
+                          padding: const EdgeInsets.fromLTRB(8, 0, 8, 24),
+                          itemCount: filtered.length,
+                          itemBuilder: (_, i) {
+                            final e = filtered[i];
+                            return ListTile(
+                              leading: Text(e.emoji, style: const TextStyle(fontSize: 22)),
+                              title: Text(e.name, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+                              subtitle: Text('${e.group} · ${e.path}', style: const TextStyle(fontFamily: 'Inter', fontSize: 11)),
+                              onTap: () {
+                                Navigator.pop(ctx);
+                                context.go(e.path);
+                              },
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Size get preferredSize => const Size.fromHeight(56);
 
@@ -791,6 +898,14 @@ class FamilyHubAppBar extends StatelessWidget implements PreferredSizeWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final onSurf = cs.onSurface;
+    final mergedActions = <Widget>[
+      IconButton(
+        tooltip: 'Jump to',
+        icon: Icon(Icons.search_rounded, color: onSurf.withValues(alpha: 0.85)),
+        onPressed: () => _openJumpTo(context),
+      ),
+      ...?actions,
+    ];
     return AppBar(
       backgroundColor: cs.surface,
       foregroundColor: onSurf,
@@ -821,7 +936,7 @@ class FamilyHubAppBar extends StatelessWidget implements PreferredSizeWidget {
       ),
       centerTitle: false,
       titleSpacing: 0,
-      actions: actions ?? const [],
+      actions: mergedActions,
     );
   }
 }

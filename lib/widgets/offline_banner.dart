@@ -4,6 +4,7 @@
 import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../config/theme.dart';
@@ -56,8 +57,18 @@ class _ConnectivityWrapperState extends State<ConnectivityWrapper> {
         if (_isOffline) const _OfflineBanner(),
         Consumer<AppProvider>(
           builder: (ctx, provider, _) {
-            if (provider.isSyncing && !_isOffline) {
-              return const _SyncIndicator();
+            if (_isOffline) return const SizedBox.shrink();
+            if (provider.isSyncing) return const _SyncIndicator();
+            final err = provider.lastSyncError;
+            if (err != null && err.isNotEmpty) {
+              return _SyncErrorBanner(message: err);
+            }
+            final at = provider.lastSuccessfulSyncAt;
+            if (at != null) {
+              return _LastSyncedBar(
+                label:
+                    'Updated ${DateFormat('MMM d, h:mm a').format(at)}',
+              );
             }
             return const SizedBox.shrink();
           },
@@ -107,13 +118,86 @@ class _SyncIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      height: 2,
-      color: Colors.transparent,
-      child: const LinearProgressIndicator(
-        backgroundColor: Colors.transparent,
-        valueColor: AlwaysStoppedAnimation(AppTheme.primary),
+    return Semantics(
+      label: 'Syncing with cloud',
+      child: Container(
+        width: double.infinity,
+        height: 2,
+        color: Colors.transparent,
+        child: const LinearProgressIndicator(
+          backgroundColor: Colors.transparent,
+          valueColor: AlwaysStoppedAnimation(AppTheme.primary),
+        ),
+      ),
+    );
+  }
+}
+
+class _LastSyncedBar extends StatelessWidget {
+  final String label;
+  const _LastSyncedBar({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Material(
+      color: cs.surfaceContainerHighest.withValues(alpha: 0.6),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        child: Row(
+          children: [
+            Icon(Icons.cloud_done_outlined, size: 14, color: cs.onSurfaceVariant),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: cs.onSurfaceVariant,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SyncErrorBanner extends StatelessWidget {
+  final String message;
+  const _SyncErrorBanner({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppTheme.error.withValues(alpha: 0.12),
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Row(
+            children: [
+              const Icon(Icons.sync_problem_rounded, size: 16, color: AppTheme.error),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Could not sync. Changes are saved on this device. Pull to refresh or check your connection.',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -4,13 +4,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 
 import '../config/theme.dart';
 import '../models/models.dart';
 import '../providers/app_provider.dart';
 import '../services/calendar_sync_service.dart';
+import '../services/family_activity_service.dart';
 import '../services/supabase_service.dart';
 import 'biometric_lock.dart';
 
@@ -87,6 +90,26 @@ class _AppDrawerState extends State<AppDrawer> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => const _ManageMembersSheet(),
+    );
+  }
+
+  void _showActivityLogSheet(BuildContext context) {
+    Navigator.pop(context);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _ActivityLogSheet(),
+    );
+  }
+
+  void _showWellnessSheet(BuildContext context) {
+    Navigator.pop(context);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _WellnessPulseSheet(),
     );
   }
 
@@ -216,6 +239,69 @@ class _AppDrawerState extends State<AppDrawer> {
                         ),
                       ),
                     ),
+                  if (provider.isAdmin)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+                      child: Material(
+                        color: Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () => _showActivityLogSheet(context),
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            child: Row(
+                              children: [
+                                Icon(Icons.history_rounded, size: 20, color: AppTheme.stone600),
+                                SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    'Activity log',
+                                    style: TextStyle(
+                                      fontFamily: 'Inter',
+                                      fontWeight: FontWeight.w500,
+                                      fontSize: 14,
+                                      color: AppTheme.stone800,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+                    child: Material(
+                      color: Colors.transparent,
+                      borderRadius: BorderRadius.circular(12),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () => _showWellnessSheet(context),
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          child: Row(
+                            children: [
+                              Icon(Icons.favorite_outline_rounded, size: 20, color: AppTheme.stone600),
+                              SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'Family pulse',
+                                  style: TextStyle(
+                                    fontFamily: 'Inter',
+                                    fontWeight: FontWeight.w500,
+                                    fontSize: 14,
+                                    color: AppTheme.stone800,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
                     child: Material(
@@ -277,6 +363,8 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
   bool _biometricEnabled = false;
   String _selectedLocale = 'US';
   bool _loading = true;
+  NotificationPrefs _notifPrefs = const NotificationPrefs();
+  bool _notifLoaded = false;
 
   static const _countries = [
     ('🇺🇸', 'United States', 'US'),
@@ -292,6 +380,20 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
   void initState() {
     super.initState();
     _loadPrefs();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_notifLoaded) {
+      _notifLoaded = true;
+      _notifPrefs = context.read<AppProvider>().deviceNotificationPrefs;
+    }
+  }
+
+  Future<void> _persistNotif(NotificationPrefs next) async {
+    await context.read<AppProvider>().setDeviceNotificationPrefs(next);
+    if (mounted) setState(() => _notifPrefs = next);
   }
 
   Future<void> _loadPrefs() async {
@@ -312,6 +414,16 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('lobohub_locale', code);
     setState(() => _selectedLocale = code);
+  }
+
+  Widget _notifSwitch(String label, bool value, ValueChanged<bool> onChanged) {
+    return SwitchListTile(
+      title: Text(label, style: const TextStyle(fontFamily: 'Inter', fontSize: 14)),
+      value: value,
+      onChanged: onChanged,
+      dense: true,
+      visualDensity: VisualDensity.compact,
+    );
   }
 
   Future<void> _importGoogleTasks(
@@ -509,6 +621,94 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
                     secondary: const Icon(Icons.fingerprint_rounded, color: AppTheme.primary),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
+                ),
+                const SizedBox(height: 16),
+
+                const Text(
+                  'FAMILY PUSH (THIS DEVICE)',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    letterSpacing: 0.5,
+                    color: AppTheme.stone500,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'When others add tasks, lists, events, etc., we can notify the rest of the family. Quiet hours apply to these pushes.',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 12,
+                    color: AppTheme.stone500,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  decoration: BoxDecoration(
+                    color: AppTheme.stone50,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    children: [
+                      _notifSwitch('Chat', _notifPrefs.chat, (v) => _persistNotif(_notifPrefs.copyWith(chat: v))),
+                      _notifSwitch('Tasks', _notifPrefs.tasks, (v) => _persistNotif(_notifPrefs.copyWith(tasks: v))),
+                      _notifSwitch('Calendar', _notifPrefs.calendar, (v) => _persistNotif(_notifPrefs.copyWith(calendar: v))),
+                      _notifSwitch('Chores', _notifPrefs.chores, (v) => _persistNotif(_notifPrefs.copyWith(chores: v))),
+                      _notifSwitch('Lists', _notifPrefs.lists, (v) => _persistNotif(_notifPrefs.copyWith(lists: v))),
+                      _notifSwitch('Polls', _notifPrefs.polls, (v) => _persistNotif(_notifPrefs.copyWith(polls: v))),
+                      _notifSwitch('Meals', _notifPrefs.meals, (v) => _persistNotif(_notifPrefs.copyWith(meals: v))),
+                      _notifSwitch('Occasions', _notifPrefs.birthdays, (v) => _persistNotif(_notifPrefs.copyWith(birthdays: v))),
+                      _notifSwitch('Photos', _notifPrefs.photos, (v) => _persistNotif(_notifPrefs.copyWith(photos: v))),
+                      _notifSwitch('Location', _notifPrefs.location, (v) => _persistNotif(_notifPrefs.copyWith(location: v))),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Quiet hours (local time)',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: AppTheme.stone800,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<int?>(
+                        value: _notifPrefs.quietHoursStart,
+                        decoration: const InputDecoration(
+                          labelText: 'From hour',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        items: [
+                          const DropdownMenuItem<int?>(value: null, child: Text('Off')),
+                          ...List.generate(24, (h) => DropdownMenuItem<int?>(value: h, child: Text('$h:00'))),
+                        ],
+                        onChanged: (v) => _persistNotif(_notifPrefs.copyWith(quietHoursStart: v)),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: DropdownButtonFormField<int?>(
+                        value: _notifPrefs.quietHoursEnd,
+                        decoration: const InputDecoration(
+                          labelText: 'Until hour',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        items: [
+                          const DropdownMenuItem<int?>(value: null, child: Text('Off')),
+                          ...List.generate(24, (h) => DropdownMenuItem<int?>(value: h, child: Text('$h:00'))),
+                        ],
+                        onChanged: (v) => _persistNotif(_notifPrefs.copyWith(quietHoursEnd: v)),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 16),
 
@@ -1368,6 +1568,7 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
         userId: m.userId,
         familyId: m.familyId,
         role: m.role,
+        householdRole: m.householdRole,
         moduleAccess: m.moduleAccess != null ? List<String>.from(m.moduleAccess!) : null,
         displayName: initialName,
       );
@@ -1455,6 +1656,7 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
         role: resolvedRole,
         moduleAccess: edited.moduleAccess,
         displayName: displayName,
+        householdRole: edited.householdRole,
       );
     }).toList();
 
@@ -1472,7 +1674,32 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
     }
 
     try {
-      await provider.saveAndSync(db.copyWith(familyMembers: updated, users: users));
+      var nextDb = db.copyWith(familyMembers: updated, users: users);
+      final actorId = provider.activeUser?.id ?? '';
+      if (actorId.isNotEmpty) {
+        for (final edited in _members) {
+          final old = db.familyMembers.firstWhereOrNull(
+            (x) => x.userId == edited.userId && x.familyId == familyId,
+          );
+          if (old == null) continue;
+          final newName =
+              (_nameControllers[edited.userId]?.text ?? edited.displayName).trim();
+          if (old.displayName?.trim() != newName ||
+              old.role != edited.role ||
+              old.householdRole != edited.householdRole) {
+            nextDb = FamilyActivityService.append(
+              nextDb,
+              familyId: familyId,
+              actorUserId: actorId,
+              action: 'member_profile_updated',
+              detail: newName,
+              relatedUserId: edited.userId,
+            );
+          }
+        }
+      }
+
+      await provider.saveAndSync(nextDb);
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context)
@@ -1526,7 +1753,19 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
         .where((fm) => !(fm.userId == removedUserId && fm.familyId == m.familyId))
         .toList();
 
-    await provider.saveAndSync(db.copyWith(familyMembers: updatedMembers));
+    var nextDb = db.copyWith(familyMembers: updatedMembers);
+    final actorId = provider.activeUser?.id ?? '';
+    if (actorId.isNotEmpty) {
+      nextDb = FamilyActivityService.append(
+        nextDb,
+        familyId: m.familyId,
+        actorUserId: actorId,
+        action: 'member_removed',
+        detail: m.displayName,
+        relatedUserId: removedUserId,
+      );
+    }
+    await provider.saveAndSync(nextDb);
 
     // Delete from cloud so the member doesn't return on next sync
     if (SupabaseService.isConfigured) {
@@ -1729,6 +1968,52 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
                     ),
                     const SizedBox(height: 14),
                   ],
+                  if (provider.isAdmin) ...[
+                    const Text(
+                      'HOUSEHOLD TYPE',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontWeight: FontWeight.w700,
+                        fontSize: 10,
+                        letterSpacing: 1.0,
+                        color: AppTheme.stone400,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SegmentedButton<HouseholdRole>(
+                      segments: const [
+                        ButtonSegment(
+                          value: HouseholdRole.parent,
+                          label: Text('Parent', style: TextStyle(fontFamily: 'Inter', fontSize: 11)),
+                        ),
+                        ButtonSegment(
+                          value: HouseholdRole.teen,
+                          label: Text('Teen', style: TextStyle(fontFamily: 'Inter', fontSize: 11)),
+                        ),
+                        ButtonSegment(
+                          value: HouseholdRole.child,
+                          label: Text('Child', style: TextStyle(fontFamily: 'Inter', fontSize: 11)),
+                        ),
+                        ButtonSegment(
+                          value: HouseholdRole.other,
+                          label: Text('Other', style: TextStyle(fontFamily: 'Inter', fontSize: 11)),
+                        ),
+                      ],
+                      selected: {m.householdRole},
+                      onSelectionChanged: (set) =>
+                          setState(() => m.householdRole = set.first),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Used for presets and guidance (Kids Preset still controls module access).',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 11,
+                        color: AppTheme.stone500,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
                   if (isFamilyOwner && !isMemberOwner) ...[
                     const Text(
                       'ROLE',
@@ -1879,10 +2164,301 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
   }
 }
 
+class _ActivityLogSheet extends StatelessWidget {
+  const _ActivityLogSheet();
+
+  static String _actionLabel(String action) {
+    switch (action) {
+      case 'member_profile_updated':
+        return 'Updated a member profile';
+      case 'member_removed':
+        return 'Removed a member';
+      default:
+        return action.replaceAll('_', ' ');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<AppProvider>(
+      builder: (ctx, p, _) {
+        final fid = p.activeFamily?.id;
+        final logs = fid == null
+            ? <FamilyActivityLog>[]
+            : (p.db.familyActivityLogs.where((e) => e.familyId == fid).toList()
+              ..sort((a, b) => b.createdAt.compareTo(a.createdAt)));
+        return Container(
+          constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.85),
+          decoration: const BoxDecoration(
+            color: AppTheme.surface,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppTheme.stone200,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 16, 20, 8),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Activity log',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontWeight: FontWeight.w800,
+                      fontSize: 20,
+                      color: AppTheme.stone900,
+                    ),
+                  ),
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 20),
+                child: Text(
+                  'Sensitive changes like member updates and removals. Add more events over time as you use the app.',
+                  style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Flexible(
+                child: logs.isEmpty
+                    ? const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(32),
+                          child: Text(
+                            'No entries yet.',
+                            style: TextStyle(fontFamily: 'Inter', color: AppTheme.stone400),
+                          ),
+                        ),
+                      )
+                    : ListView.separated(
+                        shrinkWrap: true,
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+                        itemCount: logs.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (_, i) {
+                          final e = logs[i];
+                          final who = p.displayNameForUserId(e.actorUserId);
+                          final when = DateFormat('MMM d, h:mm a').format(e.createdAt);
+                          return ListTile(
+                            contentPadding: const EdgeInsets.symmetric(vertical: 4),
+                            title: Text(
+                              _actionLabel(e.action),
+                              style: const TextStyle(
+                                fontFamily: 'Inter',
+                                fontWeight: FontWeight.w600,
+                                fontSize: 14,
+                              ),
+                            ),
+                            subtitle: Text(
+                              '$who · $when${e.detail != null && e.detail!.isNotEmpty ? '\n${e.detail}' : ''}',
+                              style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _WellnessPulseSheet extends StatefulWidget {
+  const _WellnessPulseSheet();
+
+  @override
+  State<_WellnessPulseSheet> createState() => _WellnessPulseSheetState();
+}
+
+class _WellnessPulseSheetState extends State<_WellnessPulseSheet> {
+  String _mood = 'ok';
+  final _note = TextEditingController();
+  bool _saving = false;
+
+  static const _moods = [
+    ('great', '😄', 'Great'),
+    ('good', '🙂', 'Good'),
+    ('ok', '😐', 'OK'),
+    ('low', '😔', 'Low'),
+    ('rough', '😢', 'Rough'),
+  ];
+
+  @override
+  void dispose() {
+    _note.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit(AppProvider p) async {
+    final fam = p.activeFamily;
+    final uid = p.activeUser?.id;
+    if (fam == null || uid == null) return;
+    setState(() => _saving = true);
+    final today = DateTime.now();
+    final day = DateTime(today.year, today.month, today.day);
+    final entry = WellnessCheckIn(
+      id: const Uuid().v4(),
+      familyId: fam.id,
+      userId: uid,
+      mood: _mood,
+      note: _note.text.trim().isEmpty ? null : _note.text.trim(),
+      day: day,
+      createdAt: DateTime.now(),
+    );
+    final db = p.db;
+    await p.saveAndSync(db.copyWith(wellnessCheckIns: [...db.wellnessCheckIns, entry]));
+    if (mounted) {
+      setState(() => _saving = false);
+      _note.clear();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Thanks — your check-in was saved'), behavior: SnackBarBehavior.floating),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<AppProvider>(
+      builder: (ctx, p, _) {
+        final fid = p.activeFamily?.id;
+        final recent = fid == null
+            ? <WellnessCheckIn>[]
+            : p.db.wellnessCheckIns
+                .where((w) => w.familyId == fid)
+                .toList()
+              ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        final last7 = recent.take(14).toList();
+
+        return Container(
+          constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.88),
+          decoration: const BoxDecoration(
+            color: AppTheme.surface,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: SingleChildScrollView(
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 12,
+              bottom: MediaQuery.of(context).viewInsets.bottom + 28,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppTheme.stone200,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Family pulse',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontWeight: FontWeight.w800,
+                    fontSize: 20,
+                    color: AppTheme.stone900,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'A light check-in for how you are doing today. Optional note is visible to your family.',
+                  style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
+                ),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _moods.map((m) {
+                    final sel = _mood == m.$1;
+                    return ChoiceChip(
+                      label: Text('${m.$2} ${m.$3}', style: const TextStyle(fontFamily: 'Inter', fontSize: 12)),
+                      selected: sel,
+                      onSelected: (_) => setState(() => _mood = m.$1),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _note,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    labelText: 'Optional note',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: _saving ? null : () => _submit(p),
+                    child: _saving
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Text('Save check-in', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700)),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                const Text(
+                  'Recent',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                    color: AppTheme.stone700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                if (last7.isEmpty)
+                  const Text('No check-ins yet.', style: TextStyle(fontFamily: 'Inter', color: AppTheme.stone400))
+                else
+                  ...last7.map((w) {
+                    final name = p.displayNameForUserId(w.userId);
+                    final emoji = _moods.firstWhere((m) => m.$1 == w.mood, orElse: () => _moods[2]).$2;
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Text(emoji, style: const TextStyle(fontSize: 22)),
+                      title: Text(name, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+                      subtitle: Text(
+                        '${DateFormat('MMM d').format(w.day)} · ${w.note ?? w.mood}',
+                        style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
+                      ),
+                    );
+                  }),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _EditableMember {
   final String userId;
   final String familyId;
   Role role;
+  HouseholdRole householdRole;
   List<String>? moduleAccess;
   String displayName;
 
@@ -1890,6 +2466,7 @@ class _EditableMember {
     required this.userId,
     required this.familyId,
     required this.role,
+    required this.householdRole,
     this.moduleAccess,
     required this.displayName,
   });

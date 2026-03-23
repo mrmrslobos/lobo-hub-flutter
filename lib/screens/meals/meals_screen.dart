@@ -7,8 +7,10 @@ import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../services/meal_plan_shopping.dart';
 import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
@@ -492,7 +494,8 @@ Return a JSON array of 7 objects, each with:
       if (provider.activeFamily != null) await provider.syncTasksNow();
 
       try {
-        NotificationService.notifyFamilyActivity(
+        NotificationService.notifyFamilyActivityWithDb(
+          provider.db,
           title: 'New meal plan generated 🍽️',
           body: '${provider.activeUser?.name ?? 'Someone'} generated a meal plan for the week',
           path: '/meals',
@@ -677,7 +680,8 @@ Return a JSON array of 7 objects, each with:
       await provider.saveAndSync(db);
 
       try {
-        NotificationService.notifyFamilyActivity(
+        NotificationService.notifyFamilyActivityWithDb(
+          provider.db,
           title: 'Meal plan updated 🍽️',
           body: '${provider.activeUser?.name ?? 'Someone'} refined the meal plan',
           path: '/meals',
@@ -790,6 +794,58 @@ Return a JSON array of 7 objects, each with:
     return int.tryParse(v.toString());
   }
 
+  Future<void> _addPantryItem() async {
+    final provider = context.read<AppProvider>();
+    final fam = provider.activeFamily;
+    if (fam == null) return;
+    final nameCtrl = TextEditingController();
+    final qtyCtrl = TextEditingController();
+    final unitCtrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add pantry item', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameCtrl,
+              decoration: const InputDecoration(labelText: 'Name', hintText: 'e.g. Rice, Olive oil'),
+              textCapitalization: TextCapitalization.sentences,
+            ),
+            TextField(controller: qtyCtrl, decoration: const InputDecoration(labelText: 'Quantity (optional)')),
+            TextField(controller: unitCtrl, decoration: const InputDecoration(labelText: 'Unit (optional)')),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Add')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final name = nameCtrl.text.trim();
+    if (name.isEmpty) return;
+    final db = provider.db;
+    final item = PantryItem(
+      id: const Uuid().v4(),
+      familyId: fam.id,
+      name: name,
+      quantity: qtyCtrl.text.trim().isEmpty ? null : qtyCtrl.text.trim(),
+      unit: unitCtrl.text.trim().isEmpty ? null : unitCtrl.text.trim(),
+      updatedAt: DateTime.now(),
+    );
+    await provider.saveAndSync(db.copyWith(pantryItems: [...db.pantryItems, item]));
+  }
+
+  Future<void> _removePantryItem(PantryItem item) async {
+    final provider = context.read<AppProvider>();
+    final db = provider.db;
+    await provider.saveAndSync(
+      db.copyWith(pantryItems: db.pantryItems.where((p) => p.id != item.id).toList()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
@@ -804,6 +860,10 @@ Return a JSON array of 7 objects, each with:
     final mealsThisWeek = provider.db.mealPlans
         .where((m) => m.familyId == familyId && m.date.isAfter(monday.subtract(const Duration(days: 1))) && m.date.isBefore(sunday.add(const Duration(days: 1))))
         .length;
+    final pantry = provider.db.pantryItems
+        .where((p) => p.familyId == familyId)
+        .toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
     return Scaffold(
       // backgroundColor handled by theme
@@ -860,6 +920,74 @@ Return a JSON array of 7 objects, each with:
                   label: 'Favorites',
                 ),
               ]),
+            ),
+
+            // ── Pantry staples ──
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+              child: SectionCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Pantry staples',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontWeight: FontWeight.w800,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ),
+                        TextButton.icon(
+                          onPressed: _addPantryItem,
+                          icon: const Icon(Icons.add_rounded, size: 18),
+                          label: const Text('Add'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Track what you usually keep on hand. Helps when meal planning and shopping.',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55),
+                      ),
+                    ),
+                    if (pantry.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Text(
+                          'No items yet — add rice, oil, spices, etc.',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 13,
+                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.45),
+                          ),
+                        ),
+                      )
+                    else
+                      ...pantry.map((p) => ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(p.name, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+                            subtitle: (p.quantity != null || p.unit != null)
+                                ? Text(
+                                    [p.quantity, p.unit].whereType<String>().where((s) => s.isNotEmpty).join(' '),
+                                    style: const TextStyle(fontFamily: 'Inter', fontSize: 12),
+                                  )
+                                : null,
+                            trailing: IconButton(
+                              icon: const Icon(Icons.delete_outline_rounded, size: 20),
+                              onPressed: () => _removePantryItem(p),
+                            ),
+                          )),
+                  ],
+                ),
+              ),
             ),
 
             // ── Tab chips ──
@@ -1210,6 +1338,81 @@ class _MealPlanTabState extends State<_MealPlanTab> {
     });
   }
 
+  Future<void> _addWeekIngredientsToGrocery(BuildContext context) async {
+    final provider = context.read<AppProvider>();
+    final familyId = provider.activeFamily?.id ?? '';
+    if (familyId.isEmpty) return;
+    final lines = linesFromMealPlans(
+      familyId: familyId,
+      meals: provider.db.mealPlans,
+      recipes: provider.db.recipes,
+      weekDays: _weekDays,
+    );
+    if (lines.isEmpty) {
+      _showSnack(context, 'Link meals to recipes (pick from Recipes) to build a list from ingredients.');
+      return;
+    }
+    final userId = provider.activeUser?.id ?? '';
+    final listItems = lines.map((l) {
+      final q = (l.quantity != null && l.quantity!.trim().isNotEmpty)
+          ? '${l.quantity!.trim()}${l.unit != null && l.unit!.trim().isNotEmpty ? ' ${l.unit!.trim()}' : ''}'
+          : null;
+      final text = (q != null && q.isNotEmpty) ? '$q ${l.name}' : l.name;
+      return ListItem(id: const Uuid().v4(), text: text);
+    }).toList();
+    final title =
+        'Week shop ${DateFormat('MMM d').format(_weekDays.first)}–${DateFormat('d').format(_weekDays.last)}';
+    final list = ShoppingList(
+      id: const Uuid().v4(),
+      familyId: familyId,
+      creatorId: userId,
+      title: title,
+      items: listItems,
+      category: ListCategory.GROCERY,
+    );
+    final db = provider.db;
+    await provider.saveAndSync(db.copyWith(lists: [...db.lists, list]));
+    if (context.mounted) {
+      _showSnack(context, 'Added ${listItems.length} items to Lists');
+    }
+  }
+
+  Future<void> _shareWeekPlan(BuildContext context) async {
+    final provider = context.read<AppProvider>();
+    final familyId = provider.activeFamily?.id ?? '';
+    if (familyId.isEmpty) return;
+    final all = provider.db.mealPlans.where((m) => m.familyId == familyId).toList();
+    final buf = StringBuffer();
+    buf.writeln('Meal plan ${DateFormat('MMM d, y').format(_weekDays.first)} week');
+    buf.writeln('');
+    for (final day in _weekDays) {
+      buf.writeln(DateFormat('EEEE, MMM d').format(day));
+      for (final type in _mealTypes) {
+        MealPlanEntry? m;
+        try {
+          m = all.firstWhere(
+            (e) => _isSameDay(e.date, day) && e.mealType == type,
+          );
+        } catch (_) {
+          m = null;
+        }
+        final label = _mealTypeLabels[type] ?? type;
+        if (m == null) {
+          buf.writeln('  $label: —');
+        } else {
+          var line = '  $label: ${m.title}';
+          if (m.servings != null) line += ' (${m.servings} servings)';
+          if (m.prepNotes != null && m.prepNotes!.trim().isNotEmpty) {
+            line += '\n    Prep: ${m.prepNotes!.trim()}';
+          }
+          buf.writeln(line);
+        }
+      }
+      buf.writeln('');
+    }
+    await Share.share(buf.toString().trim(), subject: 'Family meal plan');
+  }
+
   bool _isSameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
 
@@ -1353,6 +1556,36 @@ class _MealPlanTabState extends State<_MealPlanTab> {
             ),
           );
         }),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+          child: Row(
+            children: [
+              Expanded(
+                child: Semantics(
+                  label: 'Add this week ingredients to grocery list',
+                  button: true,
+                  child: OutlinedButton.icon(
+                    onPressed: () => _addWeekIngredientsToGrocery(context),
+                    icon: const Icon(Icons.shopping_cart_outlined, size: 18),
+                    label: const Text('Week shop', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Semantics(
+                  label: 'Share meal plan for this week',
+                  button: true,
+                  child: OutlinedButton.icon(
+                    onPressed: () => _shareWeekPlan(context),
+                    icon: const Icon(Icons.share_rounded, size: 18),
+                    label: const Text('Share week', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
         const SizedBox(height: 16),
       ],
     );
@@ -1427,6 +1660,27 @@ class _MealSlotCard extends StatelessWidget {
                           color: AppTheme.stone900,
                         ),
                       ),
+                      if (meal!.servings != null)
+                        Text(
+                          '${meal!.servings} servings',
+                          style: const TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 11,
+                            color: AppTheme.stone400,
+                          ),
+                        ),
+                      if (meal!.prepNotes != null && meal!.prepNotes!.trim().isNotEmpty)
+                        Text(
+                          meal!.prepNotes!.trim(),
+                          style: const TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 11,
+                            color: AppTheme.stone500,
+                            fontStyle: FontStyle.italic,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       if (meal!.notes != null && meal!.notes!.isNotEmpty)
                         Text(
                           meal!.notes!,
@@ -1664,13 +1918,17 @@ The replacement should be similar in style but different. Keep it healthy and fa
       if (decoded is! Map<String, dynamic>) return;
 
       final newName = decoded['name']?.toString() ?? 'Swapped Meal';
+      final swapServings = (decoded['servings'] is int) ? decoded['servings'] as int : int.tryParse(decoded['servings']?.toString() ?? '');
 
       // Update the meal plan entry
       final provider = context.read<AppProvider>();
       final db = provider.db;
       final updated = db.mealPlans.map((m) {
         if (m.id == meal!.id) {
-          return m.copyWith(customMeal: newName);
+          return m.copyWith(
+            customMeal: newName,
+            servings: swapServings ?? m.servings,
+          );
         }
         return m;
       }).toList();
@@ -1763,6 +2021,8 @@ class _AddMealSheetState extends State<_AddMealSheet> {
   late String _selectedType;
   final _titleController = TextEditingController();
   final _notesController = TextEditingController();
+  final _servingsController = TextEditingController();
+  final _prepController = TextEditingController();
   bool _saving = false;
 
   @override
@@ -1772,6 +2032,10 @@ class _AddMealSheetState extends State<_AddMealSheet> {
     if (widget.existingMeal != null) {
       _titleController.text = widget.existingMeal!.title;
       _notesController.text = widget.existingMeal!.notes ?? '';
+      if (widget.existingMeal!.servings != null) {
+        _servingsController.text = widget.existingMeal!.servings!.toString();
+      }
+      _prepController.text = widget.existingMeal!.prepNotes ?? '';
     }
   }
 
@@ -1779,6 +2043,8 @@ class _AddMealSheetState extends State<_AddMealSheet> {
   void dispose() {
     _titleController.dispose();
     _notesController.dispose();
+    _servingsController.dispose();
+    _prepController.dispose();
     super.dispose();
   }
 
@@ -1816,10 +2082,16 @@ class _AddMealSheetState extends State<_AddMealSheet> {
     final userId = provider.activeUser?.id ?? '';
     final familyId = provider.activeFamily?.id ?? '';
 
+    final servings = int.tryParse(_servingsController.text.trim());
+    final prep = _prepController.text.trim().isEmpty ? null : _prepController.text.trim();
+
     if (widget.existingMeal != null) {
       final updated = widget.existingMeal!.copyWith(
         mealType: _selectedType,
         customMeal: _titleController.text.trim(),
+        servings: servings,
+        prepNotes: prep,
+        notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
       );
       final meals =
           db.mealPlans.map((m) => m.id == updated.id ? updated : m).toList();
@@ -1831,11 +2103,15 @@ class _AddMealSheetState extends State<_AddMealSheet> {
         date: widget.day,
         mealType: _selectedType,
         customMeal: _titleController.text.trim(),
+        servings: servings,
+        prepNotes: prep,
+        notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
       );
       final meals = [...db.mealPlans, newMeal];
       await provider.saveAndSync(db.copyWith(mealPlans: meals));
       try {
-        NotificationService.notifyFamilyActivity(
+        NotificationService.notifyFamilyActivityWithDb(
+          provider.db,
           title: 'New meal added 🍽️',
           body: '${provider.activeUser?.name ?? 'Someone'} added a meal to the plan',
           path: '/meals',
@@ -1931,6 +2207,20 @@ class _AddMealSheetState extends State<_AddMealSheet> {
             controller: _titleController,
             style: const TextStyle(fontFamily: 'Inter', fontSize: 15),
             decoration: _inputDecor('Meal title'),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _servingsController,
+            keyboardType: TextInputType.number,
+            style: const TextStyle(fontFamily: 'Inter', fontSize: 14),
+            decoration: _inputDecor('Servings (optional, for shopping math)'),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _prepController,
+            maxLines: 2,
+            style: const TextStyle(fontFamily: 'Inter', fontSize: 14),
+            decoration: _inputDecor('Prep ahead (optional)'),
           ),
           const SizedBox(height: 10),
           // Pick from recipes

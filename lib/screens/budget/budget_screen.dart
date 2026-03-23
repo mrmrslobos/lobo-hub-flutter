@@ -188,6 +188,58 @@ class _BudgetScreenState extends State<BudgetScreen> {
     );
   }
 
+  void _showDebtTrackerSheet(Family family) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _DebtTrackerSheet(familyId: family.id),
+    );
+  }
+
+  void _showFoodBudgetSheet(Family family) {
+    final ctrl = TextEditingController(
+      text: (family.settings['foodBudgetMonthly'] as num?)?.toString() ?? '',
+    );
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Food budget (monthly)', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800)),
+        content: TextField(
+          controller: ctrl,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(
+            labelText: 'Cap for food category',
+            hintText: 'e.g. 600',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () async {
+              final v = double.tryParse(ctrl.text.trim());
+              final provider = context.read<AppProvider>();
+              final db = provider.db;
+              final nextSettings = Map<String, dynamic>.from(family.settings);
+              if (v == null || v <= 0) {
+                nextSettings.remove('foodBudgetMonthly');
+              } else {
+                nextSettings['foodBudgetMonthly'] = v;
+              }
+              final next = family.copyWith(settings: nextSettings);
+              await provider.saveAndSync(db.copyWith(
+                families: db.families.map((f) => f.id == family.id ? next : f).toList(),
+              ));
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showEditEntry(BudgetEntry entry) {
     showModalBottomSheet(
       context: context,
@@ -652,6 +704,20 @@ class _BudgetScreenState extends State<BudgetScreen> {
                 onTap: _showAddSheet,
                 isPrimary: true,
               ),
+              ActionChipButton(
+                icon: Icons.credit_card_rounded,
+                label: 'Debts',
+                onTap: () => _showDebtTrackerSheet(family),
+                backgroundColor: AppTheme.stone100,
+                foregroundColor: AppTheme.stone700,
+              ),
+              ActionChipButton(
+                icon: Icons.restaurant_rounded,
+                label: 'Food cap',
+                onTap: () => _showFoodBudgetSheet(family),
+                backgroundColor: AppTheme.stone100,
+                foregroundColor: AppTheme.stone700,
+              ),
             ],
           ),
 
@@ -694,7 +760,10 @@ class _BudgetScreenState extends State<BudgetScreen> {
           // ─── Search ─────────────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: TextField(
+            child: Semantics(
+              label: 'Search transactions',
+              textField: true,
+              child: TextField(
               onChanged: (v) => setState(() => _searchQuery = v),
               decoration: InputDecoration(
                 hintText: 'Search transactions...',
@@ -710,6 +779,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
                 enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
                 focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primary)),
               ),
+            ),
             ),
           ),
           const SizedBox(height: 16),
@@ -741,6 +811,56 @@ class _BudgetScreenState extends State<BudgetScreen> {
             ]),
           ),
 
+          Builder(builder: (ctx) {
+            final cap = (family.settings['foodBudgetMonthly'] as num?)?.toDouble();
+            final foodSpent = monthEntries
+                .where((e) => !e.isIncome && e.category == BudgetCategory.food)
+                .fold<double>(0, (s, e) => s + e.amount);
+            if (cap == null || cap <= 0) return const SizedBox.shrink();
+            final frac = (foodSpent / cap).clamp(0.0, 1.5);
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+              child: SectionCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.restaurant_rounded, size: 18, color: AppTheme.stone600),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text(
+                            'Food spending vs cap',
+                            style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 14),
+                          ),
+                        ),
+                        Text(
+                          '\$${foodSpent.toStringAsFixed(0)} / \$${cap.toStringAsFixed(0)}',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                            color: foodSpent > cap ? AppTheme.error : AppTheme.stone600,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: LinearProgressIndicator(
+                        value: frac > 1 ? 1 : frac,
+                        minHeight: 8,
+                        backgroundColor: AppTheme.stone100,
+                        color: foodSpent > cap ? AppTheme.error : AppTheme.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+
           const SizedBox(height: 16),
 
           // ─── Filter Chips ───────────────────────────────────────────────
@@ -756,7 +876,9 @@ class _BudgetScreenState extends State<BudgetScreen> {
           ),
 
           // ─── Monthly Targets ───────────────────────────────────────────
-          Padding(
+          Semantics(
+            header: true,
+            child: Padding(
             padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
             child: Row(
               children: [
@@ -774,6 +896,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
                   child: const Text('Manage Categories', style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600)),
                 ),
               ],
+            ),
             ),
           ),
           if (categories.isEmpty)
@@ -2333,6 +2456,169 @@ $text
           ],
           if (_parsedTransactions == null && !_loading) SizedBox(height: padding),
         ],
+      ),
+    );
+  }
+}
+
+// ─── Debt tracker (family.settings['debts']) ─────────────────────────────
+
+class _DebtTrackerSheet extends StatefulWidget {
+  final String familyId;
+  const _DebtTrackerSheet({required this.familyId});
+
+  @override
+  State<_DebtTrackerSheet> createState() => _DebtTrackerSheetState();
+}
+
+class _DebtTrackerSheetState extends State<_DebtTrackerSheet> {
+  final _nameCtrl = TextEditingController();
+  final _balCtrl = TextEditingController();
+  final _rateCtrl = TextEditingController(text: '0');
+  final _minCtrl = TextEditingController(text: '0');
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _balCtrl.dispose();
+    _rateCtrl.dispose();
+    _minCtrl.dispose();
+    super.dispose();
+  }
+
+  List<Map<String, dynamic>> _debtsFrom(Family f) {
+    final raw = f.settings['debts'];
+    if (raw is! List) return [];
+    return raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  }
+
+  Future<void> _persist(Family family, List<Map<String, dynamic>> debts) async {
+    final provider = context.read<AppProvider>();
+    final db = provider.db;
+    final next = family.copyWith(
+      settings: {...Map<String, dynamic>.from(family.settings), 'debts': debts},
+    );
+    await provider.saveAndSync(
+      db.copyWith(
+        families: db.families.map((f) => f.id == family.id ? next : f).toList(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.watch<AppProvider>();
+    Family? family;
+    for (final f in provider.db.families) {
+      if (f.id == widget.familyId) {
+        family = f;
+        break;
+      }
+    }
+    if (family == null) return const SizedBox.shrink();
+    final debts = _debtsFrom(family);
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.75,
+      maxChildSize: 0.95,
+      minChildSize: 0.45,
+      expand: false,
+      builder: (_, sc) => Container(
+        decoration: const BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: ListView(
+          controller: sc,
+          padding: EdgeInsets.fromLTRB(
+            20,
+            12,
+            20,
+            MediaQuery.of(context).viewInsets.bottom + 24,
+          ),
+          children: [
+            const Text(
+              'Debt tracker',
+              style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Manual balances (not bank-linked). Stored with your family.',
+              style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
+            ),
+            const SizedBox(height: 16),
+            ...debts.asMap().entries.map((e) {
+              final i = e.key;
+              final d = e.value;
+              final name = d['name']?.toString() ?? 'Debt';
+              final bal = (d['balance'] as num?)?.toDouble() ?? 0;
+              final rate = (d['aprPercent'] as num?)?.toDouble() ?? 0;
+              final minPay = (d['minPayment'] as num?)?.toDouble() ?? 0;
+              return ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(name, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+                subtitle: Text(
+                  'Balance \$${bal.toStringAsFixed(2)} · APR ${rate.toStringAsFixed(1)}% · Min \$${minPay.toStringAsFixed(2)}/mo',
+                  style: const TextStyle(fontFamily: 'Inter', fontSize: 11),
+                ),
+                trailing: IconButton(
+                  icon: const Icon(Icons.delete_outline_rounded, color: AppTheme.error),
+                  onPressed: () async {
+                    final nextList = List<Map<String, dynamic>>.from(debts)..removeAt(i);
+                    await _persist(family, nextList);
+                  },
+                ),
+              );
+            }),
+            const Divider(height: 32),
+            const Text('Add debt', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _nameCtrl,
+              decoration: const InputDecoration(labelText: 'Name', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _balCtrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'Balance', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _rateCtrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'APR %', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _minCtrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'Min payment / month', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 12),
+            FilledButton(
+              onPressed: () async {
+                final name = _nameCtrl.text.trim();
+                if (name.isEmpty) return;
+                final bal = double.tryParse(_balCtrl.text.trim()) ?? 0;
+                final rate = double.tryParse(_rateCtrl.text.trim()) ?? 0;
+                final minP = double.tryParse(_minCtrl.text.trim()) ?? 0;
+                final nextList = [...debts, {
+                  'name': name,
+                  'balance': bal,
+                  'aprPercent': rate,
+                  'minPayment': minP,
+                }];
+                await _persist(family, nextList);
+                _nameCtrl.clear();
+                _balCtrl.clear();
+                _rateCtrl.text = '0';
+                _minCtrl.text = '0';
+              },
+              child: const Text('Add'),
+            ),
+          ],
+        ),
       ),
     );
   }

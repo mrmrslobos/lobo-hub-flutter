@@ -21,6 +21,22 @@ typedef MealPlan = MealPlanEntry;
 
 enum Role { OWNER, ADMIN, MEMBER }
 
+/// How someone is treated in the home (parent presets, module access hints).
+enum HouseholdRole { parent, teen, child, other }
+
+HouseholdRole householdRoleFromString(String? s) {
+  switch (s?.toLowerCase()) {
+    case 'teen':
+      return HouseholdRole.teen;
+    case 'child':
+      return HouseholdRole.child;
+    case 'other':
+      return HouseholdRole.other;
+    default:
+      return HouseholdRole.parent;
+  }
+}
+
 enum Visibility { PRIVATE, FAMILY, SPECIFIC }
 
 enum SubscriptionTier { trial, base, ai, ai_family }
@@ -318,6 +334,8 @@ class Family {
   final bool dailyDevotionalEnabled;
   final int dailyDevotionalHour;   // 0–23 (local)
   final int dailyDevotionalMinute; // 0–59
+  /// Flexible JSON (food budget caps, simple debt list, integrations flags). Synced when `settings` column exists in DB.
+  final Map<String, dynamic> settings;
 
   const Family({
     required this.id,
@@ -338,6 +356,7 @@ class Family {
     this.dailyDevotionalEnabled = false,
     this.dailyDevotionalHour = 7,
     this.dailyDevotionalMinute = 0,
+    this.settings = const {},
   });
 
   factory Family.fromJson(Map<String, dynamic> j) => Family(
@@ -359,6 +378,9 @@ class Family {
     dailyDevotionalEnabled: (j['daily_devotional_enabled'] ?? false) as bool,
     dailyDevotionalHour: (j['daily_devotional_hour'] as num?)?.toInt() ?? 7,
     dailyDevotionalMinute: (j['daily_devotional_minute'] as num?)?.toInt() ?? 0,
+    settings: j['settings'] is Map
+        ? Map<String, dynamic>.from(j['settings'] as Map)
+        : const {},
   );
 
   Map<String, dynamic> toJson() => {
@@ -380,6 +402,7 @@ class Family {
     'daily_devotional_enabled': dailyDevotionalEnabled,
     'daily_devotional_hour': dailyDevotionalHour,
     'daily_devotional_minute': dailyDevotionalMinute,
+    'settings': settings,
   };
 
   Family copyWith({
@@ -389,6 +412,7 @@ class Family {
     DateTime? createdAt, bool? welcomeDismissed, bool? weeklyDigest,
     int? weeklyDigestDay, int? weeklyDigestHour,
     bool? dailyDevotionalEnabled, int? dailyDevotionalHour, int? dailyDevotionalMinute,
+    Map<String, dynamic>? settings,
   }) => Family(
     id: id ?? this.id,
     name: name ?? this.name,
@@ -408,6 +432,7 @@ class Family {
     dailyDevotionalEnabled: dailyDevotionalEnabled ?? this.dailyDevotionalEnabled,
     dailyDevotionalHour: dailyDevotionalHour ?? this.dailyDevotionalHour,
     dailyDevotionalMinute: dailyDevotionalMinute ?? this.dailyDevotionalMinute,
+    settings: settings ?? this.settings,
   );
 
   // ── Trial helpers ──────────────────────────────────────────────────────
@@ -462,6 +487,7 @@ class FamilyMember {
   final Role role;
   final List<String>? moduleAccess;
   final String? displayName;
+  final HouseholdRole householdRole;
 
   const FamilyMember({
     required this.userId,
@@ -469,6 +495,7 @@ class FamilyMember {
     this.role = Role.MEMBER,
     this.moduleAccess,
     this.displayName,
+    this.householdRole = HouseholdRole.parent,
   });
 
   // Convenience getters
@@ -485,6 +512,7 @@ class FamilyMember {
         ? _strList(j['module_access'])
         : null,
     displayName: (j['display_name'] ?? j['name']) as String?,
+    householdRole: householdRoleFromString(j['household_role'] as String?),
   );
 
   FamilyMember copyWith({
@@ -493,12 +521,14 @@ class FamilyMember {
     Role? role,
     List<String>? moduleAccess,
     String? displayName,
+    HouseholdRole? householdRole,
   }) => FamilyMember(
     userId: userId ?? this.userId,
     familyId: familyId ?? this.familyId,
     role: role ?? this.role,
     moduleAccess: moduleAccess ?? this.moduleAccess,
     displayName: displayName ?? this.displayName,
+    householdRole: householdRole ?? this.householdRole,
   );
 
   Map<String, dynamic> toJson() => {
@@ -507,6 +537,7 @@ class FamilyMember {
     'role': role.name,
     'module_access': moduleAccess,
     'display_name': displayName,
+    'household_role': householdRole.name,
   };
 }
 
@@ -974,6 +1005,8 @@ class MealPlanEntry {
   final String? recipeId;
   final String? customMeal;
   final String? notes;
+  final int? servings;
+  final String? prepNotes;
   final DateTime updatedAt;
 
   MealPlanEntry({
@@ -984,6 +1017,8 @@ class MealPlanEntry {
     this.recipeId,
     this.customMeal,
     this.notes,
+    this.servings,
+    this.prepNotes,
     String? title,
     String? createdBy,
     String? creatorId,
@@ -998,6 +1033,8 @@ class MealPlanEntry {
     recipeId: j['recipe_id'] as String?,
     customMeal: j['custom_meal'] as String?,
     notes: j['notes'] as String?,
+    servings: (j['servings'] as num?)?.toInt(),
+    prepNotes: j['prep_notes'] as String?,
     updatedAt: _parseDateOpt(j['updated_at']) ?? DateTime.fromMillisecondsSinceEpoch(0),
   );
 
@@ -1008,6 +1045,9 @@ class MealPlanEntry {
     'meal_type': mealType,
     'recipe_id': recipeId,
     'custom_meal': customMeal,
+    'notes': notes,
+    'servings': servings,
+    'prep_notes': prepNotes,
     'updated_at': updatedAt.toIso8601String(),
   };
 
@@ -1016,14 +1056,17 @@ class MealPlanEntry {
 
   MealPlanEntry copyWith({
     String? id, String? familyId, DateTime? date, String? mealType,
-    String? recipeId, String? customMeal, String? notes, DateTime? updatedAt,
+    String? recipeId, String? customMeal, String? notes, int? servings,
+    String? prepNotes, DateTime? updatedAt,
   }) => MealPlanEntry(
     id: id ?? this.id, familyId: familyId ?? this.familyId,
     date: date ?? this.date, mealType: mealType ?? this.mealType,
     recipeId: recipeId ?? this.recipeId, customMeal: customMeal ?? this.customMeal,
     notes: notes ?? this.notes,
+    servings: servings ?? this.servings,
+    prepNotes: prepNotes ?? this.prepNotes,
     updatedAt: updatedAt ??
-        ((date != null || mealType != null || recipeId != null || customMeal != null || notes != null)
+        ((date != null || mealType != null || recipeId != null || customMeal != null || notes != null || servings != null || prepNotes != null)
             ? DateTime.now()
             : this.updatedAt),
   );
@@ -1433,6 +1476,10 @@ class WorkoutExercise {
   final int order;
   final int restSeconds;
   final String? notes;
+  /// Step-by-step how-to (AI or user). Prefer text over video for cost.
+  final String? techniqueNotes;
+  /// Optional link to a free demo (e.g. YouTube / ExRx).
+  final String? referenceUrl;
   final DateTime createdAt;
 
   const WorkoutExercise({
@@ -1444,6 +1491,8 @@ class WorkoutExercise {
     this.order = 0,
     this.restSeconds = 60,
     this.notes,
+    this.techniqueNotes,
+    this.referenceUrl,
     required this.createdAt,
   });
 
@@ -1460,6 +1509,10 @@ class WorkoutExercise {
       order: ((j['order'] as num?) ?? 0).toInt(),
       restSeconds: ((j['rest_seconds'] as num?) ?? 60).toInt(),
       notes: FieldEncryption.decryptField(j['notes'] as String?, fid),
+      techniqueNotes:
+          FieldEncryption.decryptField(j['technique_notes'] as String?, fid),
+      referenceUrl:
+          FieldEncryption.decryptField(j['reference_url'] as String?, fid),
       createdAt: _parseDate(j['created_at']),
     );
   }
@@ -1474,6 +1527,9 @@ class WorkoutExercise {
         'order': order,
         'rest_seconds': restSeconds,
         'notes': FieldEncryption.encryptField(notes, familyId),
+        'technique_notes':
+            FieldEncryption.encryptField(techniqueNotes, familyId),
+        'reference_url': FieldEncryption.encryptField(referenceUrl, familyId),
         'created_at': createdAt.toIso8601String(),
       };
 
@@ -1486,6 +1542,8 @@ class WorkoutExercise {
     int? order,
     int? restSeconds,
     String? notes,
+    String? techniqueNotes,
+    String? referenceUrl,
     DateTime? createdAt,
   }) =>
       WorkoutExercise(
@@ -1497,6 +1555,8 @@ class WorkoutExercise {
         order: order ?? this.order,
         restSeconds: restSeconds ?? this.restSeconds,
         notes: notes ?? this.notes,
+        techniqueNotes: techniqueNotes ?? this.techniqueNotes,
+        referenceUrl: referenceUrl ?? this.referenceUrl,
         createdAt: createdAt ?? this.createdAt,
       );
 }
@@ -1942,6 +2002,10 @@ class Chore {
   final Visibility visibility;
   final DateTime createdAt;
   final bool requiresApproval;
+  /// When true and multiple assignees exist, the next completion advances who is "up next".
+  final bool rotationEnabled;
+  /// Index into [assignees] for round-robin (persisted per chore).
+  final int rotationCursor;
   final DateTime updatedAt;
 
   Chore({
@@ -1962,6 +2026,8 @@ class Chore {
     this.visibility = Visibility.FAMILY,
     DateTime? createdAt,
     this.requiresApproval = false,
+    this.rotationEnabled = false,
+    this.rotationCursor = 0,
     DateTime? updatedAt,
   })  : updatedAt = updatedAt ?? DateTime.now(),
         creatorId = creatorId ?? createdBy ?? '',
@@ -1984,6 +2050,8 @@ class Chore {
     visibility: visibilityFromString(j['visibility'] as String?),
     createdAt: _parseDate(j['created_at']),
     requiresApproval: (j['requires_approval'] ?? false) as bool,
+    rotationEnabled: (j['rotation_enabled'] ?? false) as bool,
+    rotationCursor: (j['rotation_cursor'] as num?)?.toInt() ?? 0,
     updatedAt: _parseDateOpt(j['updated_at']) ?? DateTime.fromMillisecondsSinceEpoch(0),
   );
 
@@ -2003,6 +2071,8 @@ class Chore {
     'visibility': visibility.name,
     'created_at': createdAt.toIso8601String(),
     'requires_approval': requiresApproval,
+    'rotation_enabled': rotationEnabled,
+    'rotation_cursor': rotationCursor,
     'updated_at': updatedAt.toIso8601String(),
   };
 
@@ -2015,6 +2085,7 @@ class Chore {
     String? description, String? icon, int? points, double? reward,
     ChoreFrequency? frequency, List<int>? daysOfWeek, List<String>? assignees,
     String? color, Visibility? visibility, DateTime? createdAt, bool? requiresApproval,
+    bool? rotationEnabled, int? rotationCursor,
     DateTime? updatedAt,
   }) => Chore(
     id: id ?? this.id, familyId: familyId ?? this.familyId,
@@ -2025,9 +2096,12 @@ class Chore {
     assignees: assignees ?? this.assignees, color: color ?? this.color,
     visibility: visibility ?? this.visibility, createdAt: createdAt ?? this.createdAt,
     requiresApproval: requiresApproval ?? this.requiresApproval,
+    rotationEnabled: rotationEnabled ?? this.rotationEnabled,
+    rotationCursor: rotationCursor ?? this.rotationCursor,
     updatedAt: updatedAt ??
         ((title != null || description != null || points != null || frequency != null ||
-                daysOfWeek != null || assignees != null || requiresApproval != null)
+                daysOfWeek != null || assignees != null || requiresApproval != null ||
+                rotationEnabled != null || rotationCursor != null)
             ? DateTime.now()
             : this.updatedAt),
   );
@@ -3527,6 +3601,10 @@ class NotificationPrefs {
   final bool location;
   final bool weeklyDigest;
   final bool webPushEnabled;
+  /// Local hour 0–23 when quiet hours start (inclusive). Both null = disabled.
+  final int? quietHoursStart;
+  /// Local hour 0–23 when quiet hours end (exclusive).
+  final int? quietHoursEnd;
 
   const NotificationPrefs({
     this.chat = true,
@@ -3541,7 +3619,13 @@ class NotificationPrefs {
     this.location = false,
     this.weeklyDigest = true,
     this.webPushEnabled = false,
+    this.quietHoursStart,
+    this.quietHoursEnd,
   });
+
+  /// Stable id for local merge (single row per device).
+  String get id => '_notification_prefs';
+  String get mergeKey => id;
 
   factory NotificationPrefs.fromJson(Map<String, dynamic> j) => NotificationPrefs(
     chat: (j['chat'] ?? true) as bool,
@@ -3556,6 +3640,8 @@ class NotificationPrefs {
     location: (j['location'] ?? false) as bool,
     weeklyDigest: (j['weekly_digest'] ?? true) as bool,
     webPushEnabled: (j['web_push_enabled'] ?? false) as bool,
+    quietHoursStart: (j['quiet_hours_start'] as num?)?.toInt(),
+    quietHoursEnd: (j['quiet_hours_end'] as num?)?.toInt(),
   );
 
   Map<String, dynamic> toJson() => {
@@ -3571,12 +3657,16 @@ class NotificationPrefs {
     'location': location,
     'weekly_digest': weeklyDigest,
     'web_push_enabled': webPushEnabled,
+    'quiet_hours_start': quietHoursStart,
+    'quiet_hours_end': quietHoursEnd,
   };
 
   NotificationPrefs copyWith({
     bool? chat, bool? tasks, bool? calendar, bool? chores, bool? lists,
     bool? polls, bool? meals, bool? birthdays, bool? photos, bool? location,
     bool? weeklyDigest, bool? webPushEnabled,
+    int? quietHoursStart,
+    int? quietHoursEnd,
   }) => NotificationPrefs(
     chat: chat ?? this.chat,
     tasks: tasks ?? this.tasks,
@@ -3590,7 +3680,162 @@ class NotificationPrefs {
     location: location ?? this.location,
     weeklyDigest: weeklyDigest ?? this.weeklyDigest,
     webPushEnabled: webPushEnabled ?? this.webPushEnabled,
+    quietHoursStart: quietHoursStart ?? this.quietHoursStart,
+    quietHoursEnd: quietHoursEnd ?? this.quietHoursEnd,
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PantryItem (staples / pantry for meal planning)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class PantryItem {
+  final String id;
+  final String familyId;
+  final String name;
+  final String? quantity;
+  final String? unit;
+  final DateTime updatedAt;
+
+  const PantryItem({
+    required this.id,
+    required this.familyId,
+    required this.name,
+    this.quantity,
+    this.unit,
+    required this.updatedAt,
+  });
+
+  String get mergeKey => id;
+
+  factory PantryItem.fromJson(Map<String, dynamic> j) => PantryItem(
+        id: j['id'] as String? ?? '',
+        familyId: j['family_id'] as String? ?? '',
+        name: j['name'] as String? ?? '',
+        quantity: j['quantity'] as String?,
+        unit: j['unit'] as String?,
+        updatedAt: _parseDateOpt(j['updated_at']) ?? DateTime.now(),
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'family_id': familyId,
+        'name': name,
+        'quantity': quantity,
+        'unit': unit,
+        'updated_at': updatedAt.toIso8601String(),
+      };
+
+  PantryItem copyWith({
+    String? id,
+    String? familyId,
+    String? name,
+    String? quantity,
+    String? unit,
+    DateTime? updatedAt,
+  }) =>
+      PantryItem(
+        id: id ?? this.id,
+        familyId: familyId ?? this.familyId,
+        name: name ?? this.name,
+        quantity: quantity ?? this.quantity,
+        unit: unit ?? this.unit,
+        updatedAt: updatedAt ?? this.updatedAt,
+      );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FamilyActivityLog (trust / audit trail for sensitive actions)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class FamilyActivityLog {
+  final String id;
+  final String familyId;
+  final String actorUserId;
+  final String action;
+  final String? detail;
+  final String? relatedUserId;
+  final DateTime createdAt;
+
+  const FamilyActivityLog({
+    required this.id,
+    required this.familyId,
+    required this.actorUserId,
+    required this.action,
+    this.detail,
+    this.relatedUserId,
+    required this.createdAt,
+  });
+
+  String get mergeKey => id;
+
+  factory FamilyActivityLog.fromJson(Map<String, dynamic> j) =>
+      FamilyActivityLog(
+        id: j['id'] as String? ?? '',
+        familyId: j['family_id'] as String? ?? '',
+        actorUserId: j['actor_user_id'] as String? ?? '',
+        action: j['action'] as String? ?? '',
+        detail: j['detail'] as String?,
+        relatedUserId: j['related_user_id'] as String?,
+        createdAt: _parseDate(j['created_at']),
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'family_id': familyId,
+        'actor_user_id': actorUserId,
+        'action': action,
+        'detail': detail,
+        'related_user_id': relatedUserId,
+        'created_at': createdAt.toIso8601String(),
+      };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WellnessCheckIn (light daily mood pulse)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class WellnessCheckIn {
+  final String id;
+  final String familyId;
+  final String userId;
+  /// One of: great, good, ok, low, rough
+  final String mood;
+  final String? note;
+  final DateTime day;
+  final DateTime createdAt;
+
+  const WellnessCheckIn({
+    required this.id,
+    required this.familyId,
+    required this.userId,
+    required this.mood,
+    this.note,
+    required this.day,
+    required this.createdAt,
+  });
+
+  String get mergeKey => id;
+
+  factory WellnessCheckIn.fromJson(Map<String, dynamic> j) => WellnessCheckIn(
+        id: j['id'] as String? ?? '',
+        familyId: j['family_id'] as String? ?? '',
+        userId: j['user_id'] as String? ?? '',
+        mood: j['mood'] as String? ?? 'ok',
+        note: j['note'] as String?,
+        day: _parseDateOpt(j['day']) ?? DateTime.now(),
+        createdAt: _parseDate(j['created_at']),
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'family_id': familyId,
+        'user_id': userId,
+        'mood': mood,
+        'note': note,
+        'day': DateTime(day.year, day.month, day.day).toIso8601String(),
+        'created_at': createdAt.toIso8601String(),
+      };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3640,6 +3885,9 @@ class AppDB {
   final List<NotificationPrefs> notificationPrefs;
   final List<ReadingPlan> readingPlans;
   final List<ExternalCalendar> externalCalendars;
+  final List<PantryItem> pantryItems;
+  final List<FamilyActivityLog> familyActivityLogs;
+  final List<WellnessCheckIn> wellnessCheckIns;
 
   const AppDB({
     this.users = const [],
@@ -3684,6 +3932,9 @@ class AppDB {
     this.notificationPrefs = const [],
     this.readingPlans = const [],
     this.externalCalendars = const [],
+    this.pantryItems = const [],
+    this.familyActivityLogs = const [],
+    this.wellnessCheckIns = const [],
   });
 
   factory AppDB.empty() => const AppDB();
@@ -3733,6 +3984,9 @@ class AppDB {
     notificationPrefs: _parseList(j['notificationPrefs'] ?? j['notification_prefs'], NotificationPrefs.fromJson),
     readingPlans: _parseList(j['readingPlans'] ?? j['reading_plans'], ReadingPlan.fromJson),
     externalCalendars: _parseList(j['externalCalendars'] ?? j['external_calendars'], ExternalCalendar.fromJson),
+    pantryItems: _parseList(j['pantryItems'] ?? j['pantry_items'], PantryItem.fromJson),
+    familyActivityLogs: _parseList(j['familyActivityLogs'] ?? j['family_activity_logs'], FamilyActivityLog.fromJson),
+    wellnessCheckIns: _parseList(j['wellnessCheckIns'] ?? j['wellness_check_ins'], WellnessCheckIn.fromJson),
   );
 
   /// fromCloudJson handles Supabase snake_case table names -> AppDB fields
@@ -3779,6 +4033,9 @@ class AppDB {
     notificationPrefs: const [],
     readingPlans: _parseList(cloud['reading_plans'], ReadingPlan.fromJson),
     externalCalendars: _parseList(cloud['external_calendars'], ExternalCalendar.fromJson),
+    pantryItems: _parseList(cloud['pantry_items'], PantryItem.fromJson),
+    familyActivityLogs: _parseList(cloud['family_activity_logs'], FamilyActivityLog.fromJson),
+    wellnessCheckIns: _parseList(cloud['wellness_check_ins'], WellnessCheckIn.fromJson),
   );
 
   Map<String, dynamic> toJson() => {
@@ -3824,6 +4081,9 @@ class AppDB {
     'notificationPrefs': notificationPrefs.map((e) => e.toJson()).toList(),
     'readingPlans': readingPlans.map((e) => e.toJson()).toList(),
     'externalCalendars': externalCalendars.map((e) => e.toJson()).toList(),
+    'pantryItems': pantryItems.map((e) => e.toJson()).toList(),
+    'familyActivityLogs': familyActivityLogs.map((e) => e.toJson()).toList(),
+    'wellnessCheckIns': wellnessCheckIns.map((e) => e.toJson()).toList(),
   };
 
   AppDB copyWith({
@@ -3869,6 +4129,9 @@ class AppDB {
     List<NotificationPrefs>? notificationPrefs,
     List<ReadingPlan>? readingPlans,
     List<ExternalCalendar>? externalCalendars,
+    List<PantryItem>? pantryItems,
+    List<FamilyActivityLog>? familyActivityLogs,
+    List<WellnessCheckIn>? wellnessCheckIns,
     // Convenience alias params
     List<PrayerWallEntry>? prayerRequests,
     List<PeriodCycle>? periodEntries,
@@ -3921,6 +4184,9 @@ class AppDB {
     notificationPrefs: notificationPrefs ?? this.notificationPrefs,
     readingPlans: readingPlans ?? this.readingPlans,
     externalCalendars: externalCalendars ?? this.externalCalendars,
+    pantryItems: pantryItems ?? this.pantryItems,
+    familyActivityLogs: familyActivityLogs ?? this.familyActivityLogs,
+    wellnessCheckIns: wellnessCheckIns ?? this.wellnessCheckIns,
   );
 
   /// After [FieldEncryption.init], re-decrypt rows that were parsed while the
@@ -4025,6 +4291,10 @@ class AppDB {
           order: e.order,
           restSeconds: e.restSeconds,
           notes: e.notes != null ? ds(e.notes) : null,
+          techniqueNotes:
+              e.techniqueNotes != null ? ds(e.techniqueNotes) : null,
+          referenceUrl:
+              e.referenceUrl != null ? ds(e.referenceUrl) : null,
           createdAt: e.createdAt,
         );
       }).toList(),

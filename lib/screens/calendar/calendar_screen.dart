@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../config/theme.dart';
@@ -37,6 +38,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
   bool _isSyncing = false;
   String _searchQuery = '';
   final _searchCtrl = TextEditingController();
+  /// Hide events from these layers: `'__family__'` = only family-created events; else [ExternalCalendar.id].
+  final Set<String> _hiddenCalendarLayers = {};
 
   // AI Event Strategist
   final _aiController = TextEditingController();
@@ -132,6 +135,40 @@ class _CalendarScreenState extends State<CalendarScreen> {
       ),
       builder: (_) => const _EventPlannerWizard(),
     );
+  }
+
+  Future<void> _shareFamilyAgenda(BuildContext context) async {
+    final provider = context.read<AppProvider>();
+    final familyId = provider.activeFamily?.id;
+    if (familyId == null) return;
+    final now = DateTime.now();
+    final until = now.add(const Duration(days: 14));
+    final evs = provider.db.events
+        .where((e) =>
+            e.familyId == familyId &&
+            e.externalCalendarId == null &&
+            e.start.isAfter(now.subtract(const Duration(days: 1))) &&
+            e.start.isBefore(until))
+        .toList()
+      ..sort((a, b) => a.start.compareTo(b.start));
+    if (evs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No family events in the next two weeks'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
+    final buf = StringBuffer();
+    buf.writeln('Family agenda (next 2 weeks)');
+    buf.writeln('');
+    for (final e in evs) {
+      buf.write(DateFormat('EEE MMM d, h:mm a').format(e.start));
+      buf.write(' — ${e.title}');
+      if (e.location != null && e.location!.trim().isNotEmpty) {
+        buf.write(' @ ${e.location!.trim()}');
+      }
+      buf.writeln();
+    }
+    await Share.share(buf.toString().trim(), subject: 'Family agenda');
   }
 
   // ── Google Calendar ──────────────────────────────────────────────────────
@@ -401,6 +438,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
     );
   }
 
+  bool _eventLayerVisible(CalendarEvent e) {
+    final key = e.externalCalendarId ?? '__family__';
+    return !_hiddenCalendarLayers.contains(key);
+  }
+
   List<CalendarEvent> _eventsForDay(
       AppProvider provider, DateTime day) {
     final familyId = provider.activeFamily?.id;
@@ -408,6 +450,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
     return provider.db.events
         .where((e) {
           if (e.familyId != familyId || !isSameDay(e.startDate, day)) return false;
+          if (!_eventLayerVisible(e)) return false;
           if (_searchQuery.isNotEmpty) {
             final q = _searchQuery.toLowerCase();
             if (!e.title.toLowerCase().contains(q) &&
@@ -429,6 +472,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
     final map = <DateTime, List<CalendarEvent>>{};
     for (final e in provider.db.events) {
       if (e.familyId != familyId) continue;
+      if (!_eventLayerVisible(e)) continue;
       final key = DateTime(
           e.startDate.year, e.startDate.month, e.startDate.day);
       map.putIfAbsent(key, () => []).add(e);
@@ -470,6 +514,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
         final upcomingEvents = provider.db.events
             .where((e) =>
                 e.familyId == provider.activeFamily?.id &&
+                _eventLayerVisible(e) &&
                 e.startDate.isAfter(todayDate) &&
                 e.startDate.isBefore(weekEnd))
             .toList()
@@ -499,8 +544,73 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     onTap: _isSyncing ? () {} : _connectGoogleCalendar,
                     isPrimary: true,
                   ),
+                  ActionChipButton(
+                    icon: Icons.share_rounded,
+                    label: 'Share agenda',
+                    onTap: () => _shareFamilyAgenda(context),
+                    backgroundColor: Theme.of(context).colorScheme.surface,
+                    foregroundColor: Theme.of(context).colorScheme.onSurface,
+                  ),
                 ],
               ),
+
+              // Layer visibility (family vs connected calendars)
+              Builder(builder: (ctx) {
+                final uid = provider.activeUser?.id;
+                final ext = uid == null
+                    ? <ExternalCalendar>[]
+                    : provider.db.externalCalendars
+                        .where((c) => c.userId == uid)
+                        .toList();
+                if (ext.isEmpty) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'SHOW LAYERS',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1,
+                          color: Theme.of(ctx).colorScheme.onSurface.withValues(alpha: 0.45),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          FilterChip(
+                            label: const Text('Family', style: TextStyle(fontFamily: 'Inter', fontSize: 12)),
+                            selected: !_hiddenCalendarLayers.contains('__family__'),
+                            onSelected: (v) => setState(() {
+                              if (v) {
+                                _hiddenCalendarLayers.remove('__family__');
+                              } else {
+                                _hiddenCalendarLayers.add('__family__');
+                              }
+                            }),
+                          ),
+                          ...ext.map((c) => FilterChip(
+                                label: Text(c.name, style: const TextStyle(fontFamily: 'Inter', fontSize: 12)),
+                                selected: !_hiddenCalendarLayers.contains(c.id),
+                                onSelected: (v) => setState(() {
+                                  if (v) {
+                                    _hiddenCalendarLayers.remove(c.id);
+                                  } else {
+                                    _hiddenCalendarLayers.add(c.id);
+                                  }
+                                }),
+                              )),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              }),
 
               // Add event + AI plan row
               Padding(
@@ -748,7 +858,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                             ),
                           ),
                         ),
-                      ClipRRect(
+                      RepaintBoundary(
+                    child: ClipRRect(
                     borderRadius: BorderRadius.circular(16),
                     child: TableCalendar<CalendarEvent>(
                       firstDay: DateTime.utc(2020, 1, 1),
@@ -852,6 +963,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       ),
                     ),
                   ),
+                ),
                     ],
                   ),
                 ),
@@ -1471,7 +1583,8 @@ class _EventFormSheetState extends State<_EventFormSheet> {
       }
       await provider.saveAndSync(db.copyWith(events: events));
       if (widget.editEvent == null) {
-        NotificationService.notifyFamilyActivity(
+        NotificationService.notifyFamilyActivityWithDb(
+          provider.db,
           title: 'New Calendar Event',
           body: '${provider.activeUser?.name ?? "Someone"} added: ${event.title}',
           path: '/calendar',

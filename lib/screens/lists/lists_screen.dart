@@ -42,7 +42,8 @@ class _ListsScreenState extends State<ListsScreen> {
     final updated = [...db.shoppingLists, list];
     await provider.saveAndSync(db.copyWith(shoppingLists: updated));
     if (visibility != Visibility.PRIVATE) {
-      NotificationService.notifyFamilyActivity(
+      NotificationService.notifyFamilyActivityWithDb(
+        provider.db,
         title: 'New List Created',
         body: '${provider.activeUser?.name ?? "Someone"} created: ${list.title}',
         path: '/lists',
@@ -149,7 +150,8 @@ class _ListsScreenState extends State<ListsScreen> {
     await provider.saveAndSync(db.copyWith(shoppingLists: updatedLists));
     setState(() => _selectedList = updatedList);
     if (list.visibility != Visibility.PRIVATE) {
-      NotificationService.notifyFamilyActivity(
+      NotificationService.notifyFamilyActivityWithDb(
+        provider.db,
         title: 'Item Added to ${list.title}',
         body: '${provider.activeUser?.name ?? "Someone"} added: $name',
         path: '/lists',
@@ -168,7 +170,8 @@ class _ListsScreenState extends State<ListsScreen> {
     await provider.saveAndSync(db.copyWith(shoppingLists: updatedLists));
     setState(() => _selectedList = updatedList);
     if (!item.checked && list.visibility != Visibility.PRIVATE) {
-      NotificationService.notifyFamilyActivity(
+      NotificationService.notifyFamilyActivityWithDb(
+        provider.db,
         title: '${list.title} Updated',
         body: '${provider.activeUser?.name ?? "Someone"} checked off: ${item.text}',
         path: '/lists',

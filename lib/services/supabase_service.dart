@@ -129,6 +129,9 @@ class SupabaseService {
       'external_calendars',
       'rewards',
       'reading_plans',
+      'pantry_items',
+      'family_activity_logs',
+      'wellness_check_ins',
       // Strong integration: family-visible structured workouts
       'workout_sessions',
       'workout_exercises',

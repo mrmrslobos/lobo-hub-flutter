@@ -1643,7 +1643,8 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
         // Notify family about new shared task
         try {
           if (_assigneeIds.length > 1 || (_assigneeIds.isNotEmpty && _assigneeIds.first != userId)) {
-            NotificationService.notifyFamilyActivity(
+            NotificationService.notifyFamilyActivityWithDb(
+              provider.db,
               title: 'New Task Assigned',
               body: '${provider.activeUser?.name ?? 'Someone'} created: ${savedTask.title}',
               path: '/tasks',

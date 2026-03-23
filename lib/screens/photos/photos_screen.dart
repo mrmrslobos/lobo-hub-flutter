@@ -111,7 +111,8 @@ class _PhotosScreenState extends State<PhotosScreen> {
     await provider.saveAndSync(db.copyWith(photos: [...db.photos, photo]));
 
     try {
-      NotificationService.notifyFamilyActivity(
+      NotificationService.notifyFamilyActivityWithDb(
+        provider.db,
         title: 'New photo added 📷',
         body: '${provider.activeUser?.name ?? 'Someone'} added a photo to the family album',
         path: '/photos',

@@ -1888,7 +1888,9 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
 
 // ─── Daily AI Devotional Schedule Card ──────────────────────────────────────
 
-class _DailyDevotionalCard extends StatelessWidget {
+const _kDevotionalNotifId = 9901;
+
+class _DailyDevotionalCard extends StatefulWidget {
   final String familyId;
   final ValueChanged<DevotionalEntry>? onTapToday;
   final VoidCallback? onGenerateNow;
@@ -1896,12 +1898,16 @@ class _DailyDevotionalCard extends StatelessWidget {
 
   const _DailyDevotionalCard({required this.familyId, this.onTapToday, this.onGenerateNow, this.isGenerating = false});
 
-  static const _notifId = 9901; // stable ID for daily devotional notification
+  @override
+  State<_DailyDevotionalCard> createState() => _DailyDevotionalCardState();
+}
 
+class _DailyDevotionalCardState extends State<_DailyDevotionalCard> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
     final family = provider.activeFamily;
+    final familyId = widget.familyId;
     if (family == null) return const SizedBox.shrink();
 
     final enabled = family.dailyDevotionalEnabled;
@@ -1961,7 +1967,7 @@ class _DailyDevotionalCard extends StatelessWidget {
                   scale: 0.85,
                   child: Switch.adaptive(
                     value: enabled,
-                    onChanged: (val) => _toggle(context, val, hour, minute),
+                    onChanged: (val) => _toggle(context, val),
                     activeColor: Colors.white,
                     activeTrackColor: Colors.white.withValues(alpha: 0.35),
                     inactiveThumbColor: Colors.white70,
@@ -2022,7 +2028,7 @@ class _DailyDevotionalCard extends StatelessWidget {
                   const Spacer(),
                   if (todayEntry != null)
                     GestureDetector(
-                      onTap: () => onTapToday?.call(todayEntry),
+                      onTap: () => widget.onTapToday?.call(todayEntry),
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                         decoration: BoxDecoration(
@@ -2034,7 +2040,7 @@ class _DailyDevotionalCard extends StatelessWidget {
                         )),
                       ),
                     )
-                  else if (isGenerating)
+                  else if (widget.isGenerating)
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                       decoration: BoxDecoration(
@@ -2079,7 +2085,7 @@ class _DailyDevotionalCard extends StatelessWidget {
                     )
                   else
                     GestureDetector(
-                      onTap: onGenerateNow,
+                      onTap: widget.onGenerateNow,
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                         decoration: BoxDecoration(
@@ -2104,7 +2110,7 @@ class _DailyDevotionalCard extends StatelessWidget {
     );
   }
 
-  Future<void> _toggle(BuildContext context, bool val, int localHour, int localMinute) async {
+  Future<void> _toggle(BuildContext context, bool val) async {
     final provider = context.read<AppProvider>();
     final family = provider.activeFamily!;
     final updated = family.copyWith(dailyDevotionalEnabled: val);
@@ -2114,10 +2120,17 @@ class _DailyDevotionalCard extends StatelessWidget {
       families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
     ));
 
-    // Server-side FCM push handles notifications — no local scheduling needed.
-    // Cancel any previously scheduled local notification when toggling.
-    if (!val) {
-      await NotificationService.cancel(_notifId);
+    if (val) {
+      final utcRef = DateTime.utc(2024, 1, 1, family.dailyDevotionalHour, family.dailyDevotionalMinute);
+      final local = utcRef.toLocal();
+      await NotificationService.scheduleDaily(
+        id: _kDevotionalNotifId,
+        title: 'Daily devotional',
+        body: 'Open FamilyHub for today\'s reading and reflection.',
+        time: Time(local.hour, local.minute),
+      );
+    } else {
+      await NotificationService.cancel(_kDevotionalNotifId);
     }
   }
 
@@ -2189,7 +2202,16 @@ class _DailyDevotionalCard extends StatelessWidget {
       families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
     ));
 
-    // Server-side FCM push handles notifications — no local scheduling needed.
+    if (updated.dailyDevotionalEnabled) {
+      final utcRef = DateTime.utc(2024, 1, 1, updated.dailyDevotionalHour, updated.dailyDevotionalMinute);
+      final local = utcRef.toLocal();
+      await NotificationService.scheduleDaily(
+        id: _kDevotionalNotifId,
+        title: 'Daily devotional',
+        body: 'Open FamilyHub for today\'s reading and reflection.',
+        time: Time(local.hour, local.minute),
+      );
+    }
   }
 
 }

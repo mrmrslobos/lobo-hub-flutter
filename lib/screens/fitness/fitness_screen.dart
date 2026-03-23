@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../config/theme.dart';
@@ -140,6 +141,25 @@ String _stripFences(String raw) {
   if (s.startsWith('```')) s = s.substring(s.indexOf('\n') + 1);
   if (s.endsWith('```')) s = s.substring(0, s.lastIndexOf('```'));
   return s.trim();
+}
+
+String _youtubeSearchUrl(String query) {
+  final q = Uri.encodeComponent('$query exercise form tutorial');
+  return 'https://www.youtube.com/results?search_query=$q';
+}
+
+Future<void> _openExerciseHelpUrl(BuildContext context, String? url, String exerciseName) async {
+  final u = (url != null && url.trim().isNotEmpty) ? url.trim() : _youtubeSearchUrl(exerciseName);
+  final uri = Uri.tryParse(u);
+  if (uri == null) return;
+  try {
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok && context.mounted) {
+      _showSnack(context, 'Could not open link');
+    }
+  } catch (_) {
+    if (context.mounted) _showSnack(context, 'Could not open link');
+  }
 }
 
 // ─── Fitness Screen ───────────────────────────────────────────────────────────
@@ -691,6 +711,10 @@ class _FitnessScreenState extends State<FitnessScreen> {
                     ),
                     child: _SessionCard(
                       session: session,
+                      exercises: provider.db.workoutExercises
+                          .where((e) => e.sessionId == session.id)
+                          .toList()
+                        ..sort((a, b) => a.order.compareTo(b.order)),
                       emoji: _activityEmoji(session.title),
                       memberName:
                           provider.displayNameForUserId(session.userId),
@@ -774,6 +798,104 @@ class _StoredPlanViewState extends State<_StoredPlanView> {
     super.dispose();
   }
 
+  (int sets, int reps) _parseSetsReps(String? detail) {
+    if (detail == null || detail.trim().isEmpty) return (3, 10);
+    final lower = detail.toLowerCase();
+    final xMatch = RegExp(r'(\d+)\s*[x×]\s*(\d+)').firstMatch(lower);
+    if (xMatch != null) {
+      return (int.parse(xMatch.group(1)!), int.parse(xMatch.group(2)!));
+    }
+    final setMatch = RegExp(r'(\d+)\s*sets?').firstMatch(lower);
+    final repMatch = RegExp(r'(\d+)\s*reps?').firstMatch(lower);
+    final sets = setMatch != null ? int.parse(setMatch.group(1)!) : 3;
+    final reps = repMatch != null ? int.parse(repMatch.group(1)!) : 10;
+    return (sets.clamp(1, 20), reps.clamp(1, 999));
+  }
+
+  Future<void> _startPlanDayAsWorkout(BuildContext context, Map day) async {
+    final provider = context.read<AppProvider>();
+    final user = provider.activeUser;
+    final family = provider.activeFamily;
+    if (user == null || family == null) return;
+    final rawEx = (day['exercises'] as List?)?.cast<Map>() ?? [];
+    if (rawEx.isEmpty) return;
+
+    final dayName = day['day'] as String? ?? 'Day';
+    final focus = day['focus'] as String? ?? 'Workout';
+    final title = '$dayName · $focus';
+    final fid = family.id;
+    final uid = user.id;
+    final now = DateTime.now();
+
+    var totalMin = 0;
+    final exercises = <WorkoutExercise>[];
+    final sets = <WorkoutSet>[];
+
+    final session = WorkoutSession(
+      id: _uuid.v4(),
+      familyId: fid,
+      userId: uid,
+      title: title,
+      date: now,
+      durationMinutes: 0,
+      notes: null,
+      createdAt: now,
+    );
+
+    for (var i = 0; i < rawEx.length; i++) {
+      final ex = rawEx[i];
+      final name = ex['name'] as String? ?? 'Exercise';
+      final detail = ex['detail'] as String?;
+      final howToRaw = ex['howTo']?.toString().trim();
+      final demoRaw = ex['demoUrl']?.toString().trim();
+      final (setCount, repNum) = _parseSetsReps(detail);
+      totalMin += setCount * 3 + (setCount - 1);
+
+      final we = WorkoutExercise(
+        id: _uuid.v4(),
+        familyId: fid,
+        userId: uid,
+        sessionId: session.id,
+        exerciseName: name,
+        order: i,
+        restSeconds: 60,
+        notes: detail,
+        techniqueNotes: (howToRaw == null || howToRaw.isEmpty) ? null : howToRaw,
+        referenceUrl: (demoRaw == null || demoRaw.isEmpty) ? null : demoRaw,
+        createdAt: now,
+      );
+      exercises.add(we);
+
+      for (var s = 0; s < setCount; s++) {
+        sets.add(
+          WorkoutSet(
+            id: _uuid.v4(),
+            familyId: fid,
+            userId: uid,
+            exerciseId: we.id,
+            setNumber: s + 1,
+            reps: '$repNum',
+            weight: null,
+            completed: false,
+            notes: null,
+            createdAt: now,
+          ),
+        );
+      }
+    }
+
+    final sessionDone = session.copyWith(durationMinutes: totalMin.clamp(5, 300));
+    final db = provider.db;
+    await provider.saveAndSync(db.copyWith(
+      workoutSessions: [...db.workoutSessions, sessionDone],
+      workoutExercises: [...db.workoutExercises, ...exercises],
+      workoutSets: [...db.workoutSets, ...sets],
+    ));
+    if (context.mounted) {
+      _showSnack(context, 'Logged in My Logs — tap the card for how-to & demo');
+    }
+  }
+
   Future<void> _refinePlan() async {
     if (SubscriptionModal.guardAI(context)) return;
     final request = _refineController.text.trim();
@@ -802,8 +924,7 @@ ${profile.entries.map((e) => '- ${e.key}: ${e.value}').join('\n')}
 The user wants to make this change:
 "$request"
 
-Return the COMPLETE updated plan in the same JSON format:
-{"summary": "...", "weeklyPlan": [...], "tips": [...]}
+Return the COMPLETE updated plan in the same JSON format as before (each exercise must include "name", "detail", "howTo", and "demoUrl" fields).
 
 Apply the requested change while keeping everything else sensible.
 ''';
@@ -950,10 +1071,44 @@ Apply the requested change while keeping everything else sensible.
                               Text(exercise['name'] as String? ?? '', style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13, color: AppTheme.stone800)),
                               if (exercise['detail'] != null)
                                 Text(exercise['detail'] as String, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
+                              if (exercise['howTo'] != null && (exercise['howTo'] as String).trim().isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  exercise['howTo'] as String,
+                                  style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone500, height: 1.35),
+                                ),
+                              ],
+                              const SizedBox(height: 6),
+                              Wrap(
+                                spacing: 8,
+                                children: [
+                                  TextButton.icon(
+                                    onPressed: () => _openExerciseHelpUrl(
+                                      context,
+                                      exercise['demoUrl']?.toString(),
+                                      exercise['name']?.toString() ?? 'exercise',
+                                    ),
+                                    icon: const Icon(Icons.play_circle_outline_rounded, size: 16),
+                                    label: const Text('Demo', style: TextStyle(fontFamily: 'Inter', fontSize: 12)),
+                                  ),
+                                ],
+                              ),
                             ])),
                           ]),
                         );
                       }).toList()),
+                    ),
+                  if (isExpanded && !isRest && exercises.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: () => _startPlanDayAsWorkout(context, day),
+                          icon: const Icon(Icons.fitness_center_rounded, size: 18),
+                          label: const Text('Log this day as workout', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700)),
+                        ),
+                      ),
                     ),
                 ]),
               ),
@@ -1141,10 +1296,24 @@ Return ONLY valid JSON (no markdown) with this structure:
 {
   "summary": "brief overview of the plan",
   "weeklyPlan": [
-    { "day": "Monday", "focus": "...", "duration": "45 minutes", "exercises": [{ "name": "...", "detail": "4 sets x 8 reps" }] }
+    {
+      "day": "Monday",
+      "focus": "...",
+      "duration": "45 minutes",
+      "exercises": [
+        {
+          "name": "Barbell squat",
+          "detail": "4 sets x 8 reps",
+          "howTo": "3-5 short bullet steps: stance, brace core, path of movement, breathing, common mistake to avoid",
+          "demoUrl": "optional https URL to a reputable free demo (YouTube etc.) or empty string if unsure"
+        }
+      ]
+    }
   ],
   "tips": ["tip 1", "tip 2", "tip 3"]
-}''';
+}
+
+For every exercise, "howTo" is REQUIRED (plain text, not markdown). Prefer well-known movements; if demoUrl is empty the app will open a YouTube search for the user.''';
 
     try {
       final familyId = context.read<AppProvider>().activeFamily?.id;
@@ -1471,20 +1640,142 @@ class _LogCard extends StatelessWidget {
 // ─── Workout Session Card ─────────────────────────────────────────────────
 class _SessionCard extends StatelessWidget {
   final WorkoutSession session;
+  final List<WorkoutExercise> exercises;
   final String emoji;
   final String memberName;
   final VoidCallback onDelete;
 
   const _SessionCard({
     required this.session,
+    required this.exercises,
     required this.emoji,
     required this.memberName,
     required this.onDelete,
   });
 
+  void _showExerciseDetail(BuildContext context, WorkoutExercise ex) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.55,
+        maxChildSize: 0.92,
+        minChildSize: 0.35,
+        expand: false,
+        builder: (_, sc) => Container(
+          decoration: const BoxDecoration(
+            color: AppTheme.surface,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: ListView(
+            controller: sc,
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+            children: [
+              Text(
+                ex.exerciseName,
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontWeight: FontWeight.w800,
+                  fontSize: 18,
+                  color: AppTheme.stone900,
+                ),
+              ),
+              if (ex.notes != null && ex.notes!.trim().isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(ex.notes!, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone600)),
+              ],
+              const SizedBox(height: 12),
+              if (ex.techniqueNotes != null && ex.techniqueNotes!.trim().isNotEmpty) ...[
+                const Text('How to do it', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 13)),
+                const SizedBox(height: 6),
+                Text(
+                  ex.techniqueNotes!,
+                  style: const TextStyle(fontFamily: 'Inter', fontSize: 14, height: 1.45, color: AppTheme.stone800),
+                ),
+                const SizedBox(height: 16),
+              ] else ...[
+                const Text(
+                  'No written steps yet. Use “Watch demo” or add notes when you log the workout.',
+                  style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone500),
+                ),
+                const SizedBox(height: 16),
+              ],
+              Semantics(
+                button: true,
+                label: 'Watch demo video for ${ex.exerciseName}',
+                child: FilledButton.icon(
+                  onPressed: () => _openExerciseHelpUrl(ctx, ex.referenceUrl, ex.exerciseName),
+                  icon: const Icon(Icons.play_circle_outline_rounded),
+                  label: const Text('Watch demo'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
+      onTap: exercises.isEmpty ? null : () {
+        if (exercises.length == 1) {
+          _showExerciseDetail(context, exercises.first);
+        } else {
+          showModalBottomSheet<void>(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            builder: (ctx) => DraggableScrollableSheet(
+              initialChildSize: 0.45,
+              maxChildSize: 0.85,
+              minChildSize: 0.3,
+              expand: false,
+              builder: (_, sc) => Container(
+                decoration: const BoxDecoration(
+                  color: AppTheme.surface,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                ),
+                child: ListView.builder(
+                  controller: sc,
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                  itemCount: exercises.length + 1,
+                  itemBuilder: (_, i) {
+                    if (i == 0) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          session.title,
+                          style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 16),
+                        ),
+                      );
+                    }
+                    final ex = exercises[i - 1];
+                    return ListTile(
+                      title: Text(ex.exerciseName, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+                      subtitle: ex.techniqueNotes != null && ex.techniqueNotes!.trim().isNotEmpty
+                          ? Text(
+                              ex.techniqueNotes!.split('\n').first,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontFamily: 'Inter', fontSize: 12),
+                            )
+                          : const Text('Tap for steps or demo', style: TextStyle(fontFamily: 'Inter', fontSize: 12)),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _showExerciseDetail(context, ex);
+                      },
+                    );
+                  },
+                ),
+              ),
+            ),
+          );
+        }
+      },
       onLongPress: onDelete,
       child: Container(
         padding: const EdgeInsets.all(14),
@@ -1527,6 +1818,11 @@ class _SessionCard extends StatelessWidget {
                     children: [
                       _Chip(label: '${session.durationMinutes} min', color: AppTheme.primary),
                       _Chip(label: memberName.split(' ').first, color: AppTheme.stone500),
+                      if (exercises.isNotEmpty)
+                        _Chip(
+                          label: '${exercises.length} exercise${exercises.length == 1 ? '' : 's'} · tap for how-to',
+                          color: const Color(0xFF6366F1),
+                        ),
                     ],
                   ),
                   if (session.notes != null && session.notes!.isNotEmpty) ...[
@@ -1753,6 +2049,8 @@ class _FitnessLogSheetState extends State<_FitnessLogSheet> {
       order: 0,
       restSeconds: _restSeconds,
       notes: null,
+      techniqueNotes: null,
+      referenceUrl: null,
       createdAt: now,
     );
 
@@ -2066,6 +2364,8 @@ class _FitnessLogSheetState extends State<_FitnessLogSheet> {
 class _WorkoutExerciseDraft {
   final String id;
   String name;
+  String techniqueNotes;
+  String referenceUrl;
   int setsCount;
   int restSeconds;
   final List<String> reps;
@@ -2075,6 +2375,8 @@ class _WorkoutExerciseDraft {
   _WorkoutExerciseDraft({
     required this.id,
     this.name = '',
+    this.techniqueNotes = '',
+    this.referenceUrl = '',
     this.setsCount = 3,
     this.restSeconds = 60,
   })  : reps = <String>[],
@@ -2318,6 +2620,8 @@ class _WorkoutSessionSheetState extends State<_WorkoutSessionSheet> {
         order: exIndex,
         restSeconds: draft.restSeconds,
         notes: null,
+        techniqueNotes: draft.techniqueNotes.trim().isEmpty ? null : draft.techniqueNotes.trim(),
+        referenceUrl: draft.referenceUrl.trim().isEmpty ? null : draft.referenceUrl.trim(),
         createdAt: now,
       );
       exercises.add(exercise);
@@ -2413,6 +2717,31 @@ class _WorkoutSessionSheetState extends State<_WorkoutSessionSheet> {
               if (n == null) return;
               setState(() => ex.restSeconds = n.clamp(10, 600).toInt());
             },
+          ),
+
+          const SizedBox(height: 10),
+
+          TextFormField(
+            key: ValueKey('exerciseHow_${ex.id}'),
+            initialValue: ex.techniqueNotes,
+            maxLines: 3,
+            decoration: _styledInput(
+              'How to (optional)',
+              icon: Icons.menu_book_outlined,
+            ).copyWith(
+              hintText: 'Short steps: stance, movement, breathing…',
+            ),
+            onChanged: (v) => setState(() => ex.techniqueNotes = v),
+          ),
+          const SizedBox(height: 8),
+          TextFormField(
+            key: ValueKey('exerciseUrl_${ex.id}'),
+            initialValue: ex.referenceUrl,
+            decoration: _styledInput(
+              'Demo link (optional)',
+              icon: Icons.link_rounded,
+            ).copyWith(hintText: 'https://… YouTube or article'),
+            onChanged: (v) => setState(() => ex.referenceUrl = v),
           ),
 
           const SizedBox(height: 10),
