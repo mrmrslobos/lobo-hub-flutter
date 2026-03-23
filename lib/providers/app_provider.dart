@@ -319,6 +319,7 @@ class AppProvider extends ChangeNotifier {
     'pantry_items',
     'family_activity_logs',
     'wellness_check_ins',
+    'exercise_prs',
   ];
 
   /// Start listening for realtime changes — both from other clients

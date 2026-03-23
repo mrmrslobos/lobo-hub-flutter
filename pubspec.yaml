@@ -95,6 +95,9 @@ dependencies:
   # Permission handling
   permission_handler: ^11.3.1
 
+  # Apple Health / Health Connect (mobile only; no-op on web)
+  health: ^13.3.1
+
   # File picker (for CSV/PDF import)
   file_picker: ^8.0.0
 

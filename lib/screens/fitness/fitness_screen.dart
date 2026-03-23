@@ -17,7 +17,9 @@ import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
+import '../../services/exercise_pr_service.dart';
 import '../../services/locale_service.dart';
+import '../../services/workout_health_sync.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/subscription_modal.dart';
@@ -148,6 +150,48 @@ String _youtubeSearchUrl(String query) {
   return 'https://www.youtube.com/results?search_query=$q';
 }
 
+Future<void> _persistCompletedWorkout(
+  BuildContext context,
+  AppProvider provider, {
+  required WorkoutSession session,
+  required List<WorkoutExercise> exercises,
+  required List<WorkoutSet> sets,
+}) async {
+  final user = provider.activeUser;
+  final family = provider.activeFamily;
+  if (user == null || family == null) return;
+
+  var next = ExercisePrService.updateFromSession(
+    provider.db,
+    familyId: family.id,
+    userId: user.id,
+    session: session,
+    exercises: exercises,
+    sets: sets,
+  );
+
+  var sessionToSave = session;
+  final healthOn = user.settings['health_workout_sync'] == true;
+  if (healthOn) {
+    final ok = await writeWorkoutSessionToHealth(session);
+    if (ok) {
+      sessionToSave = session.copyWith(healthSyncedAt: DateTime.now());
+    } else if (context.mounted) {
+      _showSnack(
+        context,
+        'Could not save to Health (install Health Connect on Android or enable HealthKit). Workout saved in FamilyHub.',
+      );
+    }
+  }
+
+  next = next.copyWith(
+    workoutSessions: [...next.workoutSessions, sessionToSave],
+    workoutExercises: [...next.workoutExercises, ...exercises],
+    workoutSets: [...next.workoutSets, ...sets],
+  );
+  await provider.saveAndSync(next);
+}
+
 Future<void> _openExerciseHelpUrl(BuildContext context, String? url, String exerciseName) async {
   final u = (url != null && url.trim().isNotEmpty) ? url.trim() : _youtubeSearchUrl(exerciseName);
   final uri = Uri.tryParse(u);
@@ -222,12 +266,13 @@ class _FitnessScreenState extends State<FitnessScreen> {
       builder: (_) => _WorkoutSessionSheet(
         onSave: (session, exercises, sets) async {
           final provider = context.read<AppProvider>();
-          final db = provider.db;
-          await provider.saveAndSync(db.copyWith(
-            workoutSessions: [...db.workoutSessions, session],
-            workoutExercises: [...db.workoutExercises, ...exercises],
-            workoutSets: [...db.workoutSets, ...sets],
-          ));
+          await _persistCompletedWorkout(
+            context,
+            provider,
+            session: session,
+            exercises: exercises,
+            sets: sets,
+          );
         },
       ),
     );
@@ -246,6 +291,32 @@ class _FitnessScreenState extends State<FitnessScreen> {
         },
       ),
     );
+  }
+
+  Future<void> _toggleHealthWorkoutSync() async {
+    final provider = context.read<AppProvider>();
+    final user = provider.activeUser;
+    if (user == null) return;
+    final on = user.settings['health_workout_sync'] == true;
+    final nextSettings = Map<String, dynamic>.from(user.settings);
+    if (on) {
+      nextSettings.remove('health_workout_sync');
+    } else {
+      nextSettings['health_workout_sync'] = true;
+    }
+    final updatedUser = user.copyWith(settings: nextSettings);
+    final db = provider.db;
+    await provider.saveAndSync(
+      db.copyWith(
+        users: db.users.map((u) => u.id == user.id ? updatedUser : u).toList(),
+      ),
+    );
+    if (mounted) {
+      _showSnack(
+        context,
+        on ? 'Health workout sync off' : 'Health workout sync on — new workouts will be saved to Apple Health / Health Connect',
+      );
+    }
   }
 
   void _showAiPlanSheet() {
@@ -370,6 +441,15 @@ class _FitnessScreenState extends State<FitnessScreen> {
                 onTap: _showAddSheet,
               ),
               ActionChipButton(
+                icon: user.settings['health_workout_sync'] == true
+                    ? Icons.favorite_rounded
+                    : Icons.favorite_border_rounded,
+                label: user.settings['health_workout_sync'] == true ? 'Health on' : 'Health',
+                onTap: _toggleHealthWorkoutSync,
+                backgroundColor: AppTheme.stone100,
+                foregroundColor: AppTheme.stone700,
+              ),
+              ActionChipButton(
                 icon: Icons.monitor_weight_outlined,
                 label: 'Log Weight',
                 onTap: _showLogWeightSheet,
@@ -377,6 +457,78 @@ class _FitnessScreenState extends State<FitnessScreen> {
               ),
             ],
           ),
+
+          Builder(builder: (ctx) {
+            final prs = provider.db.exercisePrs
+                .where((p) => p.userId == user.id && p.familyId == family.id)
+                .toList()
+              ..sort((a, b) => b.achievedAt.compareTo(a.achievedAt));
+            if (prs.isEmpty) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppTheme.stone50,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppTheme.stone200),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Personal records',
+                      style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 13),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Based on completed sets (volume uses weight × reps; kg or lb supported).',
+                      style: TextStyle(fontFamily: 'Inter', fontSize: 10, color: AppTheme.stone400.withValues(alpha: 0.9)),
+                    ),
+                    const SizedBox(height: 8),
+                    ...prs.take(8).map((p) {
+                      final label = p.exerciseKey;
+                      String detail;
+                      if (p.bestVolume != null && p.bestVolume! > 0) {
+                        detail = 'Vol ${p.bestVolume!.toStringAsFixed(0)}';
+                        if (p.bestWeight != null && p.bestWeight!.isNotEmpty) {
+                          detail += ' · ${p.bestWeight}';
+                        }
+                      } else if (p.bestReps != null) {
+                        detail = '${p.bestReps} reps';
+                      } else {
+                        detail = '—';
+                      }
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                label,
+                                style: const TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 12,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Text(
+                              detail,
+                              style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone500),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ),
+            );
+          }),
 
           // ── Stats Row ──
           Padding(
@@ -876,7 +1028,7 @@ class _StoredPlanViewState extends State<_StoredPlanView> {
             setNumber: s + 1,
             reps: '$repNum',
             weight: null,
-            completed: false,
+            completed: true,
             notes: null,
             createdAt: now,
           ),
@@ -885,12 +1037,13 @@ class _StoredPlanViewState extends State<_StoredPlanView> {
     }
 
     final sessionDone = session.copyWith(durationMinutes: totalMin.clamp(5, 300));
-    final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
-      workoutSessions: [...db.workoutSessions, sessionDone],
-      workoutExercises: [...db.workoutExercises, ...exercises],
-      workoutSets: [...db.workoutSets, ...sets],
-    ));
+    await _persistCompletedWorkout(
+      context,
+      provider,
+      session: sessionDone,
+      exercises: exercises,
+      sets: sets,
+    );
     if (context.mounted) {
       _showSnack(context, 'Logged in My Logs — tap the card for how-to & demo');
     }

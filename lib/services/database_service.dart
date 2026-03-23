@@ -26,8 +26,27 @@ class DatabaseService {
   /// Workout exercise columns older DBs may lack until migration 16.
   static const _workoutExerciseCloudOmit = {'technique_notes', 'reference_url'};
 
-  /// Meal plan columns older DBs may lack until migration 16.
-  static const _mealPlanCloudOmit = <String>{};
+  /// Meal plan columns older DBs may lack until migration 16 / 17.
+  static const _mealPlanCloudOmit = {
+    'repeat_rule',
+    'source_meal_plan_id',
+    'leftover_meal_plan_id',
+  };
+
+  /// Recipe macro columns until migration 17.
+  static const _recipeCloudOmit = {
+    'kcal',
+    'protein_g',
+    'carbs_g',
+    'fat_g',
+    'fiber_g',
+  };
+
+  /// workout_sessions.health_synced_at until migration 17.
+  static const _workoutSessionCloudOmit = {'health_synced_at'};
+
+  /// users.settings may not exist on all deployments.
+  static const _usersCloudOmit = {'settings'};
 
   /// Events columns some older DBs lack (PGRST204).
   static const _eventsCloudOmit = {'shared_with'};
@@ -221,6 +240,11 @@ class DatabaseService {
             m.remove(k);
           }
         }
+        if (table == 'users') {
+          for (final k in _usersCloudOmit) {
+            m.remove(k);
+          }
+        }
         return m;
       }).toList();
     }
@@ -281,8 +305,18 @@ class DatabaseService {
       upAndClean('events',
           db.events.map((e) => {...e.toJson(), 'family_id': fid}).toList(),
           db.events.map((e) => e.id).toSet()),
-      upAndClean('recipes',
-          db.recipes.map((r) => {...r.toJson(), 'family_id': fid}).toList(),
+      upAndClean(
+          'recipes',
+          db.recipes
+              .map((r) {
+                final row = Map<String, dynamic>.from(r.toJson());
+                row['family_id'] = fid;
+                for (final k in _recipeCloudOmit) {
+                  row.remove(k);
+                }
+                return row;
+              })
+              .toList(),
           db.recipes.map((r) => r.id).toSet()),
       upAndClean(
           'meal_plans',
@@ -334,7 +368,15 @@ class DatabaseService {
         'workout_sessions',
         db.workoutSessions
             .where((s) => s.familyId == fid && s.userId == SupabaseService.currentUser?.id)
-            .map((s) => {...s.toJson(), 'family_id': fid}).toList(),
+            .map((s) {
+              final row = Map<String, dynamic>.from(s.toJson());
+              row['family_id'] = fid;
+              for (final k in _workoutSessionCloudOmit) {
+                row.remove(k);
+              }
+              return row;
+            })
+            .toList(),
         db.workoutSessions
             .where((s) => s.familyId == fid && s.userId == SupabaseService.currentUser?.id)
             .map((s) => s.id)
@@ -367,6 +409,14 @@ class DatabaseService {
             .where((set) => set.familyId == fid && set.userId == SupabaseService.currentUser?.id)
             .map((set) => set.id)
             .toSet(),
+      ),
+      upAndClean(
+        'exercise_prs',
+        db.exercisePrs
+            .where((p) => p.familyId == fid)
+            .map((p) => p.toJson())
+            .toList(),
+        db.exercisePrs.where((p) => p.familyId == fid).map((p) => p.id).toSet(),
       ),
       upAndClean('budget_categories',
           db.budgetCategories.map((b) => {...b.toJson(), 'family_id': fid}).toList(),
@@ -764,6 +814,7 @@ class DatabaseService {
     pruneTable('workout_sessions');
     pruneTable('workout_exercises');
     pruneTable('workout_sets');
+    pruneTable('exercise_prs');
   }
 
   static final DateTime _epoch = DateTime.fromMillisecondsSinceEpoch(0);
@@ -914,6 +965,7 @@ class DatabaseService {
     addAll(db.pantryItems);
     addAll(db.familyActivityLogs);
     addAll(db.wellnessCheckIns);
+    addAll(db.exercisePrs);
     return keys;
   }
 
@@ -973,6 +1025,8 @@ class DatabaseService {
           _safeParse(cloud['workout_exercises'], WorkoutExercise.fromJson)),
       workoutSets: _mergeById(
           local.workoutSets, _safeParse(cloud['workout_sets'], WorkoutSet.fromJson)),
+      exercisePrs: _mergeById(
+          local.exercisePrs, _safeParse(cloud['exercise_prs'], ExercisePR.fromJson)),
       budgetCategories: _mergeById(local.budgetCategories, _safeParse(cloud['budget_categories'], BudgetCategoryRecord.fromJson)),
       budgetEntries: _mergeById(local.budgetEntries, _safeParse(cloud['budget_entries'], BudgetEntry.fromJson)),
       transactions: _mergeById(local.transactions, _safeParse(cloud['transactions'], Transaction.fromJson)),

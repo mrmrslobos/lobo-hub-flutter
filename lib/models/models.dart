@@ -268,12 +268,15 @@ class User {
   final String name;
   final String email;
   final String? avatar;
+  /// Per-device prefs (e.g. Health sync). Not all backends persist every key.
+  final Map<String, dynamic> settings;
 
   const User({
     required this.id,
     required this.name,
     required this.email,
     this.avatar,
+    this.settings = const {},
     DateTime? createdAt,
   });
 
@@ -293,6 +296,9 @@ class User {
     name: j['name'] as String? ?? '',
     email: j['email'] as String? ?? '',
     avatar: j['avatar'] as String?,
+    settings: j['settings'] is Map
+        ? Map<String, dynamic>.from(j['settings'] as Map)
+        : const {},
   );
 
   Map<String, dynamic> toJson() => {
@@ -300,14 +306,22 @@ class User {
     'name': name,
     'email': email,
     'avatar': avatar,
+    'settings': settings,
   };
 
-  User copyWith({String? id, String? name, String? email, String? avatar}) =>
+  User copyWith({
+    String? id,
+    String? name,
+    String? email,
+    String? avatar,
+    Map<String, dynamic>? settings,
+  }) =>
     User(
       id: id ?? this.id,
       name: name ?? this.name,
       email: email ?? this.email,
       avatar: avatar ?? this.avatar,
+      settings: settings ?? this.settings,
     );
 }
 
@@ -881,6 +895,12 @@ class Recipe {
   final String? image;
   final int? prepMinutes;
   final int? cookMinutes;
+  /// Per full recipe (not per serving) unless noted in UI.
+  final int? kcal;
+  final double? proteinG;
+  final double? carbsG;
+  final double? fatG;
+  final double? fiberG;
   final DateTime updatedAt;
 
   Recipe({
@@ -894,6 +914,11 @@ class Recipe {
     this.image,
     this.prepMinutes,
     this.cookMinutes,
+    this.kcal,
+    this.proteinG,
+    this.carbsG,
+    this.fatG,
+    this.fiberG,
     // Accept but ignore extra fields from screen
     String? description,
     String? sourceUrl,
@@ -927,6 +952,11 @@ class Recipe {
       image: j['image'] as String?,
       prepMinutes: (j['prep_minutes'] ?? j['prepMinutes']) as int?,
       cookMinutes: (j['cook_minutes'] ?? j['cookMinutes']) as int?,
+      kcal: (j['kcal'] as num?)?.toInt(),
+      proteinG: (j['protein_g'] as num?)?.toDouble() ?? (j['proteinG'] as num?)?.toDouble(),
+      carbsG: (j['carbs_g'] as num?)?.toDouble() ?? (j['carbsG'] as num?)?.toDouble(),
+      fatG: (j['fat_g'] as num?)?.toDouble() ?? (j['fatG'] as num?)?.toDouble(),
+      fiberG: (j['fiber_g'] as num?)?.toDouble() ?? (j['fiberG'] as num?)?.toDouble(),
       updatedAt: _parseDateOpt(j['updated_at']) ?? DateTime.fromMillisecondsSinceEpoch(0),
     );
   }
@@ -942,6 +972,11 @@ class Recipe {
     'image': image,
     if (prepMinutes != null) 'prepMinutes': prepMinutes,
     if (cookMinutes != null) 'cookMinutes': cookMinutes,
+    'kcal': kcal,
+    'protein_g': proteinG,
+    'carbs_g': carbsG,
+    'fat_g': fatG,
+    'fiber_g': fiberG,
     'updated_at': updatedAt.toIso8601String(),
   };
 
@@ -952,7 +987,8 @@ class Recipe {
   Recipe copyWith({
     String? id, String? familyId, String? title, List<RecipeIngredient>? ingredients,
     List<String>? steps, int? servings, List<String>? tags, String? image,
-    int? prepMinutes, int? cookMinutes, DateTime? updatedAt,
+    int? prepMinutes, int? cookMinutes, int? kcal, double? proteinG,
+    double? carbsG, double? fatG, double? fiberG, DateTime? updatedAt,
   }) => Recipe(
     id: id ?? this.id, familyId: familyId ?? this.familyId,
     title: title ?? this.title, ingredients: ingredients ?? this.ingredients,
@@ -960,9 +996,15 @@ class Recipe {
     tags: tags ?? this.tags, image: image ?? this.image,
     prepMinutes: prepMinutes ?? this.prepMinutes,
     cookMinutes: cookMinutes ?? this.cookMinutes,
+    kcal: kcal ?? this.kcal,
+    proteinG: proteinG ?? this.proteinG,
+    carbsG: carbsG ?? this.carbsG,
+    fatG: fatG ?? this.fatG,
+    fiberG: fiberG ?? this.fiberG,
     updatedAt: updatedAt ??
         ((title != null || ingredients != null || steps != null || servings != null ||
-                tags != null || image != null || prepMinutes != null || cookMinutes != null)
+                tags != null || image != null || prepMinutes != null || cookMinutes != null ||
+                kcal != null || proteinG != null || carbsG != null || fatG != null || fiberG != null)
             ? DateTime.now()
             : this.updatedAt),
   );
@@ -1007,6 +1049,10 @@ class MealPlanEntry {
   final String? notes;
   final int? servings;
   final String? prepNotes;
+  /// `weekly_same_slot` | `daily` | null
+  final String? repeatRule;
+  final String? sourceMealPlanId;
+  final String? leftoverMealPlanId;
   final DateTime updatedAt;
 
   MealPlanEntry({
@@ -1019,6 +1065,9 @@ class MealPlanEntry {
     this.notes,
     this.servings,
     this.prepNotes,
+    this.repeatRule,
+    this.sourceMealPlanId,
+    this.leftoverMealPlanId,
     String? title,
     String? createdBy,
     String? creatorId,
@@ -1035,6 +1084,9 @@ class MealPlanEntry {
     notes: j['notes'] as String?,
     servings: (j['servings'] as num?)?.toInt(),
     prepNotes: j['prep_notes'] as String?,
+    repeatRule: j['repeat_rule'] as String?,
+    sourceMealPlanId: j['source_meal_plan_id'] as String?,
+    leftoverMealPlanId: j['leftover_meal_plan_id'] as String?,
     updatedAt: _parseDateOpt(j['updated_at']) ?? DateTime.fromMillisecondsSinceEpoch(0),
   );
 
@@ -1048,6 +1100,9 @@ class MealPlanEntry {
     'notes': notes,
     'servings': servings,
     'prep_notes': prepNotes,
+    'repeat_rule': repeatRule,
+    'source_meal_plan_id': sourceMealPlanId,
+    'leftover_meal_plan_id': leftoverMealPlanId,
     'updated_at': updatedAt.toIso8601String(),
   };
 
@@ -1057,7 +1112,8 @@ class MealPlanEntry {
   MealPlanEntry copyWith({
     String? id, String? familyId, DateTime? date, String? mealType,
     String? recipeId, String? customMeal, String? notes, int? servings,
-    String? prepNotes, DateTime? updatedAt,
+    String? prepNotes, String? repeatRule, String? sourceMealPlanId,
+    String? leftoverMealPlanId, DateTime? updatedAt,
   }) => MealPlanEntry(
     id: id ?? this.id, familyId: familyId ?? this.familyId,
     date: date ?? this.date, mealType: mealType ?? this.mealType,
@@ -1065,8 +1121,11 @@ class MealPlanEntry {
     notes: notes ?? this.notes,
     servings: servings ?? this.servings,
     prepNotes: prepNotes ?? this.prepNotes,
+    repeatRule: repeatRule ?? this.repeatRule,
+    sourceMealPlanId: sourceMealPlanId ?? this.sourceMealPlanId,
+    leftoverMealPlanId: leftoverMealPlanId ?? this.leftoverMealPlanId,
     updatedAt: updatedAt ??
-        ((date != null || mealType != null || recipeId != null || customMeal != null || notes != null || servings != null || prepNotes != null)
+        ((date != null || mealType != null || recipeId != null || customMeal != null || notes != null || servings != null || prepNotes != null || repeatRule != null || sourceMealPlanId != null || leftoverMealPlanId != null)
             ? DateTime.now()
             : this.updatedAt),
   );
@@ -1407,6 +1466,8 @@ class WorkoutSession {
   final DateTime date;
   final int durationMinutes;
   final String? notes;
+  /// When this session was written to Apple Health / Health Connect (if enabled).
+  final DateTime? healthSyncedAt;
   final DateTime createdAt;
 
   const WorkoutSession({
@@ -1417,6 +1478,7 @@ class WorkoutSession {
     required this.date,
     this.durationMinutes = 0,
     this.notes,
+    this.healthSyncedAt,
     required this.createdAt,
   });
 
@@ -1430,6 +1492,7 @@ class WorkoutSession {
       date: _parseDate(j['date']),
       durationMinutes: ((j['duration_minutes'] as num?) ?? 0).toInt(),
       notes: FieldEncryption.decryptField(j['notes'] as String?, fid),
+      healthSyncedAt: _parseDateOpt(j['health_synced_at']),
       createdAt: _parseDate(j['created_at']),
     );
   }
@@ -1442,6 +1505,8 @@ class WorkoutSession {
         'date': date.toIso8601String(),
         'duration_minutes': durationMinutes,
         'notes': FieldEncryption.encryptField(notes, familyId),
+        if (healthSyncedAt != null)
+          'health_synced_at': healthSyncedAt!.toIso8601String(),
         'created_at': createdAt.toIso8601String(),
       };
 
@@ -1453,6 +1518,7 @@ class WorkoutSession {
     DateTime? date,
     int? durationMinutes,
     String? notes,
+    DateTime? healthSyncedAt,
     DateTime? createdAt,
   }) =>
       WorkoutSession(
@@ -1463,6 +1529,7 @@ class WorkoutSession {
         date: date ?? this.date,
         durationMinutes: durationMinutes ?? this.durationMinutes,
         notes: notes ?? this.notes,
+        healthSyncedAt: healthSyncedAt ?? this.healthSyncedAt,
         createdAt: createdAt ?? this.createdAt,
       );
 }
@@ -1637,6 +1704,95 @@ class WorkoutSet {
         weight: weight ?? this.weight,
         completed: completed ?? this.completed,
         notes: notes ?? this.notes,
+        createdAt: createdAt ?? this.createdAt,
+      );
+}
+
+/// Best-known set stats per user + normalized exercise name (family-scoped for sync).
+class ExercisePR {
+  final String id;
+  final String userId;
+  final String familyId;
+  final String exerciseKey;
+  final double? bestVolume;
+  final String? bestWeight;
+  final int? bestReps;
+  final String? sessionId;
+  final String? exerciseId;
+  final DateTime achievedAt;
+  final DateTime createdAt;
+
+  const ExercisePR({
+    required this.id,
+    required this.userId,
+    required this.familyId,
+    required this.exerciseKey,
+    this.bestVolume,
+    this.bestWeight,
+    this.bestReps,
+    this.sessionId,
+    this.exerciseId,
+    required this.achievedAt,
+    required this.createdAt,
+  });
+
+  String get mergeKey => id;
+
+  factory ExercisePR.fromJson(Map<String, dynamic> j) {
+    final fid = j['family_id'] as String? ?? '';
+    return ExercisePR(
+      id: j['id'] as String? ?? '',
+      userId: j['user_id'] as String? ?? '',
+      familyId: fid,
+      exerciseKey: j['exercise_key'] as String? ?? '',
+      bestVolume: (j['best_volume'] as num?)?.toDouble(),
+      bestWeight: FieldEncryption.decryptField(j['best_weight'] as String?, fid),
+      bestReps: (j['best_reps'] as num?)?.toInt(),
+      sessionId: j['session_id'] as String?,
+      exerciseId: j['exercise_id'] as String?,
+      achievedAt: _parseDate(j['achieved_at']),
+      createdAt: _parseDate(j['created_at']),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'user_id': userId,
+        'family_id': familyId,
+        'exercise_key': exerciseKey,
+        'best_volume': bestVolume,
+        'best_weight': FieldEncryption.encryptField(bestWeight, familyId),
+        'best_reps': bestReps,
+        'session_id': sessionId,
+        'exercise_id': exerciseId,
+        'achieved_at': achievedAt.toIso8601String(),
+        'created_at': createdAt.toIso8601String(),
+      };
+
+  ExercisePR copyWith({
+    String? id,
+    String? userId,
+    String? familyId,
+    String? exerciseKey,
+    double? bestVolume,
+    String? bestWeight,
+    int? bestReps,
+    String? sessionId,
+    String? exerciseId,
+    DateTime? achievedAt,
+    DateTime? createdAt,
+  }) =>
+      ExercisePR(
+        id: id ?? this.id,
+        userId: userId ?? this.userId,
+        familyId: familyId ?? this.familyId,
+        exerciseKey: exerciseKey ?? this.exerciseKey,
+        bestVolume: bestVolume ?? this.bestVolume,
+        bestWeight: bestWeight ?? this.bestWeight,
+        bestReps: bestReps ?? this.bestReps,
+        sessionId: sessionId ?? this.sessionId,
+        exerciseId: exerciseId ?? this.exerciseId,
+        achievedAt: achievedAt ?? this.achievedAt,
         createdAt: createdAt ?? this.createdAt,
       );
 }
@@ -3858,6 +4014,7 @@ class AppDB {
   final List<WorkoutSession> workoutSessions;
   final List<WorkoutExercise> workoutExercises;
   final List<WorkoutSet> workoutSets;
+  final List<ExercisePR> exercisePrs;
   final List<BudgetCategoryRecord> budgetCategories;
   final List<BudgetEntry> budgetEntries;
   final List<Transaction> transactions;
@@ -3905,6 +4062,7 @@ class AppDB {
     this.workoutSessions = const [],
     this.workoutExercises = const [],
     this.workoutSets = const [],
+    this.exercisePrs = const [],
     this.budgetCategories = const <BudgetCategoryRecord>[],
     this.budgetEntries = const [],
     this.transactions = const [],
@@ -3957,6 +4115,7 @@ class AppDB {
     workoutSessions: _parseList(j['workoutSessions'] ?? j['workout_sessions'], WorkoutSession.fromJson),
     workoutExercises: _parseList(j['workoutExercises'] ?? j['workout_exercises'], WorkoutExercise.fromJson),
     workoutSets: _parseList(j['workoutSets'] ?? j['workout_sets'], WorkoutSet.fromJson),
+    exercisePrs: _parseList(j['exercisePrs'] ?? j['exercise_prs'], ExercisePR.fromJson),
     budgetCategories: _parseList(j['budgetCategories'] ?? j['budget_categories'], BudgetCategoryRecord.fromJson),
     budgetEntries: _parseList(j['budgetEntries'] ?? j['budget_entries'], BudgetEntry.fromJson),
     transactions: _parseList(j['transactions'], Transaction.fromJson),
@@ -4006,6 +4165,7 @@ class AppDB {
     workoutSessions: _parseList(cloud['workout_sessions'], WorkoutSession.fromJson),
     workoutExercises: _parseList(cloud['workout_exercises'], WorkoutExercise.fromJson),
     workoutSets: _parseList(cloud['workout_sets'], WorkoutSet.fromJson),
+    exercisePrs: _parseList(cloud['exercise_prs'], ExercisePR.fromJson),
     budgetCategories: _parseList(cloud['budget_categories'], BudgetCategoryRecord.fromJson),
     budgetEntries: _parseList(cloud['budget_entries'], BudgetEntry.fromJson),
     transactions: _parseList(cloud['transactions'], Transaction.fromJson),
@@ -4054,6 +4214,7 @@ class AppDB {
     'workoutSessions': workoutSessions.map((e) => e.toJson()).toList(),
     'workoutExercises': workoutExercises.map((e) => e.toJson()).toList(),
     'workoutSets': workoutSets.map((e) => e.toJson()).toList(),
+    'exercisePrs': exercisePrs.map((e) => e.toJson()).toList(),
     'budgetCategories': budgetCategories.map((e) => e.toJson()).toList(),
     'budgetEntries': budgetEntries.map((e) => e.toJson()).toList(),
     'transactions': transactions.map((e) => e.toJson()).toList(),
@@ -4102,6 +4263,7 @@ class AppDB {
     List<WorkoutSession>? workoutSessions,
     List<WorkoutExercise>? workoutExercises,
     List<WorkoutSet>? workoutSets,
+    List<ExercisePR>? exercisePrs,
     List<BudgetCategoryRecord>? budgetCategories,
     List<BudgetEntry>? budgetEntries,
     List<Transaction>? transactions,
@@ -4157,6 +4319,7 @@ class AppDB {
     workoutSessions: workoutSessions ?? this.workoutSessions,
     workoutExercises: workoutExercises ?? this.workoutExercises,
     workoutSets: workoutSets ?? this.workoutSets,
+    exercisePrs: exercisePrs ?? this.exercisePrs,
     budgetCategories: budgetCategories ?? this.budgetCategories,
     budgetEntries: budgetEntries ?? this.budgetEntries,
     transactions: transactions ?? this.transactions,
@@ -4277,6 +4440,7 @@ class AppDB {
           date: s.date,
           durationMinutes: s.durationMinutes,
           notes: s.notes != null ? ds(s.notes) : null,
+          healthSyncedAt: s.healthSyncedAt,
           createdAt: s.createdAt,
         );
       }).toList(),
