@@ -1,6 +1,7 @@
 // lib/screens/subscription/subscription_screen.dart
 // Subscription plans & pricing screen for FamilyHub
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -9,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../services/purchase_service.dart';
 
 // ─── Currency pricing data ──────────────────────────────────────────────────
 
@@ -60,6 +62,8 @@ class SubscriptionScreen extends StatefulWidget {
 class _SubscriptionScreenState extends State<SubscriptionScreen> {
   bool _yearly = true;
   String _currency = 'AUD';
+  bool _restoreBusy = false;
+  SubscriptionTier? _purchasingTier;
 
   @override
   void initState() {
@@ -119,6 +123,31 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               ),
             ),
             centerTitle: true,
+            actions: [
+              if (!kIsWeb && PurchaseService.isConfigured)
+                TextButton(
+                  onPressed: (_restoreBusy || _purchasingTier != null)
+                      ? null
+                      : _restorePurchases,
+                  child: _restoreBusy
+                      ? SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: cs.primary,
+                          ),
+                        )
+                      : Text(
+                          'Restore',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontWeight: FontWeight.w700,
+                            color: cs.primary,
+                          ),
+                        ),
+                ),
+            ],
           ),
           body: ListView(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
@@ -443,7 +472,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: isCurrentPlan ? null : () => _handleSubscribe(tier),
+                    onPressed: isCurrentPlan ||
+                            _restoreBusy ||
+                            _purchasingTier != null
+                        ? null
+                        : () => _handleSubscribe(tier),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: isCurrentPlan ? AppTheme.stone200 : color,
                       foregroundColor: isCurrentPlan ? AppTheme.stone500 : Colors.white,
@@ -452,7 +485,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       textStyle: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15),
                     ),
-                    child: Text(isCurrentPlan ? 'Current Plan' : 'Subscribe'),
+                    child: _purchasingTier == tier && !isCurrentPlan
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : Text(isCurrentPlan ? 'Current Plan' : 'Subscribe'),
                   ),
                 ),
               ],
@@ -463,25 +502,96 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     );
   }
 
-  void _handleSubscribe(SubscriptionTier tier) {
+  Future<void> _restorePurchases() async {
+    if (!PurchaseService.isConfigured) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Add RevenueCat API keys at build time to enable purchases.')),
+      );
+      return;
+    }
+    setState(() => _restoreBusy = true);
+    final result = await PurchaseService.restorePurchases();
+    if (!mounted) return;
+    setState(() => _restoreBusy = false);
+    if (result.success) {
+      await context.read<AppProvider>().refreshFromCloud();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Purchases restored. Syncing your account…')),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result.message ?? 'Restore failed.')),
+      );
+    }
+  }
+
+  Future<void> _handleSubscribe(SubscriptionTier tier) async {
     HapticFeedback.mediumImpact();
-    // TODO: Integrate with RevenueCat / in-app purchase flow
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Coming Soon', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800)),
-        content: const Text(
-          'In-app subscriptions will be available once the app is published to the App Store and Google Play. Stay tuned!',
-          style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone600),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Got it', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700)),
+    if (!PurchaseService.isConfigured) {
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('Store not configured', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800)),
+          content: const Text(
+            'Build the app with RevenueCat keys (RC_IOS_KEY / RC_ANDROID_KEY) and configure products in the RevenueCat dashboard. See docs/REVENUECAT.md.',
+            style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone600),
           ),
-        ],
-      ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('OK', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700)),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    setState(() => _purchasingTier = tier);
+    final pkg = await PurchaseService.packageForPlan(tier: tier, yearly: _yearly);
+    if (pkg == null) {
+      if (!mounted) return;
+      setState(() => _purchasingTier = null);
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('Products unavailable', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800)),
+          content: Text(
+            'No package "${PurchaseService.packageIdentifier(tier, _yearly)}" on the current RevenueCat offering. Add it in the dashboard (default offering) and attach App Store / Play products.',
+            style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone600),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('OK', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700)),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final outcome = await PurchaseService.purchasePackage(pkg);
+    if (!mounted) return;
+    setState(() => _purchasingTier = null);
+
+    if (outcome.userCancelled) return;
+    if (!outcome.success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(outcome.message ?? 'Purchase failed.')),
+      );
+      return;
+    }
+
+    await context.read<AppProvider>().refreshFromCloud();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Thank you! Your subscription is processing — sync complete.')),
     );
   }
 }

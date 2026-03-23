@@ -17,6 +17,7 @@ import '../services/notification_service.dart';
 import '../services/ai_service.dart';
 import '../services/field_encryption_service.dart';
 import '../services/supabase_service.dart';
+import '../services/purchase_service.dart';
 
 class AppProvider extends ChangeNotifier {
   User? _activeUser;
@@ -178,6 +179,7 @@ class AppProvider extends ChangeNotifier {
         _startRealtimeListener();
         NotificationService.registerDeviceToken(family.id, user.id);
         unawaited(_repairOwnerMembershipIfNeeded());
+        unawaited(PurchaseService.syncIdentity(user.id));
       }
     }
   }
@@ -240,6 +242,7 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
     unawaited(_repairOwnerMembershipIfNeeded());
     unawaited(_backfillMissingUsersIfNeeded(family.id));
+    unawaited(PurchaseService.syncIdentity(user.id));
   }
 
   /// When [users] rows are missing for people in [family_members], load or stub
@@ -403,6 +406,8 @@ class AppProvider extends ChangeNotifier {
         await SupabaseService.signOut();
       } catch (_) {}
     }
+
+    await PurchaseService.revenueCatLogOut();
 
     FieldEncryption.clear();
     await DatabaseService.clearLocal();
