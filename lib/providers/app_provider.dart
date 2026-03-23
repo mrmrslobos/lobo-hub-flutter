@@ -335,7 +335,7 @@ class AppProvider extends ChangeNotifier {
     _realtimeChannel = SupabaseService.subscribeToFamily(
       familyId,
       onBroadcast: (payload) {
-        final senderId = payload is Map ? payload['user_id'] : null;
+        final senderId = payload['user_id'];
         if (senderId == _activeUser?.id) return;
         _pullFromCloud();
       },

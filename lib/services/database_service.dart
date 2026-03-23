@@ -716,7 +716,7 @@ class DatabaseService {
             .from('users')
             .select()
             .inFilter('id', missing);
-        final rows = response is List ? response : <dynamic>[];
+        final rows = response as List;
         for (final raw in rows) {
           if (raw is! Map) continue;
           try {
