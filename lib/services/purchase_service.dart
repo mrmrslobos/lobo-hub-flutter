@@ -104,7 +104,8 @@ class PurchaseService {
       final activeEntitlements = customerInfo.entitlements.active;
 
       final hasBase = activeEntitlements.containsKey('base');
-      final hasAI = activeEntitlements.containsKey('ai');
+      final hasAI = activeEntitlements.containsKey('ai') ||
+          activeEntitlements.containsKey('ai_family');
       final isInTrial =
           activeEntitlements['base']?.periodType == PeriodType.trial;
 
@@ -113,6 +114,21 @@ class PurchaseService {
       debugPrint('[PurchaseService] checkEntitlements() error: $e\n$st');
       return (hasBase: false, hasAI: false, isInTrial: false);
     }
+  }
+
+  /// Maps RevenueCat active entitlements to [Family.subscriptionTier].
+  /// Returns null when the store has no active subscription (keep local/DB tier).
+  ///
+  /// Configure optional entitlement id `ai_family` in RevenueCat for the AI Family
+  /// product; otherwise AI Family purchases can attach both `ai` and `base`.
+  static SubscriptionTier? subscriptionTierFromCustomerInfo(
+    CustomerInfo customerInfo,
+  ) {
+    final active = customerInfo.entitlements.active;
+    if (active.containsKey('ai_family')) return SubscriptionTier.ai_family;
+    if (active.containsKey('ai')) return SubscriptionTier.ai;
+    if (active.containsKey('base')) return SubscriptionTier.base;
+    return null;
   }
 
   /// Resolves a [Package] from the current offering (`Offerings.current`).

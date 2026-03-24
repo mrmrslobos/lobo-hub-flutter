@@ -8,6 +8,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../models/models.dart';
+
 class SupabaseService {
   static SupabaseClient get client => Supabase.instance.client;
   static GoTrueClient get auth => Supabase.instance.client.auth;
@@ -67,6 +69,26 @@ class SupabaseService {
       await client.rpc('claim_owned_families');
     } catch (e) {
       debugPrint('[SupabaseService] claim_owned_families failed: $e');
+    }
+  }
+
+  /// Updates `families.subscription_tier` for [familyId] (any family member).
+  /// Requires migration `21_family_subscription_tier_sync.sql` on the project.
+  static Future<void> syncFamilySubscriptionTier({
+    required String familyId,
+    required SubscriptionTier tier,
+  }) async {
+    if (!isConfigured) return;
+    try {
+      await client.rpc(
+        'sync_family_subscription_tier',
+        params: {
+          'p_family_id': familyId,
+          'p_tier': tier.name,
+        },
+      );
+    } catch (e) {
+      debugPrint('[SupabaseService] sync_family_subscription_tier failed: $e');
     }
   }
 
