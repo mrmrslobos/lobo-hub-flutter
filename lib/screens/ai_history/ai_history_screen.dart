@@ -20,6 +20,14 @@ class AIHistoryScreen extends StatefulWidget {
 
 class _AIHistoryScreenState extends State<AIHistoryScreen> {
   String? _selectedModule; // null = show all
+  final _searchCtrl = TextEditingController();
+  String _searchQuery = '';
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   void _showSnack(String msg) {
     ScaffoldMessenger.of(context)
@@ -56,15 +64,27 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
   }
 
   Color _moduleColor(String module) {
+    final m = module.toLowerCase();
     final colors = {
       'chat': AppTheme.primary,
       'tasks': AppTheme.success,
+      'ai_tasks': AppTheme.success,
       'meals': AppTheme.warning,
+      'ai_recipes': AppTheme.warning,
       'fitness': AppTheme.error,
+      'ai_fitness': AppTheme.error,
       'devotional': const Color(0xFF059669),
+      'ai_devotional': const Color(0xFF059669),
       'budget': const Color(0xFF0EA5E9),
+      'ai_budget': const Color(0xFF0EA5E9),
+      'dashboard': const Color(0xFF6366F1),
+      'ai_motivation': const Color(0xFF6366F1),
+      'calendar': const Color(0xFF8B5CF6),
+      'ai_events': const Color(0xFF8B5CF6),
+      'lists': const Color(0xFF06B6D4),
+      'ai_lists': const Color(0xFF06B6D4),
     };
-    return colors[module.toLowerCase()] ?? AppTheme.stone500;
+    return colors[m] ?? AppTheme.stone500;
   }
 
   @override
@@ -84,9 +104,18 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
     // Collect unique modules
     final modules = allEntries.map((e) => e.module).toSet().toList()..sort();
 
-    final shown = _selectedModule == null
+    var shown = _selectedModule == null
         ? allEntries
         : allEntries.where((e) => e.module == _selectedModule).toList();
+    if (_searchQuery.trim().isNotEmpty) {
+      final q = _searchQuery.trim().toLowerCase();
+      shown = shown
+          .where((e) =>
+              e.prompt.toLowerCase().contains(q) ||
+              e.response.toLowerCase().contains(q) ||
+              e.module.toLowerCase().contains(q))
+          .toList();
+    }
 
     return Scaffold(
       // backgroundColor handled by theme
@@ -132,6 +161,43 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
                   ),
               ],
             ),
+            if (allEntries.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                child: TextField(
+                  controller: _searchCtrl,
+                  onChanged: (v) => setState(() => _searchQuery = v),
+                  decoration: InputDecoration(
+                    hintText: 'Search prompts and responses…',
+                    hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
+                    prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.close_rounded, size: 18),
+                            onPressed: () {
+                              _searchCtrl.clear();
+                              setState(() => _searchQuery = '');
+                            },
+                          )
+                        : null,
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: AppTheme.stone200),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: AppTheme.stone200),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: AppTheme.primary),
+                    ),
+                  ),
+                ),
+              ),
             // Stats row
             if (allEntries.isNotEmpty)
               Padding(

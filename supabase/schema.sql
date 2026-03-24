@@ -684,6 +684,7 @@ alter table families add column if not exists daily_devotional_hour smallint not
 alter table families add column if not exists daily_devotional_minute smallint not null default 0;
 alter table families add column if not exists currency text not null default 'AUD';
 alter table families add column if not exists trial_start_date timestamptz;
+alter table families add column if not exists updated_at timestamptz not null default now();
 
 -- Devotional favorites (per-entry, local-first but synced)
 alter table devotionals add column if not exists is_favorited boolean not null default false;

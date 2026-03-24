@@ -247,7 +247,10 @@ class AppProvider extends ChangeNotifier {
         _syncAIFlag();
         return;
       }
-      final updated = fam.copyWith(subscriptionTier: tier);
+      final updated = fam.copyWith(
+        subscriptionTier: tier,
+        updatedAt: DateTime.now(),
+      );
       _activeFamily = updated;
       _db = _db.copyWith(
         families: _db.families.map((f) => f.id == updated.id ? updated : f).toList(),
@@ -651,6 +654,9 @@ class AppProvider extends ChangeNotifier {
 
   void updateFamily(Family family) {
     _activeFamily = family;
+    _db = _db.copyWith(
+      families: _db.families.map((f) => f.id == family.id ? family : f).toList(),
+    );
     _syncAIFlag();
     notifyListeners();
   }

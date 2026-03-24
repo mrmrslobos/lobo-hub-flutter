@@ -350,8 +350,10 @@ class Family {
   final int dailyDevotionalMinute; // 0–59
   /// Flexible JSON (food budget caps, simple debt list, integrations flags). Synced when `settings` column exists in DB.
   final Map<String, dynamic> settings;
+  /// Bumped on family metadata edits for last-write-wins merge across devices.
+  final DateTime updatedAt;
 
-  const Family({
+  Family({
     required this.id,
     required this.name,
     required this.ownerId,
@@ -371,9 +373,12 @@ class Family {
     this.dailyDevotionalHour = 7,
     this.dailyDevotionalMinute = 0,
     this.settings = const {},
-  });
+    DateTime? updatedAt,
+  }) : updatedAt = updatedAt ?? DateTime.now();
 
-  factory Family.fromJson(Map<String, dynamic> j) => Family(
+  factory Family.fromJson(Map<String, dynamic> j) {
+    final created = _parseDate(j['created_at']);
+    return Family(
     id: j['id'] as String? ?? '',
     name: j['name'] as String? ?? '',
     ownerId: j['owner_id'] as String? ?? '',
@@ -384,7 +389,7 @@ class Family {
     trialStartDate: _parseDateOpt(j['trial_start_date']),
     currency: (j['currency'] as String?) ?? 'AUD',
     enabledModules: _strList(j['enabled_modules']),
-    createdAt: _parseDate(j['created_at']),
+    createdAt: created,
     welcomeDismissed: (j['welcome_dismissed'] ?? false) as bool,
     weeklyDigest: (j['weekly_digest'] ?? true) as bool,
     weeklyDigestDay: (j['weekly_digest_day'] as num?)?.toInt() ?? 0,
@@ -395,7 +400,9 @@ class Family {
     settings: j['settings'] is Map
         ? Map<String, dynamic>.from(j['settings'] as Map)
         : const {},
+    updatedAt: _parseDateOpt(j['updated_at']) ?? created,
   );
+  }
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -417,6 +424,7 @@ class Family {
     'daily_devotional_hour': dailyDevotionalHour,
     'daily_devotional_minute': dailyDevotionalMinute,
     'settings': settings,
+    'updated_at': updatedAt.toIso8601String(),
   };
 
   Family copyWith({
@@ -427,7 +435,28 @@ class Family {
     int? weeklyDigestDay, int? weeklyDigestHour,
     bool? dailyDevotionalEnabled, int? dailyDevotionalHour, int? dailyDevotionalMinute,
     Map<String, dynamic>? settings,
-  }) => Family(
+    DateTime? updatedAt,
+  }) {
+    final anyChange = id != null ||
+        name != null ||
+        ownerId != null ||
+        joinCode != null ||
+        announcement != null ||
+        announcementAuthor != null ||
+        subscriptionTier != null ||
+        trialStartDate != null ||
+        currency != null ||
+        enabledModules != null ||
+        createdAt != null ||
+        welcomeDismissed != null ||
+        weeklyDigest != null ||
+        weeklyDigestDay != null ||
+        weeklyDigestHour != null ||
+        dailyDevotionalEnabled != null ||
+        dailyDevotionalHour != null ||
+        dailyDevotionalMinute != null ||
+        settings != null;
+    return Family(
     id: id ?? this.id,
     name: name ?? this.name,
     ownerId: ownerId ?? this.ownerId,
@@ -447,7 +476,9 @@ class Family {
     dailyDevotionalHour: dailyDevotionalHour ?? this.dailyDevotionalHour,
     dailyDevotionalMinute: dailyDevotionalMinute ?? this.dailyDevotionalMinute,
     settings: settings ?? this.settings,
+    updatedAt: updatedAt ?? (anyChange ? DateTime.now() : this.updatedAt),
   );
+  }
 
   // ── Trial helpers ──────────────────────────────────────────────────────
   static const trialDays = 14;
@@ -490,6 +521,25 @@ class Family {
       case SubscriptionTier.base:
         return false;
     }
+  }
+
+  /// Synced custom task folder names (stored in [settings] for multi-device).
+  static const kTaskCustomFoldersSettingsKey = 'task_custom_folders';
+
+  List<String> get taskCustomFolderNames {
+    final v = settings[kTaskCustomFoldersSettingsKey];
+    if (v is! List) return const [];
+    return v
+        .map((e) => e.toString().trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+  }
+
+  Family withTaskCustomFolders(List<String> names) {
+    final sorted = names.map((e) => e.trim()).where((s) => s.isNotEmpty).toList()..sort();
+    final nextSettings = Map<String, dynamic>.from(settings)
+      ..[kTaskCustomFoldersSettingsKey] = sorted;
+    return copyWith(settings: nextSettings);
   }
 }
 
