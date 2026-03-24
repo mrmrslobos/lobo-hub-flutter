@@ -21,6 +21,7 @@ import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/subscription_modal.dart';
+import '../../utils/debounce.dart';
 
 // ─── CalendarScreen ───────────────────────────────────────────────────────────
 
@@ -38,6 +39,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   bool _isSyncing = false;
   String _searchQuery = '';
   final _searchCtrl = TextEditingController();
+  final _searchDebounce = Debouncer();
   /// Hide events from these layers: `'__family__'` = only family-created events; else [ExternalCalendar.id].
   final Set<String> _hiddenCalendarLayers = {};
 
@@ -48,6 +50,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   @override
   void dispose() {
+    _searchDebounce.dispose();
     _aiController.dispose();
     _searchCtrl.dispose();
     super.dispose();
@@ -669,13 +672,18 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: TextField(
                   controller: _searchCtrl,
-                  onChanged: (v) => setState(() => _searchQuery = v),
+                  onChanged: (v) {
+                    _searchDebounce.run(() {
+                      if (!mounted) return;
+                      setState(() => _searchQuery = v);
+                    });
+                  },
                   decoration: InputDecoration(
                     hintText: 'Search events...',
                     hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
                     prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
                     suffixIcon: _searchQuery.isNotEmpty
-                        ? IconButton(icon: const Icon(Icons.close_rounded, size: 18), onPressed: () { _searchCtrl.clear(); setState(() => _searchQuery = ''); })
+                        ? IconButton(icon: const Icon(Icons.close_rounded, size: 18), onPressed: () { _searchDebounce.cancel(); _searchCtrl.clear(); setState(() => _searchQuery = ''); })
                         : null,
                     filled: true,
                     fillColor: Colors.white,

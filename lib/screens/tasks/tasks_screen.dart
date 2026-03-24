@@ -18,6 +18,7 @@ import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/subscription_modal.dart';
+import '../../utils/debounce.dart';
 
 // ─── Filter enum ──────────────────────────────────────────────────────────────
 
@@ -38,6 +39,7 @@ class _TasksScreenState extends State<TasksScreen> {
   String? _selectedMemberId;
   String _searchQuery = '';
   final _searchCtrl = TextEditingController();
+  final _searchDebounce = Debouncer();
   bool _migratedLocalTaskFolders = false;
   static const _taskFoldersKeyPrefix = 'task_folders_';
 
@@ -143,6 +145,7 @@ class _TasksScreenState extends State<TasksScreen> {
 
   @override
   void dispose() {
+    _searchDebounce.dispose();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -465,7 +468,12 @@ class _TasksScreenState extends State<TasksScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: TextField(
                   controller: _searchCtrl,
-                  onChanged: (v) => setState(() => _searchQuery = v),
+                  onChanged: (v) {
+                    _searchDebounce.run(() {
+                      if (!mounted) return;
+                      setState(() => _searchQuery = v);
+                    });
+                  },
                   decoration: InputDecoration(
                     hintText: 'Search tasks...',
                     hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
@@ -474,6 +482,7 @@ class _TasksScreenState extends State<TasksScreen> {
                         ? IconButton(
                             icon: const Icon(Icons.close_rounded, size: 18),
                             onPressed: () {
+                              _searchDebounce.cancel();
                               _searchCtrl.clear();
                               setState(() => _searchQuery = '');
                             },

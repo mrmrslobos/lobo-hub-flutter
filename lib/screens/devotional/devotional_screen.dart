@@ -22,6 +22,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/subscription_modal.dart';
+import '../../utils/debounce.dart';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -540,6 +541,8 @@ class _DevotionalsTab extends StatefulWidget {
 
 class _DevotionalsTabState extends State<_DevotionalsTab> {
   final _topicCtrl = TextEditingController();
+  final _searchCtrl = TextEditingController();
+  final _searchDebounce = Debouncer();
   late bool _isShared;
   bool _isGenerating = false;
   String _searchQuery = '';
@@ -557,6 +560,8 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
 
   @override
   void dispose() {
+    _searchDebounce.dispose();
+    _searchCtrl.dispose();
     _topicCtrl.dispose();
     super.dispose();
   }
@@ -919,13 +924,26 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 20),
                         child: TextField(
-                          onChanged: (v) => setState(() => _searchQuery = v),
+                          controller: _searchCtrl,
+                          onChanged: (v) {
+                            _searchDebounce.run(() {
+                              if (!mounted) return;
+                              setState(() => _searchQuery = v);
+                            });
+                          },
                           decoration: InputDecoration(
                             hintText: 'Search devotionals...',
                             hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
                             prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
                             suffixIcon: _searchQuery.isNotEmpty
-                                ? IconButton(icon: const Icon(Icons.close_rounded, size: 18), onPressed: () => setState(() => _searchQuery = ''))
+                                ? IconButton(
+                                    icon: const Icon(Icons.close_rounded, size: 18),
+                                    onPressed: () {
+                                      _searchDebounce.cancel();
+                                      _searchCtrl.clear();
+                                      setState(() => _searchQuery = '');
+                                    },
+                                  )
                                 : null,
                             filled: true,
                             fillColor: Colors.white,
