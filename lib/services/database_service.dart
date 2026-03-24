@@ -247,7 +247,7 @@ class DatabaseService {
     ) {
       // lists: need real updated_at for merge — otherwise row stays at DB default
       // and another device's stale copy can win last-write-wins.
-      const keepUpdatedAt = {'user_locations', 'lists'};
+      const keepUpdatedAt = {'user_locations', 'lists', 'families'};
       return rows.map((r) {
         final m = Map<String, dynamic>.from(r);
         if (keepUpdatedAt.contains(table)) {
@@ -891,6 +891,7 @@ class DatabaseService {
   static DateTime _entityVersion(dynamic o) {
     if (o == null) return _epoch;
     if (o is ChatMessage) return o.editedAt ?? o.createdAt;
+    if (o is Family) return o.updatedAt;
     if (o is Task) return o.updatedAt;
     try {
       final u = (o as dynamic).updatedAt;

@@ -515,7 +515,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     if (!mounted) return;
     setState(() => _restoreBusy = false);
     if (result.success) {
-      await context.read<AppProvider>().refreshFromCloud();
+      final app = context.read<AppProvider>();
+      await app.refreshStoreSubscription();
+      await app.refreshFromCloud();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Purchases restored. Syncing your account…')),
@@ -588,7 +590,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       return;
     }
 
-    await context.read<AppProvider>().refreshFromCloud();
+    final app = context.read<AppProvider>();
+    await app.refreshStoreSubscription();
+    await app.refreshFromCloud();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Thank you! Your subscription is processing — sync complete.')),

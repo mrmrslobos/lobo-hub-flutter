@@ -21,12 +21,15 @@ This app uses [RevenueCat](https://www.revenuecat.com/) via `purchases_flutter` 
 
 ## 4. Entitlements
 
-The Flutter code expects two entitlement identifiers (see `PurchaseService.checkEntitlements`):
+The Flutter code expects these entitlement identifiers (see `PurchaseService.checkEntitlements` and `subscriptionTierFromCustomerInfo`):
 
 - `base` — Base (or bundled) access  
 - `ai` — AI features  
+- `ai_family` — optional; use for AI Family so the app maps to `SubscriptionTier.ai_family` (otherwise map that product to `ai` as well if both apply)
 
-Map your store products to these entitlements in the RevenueCat dashboard. Add more entitlements in code if you split tiers differently.
+Map your store products to these entitlements in the RevenueCat dashboard.
+
+After a purchase or restore, the app calls the Supabase RPC `sync_family_subscription_tier` so `families.subscription_tier` matches the store (required for `ai-proxy` enforcement). Apply migration `21_family_subscription_tier_sync.sql` to your project.
 
 ## 5. Offerings and packages
 

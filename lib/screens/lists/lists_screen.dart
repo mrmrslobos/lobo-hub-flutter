@@ -1093,6 +1093,8 @@ class _AiCategorizationSheetState extends State<_AiCategorizationSheet> {
 // List detail view
 // ─────────────────────────────────────────────
 
+enum _ListSortMode { manual, alphaAZ, alphaZA }
+
 class _ListDetailView extends StatefulWidget {
   final ShoppingList list;
   final VoidCallback onBack;
@@ -1121,6 +1123,7 @@ class _ListDetailView extends StatefulWidget {
 class _ListDetailViewState extends State<_ListDetailView> {
   TextEditingController _addCtrl = TextEditingController();
   bool _groupedView = false;
+  _ListSortMode _sortMode = _ListSortMode.manual;
 
   @override
   void dispose() {
@@ -1234,10 +1237,22 @@ class _ListDetailViewState extends State<_ListDetailView> {
     await provider.saveAndSync(db.copyWith(shoppingLists: updatedLists));
   }
 
+  List<ListItem> _sortedItems(List<ListItem> items) {
+    if (_sortMode == _ListSortMode.manual) return List<ListItem>.from(items);
+    final copy = List<ListItem>.from(items);
+    copy.sort((a, b) {
+      final ca = a.text.toLowerCase();
+      final cb = b.text.toLowerCase();
+      final c = ca.compareTo(cb);
+      return _sortMode == _ListSortMode.alphaAZ ? c : -c;
+    });
+    return copy;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final unchecked = widget.list.items.where((i) => !i.checked).toList();
-    final checked = widget.list.items.where((i) => i.checked).toList();
+    final unchecked = _sortedItems(widget.list.items.where((i) => !i.checked).toList());
+    final checked = _sortedItems(widget.list.items.where((i) => i.checked).toList());
     final total = widget.list.items.length;
     final progress = total > 0 ? checked.length / total : 0.0;
 
@@ -1269,6 +1284,31 @@ class _ListDetailViewState extends State<_ListDetailView> {
         centerTitle: false,
         titleSpacing: 0,
         actions: [
+          PopupMenuButton<_ListSortMode>(
+            tooltip: 'Sort items',
+            icon: Icon(Icons.sort_rounded, color: AppTheme.stone500.withValues(alpha: 0.9)),
+            onSelected: (m) => setState(() {
+              _sortMode = m;
+              if (m != _ListSortMode.manual) _groupedView = false;
+            }),
+            itemBuilder: (ctx) => [
+              CheckedPopupMenuItem<_ListSortMode>(
+                value: _ListSortMode.manual,
+                checked: _sortMode == _ListSortMode.manual,
+                child: const Text('Manual order', style: TextStyle(fontFamily: 'Inter')),
+              ),
+              CheckedPopupMenuItem<_ListSortMode>(
+                value: _ListSortMode.alphaAZ,
+                checked: _sortMode == _ListSortMode.alphaAZ,
+                child: const Text('A → Z', style: TextStyle(fontFamily: 'Inter')),
+              ),
+              CheckedPopupMenuItem<_ListSortMode>(
+                value: _ListSortMode.alphaZA,
+                checked: _sortMode == _ListSortMode.alphaZA,
+                child: const Text('Z → A', style: TextStyle(fontFamily: 'Inter')),
+              ),
+            ],
+          ),
           if (hasCategories)
             IconButton(
               icon: Icon(

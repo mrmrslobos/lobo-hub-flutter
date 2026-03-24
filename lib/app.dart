@@ -73,6 +73,7 @@ class _FamilyHubAppState extends State<FamilyHubApp> with WidgetsBindingObserver
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && _provider.isAuthenticated) {
       _provider.refreshFromCloud();
+      unawaited(_provider.refreshStoreSubscription());
       _consumePendingRoute();
     }
   }

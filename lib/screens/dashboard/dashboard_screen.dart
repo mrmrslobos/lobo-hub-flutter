@@ -86,16 +86,51 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // Monthly Summary
   Map<String, dynamic>? _monthlySummary;
   bool _monthlySummaryLoading = false;
+  bool _fetchedGeminiSuggestions = false;
+  bool? _lastProviderHasAI;
+  late final AppProvider _appProvider;
 
   @override
   void initState() {
     super.initState();
+    _appProvider = context.read<AppProvider>();
+    _appProvider.addListener(_onAppProviderChanged);
+    _lastProviderHasAI = _appProvider.hasAIAccess;
     _loadDismissedAnnouncement();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadAISuggestions();
+      if (AiService.isAIBlocked) {
+        final p = context.read<AppProvider>();
+        final db = p.db;
+        final fid = p.activeFamily?.id ?? '';
+        setState(() {
+          _suggestionsLoading = false;
+          _suggestions = _generateLocalSuggestions(db, fid);
+          _suggestionsLoaded = true;
+        });
+      } else {
+        _loadAISuggestions();
+      }
       _showWalkthroughIfNeeded();
       _loadStartTipDismissed();
     });
+  }
+
+  @override
+  void dispose() {
+    _appProvider.removeListener(_onAppProviderChanged);
+    super.dispose();
+  }
+
+  void _onAppProviderChanged() {
+    if (!mounted) return;
+    final p = _appProvider;
+    final now = p.hasAIAccess;
+    if (_lastProviderHasAI == false && now == true) {
+      if (!_fetchedGeminiSuggestions) {
+        _loadAISuggestions();
+      }
+    }
+    _lastProviderHasAI = now;
   }
 
   Future<void> _loadStartTipDismissed() async {
@@ -148,7 +183,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _loadMonthlySummary() async {
-    if (AiService.isAIBlocked) return;
+    if (!mounted) return;
+    if (AiService.isAIBlocked) {
+      await SubscriptionModal.show(
+        context,
+        feature: 'AI monthly recap',
+      );
+      return;
+    }
     if (_monthlySummaryLoading) return;
     setState(() => _monthlySummaryLoading = true);
 
@@ -227,8 +269,17 @@ Return a JSON object:
     }
   }
 
-  Future<void> _loadAISuggestions() async {
-    if (AiService.isAIBlocked) return;
+  Future<void> _loadAISuggestions({bool showPaywallWhenLocked = false}) async {
+    if (!mounted) return;
+    if (AiService.isAIBlocked) {
+      if (showPaywallWhenLocked && mounted) {
+        await SubscriptionModal.show(
+          context,
+          feature: 'AI suggestions',
+        );
+      }
+      return;
+    }
     if (!mounted) return;
     setState(() => _suggestionsLoading = true);
 
@@ -311,6 +362,7 @@ Return ONLY the JSON array, no markdown.''',
               }).toList();
               _suggestionsLoading = false;
               _suggestionsLoaded = true;
+              _fetchedGeminiSuggestions = true;
             });
             return;
           }
@@ -1297,7 +1349,16 @@ Return ONLY the JSON array, no markdown.''',
                 itemBuilder: (_, i) {
                   final f = features[i];
                   return GestureDetector(
-                    onTap: () => context.push(f.route),
+                    onTap: () {
+                      if (AiService.isAIBlocked) {
+                        SubscriptionModal.show(
+                          context,
+                          feature: 'AI-powered features',
+                        );
+                      } else {
+                        context.push(f.route);
+                      }
+                    },
                     child: Container(
                       width: 150,
                       padding: const EdgeInsets.all(12),
@@ -1389,7 +1450,7 @@ Return ONLY the JSON array, no markdown.''',
                 ],
               )),
               GestureDetector(
-                onTap: _loadAISuggestions,
+                onTap: () => _loadAISuggestions(showPaywallWhenLocked: true),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(

@@ -504,12 +504,16 @@ class _CalendarScreenState extends State<CalendarScreen> {
   Widget build(BuildContext context) {
     return Consumer<AppProvider>(
       builder: (context, provider, _) {
-        final selectedEvents = _eventsForDay(provider, _selectedDay);
-        final eventMap = _buildEventMap(provider);
-
-        // Upcoming events (next 7 days)
         final now = DateTime.now();
         final todayDate = DateTime(now.year, now.month, now.day);
+        final selectedEvents = _eventsForDay(provider, _selectedDay);
+        final eventMap = _buildEventMap(provider);
+        final weekAgenda = List.generate(7, (i) {
+          final d = todayDate.add(Duration(days: i));
+          return (day: d, events: _eventsForDay(provider, d));
+        });
+
+        // Upcoming events (next 7 days)
         final weekEnd = todayDate.add(const Duration(days: 7));
         final upcomingEvents = provider.db.events
             .where((e) =>
@@ -966,6 +970,160 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 ),
                     ],
                   ),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Week agenda (mobile-friendly)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Text(
+                          'THIS WEEK',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: AppTheme.stone400,
+                            letterSpacing: 1.1,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '${weekAgenda.fold<int>(0, (s, x) => s + x.events.length)} events',
+                          style: const TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.stone300,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    ...weekAgenda.map((row) {
+                      final d = row.day;
+                      final evs = row.events;
+                      final isSel = isSameDay(d, _selectedDay);
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Material(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(12),
+                            onTap: () => setState(() {
+                              _selectedDay = d;
+                              _focusedDay = d;
+                            }),
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: isSel ? AppTheme.primary : AppTheme.stone100,
+                                  width: isSel ? 1.5 : 1,
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(
+                                        isSameDay(d, todayDate)
+                                            ? 'Today'
+                                            : DateFormat('EEE, MMM d').format(d),
+                                        style: TextStyle(
+                                          fontFamily: 'Inter',
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w800,
+                                          color: isSel ? AppTheme.primary : AppTheme.stone800,
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      if (evs.isNotEmpty)
+                                        Text(
+                                          '${evs.length}',
+                                          style: const TextStyle(
+                                            fontFamily: 'Inter',
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w700,
+                                            color: AppTheme.stone400,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                  if (evs.isEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 6),
+                                      child: Text(
+                                        'Nothing scheduled',
+                                        style: TextStyle(
+                                          fontFamily: 'Inter',
+                                          fontSize: 12,
+                                          color: AppTheme.stone400.withValues(alpha: 0.9),
+                                        ),
+                                      ),
+                                    )
+                                  else
+                                    ...evs.take(4).map((e) => Padding(
+                                          padding: const EdgeInsets.only(top: 8),
+                                          child: Row(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                DateFormat('h:mm a').format(e.startDate),
+                                                style: const TextStyle(
+                                                  fontFamily: 'Inter',
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: AppTheme.stone500,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 10),
+                                              Expanded(
+                                                child: Text(
+                                                  e.title,
+                                                  maxLines: 2,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                    fontFamily: 'Inter',
+                                                    fontSize: 13,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: AppTheme.stone800,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        )),
+                                  if (evs.length > 4)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 6),
+                                      child: Text(
+                                        '+ ${evs.length - 4} more',
+                                        style: const TextStyle(
+                                          fontFamily: 'Inter',
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppTheme.primary,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                  ],
                 ),
               ),
               const SizedBox(height: 20),

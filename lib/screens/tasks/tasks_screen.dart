@@ -38,8 +38,7 @@ class _TasksScreenState extends State<TasksScreen> {
   String? _selectedMemberId;
   String _searchQuery = '';
   final _searchCtrl = TextEditingController();
-  List<String> _customFolderNames = [];
-  bool _customFoldersLoaded = false;
+  bool _migratedLocalTaskFolders = false;
   static const _taskFoldersKeyPrefix = 'task_folders_';
 
   static const _folderNames = ['Home', 'Work', 'Personal', 'Shopping', 'AI Generated', 'Event'];
@@ -53,43 +52,53 @@ class _TasksScreenState extends State<TasksScreen> {
     'Event': Icons.event_outlined,
   };
 
-  /// All folder names: defaults + custom (custom first so they appear at top after defaults).
-  List<String> get _allFolderNames => [
-    ..._folderNames,
-    ..._customFolderNames.where((n) => !_folderNames.any((d) => d.toLowerCase() == n.toLowerCase())),
-  ];
+  /// All folder names: defaults + custom from synced [Family.settings].
+  List<String> _allFolderNames(Family family) => [
+        ..._folderNames,
+        ...family.taskCustomFolderNames.where(
+          (n) => !_folderNames.any((d) => d.toLowerCase() == n.toLowerCase()),
+        ),
+      ];
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!_customFoldersLoaded && context.read<AppProvider>().activeFamily != null) {
-      _customFoldersLoaded = true;
-      _loadCustomFolders();
-    }
+    _maybeMigrateTaskFoldersFromPrefs();
   }
 
-  Future<void> _loadCustomFolders() async {
-    final prefs = await SharedPreferences.getInstance();
-    final familyId = context.read<AppProvider>().activeFamily?.id;
-    if (familyId == null) return;
-    final key = '$_taskFoldersKeyPrefix$familyId';
-    final json = prefs.getString(key);
-    if (json == null) return;
+  /// One-time: copy device-local folder list into [Family.settings] so other devices see it.
+  Future<void> _maybeMigrateTaskFoldersFromPrefs() async {
+    if (_migratedLocalTaskFolders) return;
+    final provider = context.read<AppProvider>();
+    final fam = provider.currentFamily;
+    if (fam == null) return;
+    _migratedLocalTaskFolders = true;
+    if (fam.taskCustomFolderNames.isNotEmpty) return;
+
     try {
-      final list = jsonDecode(json) as List<dynamic>?;
-      if (list != null && mounted) setState(() => _customFolderNames = list.map((e) => e.toString()).toList());
+      final prefs = await SharedPreferences.getInstance();
+      final key = '$_taskFoldersKeyPrefix${fam.id}';
+      final raw = prefs.getString(key);
+      if (raw == null || raw.isEmpty) return;
+      List<String> names = [];
+      try {
+        final list = jsonDecode(raw) as List<dynamic>?;
+        if (list != null) {
+          names = list.map((e) => e.toString().trim()).where((s) => s.isNotEmpty).toList();
+        }
+      } catch (_) {}
+      if (names.isEmpty) return;
+
+      final next = fam.withTaskCustomFolders(names);
+      provider.updateFamily(next);
+      await provider.saveAndSync(provider.db);
+      await prefs.remove(key);
     } catch (_) {}
   }
 
-  Future<void> _saveCustomFolders() async {
-    final familyId = context.read<AppProvider>().activeFamily?.id;
-    if (familyId == null) return;
-    final prefs = await SharedPreferences.getInstance();
-    final key = '$_taskFoldersKeyPrefix$familyId';
-    await prefs.setString(key, jsonEncode(_customFolderNames));
-  }
-
-  Future<void> _showCreateFolderDialog() async {
+  Future<void> _showCreateFolderDialog(AppProvider provider) async {
+    final fam = provider.currentFamily;
+    if (fam == null) return;
     final nameCtrl = TextEditingController();
     final created = await showDialog<bool>(
       context: context,
@@ -119,15 +128,17 @@ class _TasksScreenState extends State<TasksScreen> {
     if (created != true || !mounted) return;
     final name = nameCtrl.text.trim();
     if (name.isEmpty) return;
-    final exists = _allFolderNames.any((f) => f.toLowerCase() == name.toLowerCase());
+    final folders = _allFolderNames(fam);
+    final exists = folders.any((f) => f.toLowerCase() == name.toLowerCase());
     if (exists) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('A folder named "$name" already exists'), behavior: SnackBarBehavior.floating),
       );
       return;
     }
-    setState(() => _customFolderNames = [..._customFolderNames, name]..sort());
-    await _saveCustomFolders();
+    final next = fam.withTaskCustomFolders([...fam.taskCustomFolderNames, name]);
+    provider.updateFamily(next);
+    await provider.saveAndSync(provider.db);
   }
 
   @override
@@ -289,9 +300,11 @@ class _TasksScreenState extends State<TasksScreen> {
     return Consumer<AppProvider>(
       builder: (context, provider, _) {
         final tasks = _filteredTasks(provider);
-        final familyId = provider.activeFamily?.id;
+        final family = provider.currentFamily;
+        final familyId = family?.id;
         final userId = provider.activeUser?.id;
         final members = provider.familyMembers;
+        final folderNames = family == null ? _folderNames : _allFolderNames(family);
 
         // Counts for filters
         final allTasks = provider.db.tasks.where((t) => t.familyId == familyId && !t.completed).toList();
@@ -524,7 +537,7 @@ class _TasksScreenState extends State<TasksScreen> {
                         isSelected: _selectedFolder == null,
                         onTap: () => setState(() { _selectedFolder = null; _selectedMemberId = null; }),
                       ),
-                      for (final folder in _allFolderNames) ...[
+                      for (final folder in folderNames) ...[
                         const Divider(height: 1),
                         _buildFolderItem(
                           folder,
@@ -536,7 +549,7 @@ class _TasksScreenState extends State<TasksScreen> {
                       ],
                       const Divider(height: 1),
                       InkWell(
-                        onTap: _showCreateFolderDialog,
+                        onTap: () => _showCreateFolderDialog(provider),
                         child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                           child: Row(

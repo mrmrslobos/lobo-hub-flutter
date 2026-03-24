@@ -1,5 +1,6 @@
 // lib/screens/photos/photos_screen.dart
 import 'dart:io';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
@@ -48,8 +49,12 @@ class _PhotosScreenState extends State<PhotosScreen> {
 
   Widget _photoImage(String url, {BoxFit fit = BoxFit.cover}) {
     if (_isNetworkUrl(url)) {
-      return Image.network(url, fit: fit,
-          errorBuilder: (_, __, ___) => _photoPlaceholder());
+      return CachedNetworkImage(
+        imageUrl: url,
+        fit: fit,
+        placeholder: (_, __) => _photoPlaceholder(),
+        errorWidget: (_, __, ___) => _photoPlaceholder(),
+      );
     }
     return Image.file(File(url), fit: fit,
         errorBuilder: (_, __, ___) => _photoPlaceholder());

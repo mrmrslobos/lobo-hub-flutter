@@ -8,6 +8,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show ThemeMode;
+import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show PostgresChangeEvent, PostgresChangeFilter, PostgresChangeFilterType, RealtimeChannel, Supabase;
@@ -189,6 +190,7 @@ class AppProvider extends ChangeNotifier {
         NotificationService.registerDeviceToken(family.id, user.id);
         unawaited(_repairOwnerMembershipIfNeeded());
         unawaited(PurchaseService.syncIdentity(user.id));
+        unawaited(refreshStoreSubscription());
       }
     }
   }
@@ -230,7 +232,43 @@ class AppProvider extends ChangeNotifier {
   // ── Auth ──────────────────────────────────────────────────────────────────
 
   void _syncAIFlag() {
-    AiService.setAIBlocked(!(_activeFamily?.hasAIAccess ?? false));
+    AiService.setAIBlocked(!(currentFamily?.hasAIAccess ?? false));
+  }
+
+  /// After purchase or app resume: read RevenueCat entitlements and update
+  /// [Family.subscriptionTier] locally + on Supabase so [ai-proxy] matches the app.
+  Future<void> refreshStoreSubscription() async {
+    final fam = currentFamily;
+    if (fam == null || !PurchaseService.isConfigured) return;
+    try {
+      final info = await Purchases.getCustomerInfo();
+      final tier = PurchaseService.subscriptionTierFromCustomerInfo(info);
+      if (tier == null || tier == fam.subscriptionTier) {
+        _syncAIFlag();
+        return;
+      }
+      final updated = fam.copyWith(
+        subscriptionTier: tier,
+        updatedAt: DateTime.now(),
+      );
+      _activeFamily = updated;
+      _db = _db.copyWith(
+        families: _db.families.map((f) => f.id == updated.id ? updated : f).toList(),
+      );
+      _syncAIFlag();
+      notifyListeners();
+      await DatabaseService.saveLocal(_db);
+      if (SupabaseService.isConfigured) {
+        await SupabaseService.syncFamilySubscriptionTier(
+          familyId: updated.id,
+          tier: tier,
+        );
+        await _pullFromCloud();
+      }
+    } catch (e) {
+      debugPrint('[AppProvider] refreshStoreSubscription error: $e');
+      _syncAIFlag();
+    }
   }
 
   void authenticate(User user, Family family) {
@@ -252,6 +290,7 @@ class AppProvider extends ChangeNotifier {
     unawaited(_repairOwnerMembershipIfNeeded());
     unawaited(_backfillMissingUsersIfNeeded(family.id));
     unawaited(PurchaseService.syncIdentity(user.id));
+    unawaited(refreshStoreSubscription());
   }
 
   /// When [users] rows are missing for people in [family_members], load or stub
@@ -615,6 +654,9 @@ class AppProvider extends ChangeNotifier {
 
   void updateFamily(Family family) {
     _activeFamily = family;
+    _db = _db.copyWith(
+      families: _db.families.map((f) => f.id == family.id ? family : f).toList(),
+    );
     _syncAIFlag();
     notifyListeners();
   }
