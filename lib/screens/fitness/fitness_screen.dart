@@ -24,6 +24,7 @@ import '../../widgets/exercise_media_image.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/subscription_modal.dart';
+import '../../utils/debounce.dart';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -269,6 +270,28 @@ class _FitnessScreenState extends State<FitnessScreen> {
   _FitnessFilter _filter = _FitnessFilter.mine;
   String? _motivation;
   bool _motivationLoading = false;
+  final _logSearchCtrl = TextEditingController();
+  final _logSearchDebounce = Debouncer();
+  String _logSearchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _logSearchCtrl.addListener(() {
+      final t = _logSearchCtrl.text;
+      _logSearchDebounce.run(() {
+        if (!mounted) return;
+        setState(() => _logSearchQuery = t);
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _logSearchCtrl.dispose();
+    _logSearchDebounce.dispose();
+    super.dispose();
+  }
 
   Future<void> _getMotivation() async {
     if (SubscriptionModal.guardAI(context)) return;
@@ -429,20 +452,29 @@ class _FitnessScreenState extends State<FitnessScreen> {
 
     final allSessions = provider.db.workoutSessions.where((s) => s.familyId == family.id).toList();
     final mySessions = allSessions.where((s) => s.userId == user.id).toList();
-    final shown = _filter == _FitnessFilter.mine ? mySessions : allSessions;
-    shown.sort((a, b) => b.date.compareTo(a.date));
+    final baseSessions = _filter == _FitnessFilter.mine ? mySessions : allSessions;
+    final q = _logSearchQuery.trim().toLowerCase();
+    final sessionsForList = q.isEmpty
+        ? List<WorkoutSession>.from(baseSessions)
+        : baseSessions.where((s) {
+            if (s.title.toLowerCase().contains(q)) return true;
+            return provider.db.workoutExercises
+                .where((e) => e.sessionId == s.id)
+                .any((e) => e.name.toLowerCase().contains(q));
+          }).toList();
+    sessionsForList.sort((a, b) => b.date.compareTo(a.date));
 
     final now = DateTime.now();
 
     // Weekly sessions
     final weekStart = now.subtract(Duration(days: now.weekday - 1));
-    final weekLogs = shown.where((s) => s.date.isAfter(weekStart.subtract(const Duration(days: 1)))).toList();
+    final weekLogs = baseSessions.where((s) => s.date.isAfter(weekStart.subtract(const Duration(days: 1)))).toList();
 
     // Active streak
     int streak = 0;
     DateTime checkDate = DateTime(now.year, now.month, now.day);
     while (true) {
-      final hasSession = shown.any((s) =>
+      final hasSession = baseSessions.any((s) =>
           s.date.year == checkDate.year &&
           s.date.month == checkDate.month &&
           s.date.day == checkDate.day);
@@ -859,17 +891,59 @@ class _FitnessScreenState extends State<FitnessScreen> {
             ),
           ),
 
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+            child: TextField(
+              controller: _logSearchCtrl,
+              style: const TextStyle(fontFamily: 'Inter', fontSize: 14),
+              decoration: InputDecoration(
+                hintText: 'Search workouts or exercises…',
+                hintStyle: const TextStyle(fontFamily: 'Inter', color: AppTheme.stone400),
+                prefixIcon: const Icon(Icons.search, size: 20, color: AppTheme.stone400),
+                suffixIcon: _logSearchQuery.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Clear search',
+                        icon: const Icon(Icons.close_rounded, size: 20, color: AppTheme.stone400),
+                        onPressed: () {
+                          _logSearchCtrl.clear();
+                          setState(() => _logSearchQuery = '');
+                        },
+                      ),
+                filled: true,
+                fillColor: AppTheme.stone50,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: AppTheme.stone200),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: AppTheme.stone200),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
+                ),
+                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
+
           // ── Workout Logs ──
-          if (shown.isEmpty)
+          if (sessionsForList.isEmpty)
             EmptyState(
               emoji: '💪',
-              title: 'No workout sessions yet',
-              subtitle: 'Log a structured workout session to see it here.',
-              actionLabel: 'Log Exercise',
-              onAction: _showAddSheet,
+              title: baseSessions.isEmpty
+                  ? 'No workout sessions yet'
+                  : 'No matches',
+              subtitle: baseSessions.isEmpty
+                  ? 'Log a structured workout session to see it here.'
+                  : 'Try a different search.',
+              actionLabel: baseSessions.isEmpty ? 'Log Exercise' : null,
+              onAction: baseSessions.isEmpty ? _showAddSheet : null,
             )
           else
-            ...shown.map((session) => Padding(
+            ...sessionsForList.map((session) => Padding(
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
                   child: Dismissible(
                     key: ValueKey(session.id),

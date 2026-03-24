@@ -14,6 +14,7 @@ import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../utils/debounce.dart';
 
 // ─── Place emoji presets ──────────────────────────────────────────────────────
 
@@ -75,10 +76,26 @@ class _LocationScreenState extends State<LocationScreen> {
   Timer? _locationTimer;
   bool _permissionDenied = false;
   Position? _lastPosition;
+  final _placeSearchCtrl = TextEditingController();
+  final _placeSearchDebounce = Debouncer();
+  String _placeSearchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _placeSearchCtrl.addListener(() {
+      final t = _placeSearchCtrl.text;
+      _placeSearchDebounce.run(() {
+        if (mounted) setState(() => _placeSearchQuery = t);
+      });
+    });
+  }
 
   @override
   void dispose() {
     _locationTimer?.cancel();
+    _placeSearchCtrl.dispose();
+    _placeSearchDebounce.dispose();
     super.dispose();
   }
 
@@ -458,6 +475,14 @@ class _LocationScreenState extends State<LocationScreen> {
     final savedPlaces = provider.db.savedPlaces
         .where((p) => p.familyId == family.id)
         .toList();
+    final pq = _placeSearchQuery.trim().toLowerCase();
+    final filteredPlaces = pq.isEmpty
+        ? savedPlaces
+        : savedPlaces
+            .where((p) =>
+                p.name.toLowerCase().contains(pq) ||
+                (p.emoji != null && p.emoji!.toLowerCase().contains(pq)))
+            .toList();
 
     final sharingCount = locationShares.where((l) => l.isSharing).length;
 
@@ -511,6 +536,44 @@ class _LocationScreenState extends State<LocationScreen> {
               ]),
             ),
 
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              child: TextField(
+                controller: _placeSearchCtrl,
+                style: const TextStyle(fontFamily: 'Inter', fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: 'Search saved places…',
+                  hintStyle: const TextStyle(fontFamily: 'Inter', color: AppTheme.stone400),
+                  prefixIcon: const Icon(Icons.search, size: 20, color: AppTheme.stone400),
+                  suffixIcon: _placeSearchQuery.trim().isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: 'Clear search',
+                          icon: const Icon(Icons.close_rounded, size: 20, color: AppTheme.stone400),
+                          onPressed: () {
+                            _placeSearchCtrl.clear();
+                            setState(() => _placeSearchQuery = '');
+                          },
+                        ),
+                  filled: true,
+                  fillColor: Colors.white,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: AppTheme.stone200),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: AppTheme.stone200),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
+
             // ─── Sharing Toggle ──────────────────────────────────
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -559,7 +622,10 @@ class _LocationScreenState extends State<LocationScreen> {
                       const Text('Only visible to your family circle', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
                   ])),
                   const SizedBox(width: 8),
-                  GestureDetector(
+                  Semantics(
+                    button: true,
+                    label: isSharing ? 'Stop sharing your location' : 'Start sharing your location',
+                    child: GestureDetector(
                     onTap: () => _toggleSharing(myShare, !isSharing),
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 200),
@@ -587,6 +653,7 @@ class _LocationScreenState extends State<LocationScreen> {
                         ),
                       ]),
                     ),
+                  ),
                   ),
                 ]),
               ),
@@ -741,7 +808,10 @@ class _LocationScreenState extends State<LocationScreen> {
                         ])),
                         // Navigate button
                         if (share?.isSharing == true && !isMe)
-                          GestureDetector(
+                          Semantics(
+                            button: true,
+                            label: 'Open directions to $memberName in maps',
+                            child: GestureDetector(
                             onTap: () => _openInMaps(share!.latitude, share.longitude),
                             child: Container(
                               width: 40, height: 40,
@@ -751,6 +821,7 @@ class _LocationScreenState extends State<LocationScreen> {
                               ),
                               child: const Icon(Icons.navigation_rounded, size: 18, color: AppTheme.primary),
                             ),
+                          ),
                           ),
                       ]),
                     );
@@ -804,11 +875,20 @@ class _LocationScreenState extends State<LocationScreen> {
                   ]),
                 ),
               )
+            else if (filteredPlaces.isEmpty && pq.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: OnboardingCard(
+                  emoji: '🔎',
+                  title: 'No place matches',
+                  bullets: const ['Try another name', 'Clear search to see all places'],
+                ),
+              )
             else
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Column(
-                  children: savedPlaces.map((place) {
+                  children: filteredPlaces.map((place) {
                     return GestureDetector(
                       onLongPress: () => _showPlaceActions(place),
                       onTap: () => _showPlaceActions(place),
