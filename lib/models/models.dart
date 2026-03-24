@@ -1547,6 +1547,8 @@ class WorkoutExercise {
   final String? techniqueNotes;
   /// Optional link to a free demo (e.g. YouTube / ExRx).
   final String? referenceUrl;
+  /// Illustration URL (e.g. wger.de) — not encrypted (public CDN).
+  final String? techniqueImageUrl;
   final DateTime createdAt;
 
   const WorkoutExercise({
@@ -1560,6 +1562,7 @@ class WorkoutExercise {
     this.notes,
     this.techniqueNotes,
     this.referenceUrl,
+    this.techniqueImageUrl,
     required this.createdAt,
   });
 
@@ -1580,6 +1583,7 @@ class WorkoutExercise {
           FieldEncryption.decryptField(j['technique_notes'] as String?, fid),
       referenceUrl:
           FieldEncryption.decryptField(j['reference_url'] as String?, fid),
+      techniqueImageUrl: j['technique_image_url'] as String?,
       createdAt: _parseDate(j['created_at']),
     );
   }
@@ -1597,6 +1601,7 @@ class WorkoutExercise {
         'technique_notes':
             FieldEncryption.encryptField(techniqueNotes, familyId),
         'reference_url': FieldEncryption.encryptField(referenceUrl, familyId),
+        if (techniqueImageUrl != null) 'technique_image_url': techniqueImageUrl,
         'created_at': createdAt.toIso8601String(),
       };
 
@@ -1611,6 +1616,7 @@ class WorkoutExercise {
     String? notes,
     String? techniqueNotes,
     String? referenceUrl,
+    String? techniqueImageUrl,
     DateTime? createdAt,
   }) =>
       WorkoutExercise(
@@ -1624,6 +1630,7 @@ class WorkoutExercise {
         notes: notes ?? this.notes,
         techniqueNotes: techniqueNotes ?? this.techniqueNotes,
         referenceUrl: referenceUrl ?? this.referenceUrl,
+        techniqueImageUrl: techniqueImageUrl ?? this.techniqueImageUrl,
         createdAt: createdAt ?? this.createdAt,
       );
 }
@@ -4459,6 +4466,7 @@ class AppDB {
               e.techniqueNotes != null ? ds(e.techniqueNotes) : null,
           referenceUrl:
               e.referenceUrl != null ? ds(e.referenceUrl) : null,
+          techniqueImageUrl: e.techniqueImageUrl,
           createdAt: e.createdAt,
         );
       }).toList(),

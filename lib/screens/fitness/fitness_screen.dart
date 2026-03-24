@@ -5,6 +5,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -19,6 +20,7 @@ import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
 import '../../services/exercise_pr_service.dart';
 import '../../services/locale_service.dart';
+import '../../services/wger_exercise_service.dart';
 import '../../services/workout_health_sync.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
@@ -206,6 +208,81 @@ Future<void> _openExerciseHelpUrl(BuildContext context, String? url, String exer
   }
 }
 
+String? _exerciseImageUrl(Map exercise) {
+  for (final k in ['imageUrl', 'image_url', 'illustrationUrl']) {
+    final v = exercise[k]?.toString().trim();
+    if (v != null && v.isNotEmpty) return v;
+  }
+  return null;
+}
+
+Widget _exerciseIllustrationTile(String? url, {double size = 56}) {
+  if (url == null || url.isEmpty) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: AppTheme.stone100,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppTheme.stone200),
+      ),
+      child: Icon(Icons.fitness_center_rounded, size: size * 0.4, color: AppTheme.stone400),
+    );
+  }
+  return ClipRRect(
+    borderRadius: BorderRadius.circular(10),
+    child: Semantics(
+      label: 'Exercise illustration',
+      image: true,
+      child: CachedNetworkImage(
+        imageUrl: url,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        placeholder: (_, __) => Container(
+          width: size,
+          height: size,
+          color: AppTheme.stone100,
+          child: const Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
+        ),
+        errorWidget: (_, __, ___) => Container(
+          width: size,
+          height: size,
+          color: AppTheme.stone100,
+          child: Icon(Icons.fitness_center_rounded, size: size * 0.4, color: AppTheme.stone400),
+        ),
+      ),
+    ),
+  );
+}
+
+Widget _exerciseIllustrationBanner(String? url) {
+  if (url == null || url.isEmpty) return const SizedBox.shrink();
+  return Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Semantics(
+        label: 'Exercise illustration',
+        image: true,
+        child: CachedNetworkImage(
+          imageUrl: url,
+          height: 180,
+          width: double.infinity,
+          fit: BoxFit.cover,
+          placeholder: (_, __) => Container(
+            height: 180,
+            color: AppTheme.stone100,
+            alignment: Alignment.center,
+            child: const SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2)),
+          ),
+          errorWidget: (_, __, ___) => const SizedBox.shrink(),
+        ),
+      ),
+    ),
+  );
+}
+
 // ─── Fitness Screen ───────────────────────────────────────────────────────────
 
 class FitnessScreen extends StatefulWidget {
@@ -329,10 +406,20 @@ class _FitnessScreenState extends State<FitnessScreen> {
           final provider = context.read<AppProvider>();
           final db = provider.db;
           final userId = provider.activeUser?.id;
-          if (userId == null) return;
+          final family = provider.activeFamily;
+          if (userId == null || family == null) return;
+          final wp = planMap['weeklyPlan'];
+          if (wp is List) {
+            await WgerExerciseImageService.enrichWeeklyPlan(wp);
+          }
           final plans = db.fitnessPlans.toList();
           plans.removeWhere((p) => p is Map && p['user_id'] == userId);
-          plans.add({...planMap, 'user_id': userId, 'created_at': DateTime.now().toIso8601String()});
+          plans.add({
+            ...planMap,
+            'user_id': userId,
+            'family_id': family.id,
+            'created_at': DateTime.now().toIso8601String(),
+          });
           await provider.saveAndSync(db.copyWith(fitnessPlans: plans));
         },
       ),
@@ -1000,6 +1087,7 @@ class _StoredPlanViewState extends State<_StoredPlanView> {
       final detail = ex['detail'] as String?;
       final howToRaw = ex['howTo']?.toString().trim();
       final demoRaw = ex['demoUrl']?.toString().trim();
+      final imgRaw = _exerciseImageUrl(ex)?.trim();
       final (setCount, repNum) = _parseSetsReps(detail);
       totalMin += setCount * 3 + (setCount - 1);
 
@@ -1014,6 +1102,7 @@ class _StoredPlanViewState extends State<_StoredPlanView> {
         notes: detail,
         techniqueNotes: (howToRaw == null || howToRaw.isEmpty) ? null : howToRaw,
         referenceUrl: (demoRaw == null || demoRaw.isEmpty) ? null : demoRaw,
+        techniqueImageUrl: (imgRaw == null || imgRaw.isEmpty) ? null : imgRaw,
         createdAt: now,
       );
       exercises.add(we);
@@ -1045,7 +1134,7 @@ class _StoredPlanViewState extends State<_StoredPlanView> {
       sets: sets,
     );
     if (context.mounted) {
-      _showSnack(context, 'Logged in My Logs — tap the card for how-to & demo');
+      _showSnack(context, 'Logged in My Logs — tap the card for steps, picture & optional video');
     }
   }
 
@@ -1077,7 +1166,7 @@ ${profile.entries.map((e) => '- ${e.key}: ${e.value}').join('\n')}
 The user wants to make this change:
 "$request"
 
-Return the COMPLETE updated plan in the same JSON format as before (each exercise must include "name", "detail", "howTo", and "demoUrl" fields).
+Return the COMPLETE updated plan in the same JSON format as before (each exercise must include "name", "detail", "howTo", and "demoUrl" fields). Leave "imageUrl" empty; the app fills illustrations from a free exercise database.
 
 Apply the requested change while keeping everything else sensible.
 ''';
@@ -1095,9 +1184,24 @@ Apply the requested change while keeping everything else sensible.
         final provider = context.read<AppProvider>();
         final db = provider.db;
         final userId = provider.activeUser?.id ?? '';
+        final familyId = provider.activeFamily?.id;
+        if (familyId == null) {
+          if (mounted) setState(() => _refining = false);
+          return;
+        }
+        final wp = decoded['weeklyPlan'];
+        if (wp is List) {
+          await WgerExerciseImageService.enrichWeeklyPlan(wp);
+        }
         final plans = db.fitnessPlans.toList();
         plans.removeWhere((p) => p is Map && p['user_id'] == userId);
-        plans.add({...decoded, 'profile': profile, 'user_id': userId, 'created_at': DateTime.now().toIso8601String()});
+        plans.add({
+          ...decoded,
+          'profile': profile,
+          'user_id': userId,
+          'family_id': familyId,
+          'created_at': DateTime.now().toIso8601String(),
+        });
         await provider.saveAndSync(db.copyWith(fitnessPlans: plans));
 
         if (mounted) {
@@ -1211,13 +1315,31 @@ Apply the requested change while keeping everything else sensible.
                       child: Column(children: exercises.asMap().entries.map((ex) {
                         final idx = ex.key;
                         final exercise = ex.value;
+                        final imgUrl = _exerciseImageUrl(exercise as Map);
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 8),
                           child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Container(
-                              width: 24, height: 24,
-                              decoration: BoxDecoration(color: const Color(0xFFEEF2FF), borderRadius: BorderRadius.circular(6)),
-                              child: Center(child: Text('${idx + 1}', style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 11, color: AppTheme.primary))),
+                            Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                _exerciseIllustrationTile(imgUrl, size: 52),
+                                Positioned(
+                                  top: -4,
+                                  right: -4,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFEEF2FF),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: const Color(0xFFC7D2FE), width: 0.5),
+                                    ),
+                                    child: Text(
+                                      '${idx + 1}',
+                                      style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 10, color: AppTheme.primary),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                             const SizedBox(width: 10),
                             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1232,19 +1354,14 @@ Apply the requested change while keeping everything else sensible.
                                 ),
                               ],
                               const SizedBox(height: 6),
-                              Wrap(
-                                spacing: 8,
-                                children: [
-                                  TextButton.icon(
-                                    onPressed: () => _openExerciseHelpUrl(
-                                      context,
-                                      exercise['demoUrl']?.toString(),
-                                      exercise['name']?.toString() ?? 'exercise',
-                                    ),
-                                    icon: const Icon(Icons.play_circle_outline_rounded, size: 16),
-                                    label: const Text('Demo', style: TextStyle(fontFamily: 'Inter', fontSize: 12)),
-                                  ),
-                                ],
+                              TextButton.icon(
+                                onPressed: () => _openExerciseHelpUrl(
+                                  context,
+                                  exercise['demoUrl']?.toString(),
+                                  exercise['name']?.toString() ?? 'exercise',
+                                ),
+                                icon: const Icon(Icons.play_circle_outline_rounded, size: 16),
+                                label: const Text('Video (optional)', style: TextStyle(fontFamily: 'Inter', fontSize: 12)),
                               ),
                             ])),
                           ]),
@@ -1458,7 +1575,8 @@ Return ONLY valid JSON (no markdown) with this structure:
           "name": "Barbell squat",
           "detail": "4 sets x 8 reps",
           "howTo": "3-5 short bullet steps: stance, brace core, path of movement, breathing, common mistake to avoid",
-          "demoUrl": "optional https URL to a reputable free demo (YouTube etc.) or empty string if unsure"
+          "demoUrl": "optional https URL to a reputable free demo (YouTube etc.) or empty string if unsure",
+          "imageUrl": ""
         }
       ]
     }
@@ -1466,7 +1584,7 @@ Return ONLY valid JSON (no markdown) with this structure:
   "tips": ["tip 1", "tip 2", "tip 3"]
 }
 
-For every exercise, "howTo" is REQUIRED (plain text, not markdown). Prefer well-known movements; if demoUrl is empty the app will open a YouTube search for the user.''';
+For every exercise, "howTo" is REQUIRED (plain text, not markdown). Prefer well-known standard exercise names (e.g. "Barbell squat", "Push-up") so the app can match illustrations from wger.de. Leave "imageUrl" as empty string — the app fills it automatically. If "demoUrl" is empty the user can still open an optional video search.''';
 
     try {
       final familyId = context.read<AppProvider>().activeFamily?.id;
@@ -1839,6 +1957,7 @@ class _SessionCard extends StatelessWidget {
                 Text(ex.notes!, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone600)),
               ],
               const SizedBox(height: 12),
+              _exerciseIllustrationBanner(ex.techniqueImageUrl),
               if (ex.techniqueNotes != null && ex.techniqueNotes!.trim().isNotEmpty) ...[
                 const Text('How to do it', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 13)),
                 const SizedBox(height: 6),
@@ -1849,18 +1968,18 @@ class _SessionCard extends StatelessWidget {
                 const SizedBox(height: 16),
               ] else ...[
                 const Text(
-                  'No written steps yet. Use “Watch demo” or add notes when you log the workout.',
+                  'No written steps yet. Use optional video or add notes when you log the workout.',
                   style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone500),
                 ),
                 const SizedBox(height: 16),
               ],
               Semantics(
                 button: true,
-                label: 'Watch demo video for ${ex.exerciseName}',
+                label: 'Open optional video for ${ex.exerciseName}',
                 child: FilledButton.icon(
                   onPressed: () => _openExerciseHelpUrl(ctx, ex.referenceUrl, ex.exerciseName),
                   icon: const Icon(Icons.play_circle_outline_rounded),
-                  label: const Text('Watch demo'),
+                  label: const Text('Video (YouTube search)'),
                 ),
               ),
             ],
