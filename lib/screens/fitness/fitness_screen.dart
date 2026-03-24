@@ -11,7 +11,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../config/theme.dart';
@@ -147,11 +146,6 @@ String _stripFences(String raw) {
   return s.trim();
 }
 
-String _youtubeSearchUrl(String query) {
-  final q = Uri.encodeComponent('$query exercise form tutorial');
-  return 'https://www.youtube.com/results?search_query=$q';
-}
-
 Future<void> _persistCompletedWorkout(
   BuildContext context,
   AppProvider provider, {
@@ -192,20 +186,6 @@ Future<void> _persistCompletedWorkout(
     workoutSets: [...next.workoutSets, ...sets],
   );
   await provider.saveAndSync(next);
-}
-
-Future<void> _openExerciseHelpUrl(BuildContext context, String? url, String exerciseName) async {
-  final u = (url != null && url.trim().isNotEmpty) ? url.trim() : _youtubeSearchUrl(exerciseName);
-  final uri = Uri.tryParse(u);
-  if (uri == null) return;
-  try {
-    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!ok && context.mounted) {
-      _showSnack(context, 'Could not open link');
-    }
-  } catch (_) {
-    if (context.mounted) _showSnack(context, 'Could not open link');
-  }
 }
 
 String? _exerciseImageUrl(Map exercise) {
@@ -408,10 +388,7 @@ class _FitnessScreenState extends State<FitnessScreen> {
           final userId = provider.activeUser?.id;
           final family = provider.activeFamily;
           if (userId == null || family == null) return;
-          final wp = planMap['weeklyPlan'];
-          if (wp is List) {
-            await WgerExerciseImageService.enrichWeeklyPlan(wp);
-          }
+          await WgerExerciseImageService.enrichPlanMap(planMap);
           final plans = db.fitnessPlans.toList();
           plans.removeWhere((p) => p is Map && p['user_id'] == userId);
           plans.add({
@@ -1030,6 +1007,83 @@ class _StoredPlanViewState extends State<_StoredPlanView> {
   int _expandedDay = 0;
   final _refineController = TextEditingController();
   bool _refining = false;
+  bool _imageEnrichStarted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _enrichPlanImagesIfNeeded());
+  }
+
+  /// Older plans or first-hit wger misses may lack thumbnails; fill once in background.
+  Future<void> _enrichPlanImagesIfNeeded() async {
+    if (_imageEnrichStarted || !mounted) {
+      return;
+    }
+    final raw = widget.plan;
+    if (raw is! Map) {
+      return;
+    }
+    final planMap = raw as Map<dynamic, dynamic>;
+    WgerExerciseImageService.normalizeWeeklyPlanKey(planMap);
+    final wp = planMap['weeklyPlan'] ?? planMap['weekly_plan'];
+    if (wp is! List) {
+      return;
+    }
+    var anyMissing = false;
+    for (final day in wp) {
+      if (day is! Map) {
+        continue;
+      }
+      final exs = day['exercises'];
+      if (exs is! List) {
+        continue;
+      }
+      for (final e in exs) {
+        if (e is! Map) {
+          continue;
+        }
+        if ((_exerciseImageUrl(Map<String, dynamic>.from(e as Map)) ?? '').isEmpty) {
+          anyMissing = true;
+          break;
+        }
+      }
+      if (anyMissing) {
+        break;
+      }
+    }
+    if (!anyMissing) {
+      return;
+    }
+    _imageEnrichStarted = true;
+    try {
+      planMap['weeklyPlan'] ??= wp;
+      await WgerExerciseImageService.enrichWeeklyPlan(wp);
+      if (!mounted) {
+        return;
+      }
+      final provider = context.read<AppProvider>();
+      final uid = provider.activeUser?.id;
+      final db = provider.db;
+      if (uid != null) {
+        final plans = [...db.fitnessPlans];
+        final idx = plans.indexWhere((p) => p is Map && p['user_id'] == uid);
+        if (idx >= 0) {
+          plans[idx] = planMap;
+          await provider.saveAndSync(db.copyWith(fitnessPlans: plans));
+        } else {
+          await provider.saveAndSync(db);
+        }
+      } else {
+        await provider.saveAndSync(db);
+      }
+      if (mounted) {
+        setState(() {});
+      }
+    } catch (e) {
+      debugPrint('[Fitness] enrich plan images: $e');
+    }
+  }
 
   @override
   void dispose() {
@@ -1086,7 +1140,6 @@ class _StoredPlanViewState extends State<_StoredPlanView> {
       final name = ex['name'] as String? ?? 'Exercise';
       final detail = ex['detail'] as String?;
       final howToRaw = ex['howTo']?.toString().trim();
-      final demoRaw = ex['demoUrl']?.toString().trim();
       final imgRaw = _exerciseImageUrl(ex)?.trim();
       final (setCount, repNum) = _parseSetsReps(detail);
       totalMin += setCount * 3 + (setCount - 1);
@@ -1101,7 +1154,7 @@ class _StoredPlanViewState extends State<_StoredPlanView> {
         restSeconds: 60,
         notes: detail,
         techniqueNotes: (howToRaw == null || howToRaw.isEmpty) ? null : howToRaw,
-        referenceUrl: (demoRaw == null || demoRaw.isEmpty) ? null : demoRaw,
+        referenceUrl: null,
         techniqueImageUrl: (imgRaw == null || imgRaw.isEmpty) ? null : imgRaw,
         createdAt: now,
       );
@@ -1134,7 +1187,7 @@ class _StoredPlanViewState extends State<_StoredPlanView> {
       sets: sets,
     );
     if (context.mounted) {
-      _showSnack(context, 'Logged in My Logs — tap the card for steps, picture & optional video');
+      _showSnack(context, 'Logged in My Logs — tap the card for steps and illustration');
     }
   }
 
@@ -1166,7 +1219,7 @@ ${profile.entries.map((e) => '- ${e.key}: ${e.value}').join('\n')}
 The user wants to make this change:
 "$request"
 
-Return the COMPLETE updated plan in the same JSON format as before (each exercise must include "name", "detail", "howTo", and "demoUrl" fields). Leave "imageUrl" empty; the app fills illustrations from a free exercise database.
+Return the COMPLETE updated plan in the same JSON format as before (each exercise must include "name", "detail", and "howTo"). The app adds exercise illustrations automatically; omit "imageUrl" or leave it empty.
 
 Apply the requested change while keeping everything else sensible.
 ''';
@@ -1189,10 +1242,7 @@ Apply the requested change while keeping everything else sensible.
           if (mounted) setState(() => _refining = false);
           return;
         }
-        final wp = decoded['weeklyPlan'];
-        if (wp is List) {
-          await WgerExerciseImageService.enrichWeeklyPlan(wp);
-        }
+        await WgerExerciseImageService.enrichPlanMap(decoded);
         final plans = db.fitnessPlans.toList();
         plans.removeWhere((p) => p is Map && p['user_id'] == userId);
         plans.add({
@@ -1224,7 +1274,8 @@ Apply the requested change while keeping everything else sensible.
   @override
   Widget build(BuildContext context) {
     final summary = widget.plan['summary'] as String? ?? '';
-    final weeklyPlan = (widget.plan['weeklyPlan'] as List?)?.cast<Map>() ?? [];
+    final weeklyPlan = (widget.plan['weeklyPlan'] ?? widget.plan['weekly_plan']) as List?;
+    final weeklyPlanMaps = weeklyPlan?.whereType<Map>().toList() ?? <Map>[];
     final tips = (widget.plan['tips'] as List?)?.cast<String>() ?? [];
     final profile = widget.plan['profile'] as Map? ?? {};
 
@@ -1257,7 +1308,7 @@ Apply the requested change while keeping everything else sensible.
         const SizedBox(height: 12),
 
         // Weekly Plan
-        ...weeklyPlan.asMap().entries.map((entry) {
+        ...weeklyPlanMaps.asMap().entries.map((entry) {
           final i = entry.key;
           final day = entry.value;
           final dayName = day['day'] as String? ?? 'Day ${i + 1}';
@@ -1353,16 +1404,13 @@ Apply the requested change while keeping everything else sensible.
                                   style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone500, height: 1.35),
                                 ),
                               ],
-                              const SizedBox(height: 6),
-                              TextButton.icon(
-                                onPressed: () => _openExerciseHelpUrl(
-                                  context,
-                                  exercise['demoUrl']?.toString(),
-                                  exercise['name']?.toString() ?? 'exercise',
+                              if (imgUrl == null || imgUrl.isEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  'No illustration found for this name. Try a simpler name next time (e.g. "Push-up", "Squat").',
+                                  style: TextStyle(fontFamily: 'Inter', fontSize: 10, color: AppTheme.stone400.withValues(alpha: 0.9), height: 1.3),
                                 ),
-                                icon: const Icon(Icons.play_circle_outline_rounded, size: 16),
-                                label: const Text('Video (optional)', style: TextStyle(fontFamily: 'Inter', fontSize: 12)),
-                              ),
+                              ],
                             ])),
                           ]),
                         );
@@ -1574,9 +1622,7 @@ Return ONLY valid JSON (no markdown) with this structure:
         {
           "name": "Barbell squat",
           "detail": "4 sets x 8 reps",
-          "howTo": "3-5 short bullet steps: stance, brace core, path of movement, breathing, common mistake to avoid",
-          "demoUrl": "optional https URL to a reputable free demo (YouTube etc.) or empty string if unsure",
-          "imageUrl": ""
+          "howTo": "3-5 short bullet steps: stance, brace core, path of movement, breathing, common mistake to avoid"
         }
       ]
     }
@@ -1584,7 +1630,7 @@ Return ONLY valid JSON (no markdown) with this structure:
   "tips": ["tip 1", "tip 2", "tip 3"]
 }
 
-For every exercise, "howTo" is REQUIRED (plain text, not markdown). Prefer well-known standard exercise names (e.g. "Barbell squat", "Push-up") so the app can match illustrations from wger.de. Leave "imageUrl" as empty string — the app fills it automatically. If "demoUrl" is empty the user can still open an optional video search.''';
+For every exercise, "howTo" is REQUIRED (plain text, not markdown). Use simple, standard exercise names (e.g. "Push-up", "Squat", "Romanian deadlift") so the app can match still images from the exercise database. Do not include video links.''';
 
     try {
       final familyId = context.read<AppProvider>().activeFamily?.id;
@@ -1968,20 +2014,18 @@ class _SessionCard extends StatelessWidget {
                 const SizedBox(height: 16),
               ] else ...[
                 const Text(
-                  'No written steps yet. Use optional video or add notes when you log the workout.',
+                  'No written steps yet. Add notes when you log the workout, or open the AI plan for cues.',
                   style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone500),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 8),
               ],
-              Semantics(
-                button: true,
-                label: 'Open optional video for ${ex.exerciseName}',
-                child: FilledButton.icon(
-                  onPressed: () => _openExerciseHelpUrl(ctx, ex.referenceUrl, ex.exerciseName),
-                  icon: const Icon(Icons.play_circle_outline_rounded),
-                  label: const Text('Video (YouTube search)'),
+              if (ex.techniqueImageUrl == null || ex.techniqueImageUrl!.trim().isEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'No illustration on file for this exercise.',
+                  style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400.withValues(alpha: 0.95)),
                 ),
-              ),
+              ],
             ],
           ),
         ),
@@ -2301,6 +2345,11 @@ class _FitnessLogSheetState extends State<_FitnessLogSheet> {
     final uid = provider.activeUser?.id ?? '';
     final now = DateTime.now();
 
+    String? wgerImg;
+    try {
+      wgerImg = await WgerExerciseImageService.resolveImageUrl(exerciseName);
+    } catch (_) {}
+
     final session = WorkoutSession(
       id: _uuid.v4(),
       familyId: fid,
@@ -2323,6 +2372,7 @@ class _FitnessLogSheetState extends State<_FitnessLogSheet> {
       notes: null,
       techniqueNotes: null,
       referenceUrl: null,
+      techniqueImageUrl: (wgerImg == null || wgerImg.isEmpty) ? null : wgerImg,
       createdAt: now,
     );
 
@@ -2637,7 +2687,6 @@ class _WorkoutExerciseDraft {
   final String id;
   String name;
   String techniqueNotes;
-  String referenceUrl;
   int setsCount;
   int restSeconds;
   final List<String> reps;
@@ -2648,7 +2697,6 @@ class _WorkoutExerciseDraft {
     required this.id,
     this.name = '',
     this.techniqueNotes = '',
-    this.referenceUrl = '',
     this.setsCount = 3,
     this.restSeconds = 60,
   })  : reps = <String>[],
@@ -2882,6 +2930,10 @@ class _WorkoutSessionSheetState extends State<_WorkoutSessionSheet> {
 
     for (var exIndex = 0; exIndex < _exercises.length; exIndex++) {
       final draft = _exercises[exIndex];
+      String? wgerImg;
+      try {
+        wgerImg = await WgerExerciseImageService.resolveImageUrl(draft.name.trim());
+      } catch (_) {}
 
       final exercise = WorkoutExercise(
         id: _uuid.v4(),
@@ -2893,7 +2945,8 @@ class _WorkoutSessionSheetState extends State<_WorkoutSessionSheet> {
         restSeconds: draft.restSeconds,
         notes: null,
         techniqueNotes: draft.techniqueNotes.trim().isEmpty ? null : draft.techniqueNotes.trim(),
-        referenceUrl: draft.referenceUrl.trim().isEmpty ? null : draft.referenceUrl.trim(),
+        referenceUrl: null,
+        techniqueImageUrl: (wgerImg == null || wgerImg.isEmpty) ? null : wgerImg,
         createdAt: now,
       );
       exercises.add(exercise);
@@ -3004,16 +3057,6 @@ class _WorkoutSessionSheetState extends State<_WorkoutSessionSheet> {
               hintText: 'Short steps: stance, movement, breathing…',
             ),
             onChanged: (v) => setState(() => ex.techniqueNotes = v),
-          ),
-          const SizedBox(height: 8),
-          TextFormField(
-            key: ValueKey('exerciseUrl_${ex.id}'),
-            initialValue: ex.referenceUrl,
-            decoration: _styledInput(
-              'Demo link (optional)',
-              icon: Icons.link_rounded,
-            ).copyWith(hintText: 'https://… YouTube or article'),
-            onChanged: (v) => setState(() => ex.referenceUrl = v),
           ),
 
           const SizedBox(height: 10),
