@@ -1,4 +1,4 @@
-// Resolves exercise illustrations for AI fitness plans: ExerciseDB (RapidAPI) + cache, then wger fallback.
+// Resolves exercise illustrations: ExerciseDB public API + cache, then wger fallback.
 
 // ignore_for_file: avoid_catches_without_on_clauses
 
@@ -13,7 +13,8 @@ import 'wger_exercise_service.dart';
 class ExercisePlanMediaService {
   ExercisePlanMediaService._();
 
-  static const _prefsKey = 'fh_exercise_db_name_cache_v1';
+  /// Bumped when ExerciseDB host/auth changes (e.g. RapidAPI → exercisedb.dev).
+  static const _prefsKey = 'fh_exercise_db_name_cache_v2';
 
   static Future<Map<String, dynamic>> _loadCache() async {
     final p = await SharedPreferences.getInstance();
@@ -41,7 +42,10 @@ class ExercisePlanMediaService {
     return s;
   }
 
-  /// Strip RapidAPI query keys from plan JSON before cloud sync (belt-and-suspenders).
+  static bool _isLegacyPaidUrl(String url) =>
+      url.contains('rapidapi.com') || url.contains('rapidapi-key=');
+
+  /// Strip legacy RapidAPI image URLs before cloud sync.
   static List<dynamic> weeklyPlanForCloud(List<dynamic> weeklyPlan) {
     final out = <dynamic>[];
     for (final day in weeklyPlan) {
@@ -61,7 +65,7 @@ class ExercisePlanMediaService {
         }
         final m = Map<String, dynamic>.from(e as Map);
         final url = m['imageUrl']?.toString() ?? '';
-        if (url.contains('rapidapi.com') || url.contains('rapidapi-key=')) {
+        if (_isLegacyPaidUrl(url)) {
           m.remove('imageUrl');
         }
         return m;
@@ -71,7 +75,6 @@ class ExercisePlanMediaService {
     return out;
   }
 
-  /// Copy of wger normalizer (single place for plan shape).
   static void normalizeWeeklyPlanKey(Map<dynamic, dynamic> plan) {
     WgerExerciseImageService.normalizeWeeklyPlanKey(plan);
   }
@@ -84,7 +87,6 @@ class ExercisePlanMediaService {
     }
   }
 
-  /// Resolve media for [exerciseName]; used when logging manual workouts.
   static Future<({String? imageUrl, String? exerciseDbId})> resolveForExerciseName(
     String exerciseName,
   ) async {
@@ -97,45 +99,33 @@ class ExercisePlanMediaService {
     if (hit is Map) {
       final hm = Map<String, dynamic>.from(hit as Map);
       final id = hm['exerciseDbId']?.toString().trim();
-      final gif = hm['gifUrl']?.toString().trim();
+      var gif = hm['gifUrl']?.toString().trim();
       if (id != null && id.isNotEmpty) {
-        final publicGif = (gif != null &&
-                gif.isNotEmpty &&
-                !gif.contains('rapidapi.com') &&
-                !gif.contains('rapidapi-key='))
-            ? gif
-            : null;
-        if (publicGif != null) {
-          return (imageUrl: publicGif, exerciseDbId: id);
+        if (gif == null || gif.isEmpty || _isLegacyPaidUrl(gif)) {
+          gif = await ExerciseDBService.fetchGifUrl(id);
+          if (gif != null && gif.isNotEmpty) {
+            cache[key] = {'exerciseDbId': id, 'gifUrl': gif};
+            await _saveCache(cache);
+          }
         }
-        if (ExerciseDBService.isConfigured) {
-          return (
-            imageUrl: ExerciseDBService.gifImageRequestUrl(id),
-            exerciseDbId: id,
-          );
+        if (gif != null && gif.isNotEmpty && !_isLegacyPaidUrl(gif)) {
+          return (imageUrl: gif, exerciseDbId: id);
         }
         return (imageUrl: null, exerciseDbId: id);
       }
     }
-    if (ExerciseDBService.isConfigured) {
-      final r = await ExerciseDBService.searchExercise(exerciseName);
-      if (r != null) {
-        cache[key] = {
-          'exerciseDbId': r.id,
-          if (r.gifUrl != null && r.gifUrl!.isNotEmpty) 'gifUrl': r.gifUrl,
-        };
-        await _saveCache(cache);
-        final publicGif = (r.gifUrl != null &&
-                r.gifUrl!.isNotEmpty &&
-                !r.gifUrl!.contains('rapidapi.com'))
-            ? r.gifUrl
-            : null;
-        return (
-          imageUrl: publicGif ?? ExerciseDBService.gifImageRequestUrl(r.id),
-          exerciseDbId: r.id,
-        );
-      }
+
+    final r = await ExerciseDBService.searchExercise(exerciseName);
+    if (r != null) {
+      cache[key] = {
+        'exerciseDbId': r.id,
+        if (r.gifUrl != null && r.gifUrl!.isNotEmpty) 'gifUrl': r.gifUrl,
+      };
+      await _saveCache(cache);
+      final gif = (r.gifUrl != null && !_isLegacyPaidUrl(r.gifUrl!)) ? r.gifUrl : null;
+      return (imageUrl: gif, exerciseDbId: r.id);
     }
+
     final wger = await WgerExerciseImageService.resolveImageUrl(exerciseName);
     return (imageUrl: wger, exerciseDbId: null);
   }
@@ -168,19 +158,17 @@ class ExercisePlanMediaService {
         }
 
         final existingEdb = em['exerciseDbId']?.toString().trim();
-        final existingImg = em['imageUrl']?.toString().trim();
-        if (existingEdb != null &&
-            existingEdb.isNotEmpty &&
-            (existingImg == null || existingImg.isEmpty) &&
-            ExerciseDBService.isConfigured) {
-          em['imageUrl'] = ExerciseDBService.gifImageRequestUrl(existingEdb);
-          exs[i] = em;
-          continue;
-        }
+        var existingImg = em['imageUrl']?.toString().trim();
+
         if (existingImg != null &&
             existingImg.isNotEmpty &&
-            !existingImg.contains('rapidapi.com')) {
+            !_isLegacyPaidUrl(existingImg)) {
           continue;
+        }
+
+        if (existingImg != null && _isLegacyPaidUrl(existingImg)) {
+          em.remove('imageUrl');
+          existingImg = null;
         }
 
         Map<String, dynamic>? cachedEntry;
@@ -193,29 +181,34 @@ class ExercisePlanMediaService {
         String? gifUrl = cachedEntry?['gifUrl']?.toString();
 
         if (exerciseDbId == null || exerciseDbId.isEmpty) {
-          if (ExerciseDBService.isConfigured) {
-            final r = await ExerciseDBService.searchExercise(name);
-            if (r != null) {
-              exerciseDbId = r.id;
-              gifUrl = r.gifUrl;
-              cache[key] = {
-                'exerciseDbId': exerciseDbId,
-                if (gifUrl != null && gifUrl.isNotEmpty) 'gifUrl': gifUrl,
-              };
-              dirty = true;
-            }
+          final r = await ExerciseDBService.searchExercise(name);
+          if (r != null) {
+            exerciseDbId = r.id;
+            gifUrl = r.gifUrl;
+            cache[key] = {
+              'exerciseDbId': exerciseDbId,
+              if (gifUrl != null && gifUrl.isNotEmpty) 'gifUrl': gifUrl,
+            };
+            dirty = true;
+          }
+        } else if ((gifUrl == null || gifUrl.isEmpty || _isLegacyPaidUrl(gifUrl)) &&
+            exerciseDbId.isNotEmpty) {
+          gifUrl = await ExerciseDBService.fetchGifUrl(exerciseDbId);
+          if (gifUrl != null && gifUrl.isNotEmpty) {
+            cache[key] = {'exerciseDbId': exerciseDbId, 'gifUrl': gifUrl};
+            dirty = true;
           }
         }
 
         if (exerciseDbId != null && exerciseDbId.isNotEmpty) {
           em['exerciseDbId'] = exerciseDbId;
-          final pub = gifUrl != null &&
-                  gifUrl.isNotEmpty &&
-                  !gifUrl.contains('rapidapi.com') &&
-                  !gifUrl.contains('rapidapi-key=')
+          var pub = gifUrl != null && gifUrl.isNotEmpty && !_isLegacyPaidUrl(gifUrl)
               ? gifUrl
               : null;
-          em['imageUrl'] = pub ?? ExerciseDBService.gifImageRequestUrl(exerciseDbId);
+          pub ??= await ExerciseDBService.fetchGifUrl(exerciseDbId);
+          if (pub != null && pub.isNotEmpty) {
+            em['imageUrl'] = pub;
+          }
           exs[i] = em;
           continue;
         }
