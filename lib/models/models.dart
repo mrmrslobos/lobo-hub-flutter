@@ -1549,6 +1549,8 @@ class WorkoutExercise {
   final String? referenceUrl;
   /// Illustration URL (e.g. wger.de) — not encrypted (public CDN).
   final String? techniqueImageUrl;
+  /// ExerciseDB id for RapidAPI GIF when [techniqueImageUrl] is their /image URL.
+  final String? exerciseDbId;
   final DateTime createdAt;
 
   const WorkoutExercise({
@@ -1563,6 +1565,7 @@ class WorkoutExercise {
     this.techniqueNotes,
     this.referenceUrl,
     this.techniqueImageUrl,
+    this.exerciseDbId,
     required this.createdAt,
   });
 
@@ -1584,6 +1587,7 @@ class WorkoutExercise {
       referenceUrl:
           FieldEncryption.decryptField(j['reference_url'] as String?, fid),
       techniqueImageUrl: j['technique_image_url'] as String?,
+      exerciseDbId: j['exercise_db_id'] as String?,
       createdAt: _parseDate(j['created_at']),
     );
   }
@@ -1602,6 +1606,7 @@ class WorkoutExercise {
             FieldEncryption.encryptField(techniqueNotes, familyId),
         'reference_url': FieldEncryption.encryptField(referenceUrl, familyId),
         if (techniqueImageUrl != null) 'technique_image_url': techniqueImageUrl,
+        if (exerciseDbId != null) 'exercise_db_id': exerciseDbId,
         'created_at': createdAt.toIso8601String(),
       };
 
@@ -1617,6 +1622,7 @@ class WorkoutExercise {
     String? techniqueNotes,
     String? referenceUrl,
     String? techniqueImageUrl,
+    String? exerciseDbId,
     DateTime? createdAt,
   }) =>
       WorkoutExercise(
@@ -1631,6 +1637,7 @@ class WorkoutExercise {
         techniqueNotes: techniqueNotes ?? this.techniqueNotes,
         referenceUrl: referenceUrl ?? this.referenceUrl,
         techniqueImageUrl: techniqueImageUrl ?? this.techniqueImageUrl,
+        exerciseDbId: exerciseDbId ?? this.exerciseDbId,
         createdAt: createdAt ?? this.createdAt,
       );
 }
@@ -4467,6 +4474,7 @@ class AppDB {
           referenceUrl:
               e.referenceUrl != null ? ds(e.referenceUrl) : null,
           techniqueImageUrl: e.techniqueImageUrl,
+          exerciseDbId: e.exerciseDbId,
           createdAt: e.createdAt,
         );
       }).toList(),

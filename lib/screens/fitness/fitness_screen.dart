@@ -5,7 +5,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -19,8 +18,9 @@ import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
 import '../../services/exercise_pr_service.dart';
 import '../../services/locale_service.dart';
-import '../../services/wger_exercise_service.dart';
+import '../../services/exercise_plan_media_service.dart';
 import '../../services/workout_health_sync.dart';
+import '../../widgets/exercise_media_image.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/subscription_modal.dart';
@@ -196,8 +196,14 @@ String? _exerciseImageUrl(Map exercise) {
   return null;
 }
 
-Widget _exerciseIllustrationTile(String? url, {double size = 56}) {
-  if (url == null || url.isEmpty) {
+String? _exerciseDbIdFromMap(Map exercise) {
+  final v = exercise['exerciseDbId']?.toString().trim();
+  if (v != null && v.isNotEmpty) return v;
+  return null;
+}
+
+Widget _exerciseIllustrationTile(String? url, {String? exerciseDbId, double size = 56}) {
+  if ((url == null || url.isEmpty) && (exerciseDbId == null || exerciseDbId.isEmpty)) {
     return Container(
       width: size,
       height: size,
@@ -214,30 +220,21 @@ Widget _exerciseIllustrationTile(String? url, {double size = 56}) {
     child: Semantics(
       label: 'Exercise illustration',
       image: true,
-      child: CachedNetworkImage(
+      child: ExerciseMediaImage(
         imageUrl: url,
+        exerciseDbId: exerciseDbId,
         width: size,
         height: size,
         fit: BoxFit.cover,
-        placeholder: (_, __) => Container(
-          width: size,
-          height: size,
-          color: AppTheme.stone100,
-          child: const Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
-        ),
-        errorWidget: (_, __, ___) => Container(
-          width: size,
-          height: size,
-          color: AppTheme.stone100,
-          child: Icon(Icons.fitness_center_rounded, size: size * 0.4, color: AppTheme.stone400),
-        ),
       ),
     ),
   );
 }
 
-Widget _exerciseIllustrationBanner(String? url) {
-  if (url == null || url.isEmpty) return const SizedBox.shrink();
+Widget _exerciseIllustrationBanner(String? url, {String? exerciseDbId}) {
+  if ((url == null || url.isEmpty) && (exerciseDbId == null || exerciseDbId.isEmpty)) {
+    return const SizedBox.shrink();
+  }
   return Padding(
     padding: const EdgeInsets.only(bottom: 12),
     child: ClipRRect(
@@ -245,18 +242,12 @@ Widget _exerciseIllustrationBanner(String? url) {
       child: Semantics(
         label: 'Exercise illustration',
         image: true,
-        child: CachedNetworkImage(
+        child: ExerciseMediaImage(
           imageUrl: url,
-          height: 180,
+          exerciseDbId: exerciseDbId,
+          height: 200,
           width: double.infinity,
           fit: BoxFit.cover,
-          placeholder: (_, __) => Container(
-            height: 180,
-            color: AppTheme.stone100,
-            alignment: Alignment.center,
-            child: const SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2)),
-          ),
-          errorWidget: (_, __, ___) => const SizedBox.shrink(),
         ),
       ),
     ),
@@ -388,7 +379,7 @@ class _FitnessScreenState extends State<FitnessScreen> {
           final userId = provider.activeUser?.id;
           final family = provider.activeFamily;
           if (userId == null || family == null) return;
-          await WgerExerciseImageService.enrichPlanMap(planMap);
+          await ExercisePlanMediaService.enrichPlanMap(planMap);
           final plans = db.fitnessPlans.toList();
           plans.removeWhere((p) => p is Map && p['user_id'] == userId);
           plans.add({
@@ -1025,7 +1016,7 @@ class _StoredPlanViewState extends State<_StoredPlanView> {
       return;
     }
     final planMap = raw as Map<dynamic, dynamic>;
-    WgerExerciseImageService.normalizeWeeklyPlanKey(planMap);
+    ExercisePlanMediaService.normalizeWeeklyPlanKey(planMap);
     final wp = planMap['weeklyPlan'] ?? planMap['weekly_plan'];
     if (wp is! List) {
       return;
@@ -1058,7 +1049,7 @@ class _StoredPlanViewState extends State<_StoredPlanView> {
     _imageEnrichStarted = true;
     try {
       planMap['weeklyPlan'] ??= wp;
-      await WgerExerciseImageService.enrichWeeklyPlan(wp);
+      await ExercisePlanMediaService.enrichWeeklyPlan(wp);
       if (!mounted) {
         return;
       }
@@ -1141,6 +1132,7 @@ class _StoredPlanViewState extends State<_StoredPlanView> {
       final detail = ex['detail'] as String?;
       final howToRaw = ex['howTo']?.toString().trim();
       final imgRaw = _exerciseImageUrl(ex)?.trim();
+      final edbId = _exerciseDbIdFromMap(ex);
       final (setCount, repNum) = _parseSetsReps(detail);
       totalMin += setCount * 3 + (setCount - 1);
 
@@ -1156,6 +1148,7 @@ class _StoredPlanViewState extends State<_StoredPlanView> {
         techniqueNotes: (howToRaw == null || howToRaw.isEmpty) ? null : howToRaw,
         referenceUrl: null,
         techniqueImageUrl: (imgRaw == null || imgRaw.isEmpty) ? null : imgRaw,
+        exerciseDbId: (edbId == null || edbId.isEmpty) ? null : edbId,
         createdAt: now,
       );
       exercises.add(we);
@@ -1242,7 +1235,7 @@ Apply the requested change while keeping everything else sensible.
           if (mounted) setState(() => _refining = false);
           return;
         }
-        await WgerExerciseImageService.enrichPlanMap(decoded);
+        await ExercisePlanMediaService.enrichPlanMap(decoded);
         final plans = db.fitnessPlans.toList();
         plans.removeWhere((p) => p is Map && p['user_id'] == userId);
         plans.add({
@@ -1367,13 +1360,14 @@ Apply the requested change while keeping everything else sensible.
                         final idx = ex.key;
                         final exercise = ex.value;
                         final imgUrl = _exerciseImageUrl(exercise as Map);
+                        final edbId = _exerciseDbIdFromMap(exercise as Map);
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 8),
                           child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                             Stack(
                               clipBehavior: Clip.none,
                               children: [
-                                _exerciseIllustrationTile(imgUrl, size: 52),
+                                _exerciseIllustrationTile(imgUrl, exerciseDbId: edbId, size: 88),
                                 Positioned(
                                   top: -4,
                                   right: -4,
@@ -1404,7 +1398,8 @@ Apply the requested change while keeping everything else sensible.
                                   style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone500, height: 1.35),
                                 ),
                               ],
-                              if (imgUrl == null || imgUrl.isEmpty) ...[
+                              if ((imgUrl == null || imgUrl.isEmpty) &&
+                                  (edbId == null || edbId.isEmpty)) ...[
                                 const SizedBox(height: 4),
                                 Text(
                                   'No illustration found for this name. Try a simpler name next time (e.g. "Push-up", "Squat").',
@@ -2003,7 +1998,7 @@ class _SessionCard extends StatelessWidget {
                 Text(ex.notes!, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone600)),
               ],
               const SizedBox(height: 12),
-              _exerciseIllustrationBanner(ex.techniqueImageUrl),
+              _exerciseIllustrationBanner(ex.techniqueImageUrl, exerciseDbId: ex.exerciseDbId),
               if (ex.techniqueNotes != null && ex.techniqueNotes!.trim().isNotEmpty) ...[
                 const Text('How to do it', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 13)),
                 const SizedBox(height: 6),
@@ -2019,7 +2014,8 @@ class _SessionCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
               ],
-              if (ex.techniqueImageUrl == null || ex.techniqueImageUrl!.trim().isEmpty) ...[
+              if ((ex.techniqueImageUrl == null || ex.techniqueImageUrl!.trim().isEmpty) &&
+                  (ex.exerciseDbId == null || ex.exerciseDbId!.trim().isEmpty)) ...[
                 const SizedBox(height: 4),
                 Text(
                   'No illustration on file for this exercise.',
@@ -2345,9 +2341,9 @@ class _FitnessLogSheetState extends State<_FitnessLogSheet> {
     final uid = provider.activeUser?.id ?? '';
     final now = DateTime.now();
 
-    String? wgerImg;
+    ({String? imageUrl, String? exerciseDbId}) media = (imageUrl: null, exerciseDbId: null);
     try {
-      wgerImg = await WgerExerciseImageService.resolveImageUrl(exerciseName);
+      media = await ExercisePlanMediaService.resolveForExerciseName(exerciseName);
     } catch (_) {}
 
     final session = WorkoutSession(
@@ -2372,7 +2368,8 @@ class _FitnessLogSheetState extends State<_FitnessLogSheet> {
       notes: null,
       techniqueNotes: null,
       referenceUrl: null,
-      techniqueImageUrl: (wgerImg == null || wgerImg.isEmpty) ? null : wgerImg,
+      techniqueImageUrl: (media.imageUrl == null || media.imageUrl!.isEmpty) ? null : media.imageUrl,
+      exerciseDbId: (media.exerciseDbId == null || media.exerciseDbId!.isEmpty) ? null : media.exerciseDbId,
       createdAt: now,
     );
 
@@ -2930,9 +2927,9 @@ class _WorkoutSessionSheetState extends State<_WorkoutSessionSheet> {
 
     for (var exIndex = 0; exIndex < _exercises.length; exIndex++) {
       final draft = _exercises[exIndex];
-      String? wgerImg;
+      ({String? imageUrl, String? exerciseDbId}) media = (imageUrl: null, exerciseDbId: null);
       try {
-        wgerImg = await WgerExerciseImageService.resolveImageUrl(draft.name.trim());
+        media = await ExercisePlanMediaService.resolveForExerciseName(draft.name.trim());
       } catch (_) {}
 
       final exercise = WorkoutExercise(
@@ -2946,7 +2943,8 @@ class _WorkoutSessionSheetState extends State<_WorkoutSessionSheet> {
         notes: null,
         techniqueNotes: draft.techniqueNotes.trim().isEmpty ? null : draft.techniqueNotes.trim(),
         referenceUrl: null,
-        techniqueImageUrl: (wgerImg == null || wgerImg.isEmpty) ? null : wgerImg,
+        techniqueImageUrl: (media.imageUrl == null || media.imageUrl!.isEmpty) ? null : media.imageUrl,
+        exerciseDbId: (media.exerciseDbId == null || media.exerciseDbId!.isEmpty) ? null : media.exerciseDbId,
         createdAt: now,
       );
       exercises.add(exercise);

@@ -10,6 +10,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/models.dart';
+import 'exercise_plan_media_service.dart';
 import 'field_encryption_service.dart';
 import 'supabase_service.dart';
 
@@ -22,7 +23,12 @@ Map<String, dynamic> fitnessPlanRowForCloud(
   final created = plan['created_at']?.toString() ?? '';
   final id = '${uid}_$familyId';
   dynamic weekly = plan['weeklyPlan'] ?? plan['weekly_plan'] ?? [];
-  if (weekly is! List) weekly = [];
+  if (weekly is! List) {
+    weekly = [];
+  } else {
+    weekly =
+        ExercisePlanMediaService.weeklyPlanForCloud(List<dynamic>.from(weekly));
+  }
   dynamic tips = plan['tips'] ?? [];
   if (tips is! List) tips = [];
   dynamic profile = plan['profile'] ?? {};
@@ -57,6 +63,7 @@ class DatabaseService {
     'technique_notes',
     'reference_url',
     'technique_image_url',
+    'exercise_db_id',
   };
 
   /// Meal plan columns older DBs may lack until migration 16 / 17.
