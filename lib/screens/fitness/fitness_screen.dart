@@ -460,7 +460,7 @@ class _FitnessScreenState extends State<FitnessScreen> {
             if (s.title.toLowerCase().contains(q)) return true;
             return provider.db.workoutExercises
                 .where((e) => e.sessionId == s.id)
-                .any((e) => e.name.toLowerCase().contains(q));
+                .any((e) => e.exerciseName.toLowerCase().contains(q));
           }).toList();
     sessionsForList.sort((a, b) => b.date.compareTo(a.date));
 

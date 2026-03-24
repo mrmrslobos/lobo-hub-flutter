@@ -8,7 +8,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../models/models.dart';
+import '../models/models.dart' hide User;
 
 class SupabaseService {
   static SupabaseClient get client => Supabase.instance.client;
