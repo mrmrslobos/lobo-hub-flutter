@@ -19,6 +19,7 @@ import '../../services/ai_service.dart';
 import '../../services/locale_service.dart';
 import '../../config/theme.dart';
 import '../../widgets/subscription_modal.dart';
+import '../../utils/debounce.dart';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -137,6 +138,14 @@ class _MealsScreenState extends State<MealsScreen>
   // Import from URL
   final _importUrlController = TextEditingController();
   bool _importLoading = false;
+
+  void _openCookMode(Recipe recipe) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (ctx) => _CookModeScreen(recipe: recipe),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -1028,6 +1037,7 @@ Return a JSON array of 7 objects, each with:
                                   )
                                 : null,
                             trailing: IconButton(
+                              tooltip: 'Remove ${p.name}',
                               icon: const Icon(Icons.delete_outline_rounded, size: 20),
                               onPressed: () => _removePantryItem(p),
                             ),
@@ -1336,7 +1346,7 @@ Return a JSON array of 7 objects, each with:
               const _MealPlanTab(),
             ] else ...[
               // ── RECIPE BOX section ──
-              const _RecipesTab(),
+              _RecipesTab(onCookMode: _openCookMode),
             ],
           ],
         ),
@@ -1508,16 +1518,23 @@ class _MealPlanTabState extends State<_MealPlanTab> {
     }
   }
 
-  Future<void> _addWeekIngredientsToGrocery(BuildContext context) async {
+  List<MealShoppingLine> _weekShopLines(BuildContext context) {
     final provider = context.read<AppProvider>();
     final familyId = provider.activeFamily?.id ?? '';
-    if (familyId.isEmpty) return;
-    final lines = linesFromMealPlans(
+    if (familyId.isEmpty) return [];
+    return linesFromMealPlans(
       familyId: familyId,
       meals: provider.db.mealPlans,
       recipes: provider.db.recipes,
       weekDays: _weekDays,
     );
+  }
+
+  Future<void> _addWeekIngredientsToGrocery(BuildContext context) async {
+    final provider = context.read<AppProvider>();
+    final familyId = provider.activeFamily?.id ?? '';
+    if (familyId.isEmpty) return;
+    final lines = _weekShopLines(context);
     if (lines.isEmpty) {
       _showSnack(context, 'Link meals to recipes (pick from Recipes) to build a list from ingredients.');
       return;
@@ -1545,6 +1562,26 @@ class _MealPlanTabState extends State<_MealPlanTab> {
     if (context.mounted) {
       _showSnack(context, 'Added ${listItems.length} items to Lists');
     }
+  }
+
+  Future<void> _shareWeekShopList(BuildContext context) async {
+    final lines = _weekShopLines(context);
+    if (lines.isEmpty) {
+      _showSnack(context, 'Link meals to recipes to export a grocery list.');
+      return;
+    }
+    final buf = StringBuffer();
+    buf.writeln(
+      'Grocery list — week of ${DateFormat('MMM d').format(_weekDays.first)}–${DateFormat('d, y').format(_weekDays.last)}',
+    );
+    buf.writeln('');
+    for (final l in lines) {
+      final q = (l.quantity != null && l.quantity!.trim().isNotEmpty)
+          ? '${l.quantity!.trim()}${l.unit != null && l.unit!.trim().isNotEmpty ? ' ${l.unit!.trim()}' : ''}'
+          : null;
+      buf.writeln((q != null && q.isNotEmpty) ? '• $q ${l.name}' : '• ${l.name}');
+    }
+    await Share.share(buf.toString().trim(), subject: 'Family grocery list');
   }
 
   Future<void> _shareWeekPlan(BuildContext context) async {
@@ -1614,6 +1651,7 @@ class _MealPlanTabState extends State<_MealPlanTab> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               IconButton(
+                tooltip: 'Previous week',
                 icon: const Icon(Icons.chevron_left_rounded, color: AppTheme.stone500),
                 onPressed: _goToPreviousWeek,
               ),
@@ -1627,6 +1665,7 @@ class _MealPlanTabState extends State<_MealPlanTab> {
                 ),
               ),
               IconButton(
+                tooltip: 'Next week',
                 icon: const Icon(Icons.chevron_right_rounded, color: AppTheme.stone500),
                 onPressed: _goToNextWeek,
               ),
@@ -1730,29 +1769,44 @@ class _MealPlanTabState extends State<_MealPlanTab> {
         }),
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(
-                child: Semantics(
-                  label: 'Add this week ingredients to grocery list',
-                  button: true,
-                  child: OutlinedButton.icon(
-                    onPressed: () => _addWeekIngredientsToGrocery(context),
-                    icon: const Icon(Icons.shopping_cart_outlined, size: 18),
-                    label: const Text('Week shop', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+              Row(
+                children: [
+                  Expanded(
+                    child: Semantics(
+                      label: 'Add this week ingredients to grocery list',
+                      button: true,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _addWeekIngredientsToGrocery(context),
+                        icon: const Icon(Icons.shopping_cart_outlined, size: 18),
+                        label: const Text('Week shop', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+                      ),
+                    ),
                   ),
-                ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Semantics(
+                      label: 'Share grocery list text for this week',
+                      button: true,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _shareWeekShopList(context),
+                        icon: const Icon(Icons.list_alt_rounded, size: 18),
+                        label: const Text('Share list', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Semantics(
-                  label: 'Share meal plan for this week',
-                  button: true,
-                  child: OutlinedButton.icon(
-                    onPressed: () => _shareWeekPlan(context),
-                    icon: const Icon(Icons.share_rounded, size: 18),
-                    label: const Text('Share week', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
-                  ),
+              const SizedBox(height: 8),
+              Semantics(
+                label: 'Share meal plan for this week',
+                button: true,
+                child: OutlinedButton.icon(
+                  onPressed: () => _shareWeekPlan(context),
+                  icon: const Icon(Icons.share_rounded, size: 18),
+                  label: const Text('Share week plan', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
                 ),
               ),
             ],
@@ -2653,24 +2707,47 @@ class _RecipePickerSheetState extends State<_RecipePickerSheet> {
 // ─── Recipe Box Section ───────────────────────────────────────────────────────
 
 class _RecipesTab extends StatefulWidget {
-  const _RecipesTab();
+  final void Function(Recipe recipe) onCookMode;
+  const _RecipesTab({required this.onCookMode});
 
   @override
   State<_RecipesTab> createState() => _RecipesTabState();
 }
 
 class _RecipesTabState extends State<_RecipesTab> {
+  final _searchCtrl = TextEditingController();
+  final _searchDebounce = Debouncer();
   String _query = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _searchCtrl.addListener(() {
+      final t = _searchCtrl.text;
+      _searchDebounce.run(() {
+        if (mounted) setState(() => _query = t);
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    _searchDebounce.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
     final familyId = provider.activeFamily?.id ?? '';
+    final q = _query.trim().toLowerCase();
     final recipes = provider.db.recipes
         .where((r) =>
             r.familyId == familyId &&
-            (r.title.toLowerCase().contains(_query.toLowerCase()) ||
-                r.tags.any((t) => t.toLowerCase().contains(_query.toLowerCase()))))
+            (q.isEmpty ||
+                r.title.toLowerCase().contains(q) ||
+                r.tags.any((t) => t.toLowerCase().contains(q))))
         .toList();
 
     return Column(
@@ -2688,12 +2765,22 @@ class _RecipesTabState extends State<_RecipesTab> {
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
           child: TextField(
-            onChanged: (v) => setState(() => _query = v),
+            controller: _searchCtrl,
             style: const TextStyle(fontFamily: 'Inter', fontSize: 14),
             decoration: InputDecoration(
               hintText: 'Search recipes...',
               hintStyle: const TextStyle(fontFamily: 'Inter', color: AppTheme.stone400),
               prefixIcon: const Icon(Icons.search, color: AppTheme.stone400, size: 20),
+              suffixIcon: _query.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: 'Clear search',
+                      icon: const Icon(Icons.close_rounded, size: 20, color: AppTheme.stone400),
+                      onPressed: () {
+                        _searchCtrl.clear();
+                        setState(() => _query = '');
+                      },
+                    ),
               filled: true,
               fillColor: AppTheme.stone50,
               border: OutlineInputBorder(
@@ -2741,7 +2828,10 @@ class _RecipesTabState extends State<_RecipesTab> {
                 childAspectRatio: 0.78,
               ),
               itemCount: recipes.length,
-              itemBuilder: (ctx, i) => _RecipeCard(recipe: recipes[i]),
+              itemBuilder: (ctx, i) => _RecipeCard(
+                    recipe: recipes[i],
+                    onCookMode: () => widget.onCookMode(recipes[i]),
+                  ),
             ),
           ),
         const SizedBox(height: 32),
@@ -2754,7 +2844,8 @@ class _RecipesTabState extends State<_RecipesTab> {
 
 class _RecipeCard extends StatelessWidget {
   final Recipe recipe;
-  const _RecipeCard({required this.recipe});
+  final VoidCallback onCookMode;
+  const _RecipeCard({required this.recipe, required this.onCookMode});
 
   String _timeLabel() {
     final total = (recipe.prepMinutes ?? 0) + (recipe.cookMinutes ?? 0);
@@ -2777,7 +2868,7 @@ class _RecipeCard extends StatelessWidget {
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
-        builder: (_) => _RecipeDetailSheet(recipe: recipe),
+        builder: (_) => _RecipeDetailSheet(recipe: recipe, onCookMode: onCookMode),
       ),
       child: Container(
         decoration: BoxDecoration(
@@ -2912,7 +3003,8 @@ String _recipeEmoji(Recipe r) {
 
 class _RecipeDetailSheet extends StatelessWidget {
   final Recipe recipe;
-  const _RecipeDetailSheet({required this.recipe});
+  final VoidCallback onCookMode;
+  const _RecipeDetailSheet({required this.recipe, required this.onCookMode});
 
   String _totalTime() {
     final total = (recipe.prepMinutes ?? 0) + (recipe.cookMinutes ?? 0);
@@ -3137,6 +3229,26 @@ class _RecipeDetailSheet extends StatelessWidget {
                     }),
                   ],
                   const SizedBox(height: 20),
+                  if (recipe.steps.isNotEmpty) ...[
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          onCookMode();
+                        },
+                        icon: const Icon(Icons.restaurant_menu_rounded, size: 18),
+                        label: const Text('Cook mode', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700)),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppTheme.primary,
+                          side: const BorderSide(color: AppTheme.primary),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
                   // Add to Meal Plan button
                   SizedBox(
                     width: double.infinity,
@@ -3171,6 +3283,113 @@ class _RecipeDetailSheet extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+/// Full-screen step-by-step view (large type, swipe between steps).
+class _CookModeScreen extends StatefulWidget {
+  final Recipe recipe;
+  const _CookModeScreen({required this.recipe});
+
+  @override
+  State<_CookModeScreen> createState() => _CookModeScreenState();
+}
+
+class _CookModeScreenState extends State<_CookModeScreen> {
+  late final PageController _pageCtrl;
+  int _index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageCtrl = PageController();
+  }
+
+  @override
+  void dispose() {
+    _pageCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final steps = widget.recipe.steps.where((s) => s.trim().isNotEmpty).toList();
+    if (steps.isEmpty) {
+      return Scaffold(
+        appBar: AppBar(title: Text(widget.recipe.title)),
+        body: const Center(child: Text('No steps for this recipe.')),
+      );
+    }
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.recipe.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+            child: Row(
+              children: [
+                Text(
+                  'Step ${_index + 1} of ${steps.length}',
+                  style: const TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.stone500),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: PageView.builder(
+              controller: _pageCtrl,
+              itemCount: steps.length,
+              onPageChanged: (i) => setState(() => _index = i),
+              itemBuilder: (ctx, i) {
+                return SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+                  child: Semantics(
+                    header: true,
+                    label: 'Step ${i + 1}',
+                    child: Text(
+                      steps[i],
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 22,
+                        fontWeight: FontWeight.w600,
+                        height: 1.45,
+                        color: AppTheme.stone800,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          Padding(
+            padding: EdgeInsets.fromLTRB(16, 0, 16, 16 + MediaQuery.of(context).padding.bottom),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _index > 0
+                        ? () => _pageCtrl.previousPage(duration: const Duration(milliseconds: 220), curve: Curves.easeOut)
+                        : null,
+                    child: const Text('Back'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: _index < steps.length - 1
+                        ? () => _pageCtrl.nextPage(duration: const Duration(milliseconds: 220), curve: Curves.easeOut)
+                        : () => Navigator.pop(context),
+                    child: Text(_index < steps.length - 1 ? 'Next' : 'Done'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
