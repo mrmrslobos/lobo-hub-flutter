@@ -245,7 +245,9 @@ class DatabaseService {
       List<Map<String, dynamic>> rows,
       String table,
     ) {
-      const keepUpdatedAt = {'user_locations'};
+      // lists: need real updated_at for merge — otherwise row stays at DB default
+      // and another device's stale copy can win last-write-wins.
+      const keepUpdatedAt = {'user_locations', 'lists'};
       return rows.map((r) {
         final m = Map<String, dynamic>.from(r);
         if (keepUpdatedAt.contains(table)) {

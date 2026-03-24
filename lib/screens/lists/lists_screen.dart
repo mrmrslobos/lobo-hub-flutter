@@ -190,6 +190,34 @@ class _ListsScreenState extends State<ListsScreen> {
     setState(() => _selectedList = updatedList);
   }
 
+  Future<void> _clearCheckedItems(ShoppingList list) async {
+    final checked = list.items.where((i) => i.checked).toList();
+    if (checked.isEmpty) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove checked items'),
+        content: Text(
+          'Remove ${checked.length} checked ${checked.length == 1 ? 'item' : 'items'} from "${list.title}"?',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Remove', style: TextStyle(color: AppTheme.error)),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    final provider = context.read<AppProvider>();
+    final db = provider.db;
+    final updatedList = list.copyWith(items: list.items.where((i) => !i.checked).toList());
+    final updatedLists = db.shoppingLists.map((l) => l.id == list.id ? updatedList : l).toList();
+    await provider.saveAndSync(db.copyWith(shoppingLists: updatedLists));
+    setState(() => _selectedList = updatedList);
+  }
+
   // ── Sheet launchers ────────────────────────────────────────────────────────
 
   void _showNewListSheet() {
@@ -426,6 +454,7 @@ class _ListsScreenState extends State<ListsScreen> {
           onAddItem: (name) => _addItem(_selectedList!, name),
           onToggleItem: (item) => _toggleItem(_selectedList!, item),
           onDeleteItem: (id) => _deleteItem(_selectedList!, id),
+          onClearChecked: () => _clearCheckedItems(_selectedList!),
           onDeleteList: () => _deleteList(_selectedList!),
           onAiCategorize: _showAiCategorization,
         ),
@@ -1070,6 +1099,7 @@ class _ListDetailView extends StatefulWidget {
   final Future<void> Function(String) onAddItem;
   final Future<void> Function(ListItem) onToggleItem;
   final Future<void> Function(String) onDeleteItem;
+  final Future<void> Function() onClearChecked;
   final VoidCallback onDeleteList;
   final VoidCallback onAiCategorize;
 
@@ -1079,6 +1109,7 @@ class _ListDetailView extends StatefulWidget {
     required this.onAddItem,
     required this.onToggleItem,
     required this.onDeleteItem,
+    required this.onClearChecked,
     required this.onDeleteList,
     required this.onAiCategorize,
   });
@@ -1342,6 +1373,21 @@ class _ListDetailViewState extends State<_ListDetailView> {
                     ),
                   ),
                 ],
+              ),
+            ),
+          ),
+        if (checked.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: () => widget.onClearChecked(),
+                icon: Icon(Icons.playlist_remove_rounded, size: 18, color: AppTheme.stone600),
+                label: Text(
+                  'Remove ${checked.length} checked',
+                  style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13),
+                ),
               ),
             ),
           ),
