@@ -1352,7 +1352,12 @@ class DevotionalEntry {
     visibility: visibility ?? this.visibility,
     isFavorited: isFavorited ?? this.isFavorited,
     updatedAt: updatedAt ??
-        ((title != null || content != null || isFavorited != null) ? DateTime.now() : this.updatedAt),
+        ((title != null ||
+                content != null ||
+                isFavorited != null ||
+                visibility != null)
+            ? DateTime.now()
+            : this.updatedAt),
   );
 }
 

@@ -453,6 +453,20 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  /// Merge keys into [activeUser.settings] and persist (users table sync).
+  Future<void> updateActiveUserSettings(Map<String, dynamic> patch) async {
+    final u = _activeUser;
+    if (u == null || patch.isEmpty) return;
+    final next = Map<String, dynamic>.from(u.settings)..addAll(patch);
+    final updated = u.copyWith(settings: next);
+    _activeUser = updated;
+    _db = _db.copyWith(
+      users: _db.users.map((x) => x.id == u.id ? updated : x).toList(),
+    );
+    notifyListeners();
+    await saveAndSync(_db);
+  }
+
   /// Update DB, notify listeners immediately, then persist + cloud sync.
   Future<void> saveAndSync(AppDB newDb) async {
     _db = newDb;
