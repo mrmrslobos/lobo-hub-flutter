@@ -30,6 +30,20 @@ void _showSnack(BuildContext context, String msg) {
   ));
 }
 
+/// Normalize recipe titles so AI duplicates ("Taco Night" vs "taco night") match.
+String _recipeTitleNormKey(String title) =>
+    title.toLowerCase().trim().replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
+
+Recipe? _findRecipeByNormTitle(List<Recipe> recipes, String familyId, String title) {
+  final key = _recipeTitleNormKey(title);
+  if (key.isEmpty) return null;
+  for (final r in recipes) {
+    if (r.familyId != familyId) continue;
+    if (_recipeTitleNormKey(r.title) == key) return r;
+  }
+  return null;
+}
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const _mealTypes = ['breakfast', 'lunch', 'dinner', 'snack'];
@@ -254,10 +268,18 @@ Return a JSON array of exactly 3 objects, each with these fields:
       }
     }
 
+    final rawTitle = suggestion['title']?.toString().trim() ?? '';
+    final title = rawTitle.isNotEmpty ? rawTitle : 'AI Recipe';
+    final dup = _findRecipeByNormTitle(db.recipes, familyId, title);
+    if (dup != null) {
+      _showSnack(context, '"$title" is already in your Recipe Box');
+      return;
+    }
+
     final newRecipe = Recipe(
       id: const Uuid().v4(),
       familyId: familyId,
-      title: suggestion['title']?.toString() ?? 'AI Recipe',
+      title: title,
       ingredients: ingredients,
       steps: steps,
       servings: (suggestion['servings'] is int) ? suggestion['servings'] as int : 4,
@@ -347,6 +369,12 @@ Return a JSON array of 7 objects, each with:
 
       final newRecipes = <Recipe>[];
       final newMealPlans = <MealPlanEntry>[];
+      // Reuse existing recipes when AI repeats a title (normalized).
+      final recipeIdByNormTitle = <String, String>{};
+      for (final r in db.recipes.where((r) => r.familyId == familyId)) {
+        final k = _recipeTitleNormKey(r.title);
+        if (k.isNotEmpty) recipeIdByNormTitle[k] = r.id;
+      }
       // Track ingredients for consolidation: key = "name|unit", value = total qty
       final ingredientMap = <String, _IngredientAccum>{};
 
@@ -397,20 +425,26 @@ Return a JSON array of 7 objects, each with:
             }
           }
 
-          // Create recipe
-          final recipeId = const Uuid().v4();
-          newRecipes.add(Recipe(
-            id: recipeId,
-            familyId: familyId,
-            title: mealName,
-            ingredients: ingredients,
-            steps: steps,
-            servings: (meal['servings'] is int) ? meal['servings'] as int : 4,
-            tags: const ['meal-plan'],
-            prepMinutes: (meal['prepMinutes'] as num?)?.toInt(),
-            cookMinutes: (meal['cookMinutes'] as num?)?.toInt(),
-            createdBy: userId,
-          ));
+          final norm = _recipeTitleNormKey(mealName);
+          String recipeId;
+          if (norm.isNotEmpty && recipeIdByNormTitle.containsKey(norm)) {
+            recipeId = recipeIdByNormTitle[norm]!;
+          } else {
+            recipeId = const Uuid().v4();
+            newRecipes.add(Recipe(
+              id: recipeId,
+              familyId: familyId,
+              title: mealName,
+              ingredients: ingredients,
+              steps: steps,
+              servings: (meal['servings'] is int) ? meal['servings'] as int : 4,
+              tags: const ['meal-plan'],
+              prepMinutes: (meal['prepMinutes'] as num?)?.toInt(),
+              cookMinutes: (meal['cookMinutes'] as num?)?.toInt(),
+              createdBy: userId,
+            ));
+            if (norm.isNotEmpty) recipeIdByNormTitle[norm] = recipeId;
+          }
 
           // Create meal plan entry
           newMealPlans.add(MealPlanEntry(
@@ -613,6 +647,11 @@ Return a JSON array of 7 objects, each with:
 
       final newRecipes = <Recipe>[];
       final newMealPlans = <MealPlanEntry>[];
+      final recipeIdByNormTitleRefine = <String, String>{};
+      for (final r in db.recipes.where((r) => r.familyId == familyId)) {
+        final k = _recipeTitleNormKey(r.title);
+        if (k.isNotEmpty) recipeIdByNormTitleRefine[k] = r.id;
+      }
 
       for (final dayData in decoded) {
         if (dayData is! Map<String, dynamic>) continue;
@@ -648,19 +687,26 @@ Return a JSON array of 7 objects, each with:
             }
           }
 
-          final recipeId = const Uuid().v4();
-          newRecipes.add(Recipe(
-            id: recipeId,
-            familyId: familyId,
-            title: mealName,
-            ingredients: ingredients,
-            steps: steps,
-            servings: (meal['servings'] is int) ? meal['servings'] as int : 4,
-            tags: const ['meal-plan'],
-            prepMinutes: (meal['prepMinutes'] as num?)?.toInt(),
-            cookMinutes: (meal['cookMinutes'] as num?)?.toInt(),
-            createdBy: userId,
-          ));
+          final normR = _recipeTitleNormKey(mealName);
+          String recipeId;
+          if (normR.isNotEmpty && recipeIdByNormTitleRefine.containsKey(normR)) {
+            recipeId = recipeIdByNormTitleRefine[normR]!;
+          } else {
+            recipeId = const Uuid().v4();
+            newRecipes.add(Recipe(
+              id: recipeId,
+              familyId: familyId,
+              title: mealName,
+              ingredients: ingredients,
+              steps: steps,
+              servings: (meal['servings'] is int) ? meal['servings'] as int : 4,
+              tags: const ['meal-plan'],
+              prepMinutes: (meal['prepMinutes'] as num?)?.toInt(),
+              cookMinutes: (meal['cookMinutes'] as num?)?.toInt(),
+              createdBy: userId,
+            ));
+            if (normR.isNotEmpty) recipeIdByNormTitleRefine[normR] = recipeId;
+          }
 
           newMealPlans.add(MealPlanEntry(
             id: const Uuid().v4(),
@@ -2132,52 +2178,58 @@ The replacement should be similar in style but different. Keep it healthy and fa
       final newName = decoded['name']?.toString() ?? 'Swapped Meal';
       final swapServings = (decoded['servings'] is int) ? decoded['servings'] as int : int.tryParse(decoded['servings']?.toString() ?? '');
 
-      // Update the meal plan entry
       final provider = context.read<AppProvider>();
       final db = provider.db;
+      final userId = provider.activeUser?.id ?? '';
+
+      final existingSwap = _findRecipeByNormTitle(db.recipes, familyId, newName);
+      String? recipeIdForMeal = existingSwap?.id;
+      List<Recipe> nextRecipes = List<Recipe>.from(db.recipes);
+
+      if (recipeIdForMeal == null) {
+        final ingredients = <RecipeIngredient>[];
+        if (decoded['ingredients'] is List) {
+          for (final ing in decoded['ingredients'] as List) {
+            if (ing is Map<String, dynamic>) {
+              ingredients.add(RecipeIngredient(
+                name: ing['name']?.toString() ?? '',
+                quantity: ing['quantity']?.toString(),
+                unit: ing['unit']?.toString(),
+              ));
+            }
+          }
+        }
+        final steps = <String>[];
+        if (decoded['steps'] is List) {
+          for (final s in decoded['steps'] as List) steps.add(s.toString());
+        }
+        recipeIdForMeal = const Uuid().v4();
+        nextRecipes.add(Recipe(
+          id: recipeIdForMeal,
+          familyId: familyId,
+          title: newName,
+          ingredients: ingredients,
+          steps: steps,
+          servings: (decoded['servings'] is int) ? decoded['servings'] as int : 4,
+          tags: const ['ai-swap'],
+          createdBy: userId,
+        ));
+      }
+
       final updated = db.mealPlans.map((m) {
         if (m.id == meal!.id) {
           return m.copyWith(
             customMeal: newName,
+            recipeId: recipeIdForMeal,
             servings: swapServings ?? m.servings,
           );
         }
         return m;
       }).toList();
 
-      // Optionally create a recipe from the swap
-      final userId = provider.activeUser?.id ?? '';
-      final ingredients = <RecipeIngredient>[];
-      if (decoded['ingredients'] is List) {
-        for (final ing in decoded['ingredients'] as List) {
-          if (ing is Map<String, dynamic>) {
-            ingredients.add(RecipeIngredient(
-              name: ing['name']?.toString() ?? '',
-              quantity: ing['quantity']?.toString(),
-              unit: ing['unit']?.toString(),
-            ));
-          }
-        }
-      }
-      final steps = <String>[];
-      if (decoded['steps'] is List) {
-        for (final s in decoded['steps'] as List) steps.add(s.toString());
-      }
-
-      final newRecipe = Recipe(
-        id: const Uuid().v4(),
-        familyId: familyId,
-        title: newName,
-        ingredients: ingredients,
-        steps: steps,
-        servings: (decoded['servings'] is int) ? decoded['servings'] as int : 4,
-        tags: const ['ai-swap'],
-        createdBy: userId,
-      );
-
       await provider.saveAndSync(db.copyWith(
         mealPlans: updated,
-        recipes: [...db.recipes, newRecipe],
+        recipes: nextRecipes,
       ));
 
       if (context.mounted) {
