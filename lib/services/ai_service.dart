@@ -14,8 +14,7 @@ class AiService {
   /// can check without needing a BuildContext.
   static bool _aiBlocked = false;
   static void setAIBlocked(bool blocked) => _aiBlocked = blocked;
-  // TODO: restore `=> _aiBlocked` once subscriptions go live
-  static bool get isAIBlocked => false;
+  static bool get isAIBlocked => _aiBlocked;
 
   /// Call the Supabase ai-proxy edge function.
   ///
@@ -52,12 +51,24 @@ class AiService {
       );
 
       final data = response.data;
-      if (data is Map<String, dynamic> && data.containsKey('text')) {
-        return data['text'] as String?;
+      if (data is Map<String, dynamic>) {
+        if (data['error'] == 'subscription_required') {
+          throw const AINotAvailableException();
+        }
+        if (data.containsKey('text')) {
+          return data['text'] as String?;
+        }
       }
       if (data is String) return data;
-      return jsonEncode(data);
+      if (data is Map<String, dynamic>) return jsonEncode(data);
+      return data != null ? jsonEncode(data) : null;
+    } on AINotAvailableException {
+      rethrow;
     } catch (e, st) {
+      final msg = e.toString();
+      if (msg.contains('402') || msg.contains('subscription_required')) {
+        throw const AINotAvailableException();
+      }
       debugPrint('[AiService] ask() error: $e\n$st');
       return null;
     }
