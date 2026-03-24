@@ -1554,7 +1554,7 @@ class WorkoutExercise {
   final String? referenceUrl;
   /// Illustration URL (e.g. wger.de) — not encrypted (public CDN).
   final String? techniqueImageUrl;
-  /// ExerciseDB id for RapidAPI GIF when [techniqueImageUrl] is their /image URL.
+  /// ExerciseDB exercise id when [techniqueImageUrl] is their GIF URL.
   final String? exerciseDbId;
   final DateTime createdAt;
 
