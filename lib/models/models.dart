@@ -1316,17 +1316,27 @@ class ShoppingList {
     String? id, String? familyId, String? creatorId, String? title,
     List<ListItem>? items, ListCategory? category, Visibility? visibility,
     List<String>? sharedWith, DateTime? updatedAt,
-  }) => ShoppingList(
-    id: id ?? this.id, familyId: familyId ?? this.familyId,
-    creatorId: creatorId ?? this.creatorId, title: title ?? this.title,
-    items: items ?? this.items, category: category ?? this.category,
-    visibility: visibility ?? this.visibility,
-    sharedWith: sharedWith ?? this.sharedWith,
-    updatedAt: updatedAt ??
-        ((title != null || items != null || category != null || visibility != null || sharedWith != null)
-            ? DateTime.now()
-            : this.updatedAt),
-  );
+  }) {
+    final anyField = id != null ||
+        familyId != null ||
+        creatorId != null ||
+        title != null ||
+        items != null ||
+        category != null ||
+        visibility != null ||
+        sharedWith != null;
+    return ShoppingList(
+      id: id ?? this.id,
+      familyId: familyId ?? this.familyId,
+      creatorId: creatorId ?? this.creatorId,
+      title: title ?? this.title,
+      items: items ?? this.items,
+      category: category ?? this.category,
+      visibility: visibility ?? this.visibility,
+      sharedWith: sharedWith ?? this.sharedWith,
+      updatedAt: updatedAt ?? (anyField ? DateTime.now() : this.updatedAt),
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
