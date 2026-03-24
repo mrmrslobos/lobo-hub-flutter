@@ -748,6 +748,10 @@ class CalendarEvent {
   final Visibility visibility;
   final List<String> sharedWith;
   final List<String> checklist;
+  /// User IDs who RSVP'd yes / no / maybe (family calendar only; stored as JSON arrays in Supabase).
+  final List<String> rsvpYesIds;
+  final List<String> rsvpNoIds;
+  final List<String> rsvpMaybeIds;
   final double? budgetEstimate;
   final String? externalCalendarId;
   final Recurrence recurrence;
@@ -770,6 +774,9 @@ class CalendarEvent {
     this.visibility = Visibility.FAMILY,
     this.sharedWith = const [],
     this.checklist = const [],
+    this.rsvpYesIds = const [],
+    this.rsvpNoIds = const [],
+    this.rsvpMaybeIds = const [],
     this.budgetEstimate,
     this.externalCalendarId,
     this.recurrence = Recurrence.NONE,
@@ -791,6 +798,9 @@ class CalendarEvent {
     visibility: visibilityFromString(j['visibility'] as String?),
     sharedWith: _strList(j['shared_with']),
     checklist: _strList(j['checklist']),
+    rsvpYesIds: _strList(j['rsvp_yes_ids']),
+    rsvpNoIds: _strList(j['rsvp_no_ids']),
+    rsvpMaybeIds: _strList(j['rsvp_maybe_ids']),
     budgetEstimate: j['budget_estimate'] != null
         ? (j['budget_estimate'] as num).toDouble()
         : null,
@@ -811,6 +821,9 @@ class CalendarEvent {
     'visibility': visibility.name,
     'shared_with': sharedWith,
     'checklist': checklist,
+    'rsvp_yes_ids': rsvpYesIds,
+    'rsvp_no_ids': rsvpNoIds,
+    'rsvp_maybe_ids': rsvpMaybeIds,
     'budget_estimate': budgetEstimate,
     'external_calendar_id': externalCalendarId,
     'recurrence': recurrence.name,
@@ -828,6 +841,7 @@ class CalendarEvent {
     String? id, String? familyId, String? creatorId, String? title,
     String? description, String? location, DateTime? start, DateTime? end,
     Visibility? visibility, List<String>? sharedWith, List<String>? checklist,
+    List<String>? rsvpYesIds, List<String>? rsvpNoIds, List<String>? rsvpMaybeIds,
     double? budgetEstimate, String? externalCalendarId, Recurrence? recurrence,
     DateTime? updatedAt,
   }) => CalendarEvent(
@@ -837,6 +851,9 @@ class CalendarEvent {
     start: start ?? this.start, end: end ?? this.end,
     visibility: visibility ?? this.visibility, sharedWith: sharedWith ?? this.sharedWith,
     checklist: checklist ?? this.checklist,
+    rsvpYesIds: rsvpYesIds ?? this.rsvpYesIds,
+    rsvpNoIds: rsvpNoIds ?? this.rsvpNoIds,
+    rsvpMaybeIds: rsvpMaybeIds ?? this.rsvpMaybeIds,
     budgetEstimate: budgetEstimate ?? this.budgetEstimate,
     externalCalendarId: externalCalendarId ?? this.externalCalendarId,
     recurrence: recurrence ?? this.recurrence,
