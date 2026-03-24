@@ -10,6 +10,7 @@ import '../../providers/app_provider.dart';
 import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../utils/debounce.dart';
 
 // ─── Icon & Color palettes for chore creation ────────────────────────────────
 
@@ -60,9 +61,11 @@ class _ChoresScreenState extends State<ChoresScreen> {
   int _weekOffset = 0;
   String _searchQuery = '';
   final _searchCtrl = TextEditingController();
+  final _searchDebounce = Debouncer();
 
   @override
   void dispose() {
+    _searchDebounce.dispose();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -556,7 +559,12 @@ class _ChoresScreenState extends State<ChoresScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: TextField(
               controller: _searchCtrl,
-              onChanged: (v) => setState(() => _searchQuery = v),
+              onChanged: (v) {
+                _searchDebounce.run(() {
+                  if (!mounted) return;
+                  setState(() => _searchQuery = v);
+                });
+              },
               decoration: InputDecoration(
                 hintText: 'Search chores...',
                 hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
@@ -565,6 +573,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
                     ? IconButton(
                         icon: const Icon(Icons.close_rounded, size: 18),
                         onPressed: () {
+                          _searchDebounce.cancel();
                           _searchCtrl.clear();
                           setState(() => _searchQuery = '');
                         },

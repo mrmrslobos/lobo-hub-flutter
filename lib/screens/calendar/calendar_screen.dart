@@ -21,6 +21,9 @@ import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/subscription_modal.dart';
+import '../../utils/debounce.dart';
+
+enum _EventRsvpChoice { yes, no, maybe, clear }
 
 // ─── CalendarScreen ───────────────────────────────────────────────────────────
 
@@ -38,6 +41,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   bool _isSyncing = false;
   String _searchQuery = '';
   final _searchCtrl = TextEditingController();
+  final _searchDebounce = Debouncer();
   /// Hide events from these layers: `'__family__'` = only family-created events; else [ExternalCalendar.id].
   final Set<String> _hiddenCalendarLayers = {};
 
@@ -48,6 +52,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   @override
   void dispose() {
+    _searchDebounce.dispose();
     _aiController.dispose();
     _searchCtrl.dispose();
     super.dispose();
@@ -500,6 +505,40 @@ class _CalendarScreenState extends State<CalendarScreen> {
     await provider.saveAndSync(db.copyWith(events: events));
   }
 
+  Future<void> _saveEventRsvp(CalendarEvent event, String userId, _EventRsvpChoice choice) async {
+    if (event.externalCalendarId != null) return;
+    final provider = context.read<AppProvider>();
+    final db = provider.db;
+    var yes = List<String>.from(event.rsvpYesIds);
+    var no = List<String>.from(event.rsvpNoIds);
+    var maybe = List<String>.from(event.rsvpMaybeIds);
+    yes.remove(userId);
+    no.remove(userId);
+    maybe.remove(userId);
+    switch (choice) {
+      case _EventRsvpChoice.yes:
+        yes.add(userId);
+        break;
+      case _EventRsvpChoice.no:
+        no.add(userId);
+        break;
+      case _EventRsvpChoice.maybe:
+        maybe.add(userId);
+        break;
+      case _EventRsvpChoice.clear:
+        break;
+    }
+    final updated = event.copyWith(
+      rsvpYesIds: yes,
+      rsvpNoIds: no,
+      rsvpMaybeIds: maybe,
+      updatedAt: DateTime.now(),
+    );
+    final events = db.events.map((e) => e.id == event.id ? updated : e).toList();
+    await provider.saveAndSync(db.copyWith(events: events));
+    if (mounted) setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<AppProvider>(
@@ -669,13 +708,18 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: TextField(
                   controller: _searchCtrl,
-                  onChanged: (v) => setState(() => _searchQuery = v),
+                  onChanged: (v) {
+                    _searchDebounce.run(() {
+                      if (!mounted) return;
+                      setState(() => _searchQuery = v);
+                    });
+                  },
                   decoration: InputDecoration(
                     hintText: 'Search events...',
                     hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
                     prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
                     suffixIcon: _searchQuery.isNotEmpty
-                        ? IconButton(icon: const Icon(Icons.close_rounded, size: 18), onPressed: () { _searchCtrl.clear(); setState(() => _searchQuery = ''); })
+                        ? IconButton(icon: const Icon(Icons.close_rounded, size: 18), onPressed: () { _searchDebounce.cancel(); _searchCtrl.clear(); setState(() => _searchQuery = ''); })
                         : null,
                     filled: true,
                     fillColor: Colors.white,
@@ -1232,8 +1276,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       ...selectedEvents.map((event) => _EventCard(
                         event: event,
                         provider: provider,
+                        currentUserId: provider.activeUser?.id,
                         onEdit: () => _showAddEventSheet(context, event: event),
                         onDelete: () => _deleteEvent(provider, event),
+                        onRsvp: provider.activeUser?.id != null
+                            ? (choice) => _saveEventRsvp(event, provider.activeUser!.id, choice)
+                            : null,
                       )),
                   ],
                 ),
@@ -1265,9 +1313,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     children: upcomingEvents.map((event) => _EventCard(
                       event: event,
                       provider: provider,
+                      currentUserId: provider.activeUser?.id,
                       onEdit: () => _showAddEventSheet(context, event: event),
                       onDelete: () => _deleteEvent(provider, event),
                       showDate: true,
+                      onRsvp: provider.activeUser?.id != null
+                          ? (choice) => _saveEventRsvp(event, provider.activeUser!.id, choice)
+                          : null,
                     )).toList(),
                   ),
                 ),
@@ -1403,15 +1455,19 @@ class _CalendarScreenState extends State<CalendarScreen> {
 class _EventCard extends StatelessWidget {
   final CalendarEvent event;
   final AppProvider provider;
+  final String? currentUserId;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final Future<void> Function(_EventRsvpChoice choice)? onRsvp;
   final bool showDate;
 
   const _EventCard({
     required this.event,
     required this.provider,
+    this.currentUserId,
     required this.onEdit,
     required this.onDelete,
+    this.onRsvp,
     this.showDate = false,
   });
 
@@ -1432,11 +1488,66 @@ class _EventCard extends StatelessWidget {
     return start;
   }
 
+  Widget _rsvpChip({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+    required String semanticsLabel,
+  }) {
+    return Semantics(
+      button: true,
+      label: semanticsLabel,
+      selected: selected,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: selected ? AppTheme.primary.withValues(alpha: 0.12) : AppTheme.stone50,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: selected ? AppTheme.primary : AppTheme.stone200,
+                width: selected ? 1.5 : 1,
+              ),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: selected ? AppTheme.primary : AppTheme.stone600,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final creator = provider.userById(event.createdBy);
     final color = _visibilityColor();
     final isExternal = event.externalCalendarId != null;
+    final uid = currentUserId;
+    final showRsvp = !isExternal && uid != null && onRsvp != null && event.visibility == Visibility.FAMILY;
+    _EventRsvpChoice? myChoice;
+    if (showRsvp && uid != null) {
+      if (event.rsvpYesIds.contains(uid)) {
+        myChoice = _EventRsvpChoice.yes;
+      } else if (event.rsvpNoIds.contains(uid)) {
+        myChoice = _EventRsvpChoice.no;
+      } else if (event.rsvpMaybeIds.contains(uid)) {
+        myChoice = _EventRsvpChoice.maybe;
+      }
+    }
+    final yesCount = event.rsvpYesIds.length;
+    final noCount = event.rsvpNoIds.length;
+    final maybeCount = event.rsvpMaybeIds.length;
 
     return Dismissible(
       key: Key(event.id),
@@ -1583,6 +1694,45 @@ class _EventCard extends StatelessWidget {
                                 creator.name.split(' ').first,
                                 style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400),
                               ),
+                            ],
+                          ),
+                        ],
+                        if (showRsvp) ...[
+                          const SizedBox(height: 10),
+                          Text(
+                            'RSVP · $yesCount going · $maybeCount maybe · $noCount can\'t',
+                            style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.stone500),
+                          ),
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              _rsvpChip(
+                                label: 'Going',
+                                selected: myChoice == _EventRsvpChoice.yes,
+                                semanticsLabel: 'RSVP going for ${event.title}',
+                                onTap: () => onRsvp!(_EventRsvpChoice.yes),
+                              ),
+                              _rsvpChip(
+                                label: 'Maybe',
+                                selected: myChoice == _EventRsvpChoice.maybe,
+                                semanticsLabel: 'RSVP maybe for ${event.title}',
+                                onTap: () => onRsvp!(_EventRsvpChoice.maybe),
+                              ),
+                              _rsvpChip(
+                                label: 'Can\'t',
+                                selected: myChoice == _EventRsvpChoice.no,
+                                semanticsLabel: 'RSVP can\'t go for ${event.title}',
+                                onTap: () => onRsvp!(_EventRsvpChoice.no),
+                              ),
+                              if (myChoice != null)
+                                _rsvpChip(
+                                  label: 'Clear',
+                                  selected: false,
+                                  semanticsLabel: 'Clear RSVP for ${event.title}',
+                                  onTap: () => onRsvp!(_EventRsvpChoice.clear),
+                                ),
                             ],
                           ),
                         ],

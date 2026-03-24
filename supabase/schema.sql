@@ -239,6 +239,11 @@ alter table tasks add column if not exists completed_by text;
 alter table tasks add column if not exists updated_by text;
 alter table events add column if not exists recurrence text default 'NONE';
 
+-- RSVP lists (user ids) for family events
+alter table events add column if not exists rsvp_yes_ids jsonb not null default '[]'::jsonb;
+alter table events add column if not exists rsvp_no_ids jsonb not null default '[]'::jsonb;
+alter table events add column if not exists rsvp_maybe_ids jsonb not null default '[]'::jsonb;
+
 -- Tables added after initial deployment (safe to run on existing schemas)
 create table if not exists fitness_plans (
   id           text primary key,

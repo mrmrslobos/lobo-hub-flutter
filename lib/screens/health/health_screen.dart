@@ -10,6 +10,7 @@ import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../utils/debounce.dart';
 
 const _uuid = Uuid();
 String _uid() => _uuid.v4().substring(0, 9);
@@ -75,6 +76,48 @@ void _showSnack(BuildContext context, String msg) {
 
 // ─── Styled input decoration ──────────────────────────────────────────────────
 
+HealthRecord _healthRecordFilteredForSearch(HealthRecord r, String rawQ) {
+  final q = rawQ.trim().toLowerCase();
+  if (q.isEmpty) return r;
+  bool m(String s) => s.toLowerCase().contains(q);
+  bool emOk(EmergencyContact c) =>
+      m(c.name) || m(c.phone) || (c.relation != null && m(c.relation!));
+  return HealthRecord(
+    id: r.id,
+    familyId: r.familyId,
+    userId: r.userId,
+    updatedBy: r.updatedBy,
+    bloodType: r.bloodType,
+    allergies: r.allergies
+        .where((a) => m(a.name) || (a.reaction != null && m(a.reaction!)))
+        .toList(),
+    medications: r.medications
+        .where((med) =>
+            m(med.name) ||
+            (med.dose != null && m(med.dose!)) ||
+            (med.frequency != null && m(med.frequency!)))
+        .toList(),
+    conditions: r.conditions
+        .where((c) => m(c.name) || (c.notes != null && m(c.notes!)))
+        .toList(),
+    immunizations: r.immunizations.where((i) {
+      if (m(i.name)) return true;
+      if (i.date == null) return false;
+      return m(DateFormat('MMM d, y').format(i.date!));
+    }).toList(),
+    emergencyContacts: r.emergencyContacts.where(emOk).toList(),
+    doctorName: r.doctorName,
+    doctorPhone: r.doctorPhone,
+    insuranceProvider: r.insuranceProvider,
+    insurancePolicyNumber: r.insurancePolicyNumber,
+    notes: r.notes,
+    updatedAt: r.updatedAt,
+    type: r.type,
+    title: r.title,
+    data: r.data,
+  );
+}
+
 InputDecoration _styledInput(String hint) => InputDecoration(
   hintText: hint,
   hintStyle: const TextStyle(color: AppTheme.stone300, fontFamily: 'Inter', fontSize: 13),
@@ -108,6 +151,27 @@ class HealthScreen extends StatefulWidget {
 class _HealthScreenState extends State<HealthScreen> {
   String? _selectedMemberId;
   final Set<String> _expandedSections = {'allergies', 'emergency'};
+  final _healthSearchCtrl = TextEditingController();
+  final _healthSearchDebounce = Debouncer();
+  String _healthSearchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _healthSearchCtrl.addListener(() {
+      final t = _healthSearchCtrl.text;
+      _healthSearchDebounce.run(() {
+        if (mounted) setState(() => _healthSearchQuery = t);
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _healthSearchCtrl.dispose();
+    _healthSearchDebounce.dispose();
+    super.dispose();
+  }
 
   @override
   void didChangeDependencies() {
@@ -246,6 +310,8 @@ class _HealthScreenState extends State<HealthScreen> {
     final members = provider.familyMembers;
     _selectedMemberId ??= user.id;
     final record = _getRecord(provider, _selectedMemberId!);
+    final filteredRecord =
+        _healthRecordFilteredForSearch(record, _healthSearchQuery);
     final selectedName = provider.memberDisplayName(
       members.firstWhere((m) => m.id == _selectedMemberId, orElse: () => members.first),
     );
@@ -315,7 +381,11 @@ class _HealthScreenState extends State<HealthScreen> {
                   children: members.map((m) {
                     final isSelected = _selectedMemberId == m.id;
                     final name = provider.memberDisplayName(m);
-                    return GestureDetector(
+                    return Semantics(
+                      button: true,
+                      label: 'View health record for $name',
+                      selected: isSelected,
+                      child: GestureDetector(
                       onTap: () => setState(() => _selectedMemberId = m.id),
                       child: Padding(
                         padding: const EdgeInsets.only(right: 12),
@@ -344,12 +414,51 @@ class _HealthScreenState extends State<HealthScreen> {
                           ),
                         ]),
                       ),
+                    ),
                     );
                   }).toList(),
                 ),
               ),
 
             const SizedBox(height: 8),
+
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              child: TextField(
+                controller: _healthSearchCtrl,
+                style: const TextStyle(fontFamily: 'Inter', fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: 'Search allergies, meds, conditions…',
+                  hintStyle: const TextStyle(fontFamily: 'Inter', color: AppTheme.stone400),
+                  prefixIcon: const Icon(Icons.search, size: 20, color: AppTheme.stone400),
+                  suffixIcon: _healthSearchQuery.trim().isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: 'Clear search',
+                          icon: const Icon(Icons.close_rounded, size: 20, color: AppTheme.stone400),
+                          onPressed: () {
+                            _healthSearchCtrl.clear();
+                            setState(() => _healthSearchQuery = '');
+                          },
+                        ),
+                  filled: true,
+                  fillColor: Colors.white,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: AppTheme.stone200),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: AppTheme.stone200),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
 
             // ─── Blood Type ──────────────────────────────────────
             _buildSection(
@@ -413,8 +522,8 @@ class _HealthScreenState extends State<HealthScreen> {
               iconColor: const Color(0xFFF59E0B),
               title: 'Allergies',
               section: 'allergies',
-              count: record.allergies.length,
-              child: _AllergiesSection(record: record, onSave: _saveRecord),
+              count: filteredRecord.allergies.length,
+              child: _AllergiesSection(record: record, displayRecord: filteredRecord, onSave: _saveRecord),
             ),
 
             // ─── Medications ─────────────────────────────────────
@@ -423,8 +532,8 @@ class _HealthScreenState extends State<HealthScreen> {
               iconColor: const Color(0xFF3B82F6),
               title: 'Medications',
               section: 'medications',
-              count: record.medications.length,
-              child: _MedicationsSection(record: record, onSave: _saveRecord),
+              count: filteredRecord.medications.length,
+              child: _MedicationsSection(record: record, displayRecord: filteredRecord, onSave: _saveRecord),
             ),
 
             // ─── Medical Conditions ──────────────────────────────
@@ -433,8 +542,8 @@ class _HealthScreenState extends State<HealthScreen> {
               iconColor: const Color(0xFF8B5CF6),
               title: 'Medical Conditions',
               section: 'conditions',
-              count: record.conditions.length,
-              child: _ConditionsSection(record: record, onSave: _saveRecord),
+              count: filteredRecord.conditions.length,
+              child: _ConditionsSection(record: record, displayRecord: filteredRecord, onSave: _saveRecord),
             ),
 
             // ─── Immunizations ───────────────────────────────────
@@ -443,8 +552,8 @@ class _HealthScreenState extends State<HealthScreen> {
               iconColor: const Color(0xFF22C55E),
               title: 'Immunizations',
               section: 'immunizations',
-              count: record.immunizations.length,
-              child: _ImmunizationsSection(record: record, onSave: _saveRecord),
+              count: filteredRecord.immunizations.length,
+              child: _ImmunizationsSection(record: record, displayRecord: filteredRecord, onSave: _saveRecord),
             ),
 
             // ─── Emergency Contacts ──────────────────────────────
@@ -453,8 +562,8 @@ class _HealthScreenState extends State<HealthScreen> {
               iconColor: const Color(0xFFEF4444),
               title: 'Emergency Contacts',
               section: 'emergency',
-              count: record.emergencyContacts.length,
-              child: _EmergencySection(record: record, onSave: _saveRecord),
+              count: filteredRecord.emergencyContacts.length,
+              child: _EmergencySection(record: record, displayRecord: filteredRecord, onSave: _saveRecord),
             ),
 
             // ─── Doctor & Insurance ──────────────────────────────
@@ -617,8 +726,9 @@ class _MiniStat extends StatelessWidget {
 
 class _AllergiesSection extends StatefulWidget {
   final HealthRecord record;
+  final HealthRecord displayRecord;
   final Future<void> Function(HealthRecord) onSave;
-  const _AllergiesSection({required this.record, required this.onSave});
+  const _AllergiesSection({required this.record, required this.displayRecord, required this.onSave});
 
   @override
   State<_AllergiesSection> createState() => _AllergiesSectionState();
@@ -684,7 +794,7 @@ class _AllergiesSectionState extends State<_AllergiesSection> {
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
       child: Column(children: [
         // Existing items
-        ...widget.record.allergies.map((a) => Container(
+        ...widget.displayRecord.allergies.map((a) => Container(
           margin: const EdgeInsets.only(bottom: 8),
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(color: AppTheme.stone50, borderRadius: BorderRadius.circular(12)),
@@ -725,8 +835,8 @@ class _AllergiesSectionState extends State<_AllergiesSection> {
             ),
           ]),
         )),
-        if (widget.record.allergies.isEmpty)
-          _emptyHint('No allergies recorded'),
+        if (widget.displayRecord.allergies.isEmpty)
+          _emptyHint(widget.record.allergies.isEmpty ? 'No allergies recorded' : 'No matches'),
         // Add form
         Container(
           padding: const EdgeInsets.all(12),
@@ -782,8 +892,9 @@ class _AllergiesSectionState extends State<_AllergiesSection> {
 
 class _MedicationsSection extends StatefulWidget {
   final HealthRecord record;
+  final HealthRecord displayRecord;
   final Future<void> Function(HealthRecord) onSave;
-  const _MedicationsSection({required this.record, required this.onSave});
+  const _MedicationsSection({required this.record, required this.displayRecord, required this.onSave});
 
   @override
   State<_MedicationsSection> createState() => _MedicationsSectionState();
@@ -840,7 +951,7 @@ class _MedicationsSectionState extends State<_MedicationsSection> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
       child: Column(children: [
-        ...widget.record.medications.map((m) => Container(
+        ...widget.displayRecord.medications.map((m) => Container(
           margin: const EdgeInsets.only(bottom: 8),
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(color: AppTheme.stone50, borderRadius: BorderRadius.circular(12)),
@@ -870,8 +981,8 @@ class _MedicationsSectionState extends State<_MedicationsSection> {
             ),
           ]),
         )),
-        if (widget.record.medications.isEmpty)
-          _emptyHint('No medications recorded'),
+        if (widget.displayRecord.medications.isEmpty)
+          _emptyHint(widget.record.medications.isEmpty ? 'No medications recorded' : 'No matches'),
         _InlineAddRow(
           fields: [
             _InlineField(controller: _nameCtrl, hint: 'Medication name'),
@@ -889,8 +1000,9 @@ class _MedicationsSectionState extends State<_MedicationsSection> {
 
 class _ConditionsSection extends StatefulWidget {
   final HealthRecord record;
+  final HealthRecord displayRecord;
   final Future<void> Function(HealthRecord) onSave;
-  const _ConditionsSection({required this.record, required this.onSave});
+  const _ConditionsSection({required this.record, required this.displayRecord, required this.onSave});
 
   @override
   State<_ConditionsSection> createState() => _ConditionsSectionState();
@@ -944,7 +1056,7 @@ class _ConditionsSectionState extends State<_ConditionsSection> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
       child: Column(children: [
-        ...widget.record.conditions.map((c) => Container(
+        ...widget.displayRecord.conditions.map((c) => Container(
           margin: const EdgeInsets.only(bottom: 8),
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(color: AppTheme.stone50, borderRadius: BorderRadius.circular(12)),
@@ -973,8 +1085,8 @@ class _ConditionsSectionState extends State<_ConditionsSection> {
             ),
           ]),
         )),
-        if (widget.record.conditions.isEmpty)
-          _emptyHint('No conditions recorded'),
+        if (widget.displayRecord.conditions.isEmpty)
+          _emptyHint(widget.record.conditions.isEmpty ? 'No conditions recorded' : 'No matches'),
         _InlineAddRow(
           fields: [
             _InlineField(controller: _nameCtrl, hint: 'Condition name'),
@@ -991,8 +1103,9 @@ class _ConditionsSectionState extends State<_ConditionsSection> {
 
 class _ImmunizationsSection extends StatefulWidget {
   final HealthRecord record;
+  final HealthRecord displayRecord;
   final Future<void> Function(HealthRecord) onSave;
-  const _ImmunizationsSection({required this.record, required this.onSave});
+  const _ImmunizationsSection({required this.record, required this.displayRecord, required this.onSave});
 
   @override
   State<_ImmunizationsSection> createState() => _ImmunizationsSectionState();
@@ -1058,7 +1171,7 @@ class _ImmunizationsSectionState extends State<_ImmunizationsSection> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
       child: Column(children: [
-        ...widget.record.immunizations.map((i) => Container(
+        ...widget.displayRecord.immunizations.map((i) => Container(
           margin: const EdgeInsets.only(bottom: 8),
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(color: AppTheme.stone50, borderRadius: BorderRadius.circular(12)),
@@ -1091,8 +1204,8 @@ class _ImmunizationsSectionState extends State<_ImmunizationsSection> {
             ),
           ]),
         )),
-        if (widget.record.immunizations.isEmpty)
-          _emptyHint('No immunizations recorded'),
+        if (widget.displayRecord.immunizations.isEmpty)
+          _emptyHint(widget.record.immunizations.isEmpty ? 'No immunizations recorded' : 'No matches'),
         // Add form with date picker
         Container(
           padding: const EdgeInsets.all(12),
@@ -1144,8 +1257,9 @@ class _ImmunizationsSectionState extends State<_ImmunizationsSection> {
 
 class _EmergencySection extends StatefulWidget {
   final HealthRecord record;
+  final HealthRecord displayRecord;
   final Future<void> Function(HealthRecord) onSave;
-  const _EmergencySection({required this.record, required this.onSave});
+  const _EmergencySection({required this.record, required this.displayRecord, required this.onSave});
 
   @override
   State<_EmergencySection> createState() => _EmergencySectionState();
@@ -1204,7 +1318,7 @@ class _EmergencySectionState extends State<_EmergencySection> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
       child: Column(children: [
-        ...widget.record.emergencyContacts.map((e) => Container(
+        ...widget.displayRecord.emergencyContacts.map((e) => Container(
           margin: const EdgeInsets.only(bottom: 8),
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(color: AppTheme.stone50, borderRadius: BorderRadius.circular(12)),
@@ -1238,8 +1352,8 @@ class _EmergencySectionState extends State<_EmergencySection> {
             ),
           ]),
         )),
-        if (widget.record.emergencyContacts.isEmpty)
-          _emptyHint('No emergency contacts'),
+        if (widget.displayRecord.emergencyContacts.isEmpty)
+          _emptyHint(widget.record.emergencyContacts.isEmpty ? 'No emergency contacts' : 'No matches'),
         _InlineAddRow(
           fields: [
             _InlineField(controller: _nameCtrl, hint: 'Contact name'),

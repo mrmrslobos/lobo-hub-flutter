@@ -16,6 +16,7 @@ import '../../services/ai_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/subscription_modal.dart';
+import '../../utils/debounce.dart';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -42,6 +43,8 @@ class _BudgetScreenState extends State<BudgetScreen> {
   _BudgetFilter _filter = _BudgetFilter.all;
   final _currencyFmt = NumberFormat.currency(symbol: '\$', decimalDigits: 2);
   late DateTime _selectedMonth;
+  final _searchCtrl = TextEditingController();
+  final _searchDebounce = Debouncer();
   String _searchQuery = '';
   bool _showAllTransactions = false;
 
@@ -50,6 +53,13 @@ class _BudgetScreenState extends State<BudgetScreen> {
     super.initState();
     final now = DateTime.now();
     _selectedMonth = DateTime(now.year, now.month);
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce.dispose();
+    _searchCtrl.dispose();
+    super.dispose();
   }
 
   String _formatCurrency(double amount) => '\$${amount.toStringAsFixed(2)}';
@@ -764,13 +774,26 @@ class _BudgetScreenState extends State<BudgetScreen> {
               label: 'Search transactions',
               textField: true,
               child: TextField(
-              onChanged: (v) => setState(() => _searchQuery = v),
+              controller: _searchCtrl,
+              onChanged: (v) {
+                _searchDebounce.run(() {
+                  if (!mounted) return;
+                  setState(() => _searchQuery = v);
+                });
+              },
               decoration: InputDecoration(
                 hintText: 'Search transactions...',
                 hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
                 prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
                 suffixIcon: _searchQuery.isNotEmpty
-                    ? IconButton(icon: const Icon(Icons.close_rounded, size: 18), onPressed: () => setState(() => _searchQuery = ''))
+                    ? IconButton(
+                        icon: const Icon(Icons.close_rounded, size: 18),
+                        onPressed: () {
+                          _searchDebounce.cancel();
+                          _searchCtrl.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                      )
                     : null,
                 filled: true,
                 fillColor: Colors.white,

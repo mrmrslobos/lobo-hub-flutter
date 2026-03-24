@@ -14,6 +14,7 @@ import '../../services/notification_service.dart';
 import '../../services/supabase_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../utils/debounce.dart';
 
 const _reactionEmojis = ['❤️', '😍', '😂', '🥹', '🎉', '👏'];
 
@@ -38,6 +39,7 @@ class PhotosScreen extends StatefulWidget {
 class _PhotosScreenState extends State<PhotosScreen> {
   final _picker = ImagePicker();
   final _searchCtrl = TextEditingController();
+  final _searchDebounce = Debouncer();
   int _tabIndex = 0;
   bool _isUploading = false;
   String _searchQuery = '';
@@ -67,6 +69,13 @@ class _PhotosScreenState extends State<PhotosScreen> {
         child: Icon(Icons.image_outlined, color: AppTheme.stone300, size: 32),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce.dispose();
+    _searchCtrl.dispose();
+    super.dispose();
   }
 
   // ─── Photo Actions ──────────────────────────────────────────────────────────
@@ -522,7 +531,12 @@ class _PhotosScreenState extends State<PhotosScreen> {
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
               child: TextField(
                 controller: _searchCtrl,
-                onChanged: (v) => setState(() => _searchQuery = v),
+                onChanged: (v) {
+                  _searchDebounce.run(() {
+                    if (!mounted) return;
+                    setState(() => _searchQuery = v);
+                  });
+                },
                 decoration: InputDecoration(
                   hintText: 'Search photos & milestones...',
                   prefixIcon: const Icon(Icons.search_rounded, size: 20),
@@ -530,6 +544,7 @@ class _PhotosScreenState extends State<PhotosScreen> {
                       ? IconButton(
                           icon: const Icon(Icons.close_rounded, size: 18),
                           onPressed: () {
+                            _searchDebounce.cancel();
                             _searchCtrl.clear();
                             setState(() => _searchQuery = '');
                           },

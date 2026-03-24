@@ -10,6 +10,7 @@ import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../utils/debounce.dart';
 
 class AIHistoryScreen extends StatefulWidget {
   const AIHistoryScreen({super.key});
@@ -21,10 +22,12 @@ class AIHistoryScreen extends StatefulWidget {
 class _AIHistoryScreenState extends State<AIHistoryScreen> {
   String? _selectedModule; // null = show all
   final _searchCtrl = TextEditingController();
+  final _searchDebounce = Debouncer();
   String _searchQuery = '';
 
   @override
   void dispose() {
+    _searchDebounce.dispose();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -166,7 +169,12 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
                 child: TextField(
                   controller: _searchCtrl,
-                  onChanged: (v) => setState(() => _searchQuery = v),
+                  onChanged: (v) {
+                    _searchDebounce.run(() {
+                      if (!mounted) return;
+                      setState(() => _searchQuery = v);
+                    });
+                  },
                   decoration: InputDecoration(
                     hintText: 'Search prompts and responses…',
                     hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
@@ -175,6 +183,7 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
                         ? IconButton(
                             icon: const Icon(Icons.close_rounded, size: 18),
                             onPressed: () {
+                              _searchDebounce.cancel();
                               _searchCtrl.clear();
                               setState(() => _searchQuery = '');
                             },

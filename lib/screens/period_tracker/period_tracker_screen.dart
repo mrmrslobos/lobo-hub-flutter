@@ -14,6 +14,7 @@ import '../../providers/app_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../services/notification_service.dart';
+import '../../utils/debounce.dart';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -159,6 +160,9 @@ class PeriodTrackerScreen extends StatefulWidget {
 class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
   int _selectedTab = 0;
   late DateTime _currentMonth;
+  final _historySearchCtrl = TextEditingController();
+  final _historySearchDebounce = Debouncer();
+  String _historySearchQuery = '';
 
   bool _fertilityRemindersEnabled = false;
   String? _fertilityRemindersLastScheduleKey;
@@ -174,10 +178,24 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     final now = DateTime.now();
     _currentMonth = DateTime(now.year, now.month);
 
+    _historySearchCtrl.addListener(() {
+      final t = _historySearchCtrl.text;
+      _historySearchDebounce.run(() {
+        if (mounted) setState(() => _historySearchQuery = t);
+      });
+    });
+
     // Load reminder toggle after providers are ready.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadFertilityReminderPrefs();
     });
+  }
+
+  @override
+  void dispose() {
+    _historySearchCtrl.dispose();
+    _historySearchDebounce.dispose();
+    super.dispose();
   }
 
   String _prefsKeyFor(String userId, String suffix) =>
@@ -762,7 +780,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
 
             // Tab content
             if (_selectedTab == 0) _buildCalendarTab(entries),
-            if (_selectedTab == 1) _buildHistoryTab(entries),
+            if (_selectedTab == 1) _buildHistoryTab(entries, _historySearchQuery),
             if (_selectedTab == 2) _buildInsightsTab(entries, avgCycle, daysUntil),
           ],
         ),
@@ -909,7 +927,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
   }
 
   // ─── History Tab ────────────────────────────────────────────────────────────
-  Widget _buildHistoryTab(List<PeriodEntry> entries) {
+  Widget _buildHistoryTab(List<PeriodEntry> entries, String rawQ) {
     if (entries.isEmpty) {
       return const Padding(
         padding: EdgeInsets.symmetric(horizontal: 20),
@@ -926,6 +944,24 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     final allSymptomLogs = user != null
         ? provider.db.periodSymptoms.where((s) => s.userId == user.id).toList()
         : <PeriodSymptomLog>[];
+    final q = rawQ.trim().toLowerCase();
+    bool entryMatches(PeriodEntry entry) {
+      if (q.isEmpty) return true;
+      if (DateFormat('MMMM d, y').format(entry.startDate).toLowerCase().contains(q)) return true;
+      if (entry.endDate != null &&
+          DateFormat('MMM d').format(entry.endDate!).toLowerCase().contains(q)) {
+        return true;
+      }
+      if (entry.notes != null && entry.notes!.toLowerCase().contains(q)) return true;
+      if (entry.flowLevel.name.toLowerCase().contains(q)) return true;
+      final endDate = entry.endDate ?? entry.startDate;
+      final syms = allSymptomLogs
+          .where((s) => !s.date.isBefore(entry.startDate) && !s.date.isAfter(endDate))
+          .expand((s) => s.symptoms)
+          .any((s) => s.toLowerCase().contains(q));
+      return syms;
+    }
+    final filtered = q.isEmpty ? entries : entries.where(entryMatches).toList();
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -940,7 +976,47 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
               Text('Your data is private to you', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
             ]),
           ),
-          ...entries.map((entry) {
+          TextField(
+            controller: _historySearchCtrl,
+            style: const TextStyle(fontFamily: 'Inter', fontSize: 14),
+            decoration: InputDecoration(
+              hintText: 'Search history…',
+              hintStyle: const TextStyle(fontFamily: 'Inter', color: AppTheme.stone400),
+              prefixIcon: const Icon(Icons.search, size: 20, color: AppTheme.stone400),
+              suffixIcon: _historySearchQuery.trim().isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: 'Clear search',
+                      icon: const Icon(Icons.close_rounded, size: 20, color: AppTheme.stone400),
+                      onPressed: () {
+                        _historySearchCtrl.clear();
+                        setState(() => _historySearchQuery = '');
+                      },
+                    ),
+              filled: true,
+              fillColor: AppTheme.surface,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: AppTheme.stone200),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: AppTheme.stone200),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: _pink, width: 1.5),
+              ),
+              contentPadding: const EdgeInsets.symmetric(vertical: 12),
+            ),
+          ),
+          const SizedBox(height: 10),
+          if (filtered.isEmpty && q.isNotEmpty)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text('No matches — try another word or date.', style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400)),
+            ),
+          ...filtered.map((entry) {
             final duration = entry.endDate != null
                 ? entry.endDate!.difference(entry.startDate).inDays + 1
                 : null;

@@ -12,6 +12,7 @@ import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../utils/debounce.dart';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -35,6 +36,8 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   final _textCtrl = TextEditingController();
+  final _searchCtrl = TextEditingController();
+  final _searchDebounce = Debouncer();
   final _scrollCtrl = ScrollController();
   ChatMessage? _replyTo;
   bool _sending = false;
@@ -43,6 +46,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    _searchDebounce.dispose();
+    _searchCtrl.dispose();
     _textCtrl.dispose();
     _scrollCtrl.dispose();
     super.dispose();
@@ -291,7 +296,11 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
                 onPressed: () => setState(() {
                   _showSearch = !_showSearch;
-                  if (!_showSearch) _searchQuery = '';
+                  if (!_showSearch) {
+                    _searchDebounce.cancel();
+                    _searchCtrl.clear();
+                    _searchQuery = '';
+                  }
                 }),
               ),
             ],
@@ -304,14 +313,27 @@ class _ChatScreenState extends State<ChatScreen> {
                   color: Theme.of(context).colorScheme.surface,
                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
                   child: TextField(
+                    controller: _searchCtrl,
                     autofocus: true,
-                    onChanged: (v) => setState(() => _searchQuery = v),
+                    onChanged: (v) {
+                      _searchDebounce.run(() {
+                        if (!mounted) return;
+                        setState(() => _searchQuery = v);
+                      });
+                    },
                     decoration: InputDecoration(
                       hintText: 'Search messages...',
                       hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
                       prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
                       suffixIcon: _searchQuery.isNotEmpty
-                          ? IconButton(icon: const Icon(Icons.close_rounded, size: 18), onPressed: () => setState(() => _searchQuery = ''))
+                          ? IconButton(
+                              icon: const Icon(Icons.close_rounded, size: 18),
+                              onPressed: () {
+                                _searchDebounce.cancel();
+                                _searchCtrl.clear();
+                                setState(() => _searchQuery = '');
+                              },
+                            )
                           : null,
                       filled: true,
                       fillColor: AppTheme.stone50,
@@ -326,7 +348,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 child: () {
                   final filteredMessages = _searchQuery.isEmpty
                       ? messages
-                      : messages.where((m) => m.content.toLowerCase().contains(_searchQuery.toLowerCase())).toList();
+                      : messages.where((m) => m.text.toLowerCase().contains(_searchQuery.toLowerCase())).toList();
                   if (filteredMessages.isEmpty) {
                     if (_searchQuery.isNotEmpty) {
                       return const EmptyState(emoji: '🔍', title: 'No matches', subtitle: 'Try a different search term');

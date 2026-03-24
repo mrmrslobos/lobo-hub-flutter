@@ -12,6 +12,7 @@ import '../../providers/app_provider.dart';
 import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../utils/debounce.dart';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -64,7 +65,16 @@ class PrayerWallScreen extends StatefulWidget {
 
 class _PrayerWallScreenState extends State<PrayerWallScreen> {
   String _selectedFilter = 'all';
+  final _searchCtrl = TextEditingController();
+  final _searchDebounce = Debouncer();
   String _searchQuery = '';
+
+  @override
+  void dispose() {
+    _searchDebounce.dispose();
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   Future<void> _togglePrayed(PrayerRequest request, String userId) async {
     HapticFeedback.lightImpact();
@@ -287,13 +297,26 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: TextField(
-              onChanged: (v) => setState(() => _searchQuery = v),
+              controller: _searchCtrl,
+              onChanged: (v) {
+                _searchDebounce.run(() {
+                  if (!mounted) return;
+                  setState(() => _searchQuery = v);
+                });
+              },
               decoration: InputDecoration(
                 hintText: 'Search prayers...',
                 hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
                 prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
                 suffixIcon: _searchQuery.isNotEmpty
-                    ? IconButton(icon: const Icon(Icons.close_rounded, size: 18), onPressed: () => setState(() => _searchQuery = ''))
+                    ? IconButton(
+                        icon: const Icon(Icons.close_rounded, size: 18),
+                        onPressed: () {
+                          _searchDebounce.cancel();
+                          _searchCtrl.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                      )
                     : null,
                 filled: true,
                 fillColor: Colors.white,
