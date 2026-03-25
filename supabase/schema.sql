@@ -728,3 +728,5 @@ DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE messages;           EX
 DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE health_records;     EXCEPTION WHEN OTHERS THEN NULL; END $$;
 DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE reading_plans;      EXCEPTION WHEN OTHERS THEN NULL; END $$;
 DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE rewards;            EXCEPTION WHEN OTHERS THEN NULL; END $$;
+
+-- Owner-only destructive RPC: see migrations/26_delete_family_cloud_data.sql
