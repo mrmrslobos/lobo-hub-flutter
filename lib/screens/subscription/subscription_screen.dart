@@ -246,7 +246,6 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 yearlyPrice: _prices.aiYearly,
                 color: const Color(0xFF8B5CF6),
                 icon: Icons.auto_awesome_rounded,
-                popular: true,
                 features: [
                   'Everything in Base, plus:',
                   'AI meal plan generation',
@@ -268,6 +267,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 yearlyPrice: _prices.aiFamilyYearly,
                 color: const Color(0xFF16A34A),
                 icon: Icons.family_restroom_rounded,
+                popular: true,
                 features: [
                   'Everything in AI, plus:',
                   'Covers 2 adults + 4 children',
