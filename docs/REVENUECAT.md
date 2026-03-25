@@ -34,7 +34,7 @@ After a purchase or restore, the app calls the Supabase RPC `sync_family_subscri
 ## 5. Offerings and packages
 
 1. RevenueCat → **Offerings** → create or use the **current** offering (often named `default`).
-2. Add **packages** whose identifiers **must match** what the app requests:
+2. Add **packages** whose identifiers **must match** what the app requests (on the offering marked **Current**):
 
 | Package identifier   | Typical use        |
 |---------------------|--------------------|
@@ -45,9 +45,11 @@ After a purchase or restore, the app calls the Supabase RPC `sync_family_subscri
 | `ai_family_monthly` | AI Family, monthly |
 | `ai_family_annual`  | AI Family, yearly  |
 
+For **yearly** plans, the app also accepts `*_yearly` instead of `*_annual` (e.g. `ai_family_yearly`) if you named packages that way in RevenueCat.
+
 3. Attach the correct App Store / Play product to each package.
 
-If you use different package IDs, update `PurchaseService.packageIdentifier` in `lib/services/purchase_service.dart` to match.
+If you use different package IDs, update `PurchaseService.packageIdentifierCandidates` in `lib/services/purchase_service.dart` to match.
 
 ## 6. Build-time API keys (Flutter)
 
