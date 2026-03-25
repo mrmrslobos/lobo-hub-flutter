@@ -228,19 +228,26 @@ class LocaleService extends ChangeNotifier {
   ];
 
   Future<void> init() async {
+    await reloadFromPrefs();
+  }
+
+  /// Re-read country from SharedPreferences (e.g. after a full data wipe).
+  Future<void> reloadFromPrefs() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final savedCode = prefs.getString(_storageKey);
-      if (savedCode != null) {
+      if (savedCode != null && savedCode.isNotEmpty) {
         final match = allCountries.firstWhere(
           (c) => c.countryCode == savedCode,
           orElse: () => defaultConfig,
         );
         _config = match;
-        notifyListeners();
+      } else {
+        _config = defaultConfig;
       }
+      notifyListeners();
     } catch (e, st) {
-      debugPrint('[LocaleService] init() error: $e\n$st');
+      debugPrint('[LocaleService] reloadFromPrefs error: $e\n$st');
     }
   }
 
