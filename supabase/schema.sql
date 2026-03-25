@@ -431,6 +431,7 @@ alter table families add column if not exists settings jsonb;
 -- family_members: ensure columns added after initial create exist.
 alter table family_members add column if not exists module_access jsonb;
 alter table family_members add column if not exists display_name text;
+alter table family_members add column if not exists declared_under_16 boolean not null default false;
 
 -- =============================================================================
 -- Push Notification device tokens

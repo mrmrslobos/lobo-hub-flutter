@@ -11,6 +11,7 @@ import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../services/purchase_service.dart';
+import '../../utils/ai_family_household.dart';
 
 // ─── Currency pricing data ──────────────────────────────────────────────────
 
@@ -105,6 +106,16 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         final trialDaysLeft = family.trialDaysRemaining;
         final isTrialExpired = family.isTrialExpired;
         final isOnTrial = currentTier == SubscriptionTier.trial;
+
+        final fm = provider.db.familyMembers
+            .where((m) => m.familyId == family.id);
+        final declaredAdults = countDeclaredAdults(fm);
+        final declaredUnder16 = countDeclaredUnder16(fm);
+        final householdOverAiFamily =
+            aiFamilyHouseholdOverDeclaredLimits(
+          adultCount: declaredAdults,
+          under16Count: declaredUnder16,
+        );
 
         final cs = Theme.of(context).colorScheme;
         return Scaffold(
@@ -270,13 +281,97 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 popular: true,
                 features: [
                   'Everything in AI, plus:',
-                  'Covers 2 adults + 4 children',
+                  'Designed for up to 2 adult accounts + 4 under-16',
                   'Family member dashboards',
                   'Kids mode with parental controls',
                   'Shared AI suggestions per member',
                   'Family activity insights',
                   'Premium support',
                 ],
+              ),
+              const SizedBox(height: 16),
+
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: householdOverAiFamily
+                      ? const Color(0xFFFFF7ED)
+                      : AppTheme.stone50,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: householdOverAiFamily
+                        ? const Color(0xFFFDBA74)
+                        : AppTheme.stone200,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          householdOverAiFamily
+                              ? Icons.info_outline_rounded
+                              : Icons.groups_rounded,
+                          size: 20,
+                          color: householdOverAiFamily
+                              ? const Color(0xFFEA580C)
+                              : AppTheme.stone600,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'AI Family household',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontWeight: FontWeight.w800,
+                              fontSize: 14,
+                              color: householdOverAiFamily
+                                  ? const Color(0xFF9A3412)
+                                  : AppTheme.stone800,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'In Settings → Manage members, each profile can tick “This person is under 16” (or a parent can tick it for a child). That keeps pricing aligned with “2 adults + 4 children” without collecting IDs — misrepresenting ages can breach store rules and your terms.',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 12,
+                        height: 1.35,
+                        color: householdOverAiFamily
+                            ? const Color(0xFF9A3412)
+                            : AppTheme.stone600,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      'This home: $declaredAdults adult${declaredAdults == 1 ? '' : 's'} declared, $declaredUnder16 under 16 declared (limit 2 + 4).',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                        color: AppTheme.stone700,
+                      ),
+                    ),
+                    if (householdOverAiFamily) ...[
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Your declared household is above the AI Family size — add individual AI seats or adjust declarations so billing matches your real household.',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 12,
+                          height: 1.35,
+                          color: Color(0xFF9A3412),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
               const SizedBox(height: 24),
 

@@ -554,6 +554,9 @@ class FamilyMember {
   final List<String>? moduleAccess;
   final String? displayName;
   final HouseholdRole householdRole;
+  /// Self- or parent-declared: this profile is for someone under 16 (AI Family / child pricing UX).
+  /// Not verified; [householdRole] may still be [HouseholdRole.teen] etc.
+  final bool declaredUnder16;
 
   const FamilyMember({
     required this.userId,
@@ -562,6 +565,7 @@ class FamilyMember {
     this.moduleAccess,
     this.displayName,
     this.householdRole = HouseholdRole.parent,
+    this.declaredUnder16 = false,
   });
 
   // Convenience getters
@@ -579,6 +583,7 @@ class FamilyMember {
         : null,
     displayName: (j['display_name'] ?? j['name']) as String?,
     householdRole: householdRoleFromString(j['household_role'] as String?),
+    declaredUnder16: j['declared_under_16'] == true || j['declared_under_16'] == 1,
   );
 
   FamilyMember copyWith({
@@ -588,6 +593,7 @@ class FamilyMember {
     List<String>? moduleAccess,
     String? displayName,
     HouseholdRole? householdRole,
+    bool? declaredUnder16,
   }) => FamilyMember(
     userId: userId ?? this.userId,
     familyId: familyId ?? this.familyId,
@@ -595,6 +601,7 @@ class FamilyMember {
     moduleAccess: moduleAccess ?? this.moduleAccess,
     displayName: displayName ?? this.displayName,
     householdRole: householdRole ?? this.householdRole,
+    declaredUnder16: declaredUnder16 ?? this.declaredUnder16,
   );
 
   Map<String, dynamic> toJson() => {
@@ -604,6 +611,7 @@ class FamilyMember {
     'module_access': moduleAccess,
     'display_name': displayName,
     'household_role': householdRole.name,
+    'declared_under_16': declaredUnder16,
   };
 }
 
