@@ -11,6 +11,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/models.dart';
+import '../utils/fitness_plan_storage.dart';
 import 'exercise_plan_media_service.dart';
 import 'field_encryption_service.dart';
 import 'supabase_service.dart';
@@ -22,7 +23,7 @@ Map<String, dynamic> fitnessPlanRowForCloud(
 ) {
   final uid = plan['user_id']?.toString() ?? '';
   final created = plan['created_at']?.toString() ?? '';
-  final id = '${uid}_$familyId';
+  final id = fitnessPlanCloudRowId(plan, familyId);
   dynamic weekly = plan['weeklyPlan'] ?? plan['weekly_plan'] ?? [];
   if (weekly is! List) {
     weekly = [];
@@ -38,6 +39,7 @@ Map<String, dynamic> fitnessPlanRowForCloud(
     'id': id,
     'user_id': uid,
     'family_id': familyId,
+    'plan_id': plan['plan_id']?.toString() ?? '',
     'summary': plan['summary']?.toString() ?? '',
     'weekly_plan': weekly,
     'tips': tips,
@@ -55,7 +57,8 @@ class DatabaseService {
   static const _familiesCloudOmit = {'currency', 'trial_start_date'};
 
   /// fitness_plans.family_id until migration 18 is applied everywhere.
-  static const _fitnessPlansCloudOmit = {'family_id'};
+  /// plan_id: migration 25 (optional on older DBs).
+  static const _fitnessPlansCloudOmit = {'family_id', 'plan_id'};
 
   /// Tasks columns some older DBs lack (PGRST204).
   static const _tasksCloudOmit = {'completed_by', 'updated_by', 'due_time', 'reminder_minutes'};
@@ -429,7 +432,7 @@ class DatabaseService {
             db.fitnessPlans
                 .whereType<Map>()
                 .where((p) => p['user_id'] == currentUserId)
-                .map((p) => '${p['user_id']}_$fid')
+                .map((p) => fitnessPlanCloudRowId(p, fid))
                 .toSet(),
             userId: currentUserId,
           ),
@@ -1108,8 +1111,7 @@ class DatabaseService {
     addAll(db.exercisePrs);
     for (final p in db.fitnessPlans) {
       if (p is Map) {
-        final uid = p['user_id']?.toString() ?? '';
-        if (uid.isNotEmpty) keys.add('fitness_plan_$uid');
+        keys.add('fitness_plan_${fitnessPlanStableId(p)}');
       }
     }
     return keys;
@@ -1130,6 +1132,7 @@ class DatabaseService {
       'profile': Map<String, dynamic>.from(prof as Map),
       'user_id': raw['user_id']?.toString() ?? '',
       'created_at': raw['created_at']?.toString() ?? '',
+      'plan_id': raw['plan_id']?.toString() ?? '',
       if (raw['family_id'] != null) 'family_id': raw['family_id'].toString(),
     };
   }
@@ -1140,7 +1143,7 @@ class DatabaseService {
     return DateTime.tryParse(s) ?? DateTime.fromMillisecondsSinceEpoch(0);
   }
 
-  /// Merge per-user AI plans for the active family (Supabase uses `user_id` + optional `family_id`).
+  /// Merge AI fitness plans: one row per [plan_id] (or legacy per-user id), last-write-wins.
   static List<dynamic> _mergeFitnessPlans(
     List<dynamic> local,
     List<dynamic> cloud,
@@ -1158,14 +1161,26 @@ class DatabaseService {
       return f == null || f.isEmpty || f == activeFamilyId;
     }
 
-    final byUser = <String, Map<String, dynamic>>{};
+    final byKey = <String, Map<String, dynamic>>{};
+
+    void upsert(Map<String, dynamic> n) {
+      final k = fitnessPlanStableId(n);
+      final existing = byKey[k];
+      if (existing == null) {
+        byKey[k] = n;
+        return;
+      }
+      if (!_fitnessPlanTimestamp(n).isBefore(_fitnessPlanTimestamp(existing))) {
+        byKey[k] = n;
+      }
+    }
 
     for (final p in local) {
       if (p is! Map || !includeLocalRow(p)) continue;
       final n = _normalizeFitnessPlanMap(p);
       final u = n['user_id'] as String? ?? '';
       if (u.isEmpty) continue;
-      byUser[u] = n;
+      upsert(n);
     }
 
     for (final p in cloud) {
@@ -1173,17 +1188,12 @@ class DatabaseService {
       final n = _normalizeFitnessPlanMap(p);
       final u = n['user_id'] as String? ?? '';
       if (u.isEmpty) continue;
-      final existing = byUser[u];
-      if (existing == null) {
-        byUser[u] = n;
-        continue;
-      }
-      if (!_fitnessPlanTimestamp(n).isBefore(_fitnessPlanTimestamp(existing))) {
-        byUser[u] = n;
-      }
+      upsert(n);
     }
 
-    return byUser.values.toList();
+    final list = byKey.values.toList();
+    list.sort((a, b) => _fitnessPlanTimestamp(b).compareTo(_fitnessPlanTimestamp(a)));
+    return list;
   }
 
   static AppDB _mergeWithCloud(

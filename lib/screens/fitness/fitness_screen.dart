@@ -4,7 +4,6 @@
 
 import 'dart:async';
 import 'dart:convert';
-
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -25,6 +24,7 @@ import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/debounce.dart';
+import '../../utils/fitness_plan_storage.dart';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -145,6 +145,30 @@ String _stripFences(String raw) {
   if (s.startsWith('```')) s = s.substring(s.indexOf('\n') + 1);
   if (s.endsWith('```')) s = s.substring(0, s.lastIndexOf('```'));
   return s.trim();
+}
+
+(int sets, int reps) _parseSetsRepsFromDetail(String? detail) {
+  if (detail == null || detail.trim().isEmpty) return (3, 10);
+  final lower = detail.toLowerCase();
+  final xMatch = RegExp(r'(\d+)\s*[x×]\s*(\d+)').firstMatch(lower);
+  if (xMatch != null) {
+    return (int.parse(xMatch.group(1)!), int.parse(xMatch.group(2)!));
+  }
+  final setMatch = RegExp(r'(\d+)\s*sets?').firstMatch(lower);
+  final repMatch = RegExp(r'(\d+)\s*reps?').firstMatch(lower);
+  final sets = setMatch != null ? int.parse(setMatch.group(1)!) : 3;
+  final reps = repMatch != null ? int.parse(repMatch.group(1)!) : 10;
+  return (sets.clamp(1, 20), reps.clamp(1, 999));
+}
+
+int _parseRestSeconds(String? detail) {
+  if (detail == null || detail.trim().isEmpty) return 60;
+  final lower = detail.toLowerCase();
+  final sec = RegExp(r'(\d+)\s*(?:s|sec|secs|second)').firstMatch(lower);
+  if (sec != null) return int.parse(sec.group(1)!).clamp(10, 600);
+  final rest = RegExp(r'rest\s*(\d+)').firstMatch(lower);
+  if (rest != null) return int.parse(rest.group(1)!).clamp(10, 600);
+  return 60;
 }
 
 Future<void> _persistCompletedWorkout(
@@ -273,6 +297,9 @@ class _FitnessScreenState extends State<FitnessScreen> {
   final _logSearchCtrl = TextEditingController();
   final _logSearchDebounce = Debouncer();
   String _logSearchQuery = '';
+  int _selectedPlanIndex = 0;
+  String? _weeklyRecap;
+  bool _weeklyRecapLoading = false;
 
   @override
   void initState() {
@@ -326,6 +353,64 @@ class _FitnessScreenState extends State<FitnessScreen> {
     } catch (e) {
       debugPrint('[Fitness] motivation error: $e');
       if (mounted) setState(() => _motivationLoading = false);
+    }
+  }
+
+  Future<void> _loadWeeklyRecap({
+    required List<WorkoutSession> mySessions,
+    required int weekMinutes,
+  }) async {
+    if (SubscriptionModal.guardAI(context)) return;
+    setState(() => _weeklyRecapLoading = true);
+    final provider = context.read<AppProvider>();
+    final family = provider.activeFamily;
+    final user = provider.activeUser;
+    if (family == null || user == null) {
+      if (mounted) setState(() => _weeklyRecapLoading = false);
+      return;
+    }
+    final familyId = family.id;
+    final now = DateTime.now();
+    final weekStart = DateTime(now.year, now.month, now.day).subtract(Duration(days: now.weekday - 1));
+    final weekEnd = weekStart.add(const Duration(days: 6));
+    final inWeek = mySessions.where((s) {
+      final d = DateTime(s.date.year, s.date.month, s.date.day);
+      return !d.isBefore(weekStart) && !d.isAfter(weekEnd);
+    }).toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
+
+    final lines = <String>[];
+    for (final s in inWeek.take(14)) {
+      final exs = provider.db.workoutExercises.where((e) => e.sessionId == s.id).toList()
+        ..sort((a, b) => a.order.compareTo(b.order));
+      final names = exs.map((e) => e.exerciseName).take(5).join(', ');
+      lines.add(
+        '- ${DateFormat('EEE MMM d').format(s.date)}: ${s.title} (${s.durationMinutes} min)'
+        '${names.isNotEmpty ? ' — $names' : ''}',
+      );
+    }
+
+    final prompt = '''You are a concise fitness coach. Write a short weekly recap from the logged workouts below.
+
+Stats: ${inWeek.length} session(s) this week, about $weekMinutes total minutes (from logs).
+
+Sessions (newest first):
+${lines.isEmpty ? '(none logged this week)' : lines.join('\n')}
+
+Write 2-4 short paragraphs: (1) what went well or patterns you notice, (2) one concrete suggestion for next week, (3) optional recovery or consistency tip. Plain text only, no markdown.''';
+
+    try {
+      final raw = await AiService.ask(prompt: prompt, feature: 'ai_fitness', familyId: familyId);
+      if (mounted) {
+        provider.saveAiHistory(module: 'fitness', prompt: 'Weekly fitness recap', response: raw ?? '');
+        setState(() {
+          _weeklyRecap = (raw ?? '').trim();
+          _weeklyRecapLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('[Fitness] weekly recap: $e');
+      if (mounted) setState(() => _weeklyRecapLoading = false);
     }
   }
 
@@ -403,15 +488,16 @@ class _FitnessScreenState extends State<FitnessScreen> {
           final family = provider.activeFamily;
           if (userId == null || family == null) return;
           await ExercisePlanMediaService.enrichPlanMap(planMap);
+          final withId = ensureFitnessPlanHasId(Map<String, dynamic>.from(planMap));
           final plans = db.fitnessPlans.toList();
-          plans.removeWhere((p) => p is Map && p['user_id'] == userId);
           plans.add({
-            ...planMap,
+            ...withId,
             'user_id': userId,
             'family_id': family.id,
             'created_at': DateTime.now().toIso8601String(),
           });
           await provider.saveAndSync(db.copyWith(fitnessPlans: plans));
+          if (mounted) setState(() => _selectedPlanIndex = 0);
         },
       ),
     );
@@ -483,12 +569,20 @@ class _FitnessScreenState extends State<FitnessScreen> {
       checkDate = checkDate.subtract(const Duration(days: 1));
     }
 
-    // Stored AI fitness plan
-    final storedPlan = provider.db.fitnessPlans
+    // Stored AI fitness plans (newest first)
+    final myPlans = provider.db.fitnessPlans
         .whereType<Map>()
         .where((p) => p['user_id'] == user.id)
-        .toList();
-    final latestPlan = storedPlan.isNotEmpty ? storedPlan.last : null;
+        .map((p) => Map<dynamic, dynamic>.from(p))
+        .toList()
+      ..sort((a, b) => fitnessPlanCreatedAt(b).compareTo(fitnessPlanCreatedAt(a)));
+    final safePlanIndex = myPlans.isEmpty ? 0 : _selectedPlanIndex.clamp(0, myPlans.length - 1);
+    if (myPlans.isNotEmpty && safePlanIndex != _selectedPlanIndex) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _selectedPlanIndex = safePlanIndex);
+      });
+    }
+    final latestPlan = myPlans.isEmpty ? null : myPlans[safePlanIndex];
 
     // Weight data
     final weightMetrics = provider.db.fitness
@@ -855,8 +949,98 @@ class _FitnessScreenState extends State<FitnessScreen> {
               ),
             ]),
           ),
+          if (myPlans.length > 1)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Semantics(
+                label: 'Select past AI fitness plan',
+                child: DropdownButtonFormField<int>(
+                  value: safePlanIndex,
+                  decoration: InputDecoration(
+                    labelText: 'Saved plans',
+                    filled: true,
+                    fillColor: AppTheme.stone50,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  ),
+                  items: List.generate(myPlans.length, (i) {
+                    final p = myPlans[i];
+                    final dt = fitnessPlanCreatedAt(p);
+                    final sum = (p['summary'] as String?)?.trim() ?? '';
+                    final short = sum.isEmpty ? 'Plan' : (sum.length > 42 ? '${sum.substring(0, 42)}…' : sum);
+                    return DropdownMenuItem(
+                      value: i,
+                      child: Text(
+                        '${DateFormat('MMM d, y').format(dt)} · $short',
+                        style: const TextStyle(fontFamily: 'Inter', fontSize: 13),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    );
+                  }),
+                  onChanged: (i) {
+                    if (i == null) return;
+                    setState(() => _selectedPlanIndex = i);
+                  },
+                ),
+              ),
+            ),
+          if (mySessions.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppTheme.stone50,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppTheme.stone200),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.insights_rounded, size: 18, color: AppTheme.primary),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text(
+                            'Weekly recap',
+                            style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 14),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: _weeklyRecapLoading ? null : () => _loadWeeklyRecap(
+                            mySessions: mySessions,
+                            weekMinutes: weekMinutes,
+                          ),
+                          child: _weeklyRecapLoading
+                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                              : Text(_weeklyRecap == null ? 'Get AI recap' : 'Refresh'),
+                        ),
+                      ],
+                    ),
+                    if (_weeklyRecap != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        _weeklyRecap!,
+                        style: const TextStyle(fontFamily: 'Inter', fontSize: 13, height: 1.45, color: AppTheme.stone700),
+                      ),
+                    ] else ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        '${weekLogs.length} session${weekLogs.length == 1 ? '' : 's'} this week · ~$weekMinutes min',
+                        style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
           if (latestPlan != null)
-            _StoredPlanView(plan: latestPlan)
+            _StoredPlanView(
+              key: ValueKey('plan_${fitnessPlanStableId(latestPlan)}'),
+              plan: latestPlan,
+            )
           else
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
@@ -1062,7 +1246,7 @@ class _MiniStat extends StatelessWidget {
 
 class _StoredPlanView extends StatefulWidget {
   final Map plan;
-  const _StoredPlanView({required this.plan});
+  const _StoredPlanView({super.key, required this.plan});
 
   @override
   State<_StoredPlanView> createState() => _StoredPlanViewState();
@@ -1132,7 +1316,8 @@ class _StoredPlanViewState extends State<_StoredPlanView> {
       final db = provider.db;
       if (uid != null) {
         final plans = [...db.fitnessPlans];
-        final idx = plans.indexWhere((p) => p is Map && p['user_id'] == uid);
+        final sid = fitnessPlanStableId(planMap);
+        final idx = plans.indexWhere((p) => p is Map && fitnessPlanStableId(p) == sid);
         if (idx >= 0) {
           plans[idx] = planMap;
           await provider.saveAndSync(db.copyWith(fitnessPlans: plans));
@@ -1156,18 +1341,53 @@ class _StoredPlanViewState extends State<_StoredPlanView> {
     super.dispose();
   }
 
-  (int sets, int reps) _parseSetsReps(String? detail) {
-    if (detail == null || detail.trim().isEmpty) return (3, 10);
-    final lower = detail.toLowerCase();
-    final xMatch = RegExp(r'(\d+)\s*[x×]\s*(\d+)').firstMatch(lower);
-    if (xMatch != null) {
-      return (int.parse(xMatch.group(1)!), int.parse(xMatch.group(2)!));
+  Future<void> _startGuidedPlanDay(BuildContext context, Map day) async {
+    final provider = context.read<AppProvider>();
+    final user = provider.activeUser;
+    final family = provider.activeFamily;
+    if (user == null || family == null) return;
+    final rawEx = (day['exercises'] as List?)?.cast<Map>() ?? [];
+    if (rawEx.isEmpty) return;
+
+    final dayName = day['day'] as String? ?? 'Day';
+    final focus = day['focus'] as String? ?? 'Workout';
+    final title = '$dayName · $focus';
+
+    final exercises = <_GuidedPlanExercise>[];
+    for (final ex in rawEx) {
+      final name = ex['name'] as String? ?? 'Exercise';
+      final detail = ex['detail'] as String?;
+      final howTo = ex['howTo']?.toString().trim();
+      final img = _exerciseImageUrl(ex)?.trim();
+      final edb = _exerciseDbIdFromMap(ex);
+      final (sc, rep) = _parseSetsRepsFromDetail(detail);
+      exercises.add(_GuidedPlanExercise(
+        name: name,
+        detail: detail,
+        howTo: (howTo == null || howTo.isEmpty) ? null : howTo,
+        imageUrl: (img == null || img.isEmpty) ? null : img,
+        exerciseDbId: (edb == null || edb.isEmpty) ? null : edb,
+        setsCount: sc,
+        defaultReps: rep,
+        restSeconds: _parseRestSeconds(detail),
+      ));
     }
-    final setMatch = RegExp(r'(\d+)\s*sets?').firstMatch(lower);
-    final repMatch = RegExp(r'(\d+)\s*reps?').firstMatch(lower);
-    final sets = setMatch != null ? int.parse(setMatch.group(1)!) : 3;
-    final reps = repMatch != null ? int.parse(repMatch.group(1)!) : 10;
-    return (sets.clamp(1, 20), reps.clamp(1, 999));
+
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (ctx) => _GuidedPlanWorkoutScreen(
+          title: title,
+          exercises: exercises,
+          onComplete: (session, wex, sets) async {
+            await _persistCompletedWorkout(ctx, provider, session: session, exercises: wex, sets: sets);
+            if (ctx.mounted) {
+              _showSnack(ctx, 'Workout saved to My Logs');
+            }
+          },
+        ),
+      ),
+    );
   }
 
   Future<void> _startPlanDayAsWorkout(BuildContext context, Map day) async {
@@ -1207,7 +1427,7 @@ class _StoredPlanViewState extends State<_StoredPlanView> {
       final howToRaw = ex['howTo']?.toString().trim();
       final imgRaw = _exerciseImageUrl(ex)?.trim();
       final edbId = _exerciseDbIdFromMap(ex);
-      final (setCount, repNum) = _parseSetsReps(detail);
+      final (setCount, repNum) = _parseSetsRepsFromDetail(detail);
       totalMin += setCount * 3 + (setCount - 1);
 
       final we = WorkoutExercise(
@@ -1310,10 +1530,13 @@ Apply the requested change while keeping everything else sensible.
           return;
         }
         await ExercisePlanMediaService.enrichPlanMap(decoded);
+        final pid = widget.plan['plan_id']?.toString();
+        final sid = fitnessPlanStableId(widget.plan);
         final plans = db.fitnessPlans.toList();
-        plans.removeWhere((p) => p is Map && p['user_id'] == userId);
+        plans.removeWhere((p) => p is Map && fitnessPlanStableId(p) == sid);
         plans.add({
           ...decoded,
+          'plan_id': (pid != null && pid.isNotEmpty) ? pid : ensureFitnessPlanHasId(decoded)['plan_id'],
           'profile': profile,
           'user_id': userId,
           'family_id': familyId,
@@ -1488,13 +1711,21 @@ Apply the requested change while keeping everything else sensible.
                   if (isExpanded && !isRest && exercises.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: () => _startPlanDayAsWorkout(context, day),
-                          icon: const Icon(Icons.fitness_center_rounded, size: 18),
-                          label: const Text('Log this day as workout', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700)),
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          FilledButton.icon(
+                            onPressed: () => _startGuidedPlanDay(context, day),
+                            icon: const Icon(Icons.play_circle_outline_rounded, size: 20),
+                            label: const Text('Guided workout (rest timer)', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800)),
+                          ),
+                          const SizedBox(height: 8),
+                          OutlinedButton.icon(
+                            onPressed: () => _startPlanDayAsWorkout(context, day),
+                            icon: const Icon(Icons.fitness_center_rounded, size: 18),
+                            label: const Text('Quick log this day', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700)),
+                          ),
+                        ],
                       ),
                     ),
                 ]),
@@ -3464,6 +3695,326 @@ class _WorkoutSessionSheetState extends State<_WorkoutSessionSheet> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ─── Guided plan workout (rest timer between sets) ─────────────────────────
+
+class _GuidedPlanExercise {
+  _GuidedPlanExercise({
+    required this.name,
+    this.detail,
+    this.howTo,
+    this.imageUrl,
+    this.exerciseDbId,
+    required this.setsCount,
+    required this.defaultReps,
+    required this.restSeconds,
+  });
+
+  final String name;
+  final String? detail;
+  final String? howTo;
+  final String? imageUrl;
+  final String? exerciseDbId;
+  final int setsCount;
+  final int defaultReps;
+  final int restSeconds;
+}
+
+class _GuidedPlanWorkoutScreen extends StatefulWidget {
+  const _GuidedPlanWorkoutScreen({
+    required this.title,
+    required this.exercises,
+    required this.onComplete,
+  });
+
+  final String title;
+  final List<_GuidedPlanExercise> exercises;
+  final Future<void> Function(WorkoutSession session, List<WorkoutExercise> exercises, List<WorkoutSet> sets) onComplete;
+
+  @override
+  State<_GuidedPlanWorkoutScreen> createState() => _GuidedPlanWorkoutScreenState();
+}
+
+class _GuidedPlanWorkoutScreenState extends State<_GuidedPlanWorkoutScreen> {
+  final _uuid = const Uuid();
+  late DateTime _startedAt;
+  int _exerciseIndex = 0;
+  int _setIndex = 0;
+  final _repsCtrl = TextEditingController();
+  final _weightCtrl = TextEditingController();
+  Timer? _restTimer;
+  int _restRemaining = 0;
+  late List<List<({String reps, String? weight})>> _logged;
+
+  @override
+  void initState() {
+    super.initState();
+    _startedAt = DateTime.now();
+    _logged = List.generate(widget.exercises.length, (_) => []);
+    _primeFields();
+  }
+
+  void _primeFields() {
+    final ex = widget.exercises[_exerciseIndex];
+    _repsCtrl.text = ex.defaultReps.toString();
+    _weightCtrl.clear();
+  }
+
+  @override
+  void dispose() {
+    _restTimer?.cancel();
+    _repsCtrl.dispose();
+    _weightCtrl.dispose();
+    super.dispose();
+  }
+
+  void _cancelRest() {
+    _restTimer?.cancel();
+    _restTimer = null;
+    setState(() => _restRemaining = 0);
+  }
+
+  void _startRest(int seconds) {
+    _restTimer?.cancel();
+    if (seconds <= 0) return;
+    setState(() => _restRemaining = seconds);
+    _restTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) return;
+      setState(() {
+        if (_restRemaining <= 1) {
+          _restRemaining = 0;
+          t.cancel();
+          _restTimer = null;
+        } else {
+          _restRemaining -= 1;
+        }
+      });
+    });
+  }
+
+  String _formatRest(int s) {
+    final m = (s ~/ 60).toString().padLeft(2, '0');
+    final sec = (s % 60).toString().padLeft(2, '0');
+    return '$m:$sec';
+  }
+
+  Future<void> _finish() async {
+    final provider = context.read<AppProvider>();
+    final user = provider.activeUser;
+    final family = provider.activeFamily;
+    if (user == null || family == null) return;
+
+    final fid = family.id;
+    final uid = user.id;
+    final now = DateTime.now();
+    final durationMin = now.difference(_startedAt).inMinutes.clamp(1, 600);
+
+    final session = WorkoutSession(
+      id: _uuid.v4(),
+      familyId: fid,
+      userId: uid,
+      title: widget.title,
+      date: now,
+      durationMinutes: durationMin,
+      notes: 'Guided from AI plan',
+      createdAt: now,
+    );
+
+    final wex = <WorkoutExercise>[];
+    final allSets = <WorkoutSet>[];
+
+    for (var ei = 0; ei < widget.exercises.length; ei++) {
+      final ge = widget.exercises[ei];
+      ({String? imageUrl, String? exerciseDbId}) media = (imageUrl: null, exerciseDbId: null);
+      try {
+        media = await ExercisePlanMediaService.resolveForExerciseName(ge.name);
+      } catch (_) {}
+
+      final we = WorkoutExercise(
+        id: _uuid.v4(),
+        familyId: fid,
+        userId: uid,
+        sessionId: session.id,
+        exerciseName: ge.name,
+        order: ei,
+        restSeconds: ge.restSeconds,
+        notes: ge.detail,
+        techniqueNotes: ge.howTo,
+        referenceUrl: null,
+        techniqueImageUrl: (ge.imageUrl != null && ge.imageUrl!.isNotEmpty)
+            ? ge.imageUrl
+            : ((media.imageUrl == null || media.imageUrl!.isEmpty) ? null : media.imageUrl),
+        exerciseDbId: (ge.exerciseDbId != null && ge.exerciseDbId!.isNotEmpty)
+            ? ge.exerciseDbId
+            : ((media.exerciseDbId == null || media.exerciseDbId!.isEmpty) ? null : media.exerciseDbId),
+        createdAt: now,
+      );
+      wex.add(we);
+
+      final rows = _logged[ei];
+      for (var si = 0; si < rows.length; si++) {
+        final r = rows[si];
+        allSets.add(
+          WorkoutSet(
+            id: _uuid.v4(),
+            familyId: fid,
+            userId: uid,
+            exerciseId: we.id,
+            setNumber: si + 1,
+            reps: r.reps,
+            weight: (r.weight == null || r.weight!.trim().isEmpty) ? null : r.weight!.trim(),
+            completed: true,
+            notes: null,
+            createdAt: now,
+          ),
+        );
+      }
+    }
+
+    await widget.onComplete(session, wex, allSets);
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  Future<void> _completeSet() async {
+    final ex = widget.exercises[_exerciseIndex];
+    final reps = _repsCtrl.text.trim();
+    if (reps.isEmpty) {
+      _showSnack(context, 'Enter reps for this set');
+      return;
+    }
+    final w = _weightCtrl.text.trim();
+    setState(() {
+      _logged[_exerciseIndex].add((reps: reps, weight: w.isEmpty ? null : w));
+    });
+
+    if (_setIndex < ex.setsCount - 1) {
+      _setIndex++;
+      _primeFields();
+      _startRest(ex.restSeconds);
+    } else if (_exerciseIndex < widget.exercises.length - 1) {
+      _exerciseIndex++;
+      _setIndex = 0;
+      _primeFields();
+      _cancelRest();
+    } else {
+      await _finish();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ex = widget.exercises[_exerciseIndex];
+    final isLast =
+        _exerciseIndex == widget.exercises.length - 1 && _setIndex == ex.setsCount - 1;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.title, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16)),
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ),
+      body: Stack(
+        children: [
+          ListView(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+            children: [
+              Text(
+                'Exercise ${_exerciseIndex + 1} of ${widget.exercises.length}',
+                style: const TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.stone500),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                ex.name,
+                style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 20, color: AppTheme.stone900),
+              ),
+              if (ex.detail != null && ex.detail!.trim().isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(ex.detail!, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone600)),
+              ],
+              const SizedBox(height: 12),
+              _exerciseIllustrationBanner(
+                (ex.imageUrl != null && ex.imageUrl!.isNotEmpty) ? ex.imageUrl : null,
+                exerciseDbId: ex.exerciseDbId,
+              ),
+              if (ex.howTo != null && ex.howTo!.trim().isNotEmpty) ...[
+                const SizedBox(height: 12),
+                const Text('How to', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 13)),
+                const SizedBox(height: 6),
+                Text(ex.howTo!, style: const TextStyle(fontFamily: 'Inter', fontSize: 14, height: 1.45)),
+              ],
+              const SizedBox(height: 20),
+              Text(
+                'Set ${_setIndex + 1} of ${ex.setsCount}',
+                style: const TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.primary),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _repsCtrl,
+                keyboardType: TextInputType.number,
+                decoration: _styledInput('Reps *', icon: Icons.repeat_rounded),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _weightCtrl,
+                keyboardType: TextInputType.number,
+                decoration: _styledInput('Weight (optional)', icon: Icons.scale_rounded),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Rest between sets: ${ex.restSeconds}s',
+                style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
+              ),
+              const SizedBox(height: 20),
+              FilledButton.icon(
+                onPressed: _restRemaining > 0 ? null : _completeSet,
+                icon: Icon(isLast ? Icons.check_rounded : Icons.arrow_forward_rounded),
+                label: Text(
+                  isLast ? 'Finish & save' : 'Complete set',
+                  style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          ),
+          if (_restRemaining > 0)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black54,
+                alignment: Alignment.center,
+                child: Container(
+                  margin: const EdgeInsets.all(24),
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.timer_rounded, size: 40, color: AppTheme.primary),
+                      const SizedBox(height: 12),
+                      Text(
+                        _formatRest(_restRemaining),
+                        style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w900, fontSize: 36, color: AppTheme.stone900),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text('Rest', style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone600)),
+                      const SizedBox(height: 16),
+                      TextButton(
+                        onPressed: _cancelRest,
+                        child: const Text('Skip rest'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

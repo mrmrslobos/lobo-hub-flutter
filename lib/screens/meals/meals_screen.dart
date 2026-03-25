@@ -128,6 +128,11 @@ class _MealsScreenState extends State<MealsScreen>
   // AI Week Planner
   final _weekPlannerController = TextEditingController();
   bool _weekPlannerLoading = false;
+  bool _pantryFirstWeek = true;
+  final _kcalTargetCtrl = TextEditingController();
+  final _proteinTargetCtrl = TextEditingController();
+  final _carbsTargetCtrl = TextEditingController();
+  final _fatTargetCtrl = TextEditingController();
 
   // Refinement input
   final _refineController = TextEditingController();
@@ -159,9 +164,98 @@ class _MealsScreenState extends State<MealsScreen>
     _tabController.dispose();
     _chefController.dispose();
     _weekPlannerController.dispose();
+    _kcalTargetCtrl.dispose();
+    _proteinTargetCtrl.dispose();
+    _carbsTargetCtrl.dispose();
+    _fatTargetCtrl.dispose();
     _refineController.dispose();
     _importUrlController.dispose();
     super.dispose();
+  }
+
+  Future<void> _showMacroTargetsDialog() async {
+    final provider = context.read<AppProvider>();
+    final fam = provider.activeFamily;
+    if (fam == null) return;
+    final t = mealMacroTargetsFromSettings(fam.settings);
+    _kcalTargetCtrl.text = t['kcal']?.toStringAsFixed(0) ?? '';
+    _proteinTargetCtrl.text = t['protein']?.toStringAsFixed(0) ?? '';
+    _carbsTargetCtrl.text = t['carbs']?.toStringAsFixed(0) ?? '';
+    _fatTargetCtrl.text = t['fat']?.toStringAsFixed(0) ?? '';
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Meal macro targets', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Optional daily targets for the household. The week planner uses them to shape meals.',
+                style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone600),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _kcalTargetCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Calories (kcal / day)'),
+              ),
+              TextField(
+                controller: _proteinTargetCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Protein (g / day)'),
+              ),
+              TextField(
+                controller: _carbsTargetCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Carbs (g / day)'),
+              ),
+              TextField(
+                controller: _fatTargetCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Fat (g / day)'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    double? p(String s) {
+      final t = s.trim();
+      if (t.isEmpty) return null;
+      return double.tryParse(t);
+    }
+
+    final nextTargets = <String, dynamic>{};
+    final k = p(_kcalTargetCtrl.text);
+    final pr = p(_proteinTargetCtrl.text);
+    final c = p(_carbsTargetCtrl.text);
+    final f = p(_fatTargetCtrl.text);
+    if (k != null) nextTargets['kcal'] = k;
+    if (pr != null) nextTargets['protein'] = pr;
+    if (c != null) nextTargets['carbs'] = c;
+    if (f != null) nextTargets['fat'] = f;
+
+    final settings = Map<String, dynamic>.from(fam.settings);
+    if (nextTargets.isEmpty) {
+      settings.remove('meal_macro_targets');
+    } else {
+      settings['meal_macro_targets'] = nextTargets;
+    }
+    final nextFam = fam.copyWith(settings: settings);
+    await provider.saveAndSync(
+      provider.db.copyWith(
+        families: provider.db.families.map((x) => x.id == fam.id ? nextFam : x).toList(),
+      ),
+    );
+    if (mounted) _showSnack(context, 'Macro targets saved');
   }
 
   /// Strip markdown code fences from AI response
@@ -322,6 +416,32 @@ Return a JSON array of exactly 3 objects, each with these fields:
         ? 'IMPORTANT: Use metric units (grams, kilograms, millilitres, litres, centimetres). Never use ounces, pounds, cups, or other imperial units.'
         : 'Use standard US units (cups, tablespoons, ounces, pounds).';
 
+    final family = context.read<AppProvider>().activeFamily;
+    final db = context.read<AppProvider>().db;
+    final familyId = family?.id ?? '';
+    final targets = mealMacroTargetsFromSettings(family?.settings ?? {});
+    final pantryLines = db.pantryItems
+        .where((p) => p.familyId == familyId)
+        .map((p) {
+          final q = [p.quantity, p.unit].whereType<String>().where((s) => s.trim().isNotEmpty).join(' ');
+          return q.isEmpty ? p.name : '$q ${p.name}';
+        })
+        .toList();
+
+    final macroBlock = StringBuffer();
+    if (targets.isNotEmpty) {
+      macroBlock.writeln('Approximate daily nutrition targets for the household (use as a soft guide across the week):');
+      if (targets['kcal'] != null) macroBlock.writeln('- Calories: ~${targets['kcal']!.round()} kcal');
+      if (targets['protein'] != null) macroBlock.writeln('- Protein: ~${targets['protein']!.round()} g');
+      if (targets['carbs'] != null) macroBlock.writeln('- Carbs: ~${targets['carbs']!.round()} g');
+      if (targets['fat'] != null) macroBlock.writeln('- Fat: ~${targets['fat']!.round()} g');
+      macroBlock.writeln('Include estimated per-meal calories and macros in each meal object when possible (see JSON shape below).');
+    }
+
+    final pantryBlock = pantryLines.isEmpty
+        ? '(No pantry list in the app — shop as needed.)'
+        : pantryLines.map((s) => '- $s').join('\n');
+
     const systemPrompt =
         'You are a weekly meal planning AI for families. Always respond with valid JSON only, no markdown fences.';
     final prompt = '''
@@ -329,6 +449,12 @@ Create a 7-day meal plan (Monday through Sunday) based on these preferences:
 "$prefs"
 
 $unitInstruction
+
+${_pantryFirstWeek ? 'PRIORITY: Prefer recipes that use ingredients from the pantry list below. Minimize waste; you may still add a few fresh items each day.' : 'Pantry reference (use when helpful):'}
+Pantry on hand:
+$pantryBlock
+
+${macroBlock.isEmpty ? '' : macroBlock.toString()}
 
 Return a JSON array of 7 objects, each with:
 - "dayName" (string): "Monday", "Tuesday", etc.
@@ -340,11 +466,14 @@ Return a JSON array of 7 objects, each with:
   - "ingredients" (array of objects with "name", "quantity", "unit")
   - "steps" (array of strings)
   - "servings" (integer)
+  - "kcal" (number, optional): estimated calories for the whole meal at the given servings
+  - "proteinG" (number, optional): grams of protein for the whole meal
+  - "carbsG" (number, optional): grams of carbs for the whole meal
+  - "fatG" (number, optional): grams of fat for the whole meal
 ''';
 
     try {
-      final familyId = context.read<AppProvider>().activeFamily?.id;
-      if (familyId == null) {
+      if (familyId.isEmpty) {
         if (mounted) setState(() => _weekPlannerLoading = false);
         return;
       }
@@ -366,7 +495,7 @@ Return a JSON array of 7 objects, each with:
       _refineHistory.clear();
 
       final provider = context.read<AppProvider>();
-      var db = provider.db;
+      var dbState = provider.db;
       final userId = provider.activeUser?.id ?? '';
 
       final now = DateTime.now();
@@ -380,7 +509,7 @@ Return a JSON array of 7 objects, each with:
       final newMealPlans = <MealPlanEntry>[];
       // Reuse existing recipes when AI repeats a title (normalized).
       final recipeIdByNormTitle = <String, String>{};
-      for (final r in db.recipes.where((r) => r.familyId == familyId)) {
+      for (final r in dbState.recipes.where((r) => r.familyId == familyId)) {
         final k = _recipeTitleNormKey(r.title);
         if (k.isNotEmpty) recipeIdByNormTitle[k] = r.id;
       }
@@ -450,6 +579,10 @@ Return a JSON array of 7 objects, each with:
               tags: const ['meal-plan'],
               prepMinutes: (meal['prepMinutes'] as num?)?.toInt(),
               cookMinutes: (meal['cookMinutes'] as num?)?.toInt(),
+              kcal: (meal['kcal'] as num?)?.toInt(),
+              proteinG: (meal['proteinG'] as num?)?.toDouble() ?? (meal['protein_g'] as num?)?.toDouble(),
+              carbsG: (meal['carbsG'] as num?)?.toDouble() ?? (meal['carbs_g'] as num?)?.toDouble(),
+              fatG: (meal['fatG'] as num?)?.toDouble() ?? (meal['fat_g'] as num?)?.toDouble(),
               createdBy: userId,
             ));
             if (norm.isNotEmpty) recipeIdByNormTitle[norm] = recipeId;
@@ -468,9 +601,9 @@ Return a JSON array of 7 objects, each with:
       }
 
       // Save recipes and meal plans
-      db = db.copyWith(
-        recipes: [...db.recipes, ...newRecipes],
-        mealPlans: [...db.mealPlans, ...newMealPlans],
+      dbState = dbState.copyWith(
+        recipes: [...dbState.recipes, ...newRecipes],
+        mealPlans: [...dbState.mealPlans, ...newMealPlans],
       );
 
       // Create shopping list from consolidated ingredients
@@ -514,7 +647,7 @@ Return a JSON array of 7 objects, each with:
           items: listItems,
           category: ListCategory.GROCERY,
         );
-        db = db.copyWith(lists: [...db.lists, shoppingList]);
+        dbState = dbState.copyWith(lists: [...dbState.lists, shoppingList]);
       }
 
       // Auto-create meal prep tasks for each day
@@ -532,9 +665,9 @@ Return a JSON array of 7 objects, each with:
           tags: const ['meals', 'auto'],
         ));
       }
-      db = db.copyWith(tasks: [...db.tasks, ...mealTasks]);
+      dbState = dbState.copyWith(tasks: [...dbState.tasks, ...mealTasks]);
 
-      await provider.saveAndSync(db);
+      await provider.saveAndSync(dbState);
       if (provider.activeFamily != null) await provider.syncTasksNow();
 
       try {
@@ -1198,15 +1331,38 @@ Return a JSON array of 7 objects, each with:
             // ── AI Week Planner card ──
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: _AiFeatureCard(
-                icon: Icons.calendar_month_rounded,
-                gradientColors: const [Color(0xFF8B5CF6), Color(0xFF6366F1)],
-                title: 'AI Week Planner',
-                hintText: 'e.g. Healthy meals, budget-friendly...',
-                controller: _weekPlannerController,
-                loading: _weekPlannerLoading,
-                buttonLabel: 'Plan My Week',
-                onAction: _weekPlannerLoading ? null : _generateWeekPlan,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _AiFeatureCard(
+                    icon: Icons.calendar_month_rounded,
+                    gradientColors: const [Color(0xFF8B5CF6), Color(0xFF6366F1)],
+                    title: 'AI Week Planner',
+                    hintText: 'e.g. Healthy meals, budget-friendly...',
+                    controller: _weekPlannerController,
+                    loading: _weekPlannerLoading,
+                    buttonLabel: 'Plan My Week',
+                    onAction: _weekPlannerLoading ? null : _generateWeekPlan,
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      FilterChip(
+                        label: const Text('Pantry-first week'),
+                        selected: _pantryFirstWeek,
+                        onSelected: (v) => setState(() => _pantryFirstWeek = v),
+                      ),
+                      TextButton.icon(
+                        onPressed: _showMacroTargetsDialog,
+                        icon: const Icon(Icons.pie_chart_outline_rounded, size: 18),
+                        label: const Text('Macro targets'),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
 
@@ -1397,6 +1553,41 @@ class _MealPlanTabState extends State<_MealPlanTab> {
 
   bool _isSameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
+
+  Recipe? _recipeFor(AppProvider provider, MealPlanEntry? m) {
+    if (m?.recipeId == null) return null;
+    for (final r in provider.db.recipes) {
+      if (r.id == m!.recipeId) return r;
+    }
+    return null;
+  }
+
+  Map<String, double?> _macrosForDay(AppProvider provider, DateTime day) {
+    final familyId = provider.activeFamily?.id ?? '';
+    final meals = provider.db.mealPlans
+        .where((m) => m.familyId == familyId && _isSameDay(m.date, day))
+        .toList();
+    final parts = <Map<String, double?>>[];
+    for (final m in meals) {
+      final r = _recipeFor(provider, m);
+      parts.add(scaledMacrosForMeal(r, m.servings));
+    }
+    return aggregateMacros(parts);
+  }
+
+  Map<String, double?> _macrosForWeek(AppProvider provider) {
+    final parts = <Map<String, double?>>[];
+    for (final d in _weekDays) {
+      parts.add(_macrosForDay(provider, d));
+    }
+    return aggregateMacros(parts);
+  }
+
+  String _fmtMacro(String label, double? v, String unit) {
+    if (v == null) return '';
+    final s = v >= 100 ? v.round().toString() : v.toStringAsFixed(0);
+    return '$label $s$unit';
+  }
 
   Future<void> _repeatMealWeekly(BuildContext context, MealPlanEntry source) async {
     final provider = context.read<AppProvider>();
@@ -1633,6 +1824,19 @@ class _MealPlanTabState extends State<_MealPlanTab> {
     final weekLabel =
         '${DateFormat('MMM d').format(_weekDays.first)} – ${DateFormat('MMM d').format(_weekDays.last)}';
 
+    final targets = mealMacroTargetsFromSettings(provider.activeFamily?.settings ?? {});
+    final dayMacros = _macrosForDay(provider, _selectedDay);
+    final weekMacros = _macrosForWeek(provider);
+    String macroLine(Map<String, double?> m) {
+      final bits = <String>[
+        if (m['kcal'] != null) _fmtMacro('', m['kcal']!, ' kcal').replaceFirst(' ', ''),
+        if (m['protein'] != null) _fmtMacro('P', m['protein']!, 'g'),
+        if (m['carbs'] != null) _fmtMacro('C', m['carbs']!, 'g'),
+        if (m['fat'] != null) _fmtMacro('F', m['fat']!, 'g'),
+      ];
+      return bits.isEmpty ? '—' : bits.join(' · ');
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1672,6 +1876,44 @@ class _MealPlanTabState extends State<_MealPlanTab> {
             ],
           ),
         ),
+        if (targets.isNotEmpty || weekMacros['kcal'] != null || weekMacros['protein'] != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppTheme.stone50,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppTheme.stone200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Nutrition (from recipes)',
+                    style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 12, color: AppTheme.stone600),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Week total: ${macroLine(weekMacros)}',
+                    style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone700),
+                  ),
+                  if (targets.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      'Daily goals: '
+                      '${targets['kcal'] != null ? '~${targets['kcal']!.round()} kcal' : '—'}'
+                      '${targets['protein'] != null ? ' · P ~${targets['protein']!.round()}g' : ''}'
+                      '${targets['carbs'] != null ? ' · C ~${targets['carbs']!.round()}g' : ''}'
+                      '${targets['fat'] != null ? ' · F ~${targets['fat']!.round()}g' : ''}',
+                      style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone500.withValues(alpha: 0.95)),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
         // Day selector
         SizedBox(
           height: 76,
@@ -1737,14 +1979,24 @@ class _MealPlanTabState extends State<_MealPlanTab> {
         // Selected day label
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-          child: Text(
-            DateFormat('EEEE, MMMM d').format(_selectedDay),
-            style: const TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              color: AppTheme.stone800,
-            ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                DateFormat('EEEE, MMMM d').format(_selectedDay),
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.stone800,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Day total: ${_macroLine(dayMacros)}',
+                style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
+              ),
+            ],
           ),
         ),
         // Meal slots

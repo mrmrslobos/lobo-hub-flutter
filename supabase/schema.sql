@@ -258,6 +258,8 @@ create table if not exists fitness_plans (
   created_at   text not null
 );
 
+alter table fitness_plans add column if not exists plan_id text;
+
 create table if not exists reward_items (
   id          text primary key,
   family_id   text not null,
