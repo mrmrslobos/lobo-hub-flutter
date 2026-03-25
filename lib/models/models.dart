@@ -1899,6 +1899,23 @@ class ExercisePR {
 // BudgetCategory
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// How [BudgetCategoryRecord.limit] is interpreted for envelope math.
+enum BudgetLimitPeriod {
+  /// One cap for the whole calendar month (+ rollover).
+  monthly,
+  /// [limit] is per 7-day bucket; month is split into consecutive buckets (+ rollover).
+  weekly,
+}
+
+BudgetLimitPeriod budgetLimitPeriodFromString(String? s) {
+  switch (s) {
+    case 'weekly':
+      return BudgetLimitPeriod.weekly;
+    default:
+      return BudgetLimitPeriod.monthly;
+  }
+}
+
 class BudgetCategoryRecord {
   final String id;
   final String familyId;
@@ -1907,6 +1924,10 @@ class BudgetCategoryRecord {
   final double limit;
   final String color;
   final Visibility visibility;
+  /// Whether unused budget from prior periods carries into this month.
+  final bool rolloverEnabled;
+  /// Monthly vs weekly bucket interpretation for [limit].
+  final BudgetLimitPeriod limitPeriod;
 
   const BudgetCategoryRecord({
     required this.id,
@@ -1916,6 +1937,8 @@ class BudgetCategoryRecord {
     this.limit = 0,
     this.color = '#6366f1',
     this.visibility = Visibility.FAMILY,
+    this.rolloverEnabled = false,
+    this.limitPeriod = BudgetLimitPeriod.monthly,
   });
 
   factory BudgetCategoryRecord.fromJson(Map<String, dynamic> j) {
@@ -1928,6 +1951,10 @@ class BudgetCategoryRecord {
       limit: FieldEncryption.decryptDouble(j['limit'], fid) ?? 0,
       color: j['color'] as String? ?? '#6366f1',
       visibility: visibilityFromString(j['visibility'] as String?),
+      rolloverEnabled: (j['rollover_enabled'] ?? j['rolloverEnabled'] ?? false) as bool,
+      limitPeriod: budgetLimitPeriodFromString(
+        j['limit_period']?.toString() ?? j['limitPeriod']?.toString(),
+      ),
     );
   }
 
@@ -1939,7 +1966,32 @@ class BudgetCategoryRecord {
     'limit': FieldEncryption.encryptNum(limit, familyId),
     'color': color,
     'visibility': visibility.name,
+    'rollover_enabled': rolloverEnabled,
+    'limit_period': limitPeriod.name,
   };
+
+  BudgetCategoryRecord copyWith({
+    String? id,
+    String? familyId,
+    String? creatorId,
+    String? name,
+    double? limit,
+    String? color,
+    Visibility? visibility,
+    bool? rolloverEnabled,
+    BudgetLimitPeriod? limitPeriod,
+  }) =>
+      BudgetCategoryRecord(
+        id: id ?? this.id,
+        familyId: familyId ?? this.familyId,
+        creatorId: creatorId ?? this.creatorId,
+        name: name ?? this.name,
+        limit: limit ?? this.limit,
+        color: color ?? this.color,
+        visibility: visibility ?? this.visibility,
+        rolloverEnabled: rolloverEnabled ?? this.rolloverEnabled,
+        limitPeriod: limitPeriod ?? this.limitPeriod,
+      );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4484,6 +4536,8 @@ class AppDB {
           limit: c.limit,
           color: c.color,
           visibility: c.visibility,
+          rolloverEnabled: c.rolloverEnabled,
+          limitPeriod: c.limitPeriod,
         );
       }).toList(),
       budgetEntries: budgetEntries.map((e) {
