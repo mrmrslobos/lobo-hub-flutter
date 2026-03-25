@@ -1993,7 +1993,7 @@ class _MealPlanTabState extends State<_MealPlanTab> {
               ),
               const SizedBox(height: 4),
               Text(
-                'Day total: ${_macroLine(dayMacros)}',
+                'Day total: ${macroLine(dayMacros)}',
                 style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
               ),
             ],
