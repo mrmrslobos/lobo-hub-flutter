@@ -14,6 +14,7 @@ import '../models/models.dart';
 import '../providers/app_provider.dart';
 import '../services/calendar_sync_service.dart';
 import '../services/family_activity_service.dart';
+import '../services/locale_service.dart';
 import '../services/supabase_service.dart';
 import 'biometric_lock.dart';
 
@@ -365,6 +366,7 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
   bool _loading = true;
   NotificationPrefs _notifPrefs = const NotificationPrefs();
   bool _notifLoaded = false;
+  bool _resettingData = false;
 
   static const _countries = [
     ('🇺🇸', 'United States', 'US'),
@@ -485,6 +487,55 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Imported ${newTasks.length} task${newTasks.length == 1 ? '' : 's'} from Google')),
       );
+    }
+  }
+
+  Future<void> _confirmResetLocalData(BuildContext sheetContext) async {
+    final ok = await showDialog<bool>(
+      context: sheetContext,
+      builder: (ctx) => AlertDialog(
+        title: const Text(
+          'Reset data on this device?',
+          style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800),
+        ),
+        content: const Text(
+          'This signs you out and permanently deletes all FamilyHub data stored on this phone or tablet '
+          '(your home, tasks, lists, and other synced copies saved locally). '
+          'It does not remove data from our servers for other family members.\n\n'
+          'You can sign in again afterward; your account will reload from the cloud if you use the same login.',
+          style: TextStyle(fontFamily: 'Inter', fontSize: 14, height: 1.45),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppTheme.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Reset data'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !sheetContext.mounted) return;
+
+    setState(() => _resettingData = true);
+    try {
+      await sheetContext.read<AppProvider>().resetAllLocalDataAndSignOut();
+      await sheetContext.read<LocaleService>().reloadFromPrefs();
+      if (!sheetContext.mounted) return;
+      Navigator.of(sheetContext).pop();
+      if (!sheetContext.mounted) return;
+      sheetContext.go('/auth');
+    } catch (e) {
+      if (sheetContext.mounted) {
+        ScaffoldMessenger.of(sheetContext).showSnackBar(
+          SnackBar(content: Text('Could not reset: $e'), behavior: SnackBarBehavior.floating),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _resettingData = false);
     }
   }
 
@@ -1045,6 +1096,57 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
                     ],
                   );
                 }),
+
+                const SizedBox(height: 8),
+                const Text(
+                  'DATA ON THIS DEVICE',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    letterSpacing: 0.5,
+                    color: AppTheme.stone500,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF1F2),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppTheme.error.withValues(alpha: 0.25)),
+                  ),
+                  child: ListTile(
+                    leading: Icon(Icons.delete_forever_rounded, color: AppTheme.error,
+                        size: _resettingData ? 18 : 22),
+                    title: const Text(
+                      'Reset data',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                        color: AppTheme.stone900,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'Sign out and erase local data (tasks, lists, family cache on this device)',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 12,
+                        color: AppTheme.stone500,
+                      ),
+                    ),
+                    trailing: _resettingData
+                        ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.chevron_right_rounded, color: AppTheme.stone400),
+                    onTap: _resettingData ? null : () => _confirmResetLocalData(context),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+                const SizedBox(height: 16),
 
                 // About section
                 Container(

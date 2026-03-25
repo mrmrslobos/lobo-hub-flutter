@@ -470,6 +470,35 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Destructive: sign out, clear all local app data (including device prefs),
+  /// and return to a fresh state. Does **not** delete server-side Supabase rows.
+  Future<void> resetAllLocalDataAndSignOut() async {
+    _stopRealtimeListener();
+    _activeUser = null;
+    _activeFamily = null;
+    _isLocked = false;
+    _unreadModules = {};
+    _lastSuccessfulSyncAt = null;
+    _lastSyncError = null;
+    _isSyncing = false;
+
+    if (SupabaseService.isConfigured) {
+      try {
+        await SupabaseService.signOut();
+      } catch (_) {}
+    }
+
+    await PurchaseService.revenueCatLogOut();
+
+    FieldEncryption.clear();
+    AiService.setAIBlocked(false);
+    await DatabaseService.wipeAllLocalStorage();
+    _db = AppDB.empty();
+    await _loadThemeMode();
+    await _loadNotificationPrefsIntoDb();
+    notifyListeners();
+  }
+
   // ── DB mutations ──────────────────────────────────────────────────────────
 
   /// Update DB in-memory and persist to local storage (no cloud sync).

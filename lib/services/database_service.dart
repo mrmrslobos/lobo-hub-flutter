@@ -178,6 +178,19 @@ class DatabaseService {
     await prefs.remove(_tombstoneKey);
   }
 
+  /// Clears cached DB state and **every** SharedPreferences key (theme, locale,
+  /// notification prefs, etc.). Use for destructive "reset app data" flows;
+  /// [clearLocal] is enough for normal logout.
+  static Future<void> wipeAllLocalStorage() async {
+    _cache = AppDB.empty();
+    _deletedKeys.clear();
+    final prefs = await SharedPreferences.getInstance();
+    final keys = prefs.getKeys().toList();
+    for (final k in keys) {
+      await prefs.remove(k);
+    }
+  }
+
   // ── Cloud sync ────────────────────────────────────────────────────────────
 
   /// Save locally and attempt a background cloud sync.
