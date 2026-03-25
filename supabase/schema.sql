@@ -121,6 +121,9 @@ create table if not exists budget_categories (
   visibility text not null default 'FAMILY'
 );
 
+alter table budget_categories add column if not exists rollover_enabled boolean not null default false;
+alter table budget_categories add column if not exists limit_period text not null default 'monthly';
+
 create table if not exists transactions (
   id text primary key,
   family_id text not null,
