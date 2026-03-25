@@ -16,6 +16,7 @@ import '../services/calendar_sync_service.dart';
 import '../services/family_activity_service.dart';
 import '../services/locale_service.dart';
 import '../services/supabase_service.dart';
+import '../utils/ai_family_household.dart';
 import 'biometric_lock.dart';
 
 // ─────────────────────────────────────────────
@@ -1874,6 +1875,7 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
         householdRole: m.householdRole,
         moduleAccess: m.moduleAccess != null ? List<String>.from(m.moduleAccess!) : null,
         displayName: initialName,
+        declaredUnder16: m.declaredUnder16,
       );
     }).toList();
   }
@@ -1960,6 +1962,7 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
         moduleAccess: edited.moduleAccess,
         displayName: displayName,
         householdRole: edited.householdRole,
+        declaredUnder16: edited.declaredUnder16,
       );
     }).toList();
 
@@ -1989,7 +1992,8 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
               (_nameControllers[edited.userId]?.text ?? edited.displayName).trim();
           if (old.displayName?.trim() != newName ||
               old.role != edited.role ||
-              old.householdRole != edited.householdRole) {
+              old.householdRole != edited.householdRole ||
+              old.declaredUnder16 != edited.declaredUnder16) {
             nextDb = FamilyActivityService.append(
               nextDb,
               familyId: familyId,
@@ -2154,7 +2158,10 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
     final family = provider.activeFamily;
     final ownerId = family?.ownerId;
     final isFamilyOwner = provider.isOwner;
+    final activeUid = provider.activeUser?.id;
     final m = _members[index];
+    final canEditUnder16 =
+        provider.isAdmin || (activeUid != null && m.userId == activeUid);
     final isExpanded = _expandedUserId == m.userId;
     final isKid = _isKidsPreset(m.moduleAccess);
     final isRestricted = m.moduleAccess != null;
@@ -2316,6 +2323,61 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
                       ),
                     ),
                     const SizedBox(height: 14),
+                  ],
+                  if (canEditUnder16) ...[
+                    const Text(
+                      'AI FAMILY — UNDER 16',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontWeight: FontWeight.w700,
+                        fontSize: 10,
+                        letterSpacing: 1.0,
+                        color: AppTheme.stone400,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    CheckboxListTile(
+                      value: m.declaredUnder16,
+                      onChanged: (v) {
+                        if (v == null) return;
+                        setState(() => m.declaredUnder16 = v);
+                      },
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      title: const Text(
+                        'This person is under 16',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                          color: AppTheme.stone800,
+                        ),
+                      ),
+                      subtitle: const Text(
+                        'Tick for child pricing on AI Family. Parents can set this for children; the member can set it for their own account. This is a household declaration, not ID verification — false statements may breach app store terms.',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 11,
+                          color: AppTheme.stone500,
+                          height: 1.3,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ] else if (m.declaredUnder16) ...[
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        'Marked as under 16 (AI Family)',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.stone600,
+                        ),
+                      ),
+                    ),
                   ],
                   if (isFamilyOwner && !isMemberOwner) ...[
                     const Text(
@@ -2764,6 +2826,7 @@ class _EditableMember {
   HouseholdRole householdRole;
   List<String>? moduleAccess;
   String displayName;
+  bool declaredUnder16;
 
   _EditableMember({
     required this.userId,
@@ -2772,6 +2835,7 @@ class _EditableMember {
     required this.householdRole,
     this.moduleAccess,
     required this.displayName,
+    this.declaredUnder16 = false,
   });
 }
 
