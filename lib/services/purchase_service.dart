@@ -8,8 +8,9 @@ import '../models/models.dart';
 /// RevenueCat integration. Configure API keys via `--dart-define=RC_IOS_KEY=...`
 /// and `RC_ANDROID_KEY=...` (see [docs/REVENUECAT.md]).
 ///
-/// In the RevenueCat dashboard, create a **default** offering whose packages use
-/// these identifiers (attach App Store / Play products to each):
+/// In the RevenueCat dashboard, mark an offering as **Current** and add packages
+/// whose identifiers match [packageIdentifier] / [packageIdentifierCandidates]
+/// (attach App Store / Play products to each).
 class PurchaseService {
   static bool _initialized = false;
 
@@ -21,7 +22,9 @@ class PurchaseService {
         defaultTargetPlatform == TargetPlatform.android;
   }
 
-  /// Package identifiers on the current offering (must match RevenueCat).
+  /// Primary package id your RevenueCat **default** offering should expose.
+  /// [packageIdentifierCandidates] also tries `yearly` instead of `annual` so
+  /// dashboard typos / alternate naming still resolve.
   static String packageIdentifier(SubscriptionTier tier, bool yearly) {
     final period = yearly ? 'annual' : 'monthly';
     switch (tier) {
@@ -32,6 +35,43 @@ class PurchaseService {
         return 'ai_$period';
       case SubscriptionTier.ai_family:
         return 'ai_family_$period';
+    }
+  }
+
+  /// Ids tried in order when resolving a package (first match wins).
+  static List<String> packageIdentifierCandidates(
+    SubscriptionTier tier,
+    bool yearly,
+  ) {
+    switch (tier) {
+      case SubscriptionTier.trial:
+        return const [];
+      case SubscriptionTier.base:
+        return yearly
+            ? const ['base_annual', 'base_yearly']
+            : const ['base_monthly'];
+      case SubscriptionTier.ai:
+        return yearly
+            ? const ['ai_annual', 'ai_yearly']
+            : const ['ai_monthly'];
+      case SubscriptionTier.ai_family:
+        return yearly
+            ? const ['ai_family_annual', 'ai_family_yearly']
+            : const ['ai_family_monthly'];
+    }
+  }
+
+  /// Package identifiers on the current offering ([Offerings.current]).
+  static Future<List<String>> currentOfferingPackageIdentifiers() async {
+    if (!_initialized) return [];
+    try {
+      final offerings = await Purchases.getOfferings();
+      final current = offerings.current;
+      if (current == null) return [];
+      return current.availablePackages.map((p) => p.identifier).toList();
+    } catch (e, st) {
+      debugPrint('[PurchaseService] currentOfferingPackageIdentifiers error: $e\n$st');
+      return [];
     }
   }
 
@@ -141,9 +181,11 @@ class PurchaseService {
       final offerings = await Purchases.getOfferings();
       final current = offerings.current;
       if (current == null) return null;
-      final wanted = packageIdentifier(tier, yearly);
-      for (final p in current.availablePackages) {
-        if (p.identifier == wanted) return p;
+      final candidates = packageIdentifierCandidates(tier, yearly);
+      for (final wanted in candidates) {
+        for (final p in current.availablePackages) {
+          if (p.identifier == wanted) return p;
+        }
       }
       return null;
     } catch (e, st) {

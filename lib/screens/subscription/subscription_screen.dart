@@ -653,14 +653,23 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     if (pkg == null) {
       if (!mounted) return;
       setState(() => _purchasingTier = null);
+      final wanted = PurchaseService.packageIdentifierCandidates(tier, _yearly);
+      final have = await PurchaseService.currentOfferingPackageIdentifiers();
+      final hint = have.isEmpty
+          ? 'The app did not receive any packages from RevenueCat. In the dashboard: Product catalog → Offerings → set an offering as **Current**, add packages with the ids below, and attach your App Store / Play products to each package.'
+          : 'Packages on the **current** offering right now: ${have.join(', ')}. The app looks for: ${wanted.join(' or ')}.';
+      if (!mounted) return;
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           title: const Text('Products unavailable', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800)),
-          content: Text(
-            'No package "${PurchaseService.packageIdentifier(tier, _yearly)}" on the current RevenueCat offering. Add it in the dashboard (default offering) and attach App Store / Play products.',
-            style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone600),
+          content: SingleChildScrollView(
+            child: Text(
+              '$hint\n\n'
+              'Yearly plans use package id **annual** or **yearly** (both are accepted). See docs/REVENUECAT.md.',
+              style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone600, height: 1.35),
+            ),
           ),
           actions: [
             TextButton(
