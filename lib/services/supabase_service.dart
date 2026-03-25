@@ -92,6 +92,16 @@ class SupabaseService {
     }
   }
 
+  /// Deletes all Supabase rows for [familyId]. **Home owner only** (enforced server-side).
+  /// Requires migration `26_delete_family_cloud_data.sql`.
+  static Future<void> deleteFamilyCloudData({required String familyId}) async {
+    if (!isConfigured) return;
+    await client.rpc(
+      'delete_family_cloud_data',
+      params: {'p_family_id': familyId},
+    );
+  }
+
   /// Normalizes a PostgREST `.select()` result to row maps.
   static List<Map<String, dynamic>> rowsFromSelect(dynamic response) {
     if (response == null) return [];

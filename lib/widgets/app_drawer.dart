@@ -367,6 +367,7 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
   NotificationPrefs _notifPrefs = const NotificationPrefs();
   bool _notifLoaded = false;
   bool _resettingData = false;
+  bool _deletingCloudData = false;
 
   static const _countries = [
     ('🇺🇸', 'United States', 'US'),
@@ -536,6 +537,89 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
       }
     } finally {
       if (mounted) setState(() => _resettingData = false);
+    }
+  }
+
+  Future<void> _confirmDeleteCloudAndLocalData(BuildContext sheetContext) async {
+    final provider = sheetContext.read<AppProvider>();
+    final fam = provider.activeFamily;
+    final uid = provider.activeUser?.id;
+    if (fam == null || uid == null) return;
+    if (!SupabaseService.isConfigured) {
+      ScaffoldMessenger.of(sheetContext).showSnackBar(
+        const SnackBar(
+          content: Text('Cloud delete requires an online account (Supabase). Use “Reset data” to clear this device only.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    if (fam.ownerId != uid) {
+      ScaffoldMessenger.of(sheetContext).showSnackBar(
+        const SnackBar(
+          content: Text('Only the home owner can delete data for everyone in the cloud.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    final proceed = await showDialog<bool>(
+      context: sheetContext,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text(
+          'Delete your home from the cloud?',
+          style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800),
+        ),
+        content: Text(
+          'This will permanently remove “${fam.name}” and all related data from our servers for every family member '
+          '(tasks, lists, calendar, photos, chat, and more). This cannot be undone.\n\n'
+          'Your login account will remain — you can create a new home after.\n\n'
+          'Continue only if everyone agrees.',
+          style: const TextStyle(fontFamily: 'Inter', fontSize: 14, height: 1.45),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppTheme.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+    if (proceed != true || !sheetContext.mounted) return;
+
+    final typed = await showDialog<bool>(
+      context: sheetContext,
+      barrierDismissible: false,
+      builder: (ctx) => const _DeleteCloudDataDialog(),
+    );
+    if (typed != true || !sheetContext.mounted) return;
+
+    setState(() => _deletingCloudData = true);
+    try {
+      await SupabaseService.deleteFamilyCloudData(familyId: fam.id);
+      await provider.resetAllLocalDataAndSignOut();
+      await sheetContext.read<LocaleService>().reloadFromPrefs();
+      if (!sheetContext.mounted) return;
+      Navigator.of(sheetContext).pop();
+      if (!sheetContext.mounted) return;
+      sheetContext.go('/auth');
+    } catch (e) {
+      if (sheetContext.mounted) {
+        ScaffoldMessenger.of(sheetContext).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Could not delete cloud data. Apply Supabase migration 26_delete_family_cloud_data.sql or try again. ($e)',
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _deletingCloudData = false);
     }
   }
 
@@ -1142,10 +1226,68 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.chevron_right_rounded, color: AppTheme.stone400),
-                    onTap: _resettingData ? null : () => _confirmResetLocalData(context),
+                    onTap: (_resettingData || _deletingCloudData)
+                        ? null
+                        : () => _confirmResetLocalData(context),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                 ),
+                Builder(builder: (ctx) {
+                  final provider = ctx.watch<AppProvider>();
+                  final fam = provider.activeFamily;
+                  final user = provider.activeUser;
+                  if (fam == null || user == null) return const SizedBox.shrink();
+                  if (!SupabaseService.isConfigured) return const SizedBox.shrink();
+                  if (fam.ownerId != user.id) return const SizedBox.shrink();
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 8),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF450A0A).withValues(alpha: 0.06),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppTheme.error.withValues(alpha: 0.35)),
+                        ),
+                        child: ListTile(
+                          leading: Icon(
+                            Icons.cloud_off_rounded,
+                            color: AppTheme.error,
+                            size: _deletingCloudData ? 18 : 22,
+                          ),
+                          title: const Text(
+                            'Delete all data (cloud + device)',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontWeight: FontWeight.w700,
+                              fontSize: 15,
+                              color: AppTheme.stone900,
+                            ),
+                          ),
+                          subtitle: const Text(
+                            'Permanently remove this home from the server for all members, then sign out',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 12,
+                              color: AppTheme.stone500,
+                            ),
+                          ),
+                          trailing: _deletingCloudData
+                              ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.chevron_right_rounded, color: AppTheme.stone400),
+                          onTap: (_resettingData || _deletingCloudData)
+                              ? null
+                              : () => _confirmDeleteCloudAndLocalData(context),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ],
+                  );
+                }),
                 const SizedBox(height: 16),
 
                 // About section
@@ -1192,6 +1334,65 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
                 ],
               ),
             ),
+    );
+  }
+}
+
+/// Second step: user must type DELETE to confirm cloud wipe.
+class _DeleteCloudDataDialog extends StatefulWidget {
+  const _DeleteCloudDataDialog();
+
+  @override
+  State<_DeleteCloudDataDialog> createState() => _DeleteCloudDataDialogState();
+}
+
+class _DeleteCloudDataDialogState extends State<_DeleteCloudDataDialog> {
+  final _ctrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ok = _ctrl.text.trim() == 'DELETE';
+    return AlertDialog(
+      title: const Text(
+        'Type DELETE to confirm',
+        style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800),
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'This permanently deletes your home in the cloud for everyone.',
+            style: TextStyle(fontFamily: 'Inter', fontSize: 14, height: 1.45),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _ctrl,
+            autofocus: true,
+            autocorrect: false,
+            textCapitalization: TextCapitalization.characters,
+            decoration: const InputDecoration(
+              labelText: 'Type DELETE',
+              border: OutlineInputBorder(),
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+        FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: AppTheme.error),
+          onPressed: ok ? () => Navigator.pop(context, true) : null,
+          child: const Text('Delete forever'),
+        ),
+      ],
     );
   }
 }
