@@ -986,61 +986,6 @@ class DatabaseService {
     return map.values.toList();
   }
 
-  /// Like [_mergeById] but if the winning row has **no items** and the other has
-  /// items, keep those items (fixes out-of-order cloud sync writing `items: []`).
-  static List<ShoppingList> _mergeShoppingLists(
-    List<ShoppingList> local,
-    List<ShoppingList> cloud,
-  ) {
-    if (cloud.isEmpty) return local;
-    final localMap = <String, ShoppingList>{};
-    for (final l in local) {
-      localMap[l.id] = l;
-    }
-    if (local.isEmpty && _deletedKeys.isEmpty) return cloud;
-    final map = <String, ShoppingList>{...localMap};
-    for (final c in cloud) {
-      try {
-        if (_deletedKeys.contains(c.id)) continue;
-        final loc = localMap[c.id];
-        if (loc == null) {
-          map[c.id] = c;
-          continue;
-        }
-        final tc = _entityVersion(c);
-        final tl = _entityVersion(loc);
-        ShoppingList newer;
-        ShoppingList older;
-        if (tc.isAfter(tl)) {
-          newer = c;
-          older = loc;
-        } else if (tl.isAfter(tc)) {
-          newer = loc;
-          older = c;
-        } else {
-          newer = c;
-          older = loc;
-        }
-        if (newer.items.isNotEmpty) {
-          map[c.id] = newer;
-          continue;
-        }
-        if (older.items.isEmpty) {
-          map[c.id] = newer;
-          continue;
-        }
-        // Rescue: cloud had empty items but local (or other side) had data — bump
-        // time so the merged row is pushed back to Supabase.
-        map[c.id] = newer.copyWith(
-          items: older.items,
-          title: newer.title.trim().isNotEmpty ? newer.title : older.title,
-          updatedAt: DateTime.now(),
-        );
-      } catch (_) {}
-    }
-    return map.values.toList();
-  }
-
   /// How many day→devotional links the plan has (used to avoid empty cloud
   /// rows wiping a full plan after sync — the root cause of "only day 1").
   static int _readingPlanRichness(ReadingPlan p) {
@@ -1252,7 +1197,7 @@ class DatabaseService {
       events: _mergeById(local.events, _safeParse(cloud['events'], CalendarEvent.fromJson)),
       recipes: _mergeById(local.recipes, _safeParse(cloud['recipes'], Recipe.fromJson)),
       mealPlans: _mergeById(local.mealPlans, _safeParse(cloud['meal_plans'], MealPlanEntry.fromJson)),
-      lists: _mergeShoppingLists(
+      lists: _mergeById(
           local.lists, _safeParse(cloud['lists'], ShoppingList.fromJson)),
       devotionals: _mergeById(local.devotionals, _safeParse(cloud['devotionals'], DevotionalEntry.fromJson)),
       fitness: _mergeById(local.fitness, _safeParse(cloud['fitness'], FitnessMetric.fromJson)),
