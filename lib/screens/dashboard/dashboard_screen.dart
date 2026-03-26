@@ -20,11 +20,13 @@ import '../../services/ai_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/subscription_modal.dart';
+import '../../utils/dashboard_ai_suggestions_cache.dart';
 import '../onboarding/walkthrough_screen.dart';
 
 // ─── AI Suggestion model ─────────────────────────────────────────────────────
 
 class _AISuggestion {
+  final String iconKey;
   final IconData icon;
   final String title;
   final String description;
@@ -33,6 +35,7 @@ class _AISuggestion {
   final String? route;
 
   const _AISuggestion({
+    this.iconKey = 'task',
     required this.icon,
     required this.title,
     required this.description,
@@ -78,6 +81,9 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   String? _dismissedAnnouncement;
   List<_AISuggestion> _suggestions = [];
+  /// Bits for AI suggestions from cache (0..2); local-only suggestions ignore this.
+  int _suggestionCompletedMask = 0;
+  bool _suggestionsFromGemini = false;
   bool _suggestionsLoading = true;
   bool _suggestionsLoaded = false;
   bool _startTipDismissed = false;
@@ -105,10 +111,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         setState(() {
           _suggestionsLoading = false;
           _suggestions = _generateLocalSuggestions(db, fid);
+          _suggestionCompletedMask = 0;
+          _suggestionsFromGemini = false;
           _suggestionsLoaded = true;
         });
       } else {
-        _loadAISuggestions();
+        _loadAISuggestions(forceRefresh: false);
       }
       _showWalkthroughIfNeeded();
       _loadStartTipDismissed();
@@ -127,7 +135,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final now = p.hasAIAccess;
     if (_lastProviderHasAI == false && now == true) {
       if (!_fetchedGeminiSuggestions) {
-        _loadAISuggestions();
+        _loadAISuggestions(forceRefresh: false);
       }
     }
     _lastProviderHasAI = now;
@@ -179,7 +187,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _onRefresh() async {
     final provider = context.read<AppProvider>();
     await provider.saveAndSync(provider.db);
-    await _loadAISuggestions();
+    await _loadAISuggestions(forceRefresh: true);
   }
 
   Future<void> _loadMonthlySummary() async {
@@ -269,7 +277,100 @@ Return a JSON object:
     }
   }
 
-  Future<void> _loadAISuggestions({bool showPaywallWhenLocked = false}) async {
+  List<_AISuggestion> _parseGeminiSuggestionsList(List decoded) {
+    return decoded.map((s) {
+      final map = s as Map<String, dynamic>;
+      final key = map['icon'] as String? ?? 'task';
+      return _AISuggestion(
+        iconKey: key,
+        icon: _iconFromString(key),
+        title: map['title'] as String? ?? '',
+        description: map['description'] as String? ?? '',
+        reasoning: map['reasoning'] as String?,
+        timeEstimate: map['timeEstimate'] as String?,
+        route: map['route'] as String?,
+      );
+    }).toList();
+  }
+
+  Future<void> _persistGeminiSuggestions({
+    required String userId,
+    required String familyId,
+    required List<_AISuggestion> suggestions,
+    required String contextHash,
+  }) async {
+    final records = suggestions
+        .map((s) => DashboardAiSuggestionRecord(
+              icon: s.iconKey,
+              title: s.title,
+              description: s.description,
+              reasoning: s.reasoning,
+              timeEstimate: s.timeEstimate,
+              route: s.route,
+            ))
+        .toList();
+    await saveDashboardAiCache(
+      userId,
+      familyId,
+      DashboardAiSuggestionsCachePayload(
+        suggestions: records,
+        contextHash: contextHash,
+        generatedAtIso: DateTime.now().toIso8601String(),
+        completedMask: _suggestionCompletedMask,
+      ),
+    );
+  }
+
+  void _applyCachedPayload(
+    DashboardAiSuggestionsCachePayload payload, {
+    required bool fromGemini,
+  }) {
+    _suggestionCompletedMask = payload.completedMask;
+    _suggestionsFromGemini = fromGemini;
+    _suggestions = payload.suggestions
+        .map((r) => _AISuggestion(
+              iconKey: r.icon,
+              icon: _iconFromString(r.icon),
+              title: r.title,
+              description: r.description,
+              reasoning: r.reasoning,
+              timeEstimate: r.timeEstimate,
+              route: r.route,
+            ))
+        .toList();
+  }
+
+  Future<void> _markSuggestionDone(int index) async {
+    if (!_suggestionsFromGemini || index < 0 || index > 2) return;
+    final provider = context.read<AppProvider>();
+    final user = provider.activeUser;
+    final family = provider.activeFamily;
+    if (user == null || family == null) return;
+
+    final bit = 1 << index;
+    if ((_suggestionCompletedMask & bit) != 0) return;
+
+    final newMask = _suggestionCompletedMask | bit;
+    setState(() => _suggestionCompletedMask = newMask);
+
+    final cached = await loadDashboardAiCache(user.id, family.id);
+    if (cached != null) {
+      await saveDashboardAiCache(
+        user.id,
+        family.id,
+        cached.copyWith(completedMask: newMask),
+      );
+    }
+
+    if (newMask == 0x7 || _suggestions.length < 3 && newMask == (1 << _suggestions.length) - 1) {
+      await _loadAISuggestions(forceRefresh: false);
+    }
+  }
+
+  Future<void> _loadAISuggestions({
+    bool showPaywallWhenLocked = false,
+    bool forceRefresh = false,
+  }) async {
     if (!mounted) return;
     if (AiService.isAIBlocked) {
       if (showPaywallWhenLocked && mounted) {
@@ -281,7 +382,6 @@ Return a JSON object:
       return;
     }
     if (!mounted) return;
-    setState(() => _suggestionsLoading = true);
 
     final provider = context.read<AppProvider>();
     final db = provider.db;
@@ -291,12 +391,67 @@ Return a JSON object:
       setState(() {
         _suggestionsLoading = false;
         _suggestions = _generateLocalSuggestions(db, family?.id ?? '');
+        _suggestionCompletedMask = 0;
+        _suggestionsFromGemini = false;
         _suggestionsLoaded = true;
       });
       return;
     }
 
     final familyId = family.id;
+    final userId = user.id;
+    final fingerprint = dashboardSuggestionsContextFingerprint(
+      db: db,
+      familyId: familyId,
+      userId: userId,
+    );
+    final contextHash = hashDashboardContext(fingerprint);
+
+    if (!forceRefresh) {
+      final cached = await loadDashboardAiCache(userId, familyId);
+      if (cached != null &&
+          cached.suggestions.isNotEmpty &&
+          cached.contextHash == contextHash) {
+        if (!cached.allCompleted) {
+          if (!mounted) return;
+          setState(() {
+            _applyCachedPayload(cached, fromGemini: true);
+            _suggestionsLoading = false;
+            _suggestionsLoaded = true;
+            _fetchedGeminiSuggestions = true;
+          });
+          return;
+        }
+        final canRegen =
+            await canGenerateDashboardAiSuggestions(userId, familyId);
+        if (!canRegen) {
+          if (!mounted) return;
+          setState(() {
+            _applyCachedPayload(cached, fromGemini: true);
+            _suggestionsLoading = false;
+            _suggestionsLoaded = true;
+            _fetchedGeminiSuggestions = true;
+          });
+          return;
+        }
+      } else if (cached != null &&
+          cached.suggestions.isNotEmpty &&
+          cached.contextHash != contextHash &&
+          !cached.allCompleted) {
+        if (!mounted) return;
+        setState(() {
+          _applyCachedPayload(cached, fromGemini: true);
+          _suggestionsLoading = false;
+          _suggestionsLoaded = true;
+          _fetchedGeminiSuggestions = true;
+        });
+        return;
+      }
+    }
+
+    if (!mounted) return;
+    setState(() => _suggestionsLoading = true);
+
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
@@ -321,6 +476,58 @@ Habits: $habitsCompleted/$habits completed today
 Prayer wall entries: ${db.prayerWall.where((p) => p.familyId == familyId).length}
 Active lists: ${db.lists.where((l) => l.familyId == familyId).length}
 ''';
+
+    Future<void> showLocalFallback() async {
+      if (!mounted) return;
+      setState(() {
+        _suggestions = _generateLocalSuggestions(db, familyId);
+        _suggestionCompletedMask = 0;
+        _suggestionsFromGemini = false;
+        _suggestionsLoading = false;
+        _suggestionsLoaded = true;
+      });
+    }
+
+    final allowNetwork = forceRefresh ||
+        await canGenerateDashboardAiSuggestions(userId, familyId);
+
+    if (!allowNetwork) {
+      final cached = await loadDashboardAiCache(userId, familyId);
+      if (cached != null && cached.suggestions.isNotEmpty) {
+        if (!mounted) return;
+        setState(() {
+          _applyCachedPayload(cached, fromGemini: true);
+          _suggestionsLoading = false;
+          _suggestionsLoaded = true;
+          _fetchedGeminiSuggestions = true;
+        });
+        if (mounted && forceRefresh) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Daily AI suggestion limit reached ($kDashboardAiSuggestionsMaxGenerationsPerDay). Showing cached suggestions.',
+                style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600),
+              ),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+        return;
+      }
+      await showLocalFallback();
+      if (mounted && forceRefresh) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Daily AI limit reached ($kDashboardAiSuggestionsMaxGenerationsPerDay). Showing quick tips instead.',
+              style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600),
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
 
     try {
       final raw = await AiService.ask(
@@ -348,18 +555,19 @@ Return ONLY the JSON array, no markdown.''',
         try {
           final decoded = jsonDecode(raw);
           if (decoded is List) {
+            final parsed = _parseGeminiSuggestionsList(decoded);
+            await recordDashboardAiGeneration(userId, familyId);
+            _suggestionCompletedMask = 0;
+            await _persistGeminiSuggestions(
+              userId: userId,
+              familyId: familyId,
+              suggestions: parsed,
+              contextHash: contextHash,
+            );
+            if (!mounted) return;
             setState(() {
-              _suggestions = decoded.map((s) {
-                final map = s as Map<String, dynamic>;
-                return _AISuggestion(
-                  icon: _iconFromString(map['icon'] as String? ?? 'task'),
-                  title: map['title'] as String? ?? '',
-                  description: map['description'] as String? ?? '',
-                  reasoning: map['reasoning'] as String?,
-                  timeEstimate: map['timeEstimate'] as String?,
-                  route: map['route'] as String?,
-                );
-              }).toList();
+              _suggestions = parsed;
+              _suggestionsFromGemini = true;
               _suggestionsLoading = false;
               _suggestionsLoaded = true;
               _fetchedGeminiSuggestions = true;
@@ -370,14 +578,7 @@ Return ONLY the JSON array, no markdown.''',
       }
     } catch (_) {}
 
-    // Fallback to local suggestions
-    if (mounted) {
-      setState(() {
-        _suggestions = _generateLocalSuggestions(db, familyId);
-        _suggestionsLoading = false;
-        _suggestionsLoaded = true;
-      });
-    }
+    await showLocalFallback();
   }
 
   List<_AISuggestion> _generateLocalSuggestions(AppDB db, String familyId) {
@@ -388,6 +589,7 @@ Return ONLY the JSON array, no markdown.''',
     final overdue = db.tasks.where((t) => t.familyId == familyId && !t.completed && t.dueDate != null && t.dueDate!.isBefore(today)).length;
     if (overdue > 0) {
       suggestions.add(_AISuggestion(
+        iconKey: 'task',
         icon: Icons.warning_amber_rounded,
         title: 'Tackle $overdue overdue task${overdue > 1 ? 's' : ''}',
         description: 'Clear your overdue items to stay on track.',
@@ -401,6 +603,7 @@ Return ONLY the JSON array, no markdown.''',
     final missing = ['breakfast', 'lunch', 'dinner'].where((m) => !mealsPlanned.contains(m)).toList();
     if (missing.isNotEmpty) {
       suggestions.add(_AISuggestion(
+        iconKey: 'meal',
         icon: Icons.restaurant_rounded,
         title: 'Plan ${missing.first} for today',
         description: 'You haven\'t planned ${missing.join(' or ')} yet.',
@@ -414,6 +617,7 @@ Return ONLY the JSON array, no markdown.''',
     final habitsCompleted = db.dailyHabitCompletions.where((c) => _isSameDay(c.date, today)).length;
     if (habits > 0 && habitsCompleted < habits) {
       suggestions.add(_AISuggestion(
+        iconKey: 'habit',
         icon: Icons.radio_button_checked_rounded,
         title: 'Complete your daily habits',
         description: '$habitsCompleted of $habits habits done. Keep the streak going!',
@@ -425,6 +629,7 @@ Return ONLY the JSON array, no markdown.''',
 
     if (suggestions.isEmpty) {
       suggestions.add(const _AISuggestion(
+        iconKey: 'task',
         icon: Icons.celebration_rounded,
         title: 'You\'re all caught up!',
         description: 'Great job staying on top of things. Enjoy your day!',
@@ -1450,7 +1655,10 @@ Return ONLY the JSON array, no markdown.''',
                 ],
               )),
               GestureDetector(
-                onTap: () => _loadAISuggestions(showPaywallWhenLocked: true),
+                onTap: () => _loadAISuggestions(
+                  showPaywallWhenLocked: true,
+                  forceRefresh: true,
+                ),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
@@ -1483,7 +1691,7 @@ Return ONLY the JSON array, no markdown.''',
                 final s = entry.value;
                 return Padding(
                   padding: EdgeInsets.only(top: idx > 0 ? 10 : 0),
-                  child: _buildSuggestionCard(s),
+                  child: _buildSuggestionCard(s, idx),
                 );
               }),
           ],
@@ -1492,55 +1700,73 @@ Return ONLY the JSON array, no markdown.''',
     );
   }
 
-  Widget _buildSuggestionCard(_AISuggestion s) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppTheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFFDE68A).withValues(alpha: 0.5)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(children: [
-            Container(
-              width: 30, height: 30,
-              decoration: BoxDecoration(
-                color: const Color(0xFFFEF3C7),
-                borderRadius: BorderRadius.circular(8),
+  Widget _buildSuggestionCard(_AISuggestion s, int index) {
+    final gemini = _suggestionsFromGemini;
+    final done = gemini && index >= 0 && index <= 2 && ((_suggestionCompletedMask >> index) & 1) == 1;
+    return Opacity(
+      opacity: done ? 0.55 : 1,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFFDE68A).withValues(alpha: 0.5)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Container(
+                width: 30, height: 30,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF3C7),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(s.icon, size: 16, color: const Color(0xFFD97706)),
               ),
-              child: Icon(s.icon, size: 16, color: const Color(0xFFD97706)),
-            ),
-            const SizedBox(width: 10),
-            Expanded(child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(s.title, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF92400E))),
-                if (s.timeEstimate != null)
-                  Text(s.timeEstimate!, style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w500, color: Color(0xFFD97706))),
-              ],
-            )),
-            if (s.route != null)
-              GestureDetector(
-                onTap: () => context.go(s.route!),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFD97706),
-                    borderRadius: BorderRadius.circular(8),
+              const SizedBox(width: 10),
+              Expanded(child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(s.title, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF92400E))),
+                  if (s.timeEstimate != null)
+                    Text(s.timeEstimate!, style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w500, color: Color(0xFFD97706))),
+                ],
+              )),
+              if (s.route != null && !done)
+                GestureDetector(
+                  onTap: () => context.go(s.route!),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFD97706),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text('Go \u2192', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white)),
                   ),
-                  child: const Text('Go \u2192', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white)),
+                ),
+            ]),
+            const SizedBox(height: 8),
+            Text(s.description, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFF78350F), height: 1.4)),
+            if (s.reasoning != null) ...[
+              const SizedBox(height: 4),
+              Text(s.reasoning!, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontStyle: FontStyle.italic, color: Color(0xFFB45309))),
+            ],
+            if (gemini && !done) ...[
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () {
+                    HapticFeedback.lightImpact();
+                    _markSuggestionDone(index);
+                  },
+                  child: const Text('Done', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12)),
                 ),
               ),
-          ]),
-          const SizedBox(height: 8),
-          Text(s.description, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFF78350F), height: 1.4)),
-          if (s.reasoning != null) ...[
-            const SizedBox(height: 4),
-            Text(s.reasoning!, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontStyle: FontStyle.italic, color: Color(0xFFB45309))),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
