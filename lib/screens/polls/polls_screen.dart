@@ -181,8 +181,11 @@ class _PollsScreenState extends State<PollsScreen> {
           }
           return p;
         }).toList();
-        await provider.saveAndSync(db.copyWith(polls: updatedPolls));
-        _closingExpired = false;
+        try {
+          await provider.saveAndSync(db.copyWith(polls: updatedPolls));
+        } finally {
+          _closingExpired = false;
+        }
       });
     }
 
