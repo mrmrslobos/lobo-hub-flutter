@@ -790,6 +790,8 @@ class DatabaseService {
           _safeParse(cloud['workout_exercises'], WorkoutExercise.fromJson)),
       workoutSets: _mergeById(
           local.workoutSets, _safeParse(cloud['workout_sets'], WorkoutSet.fromJson)),
+      fitnessPlans: cloud['fitness_plans'] is List ? cloud['fitness_plans'] as List : local.fitnessPlans,
+      notificationPrefs: local.notificationPrefs,
       budgetCategories: _mergeById(local.budgetCategories, _safeParse(cloud['budget_categories'], BudgetCategoryRecord.fromJson)),
       budgetEntries: _mergeById(local.budgetEntries, _safeParse(cloud['budget_entries'], BudgetEntry.fromJson)),
       transactions: _mergeById(local.transactions, _safeParse(cloud['transactions'], Transaction.fromJson)),

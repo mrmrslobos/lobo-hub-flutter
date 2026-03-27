@@ -377,6 +377,7 @@ class AppProvider extends ChangeNotifier {
         debugPrint('[AppProvider] cloud sync error: $e');
       }).whenComplete(() {
         _isSyncing = false;
+        notifyListeners();
       });
     } else {
       await DatabaseService.saveLocal(newDb);

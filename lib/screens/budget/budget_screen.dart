@@ -2560,7 +2560,8 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
                           child: FilledButton(
                             onPressed: _isSaving ? null : () {
                               if (_editingId != null) {
-                                final cat = categories.firstWhere((c) => c.id == _editingId);
+                                final cat = categories.where((c) => c.id == _editingId).firstOrNull;
+                                if (cat == null) return;
                                 _saveEdit(cat);
                               } else {
                                 _addCategory();
