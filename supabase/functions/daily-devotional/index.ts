@@ -310,12 +310,12 @@ async function generateDevotional(apiKey: string, recentRefs: string[] = []): Pr
     ? `\nIMPORTANT: Do NOT use any of these recently-used verses: ${recentRefs.join(', ')}. Pick a completely different passage.`
     : '';
 
-  const prompt = `Write a kids-friendly family devotional for ${dateStr}. (seed: ${seed})
-Pick a Bible verse and build a short, warm devotional around it.${avoidClause}
-Return JSON with these exact fields: title, scripture, scriptureRef, content, reflectionPrompts (array of 3 discussion questions), prayer.
-For "scripture", write out the FULL verse text (e.g. "For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.").
-For "scriptureRef", provide only the reference (e.g. "John 3:16").
-Make the content warm, relatable, and suitable for children.`;
+  const prompt = `Write a powerful daily devotional for ${dateStr}. (seed: ${seed})
+Pick a Bible verse that speaks to real-life struggles — stress, doubt, fear, relationships, purpose, perseverance, or finances — and build a hard-hitting devotional around it.${avoidClause}
+Return JSON with these exact fields: title, scripture, scriptureRef, content, reflectionPrompts (array of 3 reflection questions), prayer.
+For "scripture", write out the FULL verse text.
+For "scriptureRef", provide only the reference (e.g. "Romans 8:28").
+The tone should be direct, honest, and uplifting — like a trusted friend who tells it straight but always points back to God's promises. Include a specific promise from Scripture that readers can hold onto. Make the content practical and applicable to everyday adult life. No fluff.`;
 
   const MODEL_CANDIDATES = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
   let lastError: unknown;
