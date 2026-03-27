@@ -171,20 +171,17 @@ class AppProvider extends ChangeNotifier {
     AiService.setAIBlocked(!(_activeFamily?.hasAIAccess ?? false));
   }
 
-  void authenticate(User user, Family family) {
+  Future<void> authenticate(User user, Family family) async {
     _activeUser = user;
     _activeFamily = family;
     FieldEncryption.init(family.id, family.joinCode);
     _syncAIFlag();
-    // Only fall back to DatabaseService cache if _db hasn't been populated
-    // (e.g. via setDb after cloud reconciliation).
     if (_db.families.isEmpty) {
       _db = DatabaseService.db;
     }
     _db = _db.applySensitiveDecryption(family.id);
-    DatabaseService.saveLocal(_db);
+    await DatabaseService.saveLocal(_db);
     _startRealtimeListener();
-    // Register FCM token so push notifications reach this device
     NotificationService.registerDeviceToken(family.id, user.id);
     notifyListeners();
   }
@@ -493,8 +490,15 @@ class AppProvider extends ChangeNotifier {
   void switchFamily(String familyId) {
     final family = _db.families.firstWhereOrNull((f) => f.id == familyId);
     if (family != null) {
+      _stopRealtimeListener();
       _activeFamily = family;
+      FieldEncryption.init(family.id, family.joinCode);
       _syncAIFlag();
+      _db = _db.applySensitiveDecryption(family.id);
+      _startRealtimeListener();
+      if (_activeUser != null) {
+        NotificationService.registerDeviceToken(family.id, _activeUser!.id);
+      }
       notifyListeners();
     }
   }

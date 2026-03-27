@@ -246,9 +246,8 @@ class _HealthScreenState extends State<HealthScreen> {
     final members = provider.familyMembers;
     _selectedMemberId ??= user.id;
     final record = _getRecord(provider, _selectedMemberId!);
-    final selectedName = provider.memberDisplayName(
-      members.firstWhere((m) => m.id == _selectedMemberId, orElse: () => members.first),
-    );
+    final selectedMember = members.where((m) => m.id == _selectedMemberId).firstOrNull ?? members.firstOrNull;
+    final selectedName = selectedMember != null ? provider.memberDisplayName(selectedMember) : 'Unknown';
 
     // Stats
     final totalItems = record.allergies.length + record.medications.length +

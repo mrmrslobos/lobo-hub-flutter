@@ -174,7 +174,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
       var db = provider.db;
 
       for (final calId in selected) {
-        final cal = calendars.firstWhere((c) => c.id == calId);
+        final cal = calendars.where((c) => c.id == calId).firstOrNull;
+        if (cal == null) continue;
         final extCal = ExternalCalendar(
           id: const Uuid().v4(),
           familyId: family.id,
