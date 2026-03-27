@@ -108,9 +108,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final p = context.read<AppProvider>();
         final db = p.db;
         final fid = p.activeFamily?.id ?? '';
+        final uid = p.activeUser?.id ?? '';
         setState(() {
           _suggestionsLoading = false;
-          _suggestions = _generateLocalSuggestions(db, fid);
+          _suggestions = _generateLocalSuggestions(db, fid, uid);
           _suggestionCompletedMask = 0;
           _suggestionsFromGemini = false;
           _suggestionsLoaded = true;
@@ -390,7 +391,7 @@ Return a JSON object:
     if (family == null || user == null) {
       setState(() {
         _suggestionsLoading = false;
-        _suggestions = _generateLocalSuggestions(db, family?.id ?? '');
+        _suggestions = _generateLocalSuggestions(db, family?.id ?? '', user?.id ?? '');
         _suggestionCompletedMask = 0;
         _suggestionsFromGemini = false;
         _suggestionsLoaded = true;
@@ -480,7 +481,7 @@ Active lists: ${db.lists.where((l) => l.familyId == familyId).length}
     Future<void> showLocalFallback() async {
       if (!mounted) return;
       setState(() {
-        _suggestions = _generateLocalSuggestions(db, familyId);
+        _suggestions = _generateLocalSuggestions(db, familyId, user.id);
         _suggestionCompletedMask = 0;
         _suggestionsFromGemini = false;
         _suggestionsLoading = false;
