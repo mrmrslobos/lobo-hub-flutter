@@ -11,6 +11,7 @@ import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../utils/debounce.dart';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -580,7 +581,7 @@ class _RewardsScreenState extends State<RewardsScreen>
 
 // ─── Store Tab ───────────────────────────────────────────────────────────────
 
-class _StoreTab extends StatelessWidget {
+class _StoreTab extends StatefulWidget {
   final List<Reward> rewards;
   final List<FamilyMember> members;
   final User user;
@@ -608,7 +609,44 @@ class _StoreTab extends StatelessWidget {
   });
 
   @override
+  State<_StoreTab> createState() => _StoreTabState();
+}
+
+class _StoreTabState extends State<_StoreTab> {
+  final _searchCtrl = TextEditingController();
+  final _debounce = Debouncer();
+  String _query = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _searchCtrl.addListener(() {
+      final t = _searchCtrl.text;
+      _debounce.run(() {
+        if (mounted) setState(() => _query = t);
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    _debounce.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final q = _query.trim().toLowerCase();
+    final rewards = q.isEmpty
+        ? widget.rewards
+        : widget.rewards
+            .where((r) =>
+                r.title.toLowerCase().contains(q) ||
+                (r.description != null && r.description!.toLowerCase().contains(q)) ||
+                r.pointCost.toString().contains(q))
+            .toList();
+
     return SingleChildScrollView(
       padding: const EdgeInsets.only(bottom: 32),
       child: Column(
@@ -619,12 +657,12 @@ class _StoreTab extends StatelessWidget {
             padding: EdgeInsets.fromLTRB(20, 4, 20, 8),
             child: SectionHeader(title: "FAMILY BALANCES"),
           ),
-          ...members.map((member) {
-            final earned = provider.choreEarningsForUser(member.id);
-            final spent = provider.redemptionSpentForUser(member.id);
+          ...widget.members.map((member) {
+            final earned = widget.provider.choreEarningsForUser(member.id);
+            final spent = widget.provider.redemptionSpentForUser(member.id);
             final available = earned - spent;
-            final displayName = provider.memberDisplayName(member);
-            final memberPending = pendingRequests
+            final displayName = widget.provider.memberDisplayName(member);
+            final memberPending = widget.pendingRequests
                 .where((r) => r.userId == member.id)
                 .length;
             return Padding(
@@ -724,7 +762,45 @@ class _StoreTab extends StatelessWidget {
             child: SectionHeader(title: 'REWARD CATALOG'),
           ),
 
-          if (rewards.isEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+            child: TextField(
+              controller: _searchCtrl,
+              style: const TextStyle(fontFamily: 'Inter', fontSize: 14),
+              decoration: InputDecoration(
+                hintText: 'Search rewards…',
+                hintStyle: const TextStyle(fontFamily: 'Inter', color: AppTheme.stone400),
+                prefixIcon: const Icon(Icons.search, size: 20, color: AppTheme.stone400),
+                suffixIcon: _query.trim().isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Clear search',
+                        icon: const Icon(Icons.close_rounded, size: 20, color: AppTheme.stone400),
+                        onPressed: () {
+                          _searchCtrl.clear();
+                          setState(() => _query = '');
+                        },
+                      ),
+                filled: true,
+                fillColor: AppTheme.surface,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: AppTheme.stone200),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: AppTheme.stone200),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
+                ),
+                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
+
+          if (widget.rewards.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: OnboardingCard(
@@ -737,7 +813,16 @@ class _StoreTab extends StatelessWidget {
                   'Kids can also set savings goals for bigger items',
                 ],
                 actionLabel: 'Add First Reward',
-                onAction: onAddReward,
+                onAction: widget.onAddReward,
+              ),
+            )
+          else if (rewards.isEmpty && q.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: OnboardingCard(
+                emoji: '🔎',
+                title: 'No reward matches',
+                bullets: const ['Try another title or point value', 'Clear search to see all rewards'],
               ),
             )
           else
@@ -755,17 +840,17 @@ class _StoreTab extends StatelessWidget {
                 itemCount: rewards.length,
                 itemBuilder: (ctx, i) {
                   final reward = rewards[i];
-                  final hasPending = pendingRequests.any(
-                      (r) => r.userId == user.id && r.rewardId == reward.id);
+                  final hasPending = widget.pendingRequests.any(
+                      (r) => r.userId == widget.user.id && r.rewardId == reward.id);
                   return _RewardCard(
                     reward: reward,
                     canRedeem: !hasPending,
                     hasPendingRequest: hasPending,
                     onRedeem: !hasPending
-                        ? () => onRedeem(reward)
+                        ? () => widget.onRedeem(reward)
                         : null,
-                    onDelete: () => onDelete(reward.id),
-                    onEdit: () => onEdit(reward),
+                    onDelete: () => widget.onDelete(reward.id),
+                    onEdit: () => widget.onEdit(reward),
                   );
                 },
               ),

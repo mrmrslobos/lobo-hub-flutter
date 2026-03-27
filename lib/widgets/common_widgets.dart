@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart' hide Visibility;
+import 'package:go_router/go_router.dart';
+
+import '../config/module_config.dart';
 import '../config/theme.dart';
 import '../models/models.dart';
 
@@ -19,11 +22,12 @@ class SectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final outline = Theme.of(context).dividerColor;
     final card = Container(
       decoration: BoxDecoration(
         color: color ?? Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppTheme.stone100),
+        border: Border.all(color: outline),
       ),
       padding: padding ?? const EdgeInsets.all(16),
       child: child,
@@ -70,7 +74,7 @@ class EmptyState extends StatelessWidget {
             Text(
               title,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: AppTheme.stone700,
+                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.8),
               ),
               textAlign: TextAlign.center,
             ),
@@ -78,7 +82,7 @@ class EmptyState extends StatelessWidget {
             Text(
               subtitle,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: AppTheme.stone400,
+                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
               ),
               textAlign: TextAlign.center,
             ),
@@ -105,15 +109,15 @@ class PriorityBadge extends StatelessWidget {
     String label;
     switch (priority.toUpperCase()) {
       case 'HIGH':
-        color = const Color(0xFFDC2626);
+        color = AppTheme.error;
         label = 'High';
         break;
       case 'MEDIUM':
-        color = const Color(0xFFD97706);
+        color = AppTheme.warning;
         label = 'Med';
         break;
       default:
-        color = const Color(0xFF16A34A);
+        color = AppTheme.success;
         label = 'Low';
     }
 
@@ -594,43 +598,47 @@ class PageHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 28,
-              fontWeight: FontWeight.w900,
-              color: AppTheme.stone900,
-              height: 1.2,
-            ),
-          ),
-          if (subtitle != null) ...[
-            const SizedBox(height: 6),
+    final cs = Theme.of(context).colorScheme;
+    return Semantics(
+      header: true,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             Text(
-              subtitle!,
-              style: const TextStyle(
+              title,
+              style: TextStyle(
                 fontFamily: 'Inter',
-                fontSize: 14,
-                fontWeight: FontWeight.w400,
-                color: AppTheme.stone500,
-                height: 1.4,
+                fontSize: 28,
+                fontWeight: FontWeight.w900,
+                color: cs.onSurface,
+                height: 1.2,
               ),
             ),
+            if (subtitle != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                subtitle!,
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 14,
+                  fontWeight: FontWeight.w400,
+                  color: cs.onSurface.withValues(alpha: 0.55),
+                  height: 1.4,
+                ),
+              ),
+            ],
+            if (actions != null && actions!.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 10,
+                runSpacing: 8,
+                children: actions!,
+              ),
+            ],
           ],
-          if (actions != null && actions!.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 10,
-              runSpacing: 8,
-              children: actions!,
-            ),
-          ],
-        ],
+        ),
       ),
     );
   }
@@ -661,35 +669,39 @@ class ActionChipButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final bg = backgroundColor ?? (isPrimary ? AppTheme.primary : AppTheme.stone800);
     final fg = foregroundColor ?? Colors.white;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (icon != null) ...[
-              Icon(icon, size: 16, color: fg),
-              const SizedBox(width: 6),
-            ],
-            if (emoji != null) ...[
-              Text(emoji!, style: const TextStyle(fontSize: 14)),
-              const SizedBox(width: 6),
-            ],
-            Text(
-              label,
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: fg,
+    return Semantics(
+      button: true,
+      label: label,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                Icon(icon, size: 16, color: fg),
+                const SizedBox(width: 6),
+              ],
+              if (emoji != null) ...[
+                Text(emoji!, style: const TextStyle(fontSize: 14)),
+                const SizedBox(width: 6),
+              ],
+              Text(
+                label,
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: fg,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -778,20 +790,136 @@ class OnboardingCard extends StatelessWidget {
 // ─── Custom App Bar for FamilyHub ────────────────────────────────────────────
 class FamilyHubAppBar extends StatelessWidget implements PreferredSizeWidget {
   final VoidCallback? onMenuTap;
+  final List<Widget>? actions;
 
-  const FamilyHubAppBar({super.key, this.onMenuTap});
+  const FamilyHubAppBar({super.key, this.onMenuTap, this.actions});
+
+  void _openJumpTo(BuildContext context) {
+    final q = ValueNotifier<String>('');
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.55,
+          minChildSize: 0.35,
+          maxChildSize: 0.92,
+          expand: false,
+          builder: (_, scrollCtrl) {
+            return Container(
+              decoration: BoxDecoration(
+                color: Theme.of(ctx).colorScheme.surface,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                children: [
+                  const SizedBox(height: 10),
+                  Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Theme.of(ctx).dividerColor,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                    child: ValueListenableBuilder<String>(
+                      valueListenable: q,
+                      builder: (_, query, __) {
+                        return TextField(
+                          autofocus: true,
+                          onChanged: (v) => q.value = v,
+                          decoration: InputDecoration(
+                            hintText: 'Jump to a screen…',
+                            prefixIcon: const Icon(Icons.search_rounded),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                            isDense: true,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  Expanded(
+                    child: ValueListenableBuilder<String>(
+                      valueListenable: q,
+                      builder: (_, query, __) {
+                        final qq = query.trim().toLowerCase();
+                        final extra = [
+                          (path: '/subscription', name: 'Subscription', emoji: '👑', group: 'Account'),
+                          (path: '/ai-history', name: 'AI History', emoji: '🤖', group: 'Account'),
+                          (path: '/habits', name: 'Habits', emoji: '🎯', group: 'Lifestyle'),
+                          (path: '/period-tracker', name: 'Period Tracker', emoji: '🌸', group: 'Lifestyle'),
+                          (path: '/health', name: 'Health', emoji: '❤️', group: 'Family'),
+                          (path: '/location', name: 'Location', emoji: '📍', group: 'Family'),
+                        ];
+                        final items = <({String path, String name, String emoji, String group})>[];
+                        for (final g in moduleGroups) {
+                          for (final m in g.modules) {
+                            items.add((path: m.path, name: m.name, emoji: m.emoji, group: g.label));
+                          }
+                        }
+                        items.addAll(extra);
+                        final filtered = qq.isEmpty
+                            ? items
+                            : items
+                                .where((e) =>
+                                    e.name.toLowerCase().contains(qq) ||
+                                    e.path.toLowerCase().contains(qq) ||
+                                    e.group.toLowerCase().contains(qq))
+                                .toList();
+                        return ListView.builder(
+                          controller: scrollCtrl,
+                          padding: const EdgeInsets.fromLTRB(8, 0, 8, 24),
+                          itemCount: filtered.length,
+                          itemBuilder: (_, i) {
+                            final e = filtered[i];
+                            return ListTile(
+                              leading: Text(e.emoji, style: const TextStyle(fontSize: 22)),
+                              title: Text(e.name, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+                              subtitle: Text('${e.group} · ${e.path}', style: const TextStyle(fontFamily: 'Inter', fontSize: 11)),
+                              onTap: () {
+                                Navigator.pop(ctx);
+                                context.go(e.path);
+                              },
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 
   @override
   Size get preferredSize => const Size.fromHeight(56);
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final onSurf = cs.onSurface;
+    final mergedActions = <Widget>[
+      IconButton(
+        tooltip: 'Jump to',
+        icon: Icon(Icons.search_rounded, color: onSurf.withValues(alpha: 0.85)),
+        onPressed: () => _openJumpTo(context),
+      ),
+      ...?actions,
+    ];
     return AppBar(
-      backgroundColor: AppTheme.surface,
+      backgroundColor: cs.surface,
+      foregroundColor: onSurf,
       elevation: 0,
       scrolledUnderElevation: 0,
       leading: IconButton(
-        icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
+        icon: Icon(Icons.menu_rounded, color: onSurf.withValues(alpha: 0.8)),
         onPressed: onMenuTap ?? () => Scaffold.of(context).openDrawer(),
       ),
       title: Row(
@@ -799,23 +927,23 @@ class FamilyHubAppBar extends StatelessWidget implements PreferredSizeWidget {
         children: [
           Text(
             String.fromCharCode(0x2728), // sparkle
-            style: const TextStyle(fontSize: 18),
+            style: TextStyle(fontSize: 18, color: onSurf.withValues(alpha: 0.9)),
           ),
           const SizedBox(width: 6),
-          const Text(
+          Text(
             'FamilyHub',
             style: TextStyle(
               fontFamily: 'Inter',
               fontWeight: FontWeight.w800,
               fontSize: 18,
-              color: AppTheme.primary,
+              color: cs.primary,
             ),
           ),
         ],
       ),
       centerTitle: false,
       titleSpacing: 0,
-      actions: const [],
+      actions: mergedActions,
     );
   }
 }

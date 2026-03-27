@@ -4,14 +4,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 
 import '../config/theme.dart';
 import '../models/models.dart';
 import '../providers/app_provider.dart';
 import '../services/calendar_sync_service.dart';
+import '../services/family_activity_service.dart';
+import '../services/locale_service.dart';
 import '../services/supabase_service.dart';
+import '../utils/ai_family_household.dart';
 import 'biometric_lock.dart';
 
 // ─────────────────────────────────────────────
@@ -87,6 +92,26 @@ class _AppDrawerState extends State<AppDrawer> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => const _ManageMembersSheet(),
+    );
+  }
+
+  void _showActivityLogSheet(BuildContext context) {
+    Navigator.pop(context);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _ActivityLogSheet(),
+    );
+  }
+
+  void _showWellnessSheet(BuildContext context) {
+    Navigator.pop(context);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _WellnessPulseSheet(),
     );
   }
 
@@ -216,6 +241,69 @@ class _AppDrawerState extends State<AppDrawer> {
                         ),
                       ),
                     ),
+                  if (provider.isAdmin)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+                      child: Material(
+                        color: Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () => _showActivityLogSheet(context),
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            child: Row(
+                              children: [
+                                Icon(Icons.history_rounded, size: 20, color: AppTheme.stone600),
+                                SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    'Activity log',
+                                    style: TextStyle(
+                                      fontFamily: 'Inter',
+                                      fontWeight: FontWeight.w500,
+                                      fontSize: 14,
+                                      color: AppTheme.stone800,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+                    child: Material(
+                      color: Colors.transparent,
+                      borderRadius: BorderRadius.circular(12),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () => _showWellnessSheet(context),
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          child: Row(
+                            children: [
+                              Icon(Icons.favorite_outline_rounded, size: 20, color: AppTheme.stone600),
+                              SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'Family pulse',
+                                  style: TextStyle(
+                                    fontFamily: 'Inter',
+                                    fontWeight: FontWeight.w500,
+                                    fontSize: 14,
+                                    color: AppTheme.stone800,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
                     child: Material(
@@ -277,6 +365,10 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
   bool _biometricEnabled = false;
   String _selectedLocale = 'US';
   bool _loading = true;
+  NotificationPrefs _notifPrefs = const NotificationPrefs();
+  bool _notifLoaded = false;
+  bool _resettingData = false;
+  bool _deletingCloudData = false;
 
   static const _countries = [
     ('🇺🇸', 'United States', 'US'),
@@ -292,6 +384,20 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
   void initState() {
     super.initState();
     _loadPrefs();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_notifLoaded) {
+      _notifLoaded = true;
+      _notifPrefs = context.read<AppProvider>().deviceNotificationPrefs;
+    }
+  }
+
+  Future<void> _persistNotif(NotificationPrefs next) async {
+    await context.read<AppProvider>().setDeviceNotificationPrefs(next);
+    if (mounted) setState(() => _notifPrefs = next);
   }
 
   Future<void> _loadPrefs() async {
@@ -312,6 +418,16 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('lobohub_locale', code);
     setState(() => _selectedLocale = code);
+  }
+
+  Widget _notifSwitch(String label, bool value, ValueChanged<bool> onChanged) {
+    return SwitchListTile(
+      title: Text(label, style: const TextStyle(fontFamily: 'Inter', fontSize: 14)),
+      value: value,
+      onChanged: onChanged,
+      dense: true,
+      visualDensity: VisualDensity.compact,
+    );
   }
 
   Future<void> _importGoogleTasks(
@@ -373,6 +489,138 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Imported ${newTasks.length} task${newTasks.length == 1 ? '' : 's'} from Google')),
       );
+    }
+  }
+
+  Future<void> _confirmResetLocalData(BuildContext sheetContext) async {
+    final ok = await showDialog<bool>(
+      context: sheetContext,
+      builder: (ctx) => AlertDialog(
+        title: const Text(
+          'Reset data on this device?',
+          style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800),
+        ),
+        content: const Text(
+          'This signs you out and permanently deletes all FamilyHub data stored on this phone or tablet '
+          '(your home, tasks, lists, and other synced copies saved locally). '
+          'It does not remove data from our servers for other family members.\n\n'
+          'You can sign in again afterward; your account will reload from the cloud if you use the same login.',
+          style: TextStyle(fontFamily: 'Inter', fontSize: 14, height: 1.45),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppTheme.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Reset data'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !sheetContext.mounted) return;
+
+    setState(() => _resettingData = true);
+    try {
+      await sheetContext.read<AppProvider>().resetAllLocalDataAndSignOut();
+      await sheetContext.read<LocaleService>().reloadFromPrefs();
+      if (!sheetContext.mounted) return;
+      Navigator.of(sheetContext).pop();
+      if (!sheetContext.mounted) return;
+      sheetContext.go('/auth');
+    } catch (e) {
+      if (sheetContext.mounted) {
+        ScaffoldMessenger.of(sheetContext).showSnackBar(
+          SnackBar(content: Text('Could not reset: $e'), behavior: SnackBarBehavior.floating),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _resettingData = false);
+    }
+  }
+
+  Future<void> _confirmDeleteCloudAndLocalData(BuildContext sheetContext) async {
+    final provider = sheetContext.read<AppProvider>();
+    final fam = provider.activeFamily;
+    final uid = provider.activeUser?.id;
+    if (fam == null || uid == null) return;
+    if (!SupabaseService.isConfigured) {
+      ScaffoldMessenger.of(sheetContext).showSnackBar(
+        const SnackBar(
+          content: Text('Cloud delete requires an online account (Supabase). Use “Reset data” to clear this device only.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    if (fam.ownerId != uid) {
+      ScaffoldMessenger.of(sheetContext).showSnackBar(
+        const SnackBar(
+          content: Text('Only the home owner can delete data for everyone in the cloud.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    final proceed = await showDialog<bool>(
+      context: sheetContext,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text(
+          'Delete your home from the cloud?',
+          style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800),
+        ),
+        content: Text(
+          'This will permanently remove “${fam.name}” and all related data from our servers for every family member '
+          '(tasks, lists, calendar, photos, chat, and more). This cannot be undone.\n\n'
+          'Your login account will remain — you can create a new home after.\n\n'
+          'Continue only if everyone agrees.',
+          style: const TextStyle(fontFamily: 'Inter', fontSize: 14, height: 1.45),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppTheme.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+    if (proceed != true || !sheetContext.mounted) return;
+
+    final typed = await showDialog<bool>(
+      context: sheetContext,
+      barrierDismissible: false,
+      builder: (ctx) => const _DeleteCloudDataDialog(),
+    );
+    if (typed != true || !sheetContext.mounted) return;
+
+    setState(() => _deletingCloudData = true);
+    try {
+      await SupabaseService.deleteFamilyCloudData(familyId: fam.id);
+      await provider.resetAllLocalDataAndSignOut();
+      await sheetContext.read<LocaleService>().reloadFromPrefs();
+      if (!sheetContext.mounted) return;
+      Navigator.of(sheetContext).pop();
+      if (!sheetContext.mounted) return;
+      sheetContext.go('/auth');
+    } catch (e) {
+      if (sheetContext.mounted) {
+        ScaffoldMessenger.of(sheetContext).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Could not delete cloud data. Apply Supabase migration 26_delete_family_cloud_data.sql or try again. ($e)',
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _deletingCloudData = false);
     }
   }
 
@@ -509,6 +757,94 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
                     secondary: const Icon(Icons.fingerprint_rounded, color: AppTheme.primary),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
+                ),
+                const SizedBox(height: 16),
+
+                const Text(
+                  'FAMILY PUSH (THIS DEVICE)',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    letterSpacing: 0.5,
+                    color: AppTheme.stone500,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'When others add tasks, lists, events, etc., we can notify the rest of the family. Quiet hours apply to these pushes.',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 12,
+                    color: AppTheme.stone500,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  decoration: BoxDecoration(
+                    color: AppTheme.stone50,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    children: [
+                      _notifSwitch('Chat', _notifPrefs.chat, (v) => _persistNotif(_notifPrefs.copyWith(chat: v))),
+                      _notifSwitch('Tasks', _notifPrefs.tasks, (v) => _persistNotif(_notifPrefs.copyWith(tasks: v))),
+                      _notifSwitch('Calendar', _notifPrefs.calendar, (v) => _persistNotif(_notifPrefs.copyWith(calendar: v))),
+                      _notifSwitch('Chores', _notifPrefs.chores, (v) => _persistNotif(_notifPrefs.copyWith(chores: v))),
+                      _notifSwitch('Lists', _notifPrefs.lists, (v) => _persistNotif(_notifPrefs.copyWith(lists: v))),
+                      _notifSwitch('Polls', _notifPrefs.polls, (v) => _persistNotif(_notifPrefs.copyWith(polls: v))),
+                      _notifSwitch('Meals', _notifPrefs.meals, (v) => _persistNotif(_notifPrefs.copyWith(meals: v))),
+                      _notifSwitch('Occasions', _notifPrefs.birthdays, (v) => _persistNotif(_notifPrefs.copyWith(birthdays: v))),
+                      _notifSwitch('Photos', _notifPrefs.photos, (v) => _persistNotif(_notifPrefs.copyWith(photos: v))),
+                      _notifSwitch('Location', _notifPrefs.location, (v) => _persistNotif(_notifPrefs.copyWith(location: v))),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Quiet hours (local time)',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: AppTheme.stone800,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<int?>(
+                        value: _notifPrefs.quietHoursStart,
+                        decoration: const InputDecoration(
+                          labelText: 'From hour',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        items: [
+                          const DropdownMenuItem<int?>(value: null, child: Text('Off')),
+                          ...List.generate(24, (h) => DropdownMenuItem<int?>(value: h, child: Text('$h:00'))),
+                        ],
+                        onChanged: (v) => _persistNotif(_notifPrefs.copyWith(quietHoursStart: v)),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: DropdownButtonFormField<int?>(
+                        value: _notifPrefs.quietHoursEnd,
+                        decoration: const InputDecoration(
+                          labelText: 'Until hour',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        items: [
+                          const DropdownMenuItem<int?>(value: null, child: Text('Off')),
+                          ...List.generate(24, (h) => DropdownMenuItem<int?>(value: h, child: Text('$h:00'))),
+                        ],
+                        onChanged: (v) => _persistNotif(_notifPrefs.copyWith(quietHoursEnd: v)),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 16),
 
@@ -846,6 +1182,115 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
                   );
                 }),
 
+                const SizedBox(height: 8),
+                const Text(
+                  'DATA ON THIS DEVICE',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    letterSpacing: 0.5,
+                    color: AppTheme.stone500,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF1F2),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppTheme.error.withValues(alpha: 0.25)),
+                  ),
+                  child: ListTile(
+                    leading: Icon(Icons.delete_forever_rounded, color: AppTheme.error,
+                        size: _resettingData ? 18 : 22),
+                    title: const Text(
+                      'Reset data',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                        color: AppTheme.stone900,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'Sign out and erase local data (tasks, lists, family cache on this device)',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 12,
+                        color: AppTheme.stone500,
+                      ),
+                    ),
+                    trailing: _resettingData
+                        ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.chevron_right_rounded, color: AppTheme.stone400),
+                    onTap: (_resettingData || _deletingCloudData)
+                        ? null
+                        : () => _confirmResetLocalData(context),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+                Builder(builder: (ctx) {
+                  final provider = ctx.watch<AppProvider>();
+                  final fam = provider.activeFamily;
+                  final user = provider.activeUser;
+                  if (fam == null || user == null) return const SizedBox.shrink();
+                  if (!SupabaseService.isConfigured) return const SizedBox.shrink();
+                  if (fam.ownerId != user.id) return const SizedBox.shrink();
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 8),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF450A0A).withValues(alpha: 0.06),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppTheme.error.withValues(alpha: 0.35)),
+                        ),
+                        child: ListTile(
+                          leading: Icon(
+                            Icons.cloud_off_rounded,
+                            color: AppTheme.error,
+                            size: _deletingCloudData ? 18 : 22,
+                          ),
+                          title: const Text(
+                            'Delete all data (cloud + device)',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontWeight: FontWeight.w700,
+                              fontSize: 15,
+                              color: AppTheme.stone900,
+                            ),
+                          ),
+                          subtitle: const Text(
+                            'Permanently remove this home from the server for all members, then sign out',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 12,
+                              color: AppTheme.stone500,
+                            ),
+                          ),
+                          trailing: _deletingCloudData
+                              ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.chevron_right_rounded, color: AppTheme.stone400),
+                          onTap: (_resettingData || _deletingCloudData)
+                              ? null
+                              : () => _confirmDeleteCloudAndLocalData(context),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ],
+                  );
+                }),
+                const SizedBox(height: 16),
+
                 // About section
                 Container(
                   width: double.infinity,
@@ -890,6 +1335,65 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
                 ],
               ),
             ),
+    );
+  }
+}
+
+/// Second step: user must type DELETE to confirm cloud wipe.
+class _DeleteCloudDataDialog extends StatefulWidget {
+  const _DeleteCloudDataDialog();
+
+  @override
+  State<_DeleteCloudDataDialog> createState() => _DeleteCloudDataDialogState();
+}
+
+class _DeleteCloudDataDialogState extends State<_DeleteCloudDataDialog> {
+  final _ctrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ok = _ctrl.text.trim() == 'DELETE';
+    return AlertDialog(
+      title: const Text(
+        'Type DELETE to confirm',
+        style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800),
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'This permanently deletes your home in the cloud for everyone.',
+            style: TextStyle(fontFamily: 'Inter', fontSize: 14, height: 1.45),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _ctrl,
+            autofocus: true,
+            autocorrect: false,
+            textCapitalization: TextCapitalization.characters,
+            decoration: const InputDecoration(
+              labelText: 'Type DELETE',
+              border: OutlineInputBorder(),
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+        FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: AppTheme.error),
+          onPressed: ok ? () => Navigator.pop(context, true) : null,
+          child: const Text('Delete forever'),
+        ),
+      ],
     );
   }
 }
@@ -1312,6 +1816,8 @@ class _ManageMembersSheet extends StatefulWidget {
 }
 
 class _ManageMembersSheetState extends State<_ManageMembersSheet> {
+  final Map<String, TextEditingController> _nameControllers = {};
+
   static const _kidsPresetRoutes = ['/', '/calendar', '/meals', '/chores', '/rewards'];
 
   static const _allModules = [
@@ -1351,14 +1857,35 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
         .map((m) {
       // Resolve display name from users list
       final user = db.users.where((u) => u.id == m.userId).firstOrNull;
+      late final String initialName;
+      if (m.displayName != null && m.displayName!.trim().isNotEmpty) {
+        initialName = m.displayName!.trim();
+      } else if (user != null && user.name.trim().isNotEmpty) {
+        initialName = user.name.trim();
+      } else {
+        initialName = (user?.email != null && user!.email.isNotEmpty)
+            ? user.email
+            : m.userId;
+      }
+      _nameControllers[m.userId] ??= TextEditingController(text: initialName);
       return _EditableMember(
         userId: m.userId,
         familyId: m.familyId,
         role: m.role,
+        householdRole: m.householdRole,
         moduleAccess: m.moduleAccess != null ? List<String>.from(m.moduleAccess!) : null,
-        displayName: m.displayName ?? user?.name ?? m.userId,
+        displayName: initialName,
+        declaredUnder16: m.declaredUnder16,
       );
     }).toList();
+  }
+
+  @override
+  void dispose() {
+    for (final c in _nameControllers.values) {
+      c.dispose();
+    }
+    super.dispose();
   }
 
   bool _isKidsPreset(List<String>? access) {
@@ -1396,23 +1923,90 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
   Future<void> _save() async {
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    final familyId = provider.activeFamily?.id;
+    final family = provider.activeFamily;
+    final familyId = family?.id;
     if (familyId == null) return;
+
+    for (final e in _members) {
+      final trimmed =
+          (_nameControllers[e.userId]?.text ?? e.displayName).trim();
+      if (trimmed.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text(
+                'Please enter a display name for every family member.',
+                style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600),
+              ),
+              backgroundColor: AppTheme.error,
+            ),
+          );
+        }
+        return;
+      }
+    }
 
     // Build updated familyMembers list
     final updated = db.familyMembers.map((m) {
       if (m.familyId != familyId) return m;
       final edited = _members.where((e) => e.userId == m.userId).firstOrNull;
       if (edited == null) return m;
+      final displayName =
+          (_nameControllers[edited.userId]?.text ?? edited.displayName).trim();
+      final ownerId = family!.ownerId;
+      final resolvedRole = m.userId == ownerId
+          ? Role.OWNER
+          : (provider.isOwner ? edited.role : m.role);
       return m.copyWith(
-        role: edited.role,
+        role: resolvedRole,
         moduleAccess: edited.moduleAccess,
-        displayName: edited.displayName,
+        displayName: displayName,
+        householdRole: edited.householdRole,
+        declaredUnder16: edited.declaredUnder16,
       );
     }).toList();
 
+    // Keep local User rows aligned for code paths that read user.name directly.
+    final users = List<User>.from(db.users);
+    for (final e in _members) {
+      final displayName =
+          (_nameControllers[e.userId]?.text ?? e.displayName).trim();
+      final idx = users.indexWhere((u) => u.id == e.userId);
+      if (idx >= 0) {
+        users[idx] = users[idx].copyWith(name: displayName);
+      } else {
+        users.add(User(id: e.userId, name: displayName, email: ''));
+      }
+    }
+
     try {
-      await provider.saveAndSync(db.copyWith(familyMembers: updated));
+      var nextDb = db.copyWith(familyMembers: updated, users: users);
+      final actorId = provider.activeUser?.id ?? '';
+      if (actorId.isNotEmpty) {
+        for (final edited in _members) {
+          final old = db.familyMembers.firstWhereOrNull(
+            (x) => x.userId == edited.userId && x.familyId == familyId,
+          );
+          if (old == null) continue;
+          final newName =
+              (_nameControllers[edited.userId]?.text ?? edited.displayName).trim();
+          if (old.displayName?.trim() != newName ||
+              old.role != edited.role ||
+              old.householdRole != edited.householdRole ||
+              old.declaredUnder16 != edited.declaredUnder16) {
+            nextDb = FamilyActivityService.append(
+              nextDb,
+              familyId: familyId,
+              actorUserId: actorId,
+              action: 'member_profile_updated',
+              detail: newName,
+              relatedUserId: edited.userId,
+            );
+          }
+        }
+      }
+
+      await provider.saveAndSync(nextDb);
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context)
@@ -1466,7 +2060,19 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
         .where((fm) => !(fm.userId == removedUserId && fm.familyId == m.familyId))
         .toList();
 
-    await provider.saveAndSync(db.copyWith(familyMembers: updatedMembers));
+    var nextDb = db.copyWith(familyMembers: updatedMembers);
+    final actorId = provider.activeUser?.id ?? '';
+    if (actorId.isNotEmpty) {
+      nextDb = FamilyActivityService.append(
+        nextDb,
+        familyId: m.familyId,
+        actorUserId: actorId,
+        action: 'member_removed',
+        detail: m.displayName,
+        relatedUserId: removedUserId,
+      );
+    }
+    await provider.saveAndSync(nextDb);
 
     // Delete from cloud so the member doesn't return on next sync
     if (SupabaseService.isConfigured) {
@@ -1548,10 +2154,19 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
   }
 
   Widget _buildMemberCard(int index) {
+    final provider = context.watch<AppProvider>();
+    final family = provider.activeFamily;
+    final ownerId = family?.ownerId;
+    final isFamilyOwner = provider.isOwner;
+    final activeUid = provider.activeUser?.id;
     final m = _members[index];
+    final canEditUnder16 =
+        provider.isAdmin || (activeUid != null && m.userId == activeUid);
     final isExpanded = _expandedUserId == m.userId;
     final isKid = _isKidsPreset(m.moduleAccess);
     final isRestricted = m.moduleAccess != null;
+    final isMemberOwner = ownerId != null && m.userId == ownerId;
+    final nameController = _nameControllers[m.userId]!;
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
@@ -1564,9 +2179,9 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
             onTap: () => setState(() {
               _expandedUserId = isExpanded ? null : m.userId;
             }),
-            leading: UserAvatarWidget(name: m.displayName, radius: 20),
+            leading: UserAvatarWidget(name: nameController.text, radius: 20),
             title: Text(
-              m.displayName,
+              nameController.text.isEmpty ? '…' : nameController.text,
               style: const TextStyle(
                 fontFamily: 'Inter',
                 fontWeight: FontWeight.w600,
@@ -1628,6 +2243,184 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (provider.isAdmin) ...[
+                    const Text(
+                      'DISPLAY NAME',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontWeight: FontWeight.w700,
+                        fontSize: 10,
+                        letterSpacing: 1.0,
+                        color: AppTheme.stone400,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: nameController,
+                      onChanged: (v) => setState(() => m.displayName = v),
+                      textCapitalization: TextCapitalization.words,
+                      decoration: InputDecoration(
+                        hintText: 'Name shown to your family',
+                        filled: true,
+                        fillColor: Colors.white,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: AppTheme.stone200),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: AppTheme.stone200),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        isDense: true,
+                      ),
+                      style: const TextStyle(fontFamily: 'Inter', fontSize: 15),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
+                  if (provider.isAdmin) ...[
+                    const Text(
+                      'HOUSEHOLD TYPE',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontWeight: FontWeight.w700,
+                        fontSize: 10,
+                        letterSpacing: 1.0,
+                        color: AppTheme.stone400,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SegmentedButton<HouseholdRole>(
+                      segments: const [
+                        ButtonSegment(
+                          value: HouseholdRole.parent,
+                          label: Text('Parent', style: TextStyle(fontFamily: 'Inter', fontSize: 11)),
+                        ),
+                        ButtonSegment(
+                          value: HouseholdRole.teen,
+                          label: Text('Teen', style: TextStyle(fontFamily: 'Inter', fontSize: 11)),
+                        ),
+                        ButtonSegment(
+                          value: HouseholdRole.child,
+                          label: Text('Child', style: TextStyle(fontFamily: 'Inter', fontSize: 11)),
+                        ),
+                        ButtonSegment(
+                          value: HouseholdRole.other,
+                          label: Text('Other', style: TextStyle(fontFamily: 'Inter', fontSize: 11)),
+                        ),
+                      ],
+                      selected: {m.householdRole},
+                      onSelectionChanged: (set) =>
+                          setState(() => m.householdRole = set.first),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Used for presets and guidance (Kids Preset still controls module access).',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 11,
+                        color: AppTheme.stone500,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
+                  if (canEditUnder16) ...[
+                    const Text(
+                      'AI FAMILY — UNDER 16',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontWeight: FontWeight.w700,
+                        fontSize: 10,
+                        letterSpacing: 1.0,
+                        color: AppTheme.stone400,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    CheckboxListTile(
+                      value: m.declaredUnder16,
+                      onChanged: (v) {
+                        if (v == null) return;
+                        setState(() => m.declaredUnder16 = v);
+                      },
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      title: const Text(
+                        'This person is under 16',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                          color: AppTheme.stone800,
+                        ),
+                      ),
+                      subtitle: const Text(
+                        'Tick for child pricing on AI Family. Parents can set this for children; the member can set it for their own account. This is a household declaration, not ID verification — false statements may breach app store terms.',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 11,
+                          color: AppTheme.stone500,
+                          height: 1.3,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ] else if (m.declaredUnder16) ...[
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        'Marked as under 16 (AI Family)',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.stone600,
+                        ),
+                      ),
+                    ),
+                  ],
+                  if (isFamilyOwner && !isMemberOwner) ...[
+                    const Text(
+                      'ROLE',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontWeight: FontWeight.w700,
+                        fontSize: 10,
+                        letterSpacing: 1.0,
+                        color: AppTheme.stone400,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SegmentedButton<Role>(
+                      segments: const [
+                        ButtonSegment<Role>(
+                          value: Role.MEMBER,
+                          label: Text('Member', style: TextStyle(fontFamily: 'Inter', fontSize: 12)),
+                        ),
+                        ButtonSegment<Role>(
+                          value: Role.ADMIN,
+                          label: Text('Admin', style: TextStyle(fontFamily: 'Inter', fontSize: 12)),
+                        ),
+                      ],
+                      selected: {
+                        m.role == Role.ADMIN ? Role.ADMIN : Role.MEMBER,
+                      },
+                      onSelectionChanged: (set) {
+                        final r = set.first;
+                        setState(() => m.role = r);
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Admins can manage members and module access. Only the family owner can change roles.',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 11,
+                        color: AppTheme.stone500,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
                   // Quick action buttons
                   Row(
                     children: [
@@ -1736,19 +2529,313 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
   }
 }
 
+class _ActivityLogSheet extends StatelessWidget {
+  const _ActivityLogSheet();
+
+  static String _actionLabel(String action) {
+    switch (action) {
+      case 'member_profile_updated':
+        return 'Updated a member profile';
+      case 'member_removed':
+        return 'Removed a member';
+      default:
+        return action.replaceAll('_', ' ');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<AppProvider>(
+      builder: (ctx, p, _) {
+        final fid = p.activeFamily?.id;
+        final logs = fid == null
+            ? <FamilyActivityLog>[]
+            : (p.db.familyActivityLogs.where((e) => e.familyId == fid).toList()
+              ..sort((a, b) => b.createdAt.compareTo(a.createdAt)));
+        return Container(
+          constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.85),
+          decoration: const BoxDecoration(
+            color: AppTheme.surface,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppTheme.stone200,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 16, 20, 8),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Activity log',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontWeight: FontWeight.w800,
+                      fontSize: 20,
+                      color: AppTheme.stone900,
+                    ),
+                  ),
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 20),
+                child: Text(
+                  'Sensitive changes like member updates and removals. Add more events over time as you use the app.',
+                  style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Flexible(
+                child: logs.isEmpty
+                    ? const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(32),
+                          child: Text(
+                            'No entries yet.',
+                            style: TextStyle(fontFamily: 'Inter', color: AppTheme.stone400),
+                          ),
+                        ),
+                      )
+                    : ListView.separated(
+                        shrinkWrap: true,
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+                        itemCount: logs.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (_, i) {
+                          final e = logs[i];
+                          final who = p.displayNameForUserId(e.actorUserId);
+                          final when = DateFormat('MMM d, h:mm a').format(e.createdAt);
+                          return ListTile(
+                            contentPadding: const EdgeInsets.symmetric(vertical: 4),
+                            title: Text(
+                              _actionLabel(e.action),
+                              style: const TextStyle(
+                                fontFamily: 'Inter',
+                                fontWeight: FontWeight.w600,
+                                fontSize: 14,
+                              ),
+                            ),
+                            subtitle: Text(
+                              '$who · $when${e.detail != null && e.detail!.isNotEmpty ? '\n${e.detail}' : ''}',
+                              style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _WellnessPulseSheet extends StatefulWidget {
+  const _WellnessPulseSheet();
+
+  @override
+  State<_WellnessPulseSheet> createState() => _WellnessPulseSheetState();
+}
+
+class _WellnessPulseSheetState extends State<_WellnessPulseSheet> {
+  String _mood = 'ok';
+  final _note = TextEditingController();
+  bool _saving = false;
+
+  static const _moods = [
+    ('great', '😄', 'Great'),
+    ('good', '🙂', 'Good'),
+    ('ok', '😐', 'OK'),
+    ('low', '😔', 'Low'),
+    ('rough', '😢', 'Rough'),
+  ];
+
+  @override
+  void dispose() {
+    _note.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit(AppProvider p) async {
+    final fam = p.activeFamily;
+    final uid = p.activeUser?.id;
+    if (fam == null || uid == null) return;
+    setState(() => _saving = true);
+    final today = DateTime.now();
+    final day = DateTime(today.year, today.month, today.day);
+    final entry = WellnessCheckIn(
+      id: const Uuid().v4(),
+      familyId: fam.id,
+      userId: uid,
+      mood: _mood,
+      note: _note.text.trim().isEmpty ? null : _note.text.trim(),
+      day: day,
+      createdAt: DateTime.now(),
+    );
+    final db = p.db;
+    await p.saveAndSync(db.copyWith(wellnessCheckIns: [...db.wellnessCheckIns, entry]));
+    if (mounted) {
+      setState(() => _saving = false);
+      _note.clear();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Thanks — your check-in was saved'), behavior: SnackBarBehavior.floating),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<AppProvider>(
+      builder: (ctx, p, _) {
+        final fid = p.activeFamily?.id;
+        final recent = fid == null
+            ? <WellnessCheckIn>[]
+            : p.db.wellnessCheckIns
+                .where((w) => w.familyId == fid)
+                .toList()
+              ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        final last7 = recent.take(14).toList();
+
+        return Container(
+          constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.88),
+          decoration: const BoxDecoration(
+            color: AppTheme.surface,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: SingleChildScrollView(
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 12,
+              bottom: MediaQuery.of(context).viewInsets.bottom + 28,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppTheme.stone200,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Family pulse',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontWeight: FontWeight.w800,
+                    fontSize: 20,
+                    color: AppTheme.stone900,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'A light check-in for how you are doing today. Optional note is visible to your family.',
+                  style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
+                ),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _moods.map((m) {
+                    final sel = _mood == m.$1;
+                    return ChoiceChip(
+                      label: Text('${m.$2} ${m.$3}', style: const TextStyle(fontFamily: 'Inter', fontSize: 12)),
+                      selected: sel,
+                      onSelected: (_) => setState(() => _mood = m.$1),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _note,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    labelText: 'Optional note',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: _saving ? null : () => _submit(p),
+                    child: _saving
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Text('Save check-in', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700)),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                const Text(
+                  'Recent',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                    color: AppTheme.stone700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                if (last7.isEmpty)
+                  const Text('No check-ins yet.', style: TextStyle(fontFamily: 'Inter', color: AppTheme.stone400))
+                else
+                  ...last7.map((w) {
+                    final name = p.displayNameForUserId(w.userId);
+                    final emoji = _moods.firstWhere((m) => m.$1 == w.mood, orElse: () => _moods[2]).$2;
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Text(emoji, style: const TextStyle(fontSize: 22)),
+                      title: Text(name, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+                      subtitle: Text(
+                        '${DateFormat('MMM d').format(w.day)} · ${w.note ?? w.mood}',
+                        style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
+                      ),
+                    );
+                  }),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _EditableMember {
   final String userId;
   final String familyId;
-  final Role role;
+  Role role;
+  HouseholdRole householdRole;
   List<String>? moduleAccess;
-  final String displayName;
+  String displayName;
+  bool declaredUnder16;
 
   _EditableMember({
     required this.userId,
     required this.familyId,
     required this.role,
+    required this.householdRole,
     this.moduleAccess,
     required this.displayName,
+    this.declaredUnder16 = false,
   });
 }
 

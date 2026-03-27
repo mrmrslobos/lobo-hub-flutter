@@ -1,5 +1,6 @@
 // lib/screens/photos/photos_screen.dart
 import 'dart:io';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
@@ -13,6 +14,7 @@ import '../../services/notification_service.dart';
 import '../../services/supabase_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../utils/debounce.dart';
 
 const _reactionEmojis = ['❤️', '😍', '😂', '🥹', '🎉', '👏'];
 
@@ -37,6 +39,7 @@ class PhotosScreen extends StatefulWidget {
 class _PhotosScreenState extends State<PhotosScreen> {
   final _picker = ImagePicker();
   final _searchCtrl = TextEditingController();
+  final _searchDebounce = Debouncer();
   int _tabIndex = 0;
   bool _isUploading = false;
   String _searchQuery = '';
@@ -48,8 +51,12 @@ class _PhotosScreenState extends State<PhotosScreen> {
 
   Widget _photoImage(String url, {BoxFit fit = BoxFit.cover}) {
     if (_isNetworkUrl(url)) {
-      return Image.network(url, fit: fit,
-          errorBuilder: (_, __, ___) => _photoPlaceholder());
+      return CachedNetworkImage(
+        imageUrl: url,
+        fit: fit,
+        placeholder: (_, __) => _photoPlaceholder(),
+        errorWidget: (_, __, ___) => _photoPlaceholder(),
+      );
     }
     return Image.file(File(url), fit: fit,
         errorBuilder: (_, __, ___) => _photoPlaceholder());
@@ -62,6 +69,13 @@ class _PhotosScreenState extends State<PhotosScreen> {
         child: Icon(Icons.image_outlined, color: AppTheme.stone300, size: 32),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce.dispose();
+    _searchCtrl.dispose();
+    super.dispose();
   }
 
   // ─── Photo Actions ──────────────────────────────────────────────────────────
@@ -111,7 +125,8 @@ class _PhotosScreenState extends State<PhotosScreen> {
     await provider.saveAndSync(db.copyWith(photos: [...db.photos, photo]));
 
     try {
-      NotificationService.notifyFamilyActivity(
+      NotificationService.notifyFamilyActivityWithDb(
+        provider.db,
         title: 'New photo added 📷',
         body: '${provider.activeUser?.name ?? 'Someone'} added a photo to the family album',
         path: '/photos',
@@ -516,7 +531,12 @@ class _PhotosScreenState extends State<PhotosScreen> {
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
               child: TextField(
                 controller: _searchCtrl,
-                onChanged: (v) => setState(() => _searchQuery = v),
+                onChanged: (v) {
+                  _searchDebounce.run(() {
+                    if (!mounted) return;
+                    setState(() => _searchQuery = v);
+                  });
+                },
                 decoration: InputDecoration(
                   hintText: 'Search photos & milestones...',
                   prefixIcon: const Icon(Icons.search_rounded, size: 20),
@@ -524,6 +544,7 @@ class _PhotosScreenState extends State<PhotosScreen> {
                       ? IconButton(
                           icon: const Icon(Icons.close_rounded, size: 18),
                           onPressed: () {
+                            _searchDebounce.cancel();
                             _searchCtrl.clear();
                             setState(() => _searchQuery = '');
                           },
@@ -672,7 +693,8 @@ class _PhotosScreenState extends State<PhotosScreen> {
                 itemCount: entry.value.length,
                 itemBuilder: (ctx, i) {
                   final photo = entry.value[i];
-                  final uploaderName = provider.userById(photo.uploadedBy)?.name ?? 'Member';
+                  final uploaderName =
+                      provider.displayNameForUserId(photo.uploadedBy);
                   return GestureDetector(
                     onTap: () => _openLightbox(context, photo, uploaderName, provider),
                     onLongPress: () => _showPhotoActions(photo),

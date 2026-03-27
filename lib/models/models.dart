@@ -21,6 +21,22 @@ typedef MealPlan = MealPlanEntry;
 
 enum Role { OWNER, ADMIN, MEMBER }
 
+/// How someone is treated in the home (parent presets, module access hints).
+enum HouseholdRole { parent, teen, child, other }
+
+HouseholdRole householdRoleFromString(String? s) {
+  switch (s?.toLowerCase()) {
+    case 'teen':
+      return HouseholdRole.teen;
+    case 'child':
+      return HouseholdRole.child;
+    case 'other':
+      return HouseholdRole.other;
+    default:
+      return HouseholdRole.parent;
+  }
+}
+
 enum Visibility { PRIVATE, FAMILY, SPECIFIC }
 
 enum SubscriptionTier { trial, base, ai, ai_family }
@@ -252,12 +268,15 @@ class User {
   final String name;
   final String email;
   final String? avatar;
+  /// Per-device prefs (e.g. Health sync). Not all backends persist every key.
+  final Map<String, dynamic> settings;
 
   const User({
     required this.id,
     required this.name,
     required this.email,
     this.avatar,
+    this.settings = const {},
     DateTime? createdAt,
   });
 
@@ -277,6 +296,9 @@ class User {
     name: j['name'] as String? ?? '',
     email: j['email'] as String? ?? '',
     avatar: j['avatar'] as String?,
+    settings: j['settings'] is Map
+        ? Map<String, dynamic>.from(j['settings'] as Map)
+        : const {},
   );
 
   Map<String, dynamic> toJson() => {
@@ -284,14 +306,22 @@ class User {
     'name': name,
     'email': email,
     'avatar': avatar,
+    'settings': settings,
   };
 
-  User copyWith({String? id, String? name, String? email, String? avatar}) =>
+  User copyWith({
+    String? id,
+    String? name,
+    String? email,
+    String? avatar,
+    Map<String, dynamic>? settings,
+  }) =>
     User(
       id: id ?? this.id,
       name: name ?? this.name,
       email: email ?? this.email,
       avatar: avatar ?? this.avatar,
+      settings: settings ?? this.settings,
     );
 }
 
@@ -318,8 +348,12 @@ class Family {
   final bool dailyDevotionalEnabled;
   final int dailyDevotionalHour;   // 0–23 (local)
   final int dailyDevotionalMinute; // 0–59
+  /// Flexible JSON (food budget caps, simple debt list, integrations flags). Synced when `settings` column exists in DB.
+  final Map<String, dynamic> settings;
+  /// Bumped on family metadata edits for last-write-wins merge across devices.
+  final DateTime updatedAt;
 
-  const Family({
+  Family({
     required this.id,
     required this.name,
     required this.ownerId,
@@ -338,9 +372,13 @@ class Family {
     this.dailyDevotionalEnabled = false,
     this.dailyDevotionalHour = 7,
     this.dailyDevotionalMinute = 0,
-  });
+    this.settings = const {},
+    DateTime? updatedAt,
+  }) : updatedAt = updatedAt ?? DateTime.now();
 
-  factory Family.fromJson(Map<String, dynamic> j) => Family(
+  factory Family.fromJson(Map<String, dynamic> j) {
+    final created = _parseDate(j['created_at']);
+    return Family(
     id: j['id'] as String? ?? '',
     name: j['name'] as String? ?? '',
     ownerId: j['owner_id'] as String? ?? '',
@@ -351,7 +389,7 @@ class Family {
     trialStartDate: _parseDateOpt(j['trial_start_date']),
     currency: (j['currency'] as String?) ?? 'AUD',
     enabledModules: _strList(j['enabled_modules']),
-    createdAt: _parseDate(j['created_at']),
+    createdAt: created,
     welcomeDismissed: (j['welcome_dismissed'] ?? false) as bool,
     weeklyDigest: (j['weekly_digest'] ?? true) as bool,
     weeklyDigestDay: (j['weekly_digest_day'] as num?)?.toInt() ?? 0,
@@ -359,7 +397,12 @@ class Family {
     dailyDevotionalEnabled: (j['daily_devotional_enabled'] ?? false) as bool,
     dailyDevotionalHour: (j['daily_devotional_hour'] as num?)?.toInt() ?? 7,
     dailyDevotionalMinute: (j['daily_devotional_minute'] as num?)?.toInt() ?? 0,
+    settings: j['settings'] is Map
+        ? Map<String, dynamic>.from(j['settings'] as Map)
+        : const {},
+    updatedAt: _parseDateOpt(j['updated_at']) ?? created,
   );
+  }
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -380,6 +423,8 @@ class Family {
     'daily_devotional_enabled': dailyDevotionalEnabled,
     'daily_devotional_hour': dailyDevotionalHour,
     'daily_devotional_minute': dailyDevotionalMinute,
+    'settings': settings,
+    'updated_at': updatedAt.toIso8601String(),
   };
 
   Family copyWith({
@@ -389,7 +434,29 @@ class Family {
     DateTime? createdAt, bool? welcomeDismissed, bool? weeklyDigest,
     int? weeklyDigestDay, int? weeklyDigestHour,
     bool? dailyDevotionalEnabled, int? dailyDevotionalHour, int? dailyDevotionalMinute,
-  }) => Family(
+    Map<String, dynamic>? settings,
+    DateTime? updatedAt,
+  }) {
+    final anyChange = id != null ||
+        name != null ||
+        ownerId != null ||
+        joinCode != null ||
+        announcement != null ||
+        announcementAuthor != null ||
+        subscriptionTier != null ||
+        trialStartDate != null ||
+        currency != null ||
+        enabledModules != null ||
+        createdAt != null ||
+        welcomeDismissed != null ||
+        weeklyDigest != null ||
+        weeklyDigestDay != null ||
+        weeklyDigestHour != null ||
+        dailyDevotionalEnabled != null ||
+        dailyDevotionalHour != null ||
+        dailyDevotionalMinute != null ||
+        settings != null;
+    return Family(
     id: id ?? this.id,
     name: name ?? this.name,
     ownerId: ownerId ?? this.ownerId,
@@ -408,7 +475,10 @@ class Family {
     dailyDevotionalEnabled: dailyDevotionalEnabled ?? this.dailyDevotionalEnabled,
     dailyDevotionalHour: dailyDevotionalHour ?? this.dailyDevotionalHour,
     dailyDevotionalMinute: dailyDevotionalMinute ?? this.dailyDevotionalMinute,
+    settings: settings ?? this.settings,
+    updatedAt: updatedAt ?? (anyChange ? DateTime.now() : this.updatedAt),
   );
+  }
 
   // ── Trial helpers ──────────────────────────────────────────────────────
   static const trialDays = 14;
@@ -416,9 +486,11 @@ class Family {
   /// The effective trial start: explicit field or family creation date.
   DateTime get effectiveTrialStart => trialStartDate ?? createdAt;
 
-  /// Whether the 14-day free trial has expired.
-  // TODO: restore original check once subscriptions go live
-  bool get isTrialExpired => false;
+  /// Whether the 14-day free trial has expired (only applies while [subscriptionTier] is [SubscriptionTier.trial]).
+  bool get isTrialExpired {
+    if (subscriptionTier != SubscriptionTier.trial) return false;
+    return DateTime.now().difference(effectiveTrialStart) >= const Duration(days: trialDays);
+  }
 
   /// Days remaining in the trial (0 if expired or not on trial).
   int get trialDaysRemaining {
@@ -450,6 +522,25 @@ class Family {
         return false;
     }
   }
+
+  /// Synced custom task folder names (stored in [settings] for multi-device).
+  static const kTaskCustomFoldersSettingsKey = 'task_custom_folders';
+
+  List<String> get taskCustomFolderNames {
+    final v = settings[kTaskCustomFoldersSettingsKey];
+    if (v is! List) return const [];
+    return v
+        .map((e) => e.toString().trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+  }
+
+  Family withTaskCustomFolders(List<String> names) {
+    final sorted = names.map((e) => e.trim()).where((s) => s.isNotEmpty).toList()..sort();
+    final nextSettings = Map<String, dynamic>.from(settings)
+      ..[kTaskCustomFoldersSettingsKey] = sorted;
+    return copyWith(settings: nextSettings);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -462,6 +553,10 @@ class FamilyMember {
   final Role role;
   final List<String>? moduleAccess;
   final String? displayName;
+  final HouseholdRole householdRole;
+  /// Self- or parent-declared: this profile is for someone under 16 (AI Family / child pricing UX).
+  /// Not verified; [householdRole] may still be [HouseholdRole.teen] etc.
+  final bool declaredUnder16;
 
   const FamilyMember({
     required this.userId,
@@ -469,6 +564,8 @@ class FamilyMember {
     this.role = Role.MEMBER,
     this.moduleAccess,
     this.displayName,
+    this.householdRole = HouseholdRole.parent,
+    this.declaredUnder16 = false,
   });
 
   // Convenience getters
@@ -485,6 +582,8 @@ class FamilyMember {
         ? _strList(j['module_access'])
         : null,
     displayName: (j['display_name'] ?? j['name']) as String?,
+    householdRole: householdRoleFromString(j['household_role'] as String?),
+    declaredUnder16: j['declared_under_16'] == true || j['declared_under_16'] == 1,
   );
 
   FamilyMember copyWith({
@@ -493,12 +592,16 @@ class FamilyMember {
     Role? role,
     List<String>? moduleAccess,
     String? displayName,
+    HouseholdRole? householdRole,
+    bool? declaredUnder16,
   }) => FamilyMember(
     userId: userId ?? this.userId,
     familyId: familyId ?? this.familyId,
     role: role ?? this.role,
     moduleAccess: moduleAccess ?? this.moduleAccess,
     displayName: displayName ?? this.displayName,
+    householdRole: householdRole ?? this.householdRole,
+    declaredUnder16: declaredUnder16 ?? this.declaredUnder16,
   );
 
   Map<String, dynamic> toJson() => {
@@ -507,6 +610,8 @@ class FamilyMember {
     'role': role.name,
     'module_access': moduleAccess,
     'display_name': displayName,
+    'household_role': householdRole.name,
+    'declared_under_16': declaredUnder16,
   };
 }
 
@@ -651,6 +756,10 @@ class CalendarEvent {
   final Visibility visibility;
   final List<String> sharedWith;
   final List<String> checklist;
+  /// User IDs who RSVP'd yes / no / maybe (family calendar only; stored as JSON arrays in Supabase).
+  final List<String> rsvpYesIds;
+  final List<String> rsvpNoIds;
+  final List<String> rsvpMaybeIds;
   final double? budgetEstimate;
   final String? externalCalendarId;
   final Recurrence recurrence;
@@ -673,6 +782,9 @@ class CalendarEvent {
     this.visibility = Visibility.FAMILY,
     this.sharedWith = const [],
     this.checklist = const [],
+    this.rsvpYesIds = const [],
+    this.rsvpNoIds = const [],
+    this.rsvpMaybeIds = const [],
     this.budgetEstimate,
     this.externalCalendarId,
     this.recurrence = Recurrence.NONE,
@@ -694,6 +806,9 @@ class CalendarEvent {
     visibility: visibilityFromString(j['visibility'] as String?),
     sharedWith: _strList(j['shared_with']),
     checklist: _strList(j['checklist']),
+    rsvpYesIds: _strList(j['rsvp_yes_ids']),
+    rsvpNoIds: _strList(j['rsvp_no_ids']),
+    rsvpMaybeIds: _strList(j['rsvp_maybe_ids']),
     budgetEstimate: j['budget_estimate'] != null
         ? (j['budget_estimate'] as num).toDouble()
         : null,
@@ -714,6 +829,9 @@ class CalendarEvent {
     'visibility': visibility.name,
     'shared_with': sharedWith,
     'checklist': checklist,
+    'rsvp_yes_ids': rsvpYesIds,
+    'rsvp_no_ids': rsvpNoIds,
+    'rsvp_maybe_ids': rsvpMaybeIds,
     'budget_estimate': budgetEstimate,
     'external_calendar_id': externalCalendarId,
     'recurrence': recurrence.name,
@@ -731,6 +849,7 @@ class CalendarEvent {
     String? id, String? familyId, String? creatorId, String? title,
     String? description, String? location, DateTime? start, DateTime? end,
     Visibility? visibility, List<String>? sharedWith, List<String>? checklist,
+    List<String>? rsvpYesIds, List<String>? rsvpNoIds, List<String>? rsvpMaybeIds,
     double? budgetEstimate, String? externalCalendarId, Recurrence? recurrence,
     DateTime? updatedAt,
   }) => CalendarEvent(
@@ -740,6 +859,9 @@ class CalendarEvent {
     start: start ?? this.start, end: end ?? this.end,
     visibility: visibility ?? this.visibility, sharedWith: sharedWith ?? this.sharedWith,
     checklist: checklist ?? this.checklist,
+    rsvpYesIds: rsvpYesIds ?? this.rsvpYesIds,
+    rsvpNoIds: rsvpNoIds ?? this.rsvpNoIds,
+    rsvpMaybeIds: rsvpMaybeIds ?? this.rsvpMaybeIds,
     budgetEstimate: budgetEstimate ?? this.budgetEstimate,
     externalCalendarId: externalCalendarId ?? this.externalCalendarId,
     recurrence: recurrence ?? this.recurrence,
@@ -850,6 +972,12 @@ class Recipe {
   final String? image;
   final int? prepMinutes;
   final int? cookMinutes;
+  /// Per full recipe (not per serving) unless noted in UI.
+  final int? kcal;
+  final double? proteinG;
+  final double? carbsG;
+  final double? fatG;
+  final double? fiberG;
   final DateTime updatedAt;
 
   Recipe({
@@ -863,6 +991,11 @@ class Recipe {
     this.image,
     this.prepMinutes,
     this.cookMinutes,
+    this.kcal,
+    this.proteinG,
+    this.carbsG,
+    this.fatG,
+    this.fiberG,
     // Accept but ignore extra fields from screen
     String? description,
     String? sourceUrl,
@@ -896,6 +1029,11 @@ class Recipe {
       image: j['image'] as String?,
       prepMinutes: (j['prep_minutes'] ?? j['prepMinutes']) as int?,
       cookMinutes: (j['cook_minutes'] ?? j['cookMinutes']) as int?,
+      kcal: (j['kcal'] as num?)?.toInt(),
+      proteinG: (j['protein_g'] as num?)?.toDouble() ?? (j['proteinG'] as num?)?.toDouble(),
+      carbsG: (j['carbs_g'] as num?)?.toDouble() ?? (j['carbsG'] as num?)?.toDouble(),
+      fatG: (j['fat_g'] as num?)?.toDouble() ?? (j['fatG'] as num?)?.toDouble(),
+      fiberG: (j['fiber_g'] as num?)?.toDouble() ?? (j['fiberG'] as num?)?.toDouble(),
       updatedAt: _parseDateOpt(j['updated_at']) ?? DateTime.fromMillisecondsSinceEpoch(0),
     );
   }
@@ -911,6 +1049,11 @@ class Recipe {
     'image': image,
     if (prepMinutes != null) 'prepMinutes': prepMinutes,
     if (cookMinutes != null) 'cookMinutes': cookMinutes,
+    'kcal': kcal,
+    'protein_g': proteinG,
+    'carbs_g': carbsG,
+    'fat_g': fatG,
+    'fiber_g': fiberG,
     'updated_at': updatedAt.toIso8601String(),
   };
 
@@ -921,7 +1064,8 @@ class Recipe {
   Recipe copyWith({
     String? id, String? familyId, String? title, List<RecipeIngredient>? ingredients,
     List<String>? steps, int? servings, List<String>? tags, String? image,
-    int? prepMinutes, int? cookMinutes, DateTime? updatedAt,
+    int? prepMinutes, int? cookMinutes, int? kcal, double? proteinG,
+    double? carbsG, double? fatG, double? fiberG, DateTime? updatedAt,
   }) => Recipe(
     id: id ?? this.id, familyId: familyId ?? this.familyId,
     title: title ?? this.title, ingredients: ingredients ?? this.ingredients,
@@ -929,9 +1073,15 @@ class Recipe {
     tags: tags ?? this.tags, image: image ?? this.image,
     prepMinutes: prepMinutes ?? this.prepMinutes,
     cookMinutes: cookMinutes ?? this.cookMinutes,
+    kcal: kcal ?? this.kcal,
+    proteinG: proteinG ?? this.proteinG,
+    carbsG: carbsG ?? this.carbsG,
+    fatG: fatG ?? this.fatG,
+    fiberG: fiberG ?? this.fiberG,
     updatedAt: updatedAt ??
         ((title != null || ingredients != null || steps != null || servings != null ||
-                tags != null || image != null || prepMinutes != null || cookMinutes != null)
+                tags != null || image != null || prepMinutes != null || cookMinutes != null ||
+                kcal != null || proteinG != null || carbsG != null || fatG != null || fiberG != null)
             ? DateTime.now()
             : this.updatedAt),
   );
@@ -974,6 +1124,12 @@ class MealPlanEntry {
   final String? recipeId;
   final String? customMeal;
   final String? notes;
+  final int? servings;
+  final String? prepNotes;
+  /// `weekly_same_slot` | `daily` | null
+  final String? repeatRule;
+  final String? sourceMealPlanId;
+  final String? leftoverMealPlanId;
   final DateTime updatedAt;
 
   MealPlanEntry({
@@ -984,6 +1140,11 @@ class MealPlanEntry {
     this.recipeId,
     this.customMeal,
     this.notes,
+    this.servings,
+    this.prepNotes,
+    this.repeatRule,
+    this.sourceMealPlanId,
+    this.leftoverMealPlanId,
     String? title,
     String? createdBy,
     String? creatorId,
@@ -998,6 +1159,11 @@ class MealPlanEntry {
     recipeId: j['recipe_id'] as String?,
     customMeal: j['custom_meal'] as String?,
     notes: j['notes'] as String?,
+    servings: (j['servings'] as num?)?.toInt(),
+    prepNotes: j['prep_notes'] as String?,
+    repeatRule: j['repeat_rule'] as String?,
+    sourceMealPlanId: j['source_meal_plan_id'] as String?,
+    leftoverMealPlanId: j['leftover_meal_plan_id'] as String?,
     updatedAt: _parseDateOpt(j['updated_at']) ?? DateTime.fromMillisecondsSinceEpoch(0),
   );
 
@@ -1008,6 +1174,12 @@ class MealPlanEntry {
     'meal_type': mealType,
     'recipe_id': recipeId,
     'custom_meal': customMeal,
+    'notes': notes,
+    'servings': servings,
+    'prep_notes': prepNotes,
+    'repeat_rule': repeatRule,
+    'source_meal_plan_id': sourceMealPlanId,
+    'leftover_meal_plan_id': leftoverMealPlanId,
     'updated_at': updatedAt.toIso8601String(),
   };
 
@@ -1016,14 +1188,21 @@ class MealPlanEntry {
 
   MealPlanEntry copyWith({
     String? id, String? familyId, DateTime? date, String? mealType,
-    String? recipeId, String? customMeal, String? notes, DateTime? updatedAt,
+    String? recipeId, String? customMeal, String? notes, int? servings,
+    String? prepNotes, String? repeatRule, String? sourceMealPlanId,
+    String? leftoverMealPlanId, DateTime? updatedAt,
   }) => MealPlanEntry(
     id: id ?? this.id, familyId: familyId ?? this.familyId,
     date: date ?? this.date, mealType: mealType ?? this.mealType,
     recipeId: recipeId ?? this.recipeId, customMeal: customMeal ?? this.customMeal,
     notes: notes ?? this.notes,
+    servings: servings ?? this.servings,
+    prepNotes: prepNotes ?? this.prepNotes,
+    repeatRule: repeatRule ?? this.repeatRule,
+    sourceMealPlanId: sourceMealPlanId ?? this.sourceMealPlanId,
+    leftoverMealPlanId: leftoverMealPlanId ?? this.leftoverMealPlanId,
     updatedAt: updatedAt ??
-        ((date != null || mealType != null || recipeId != null || customMeal != null || notes != null)
+        ((date != null || mealType != null || recipeId != null || customMeal != null || notes != null || servings != null || prepNotes != null || repeatRule != null || sourceMealPlanId != null || leftoverMealPlanId != null)
             ? DateTime.now()
             : this.updatedAt),
   );
@@ -1051,7 +1230,7 @@ class ListItem {
     this.notes,
     this.aiCategory,
   }) : text = text ?? name ?? '',
-       quantity = quantity ?? (rawQuantity != null ? rawQuantity.toString() : null);
+       quantity = quantity ?? rawQuantity?.toString();
 
   factory ListItem.fromJson(Map<String, dynamic> j) => ListItem(
     id: j['id'] as String? ?? '',
@@ -1145,17 +1324,27 @@ class ShoppingList {
     String? id, String? familyId, String? creatorId, String? title,
     List<ListItem>? items, ListCategory? category, Visibility? visibility,
     List<String>? sharedWith, DateTime? updatedAt,
-  }) => ShoppingList(
-    id: id ?? this.id, familyId: familyId ?? this.familyId,
-    creatorId: creatorId ?? this.creatorId, title: title ?? this.title,
-    items: items ?? this.items, category: category ?? this.category,
-    visibility: visibility ?? this.visibility,
-    sharedWith: sharedWith ?? this.sharedWith,
-    updatedAt: updatedAt ??
-        ((title != null || items != null || category != null || visibility != null || sharedWith != null)
-            ? DateTime.now()
-            : this.updatedAt),
-  );
+  }) {
+    final anyField = id != null ||
+        familyId != null ||
+        creatorId != null ||
+        title != null ||
+        items != null ||
+        category != null ||
+        visibility != null ||
+        sharedWith != null;
+    return ShoppingList(
+      id: id ?? this.id,
+      familyId: familyId ?? this.familyId,
+      creatorId: creatorId ?? this.creatorId,
+      title: title ?? this.title,
+      items: items ?? this.items,
+      category: category ?? this.category,
+      visibility: visibility ?? this.visibility,
+      sharedWith: sharedWith ?? this.sharedWith,
+      updatedAt: updatedAt ?? (anyField ? DateTime.now() : this.updatedAt),
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1250,7 +1439,12 @@ class DevotionalEntry {
     visibility: visibility ?? this.visibility,
     isFavorited: isFavorited ?? this.isFavorited,
     updatedAt: updatedAt ??
-        ((title != null || content != null || isFavorited != null) ? DateTime.now() : this.updatedAt),
+        ((title != null ||
+                content != null ||
+                isFavorited != null ||
+                visibility != null)
+            ? DateTime.now()
+            : this.updatedAt),
   );
 }
 
@@ -1364,6 +1558,8 @@ class WorkoutSession {
   final DateTime date;
   final int durationMinutes;
   final String? notes;
+  /// When this session was written to Apple Health / Health Connect (if enabled).
+  final DateTime? healthSyncedAt;
   final DateTime createdAt;
 
   const WorkoutSession({
@@ -1374,6 +1570,7 @@ class WorkoutSession {
     required this.date,
     this.durationMinutes = 0,
     this.notes,
+    this.healthSyncedAt,
     required this.createdAt,
   });
 
@@ -1387,6 +1584,7 @@ class WorkoutSession {
       date: _parseDate(j['date']),
       durationMinutes: ((j['duration_minutes'] as num?) ?? 0).toInt(),
       notes: FieldEncryption.decryptField(j['notes'] as String?, fid),
+      healthSyncedAt: _parseDateOpt(j['health_synced_at']),
       createdAt: _parseDate(j['created_at']),
     );
   }
@@ -1399,6 +1597,8 @@ class WorkoutSession {
         'date': date.toIso8601String(),
         'duration_minutes': durationMinutes,
         'notes': FieldEncryption.encryptField(notes, familyId),
+        if (healthSyncedAt != null)
+          'health_synced_at': healthSyncedAt!.toIso8601String(),
         'created_at': createdAt.toIso8601String(),
       };
 
@@ -1410,6 +1610,7 @@ class WorkoutSession {
     DateTime? date,
     int? durationMinutes,
     String? notes,
+    DateTime? healthSyncedAt,
     DateTime? createdAt,
   }) =>
       WorkoutSession(
@@ -1420,6 +1621,7 @@ class WorkoutSession {
         date: date ?? this.date,
         durationMinutes: durationMinutes ?? this.durationMinutes,
         notes: notes ?? this.notes,
+        healthSyncedAt: healthSyncedAt ?? this.healthSyncedAt,
         createdAt: createdAt ?? this.createdAt,
       );
 }
@@ -1433,6 +1635,14 @@ class WorkoutExercise {
   final int order;
   final int restSeconds;
   final String? notes;
+  /// Step-by-step how-to (AI or user). Prefer text over video for cost.
+  final String? techniqueNotes;
+  /// Optional link to a free demo (e.g. YouTube / ExRx).
+  final String? referenceUrl;
+  /// Illustration URL (e.g. wger.de) — not encrypted (public CDN).
+  final String? techniqueImageUrl;
+  /// ExerciseDB exercise id when [techniqueImageUrl] is their GIF URL.
+  final String? exerciseDbId;
   final DateTime createdAt;
 
   const WorkoutExercise({
@@ -1444,6 +1654,10 @@ class WorkoutExercise {
     this.order = 0,
     this.restSeconds = 60,
     this.notes,
+    this.techniqueNotes,
+    this.referenceUrl,
+    this.techniqueImageUrl,
+    this.exerciseDbId,
     required this.createdAt,
   });
 
@@ -1460,6 +1674,12 @@ class WorkoutExercise {
       order: ((j['order'] as num?) ?? 0).toInt(),
       restSeconds: ((j['rest_seconds'] as num?) ?? 60).toInt(),
       notes: FieldEncryption.decryptField(j['notes'] as String?, fid),
+      techniqueNotes:
+          FieldEncryption.decryptField(j['technique_notes'] as String?, fid),
+      referenceUrl:
+          FieldEncryption.decryptField(j['reference_url'] as String?, fid),
+      techniqueImageUrl: j['technique_image_url'] as String?,
+      exerciseDbId: j['exercise_db_id'] as String?,
       createdAt: _parseDate(j['created_at']),
     );
   }
@@ -1474,6 +1694,11 @@ class WorkoutExercise {
         'order': order,
         'rest_seconds': restSeconds,
         'notes': FieldEncryption.encryptField(notes, familyId),
+        'technique_notes':
+            FieldEncryption.encryptField(techniqueNotes, familyId),
+        'reference_url': FieldEncryption.encryptField(referenceUrl, familyId),
+        if (techniqueImageUrl != null) 'technique_image_url': techniqueImageUrl,
+        if (exerciseDbId != null) 'exercise_db_id': exerciseDbId,
         'created_at': createdAt.toIso8601String(),
       };
 
@@ -1486,6 +1711,10 @@ class WorkoutExercise {
     int? order,
     int? restSeconds,
     String? notes,
+    String? techniqueNotes,
+    String? referenceUrl,
+    String? techniqueImageUrl,
+    String? exerciseDbId,
     DateTime? createdAt,
   }) =>
       WorkoutExercise(
@@ -1497,6 +1726,10 @@ class WorkoutExercise {
         order: order ?? this.order,
         restSeconds: restSeconds ?? this.restSeconds,
         notes: notes ?? this.notes,
+        techniqueNotes: techniqueNotes ?? this.techniqueNotes,
+        referenceUrl: referenceUrl ?? this.referenceUrl,
+        techniqueImageUrl: techniqueImageUrl ?? this.techniqueImageUrl,
+        exerciseDbId: exerciseDbId ?? this.exerciseDbId,
         createdAt: createdAt ?? this.createdAt,
       );
 }
@@ -1581,9 +1814,115 @@ class WorkoutSet {
       );
 }
 
+/// Best-known set stats per user + normalized exercise name (family-scoped for sync).
+class ExercisePR {
+  final String id;
+  final String userId;
+  final String familyId;
+  final String exerciseKey;
+  final double? bestVolume;
+  final String? bestWeight;
+  final int? bestReps;
+  final String? sessionId;
+  final String? exerciseId;
+  final DateTime achievedAt;
+  final DateTime createdAt;
+
+  const ExercisePR({
+    required this.id,
+    required this.userId,
+    required this.familyId,
+    required this.exerciseKey,
+    this.bestVolume,
+    this.bestWeight,
+    this.bestReps,
+    this.sessionId,
+    this.exerciseId,
+    required this.achievedAt,
+    required this.createdAt,
+  });
+
+  String get mergeKey => id;
+
+  factory ExercisePR.fromJson(Map<String, dynamic> j) {
+    final fid = j['family_id'] as String? ?? '';
+    return ExercisePR(
+      id: j['id'] as String? ?? '',
+      userId: j['user_id'] as String? ?? '',
+      familyId: fid,
+      exerciseKey: j['exercise_key'] as String? ?? '',
+      bestVolume: (j['best_volume'] as num?)?.toDouble(),
+      bestWeight: FieldEncryption.decryptField(j['best_weight'] as String?, fid),
+      bestReps: (j['best_reps'] as num?)?.toInt(),
+      sessionId: j['session_id'] as String?,
+      exerciseId: j['exercise_id'] as String?,
+      achievedAt: _parseDate(j['achieved_at']),
+      createdAt: _parseDate(j['created_at']),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'user_id': userId,
+        'family_id': familyId,
+        'exercise_key': exerciseKey,
+        'best_volume': bestVolume,
+        'best_weight': FieldEncryption.encryptField(bestWeight, familyId),
+        'best_reps': bestReps,
+        'session_id': sessionId,
+        'exercise_id': exerciseId,
+        'achieved_at': achievedAt.toIso8601String(),
+        'created_at': createdAt.toIso8601String(),
+      };
+
+  ExercisePR copyWith({
+    String? id,
+    String? userId,
+    String? familyId,
+    String? exerciseKey,
+    double? bestVolume,
+    String? bestWeight,
+    int? bestReps,
+    String? sessionId,
+    String? exerciseId,
+    DateTime? achievedAt,
+    DateTime? createdAt,
+  }) =>
+      ExercisePR(
+        id: id ?? this.id,
+        userId: userId ?? this.userId,
+        familyId: familyId ?? this.familyId,
+        exerciseKey: exerciseKey ?? this.exerciseKey,
+        bestVolume: bestVolume ?? this.bestVolume,
+        bestWeight: bestWeight ?? this.bestWeight,
+        bestReps: bestReps ?? this.bestReps,
+        sessionId: sessionId ?? this.sessionId,
+        exerciseId: exerciseId ?? this.exerciseId,
+        achievedAt: achievedAt ?? this.achievedAt,
+        createdAt: createdAt ?? this.createdAt,
+      );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // BudgetCategory
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// How [BudgetCategoryRecord.limit] is interpreted for envelope math.
+enum BudgetLimitPeriod {
+  /// One cap for the whole calendar month (+ rollover).
+  monthly,
+  /// [limit] is per 7-day bucket; month is split into consecutive buckets (+ rollover).
+  weekly,
+}
+
+BudgetLimitPeriod budgetLimitPeriodFromString(String? s) {
+  switch (s) {
+    case 'weekly':
+      return BudgetLimitPeriod.weekly;
+    default:
+      return BudgetLimitPeriod.monthly;
+  }
+}
 
 class BudgetCategoryRecord {
   final String id;
@@ -1593,6 +1932,10 @@ class BudgetCategoryRecord {
   final double limit;
   final String color;
   final Visibility visibility;
+  /// Whether unused budget from prior periods carries into this month.
+  final bool rolloverEnabled;
+  /// Monthly vs weekly bucket interpretation for [limit].
+  final BudgetLimitPeriod limitPeriod;
 
   const BudgetCategoryRecord({
     required this.id,
@@ -1602,6 +1945,8 @@ class BudgetCategoryRecord {
     this.limit = 0,
     this.color = '#6366f1',
     this.visibility = Visibility.FAMILY,
+    this.rolloverEnabled = false,
+    this.limitPeriod = BudgetLimitPeriod.monthly,
   });
 
   factory BudgetCategoryRecord.fromJson(Map<String, dynamic> j) {
@@ -1614,6 +1959,10 @@ class BudgetCategoryRecord {
       limit: FieldEncryption.decryptDouble(j['limit'], fid) ?? 0,
       color: j['color'] as String? ?? '#6366f1',
       visibility: visibilityFromString(j['visibility'] as String?),
+      rolloverEnabled: (j['rollover_enabled'] ?? j['rolloverEnabled'] ?? false) as bool,
+      limitPeriod: budgetLimitPeriodFromString(
+        j['limit_period']?.toString() ?? j['limitPeriod']?.toString(),
+      ),
     );
   }
 
@@ -1625,7 +1974,32 @@ class BudgetCategoryRecord {
     'limit': FieldEncryption.encryptNum(limit, familyId),
     'color': color,
     'visibility': visibility.name,
+    'rollover_enabled': rolloverEnabled,
+    'limit_period': limitPeriod.name,
   };
+
+  BudgetCategoryRecord copyWith({
+    String? id,
+    String? familyId,
+    String? creatorId,
+    String? name,
+    double? limit,
+    String? color,
+    Visibility? visibility,
+    bool? rolloverEnabled,
+    BudgetLimitPeriod? limitPeriod,
+  }) =>
+      BudgetCategoryRecord(
+        id: id ?? this.id,
+        familyId: familyId ?? this.familyId,
+        creatorId: creatorId ?? this.creatorId,
+        name: name ?? this.name,
+        limit: limit ?? this.limit,
+        color: color ?? this.color,
+        visibility: visibility ?? this.visibility,
+        rolloverEnabled: rolloverEnabled ?? this.rolloverEnabled,
+        limitPeriod: limitPeriod ?? this.limitPeriod,
+      );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1942,6 +2316,10 @@ class Chore {
   final Visibility visibility;
   final DateTime createdAt;
   final bool requiresApproval;
+  /// When true and multiple assignees exist, the next completion advances who is "up next".
+  final bool rotationEnabled;
+  /// Index into [assignees] for round-robin (persisted per chore).
+  final int rotationCursor;
   final DateTime updatedAt;
 
   Chore({
@@ -1962,6 +2340,8 @@ class Chore {
     this.visibility = Visibility.FAMILY,
     DateTime? createdAt,
     this.requiresApproval = false,
+    this.rotationEnabled = false,
+    this.rotationCursor = 0,
     DateTime? updatedAt,
   })  : updatedAt = updatedAt ?? DateTime.now(),
         creatorId = creatorId ?? createdBy ?? '',
@@ -1984,6 +2364,8 @@ class Chore {
     visibility: visibilityFromString(j['visibility'] as String?),
     createdAt: _parseDate(j['created_at']),
     requiresApproval: (j['requires_approval'] ?? false) as bool,
+    rotationEnabled: (j['rotation_enabled'] ?? false) as bool,
+    rotationCursor: (j['rotation_cursor'] as num?)?.toInt() ?? 0,
     updatedAt: _parseDateOpt(j['updated_at']) ?? DateTime.fromMillisecondsSinceEpoch(0),
   );
 
@@ -2003,6 +2385,8 @@ class Chore {
     'visibility': visibility.name,
     'created_at': createdAt.toIso8601String(),
     'requires_approval': requiresApproval,
+    'rotation_enabled': rotationEnabled,
+    'rotation_cursor': rotationCursor,
     'updated_at': updatedAt.toIso8601String(),
   };
 
@@ -2015,6 +2399,7 @@ class Chore {
     String? description, String? icon, int? points, double? reward,
     ChoreFrequency? frequency, List<int>? daysOfWeek, List<String>? assignees,
     String? color, Visibility? visibility, DateTime? createdAt, bool? requiresApproval,
+    bool? rotationEnabled, int? rotationCursor,
     DateTime? updatedAt,
   }) => Chore(
     id: id ?? this.id, familyId: familyId ?? this.familyId,
@@ -2025,9 +2410,12 @@ class Chore {
     assignees: assignees ?? this.assignees, color: color ?? this.color,
     visibility: visibility ?? this.visibility, createdAt: createdAt ?? this.createdAt,
     requiresApproval: requiresApproval ?? this.requiresApproval,
+    rotationEnabled: rotationEnabled ?? this.rotationEnabled,
+    rotationCursor: rotationCursor ?? this.rotationCursor,
     updatedAt: updatedAt ??
         ((title != null || description != null || points != null || frequency != null ||
-                daysOfWeek != null || assignees != null || requiresApproval != null)
+                daysOfWeek != null || assignees != null || requiresApproval != null ||
+                rotationEnabled != null || rotationCursor != null)
             ? DateTime.now()
             : this.updatedAt),
   );
@@ -3527,6 +3915,10 @@ class NotificationPrefs {
   final bool location;
   final bool weeklyDigest;
   final bool webPushEnabled;
+  /// Local hour 0–23 when quiet hours start (inclusive). Both null = disabled.
+  final int? quietHoursStart;
+  /// Local hour 0–23 when quiet hours end (exclusive).
+  final int? quietHoursEnd;
 
   const NotificationPrefs({
     this.chat = true,
@@ -3541,7 +3933,13 @@ class NotificationPrefs {
     this.location = false,
     this.weeklyDigest = true,
     this.webPushEnabled = false,
+    this.quietHoursStart,
+    this.quietHoursEnd,
   });
+
+  /// Stable id for local merge (single row per device).
+  String get id => '_notification_prefs';
+  String get mergeKey => id;
 
   factory NotificationPrefs.fromJson(Map<String, dynamic> j) => NotificationPrefs(
     chat: (j['chat'] ?? true) as bool,
@@ -3556,6 +3954,8 @@ class NotificationPrefs {
     location: (j['location'] ?? false) as bool,
     weeklyDigest: (j['weekly_digest'] ?? true) as bool,
     webPushEnabled: (j['web_push_enabled'] ?? false) as bool,
+    quietHoursStart: (j['quiet_hours_start'] as num?)?.toInt(),
+    quietHoursEnd: (j['quiet_hours_end'] as num?)?.toInt(),
   );
 
   Map<String, dynamic> toJson() => {
@@ -3571,12 +3971,16 @@ class NotificationPrefs {
     'location': location,
     'weekly_digest': weeklyDigest,
     'web_push_enabled': webPushEnabled,
+    'quiet_hours_start': quietHoursStart,
+    'quiet_hours_end': quietHoursEnd,
   };
 
   NotificationPrefs copyWith({
     bool? chat, bool? tasks, bool? calendar, bool? chores, bool? lists,
     bool? polls, bool? meals, bool? birthdays, bool? photos, bool? location,
     bool? weeklyDigest, bool? webPushEnabled,
+    int? quietHoursStart,
+    int? quietHoursEnd,
   }) => NotificationPrefs(
     chat: chat ?? this.chat,
     tasks: tasks ?? this.tasks,
@@ -3590,7 +3994,162 @@ class NotificationPrefs {
     location: location ?? this.location,
     weeklyDigest: weeklyDigest ?? this.weeklyDigest,
     webPushEnabled: webPushEnabled ?? this.webPushEnabled,
+    quietHoursStart: quietHoursStart ?? this.quietHoursStart,
+    quietHoursEnd: quietHoursEnd ?? this.quietHoursEnd,
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PantryItem (staples / pantry for meal planning)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class PantryItem {
+  final String id;
+  final String familyId;
+  final String name;
+  final String? quantity;
+  final String? unit;
+  final DateTime updatedAt;
+
+  const PantryItem({
+    required this.id,
+    required this.familyId,
+    required this.name,
+    this.quantity,
+    this.unit,
+    required this.updatedAt,
+  });
+
+  String get mergeKey => id;
+
+  factory PantryItem.fromJson(Map<String, dynamic> j) => PantryItem(
+        id: j['id'] as String? ?? '',
+        familyId: j['family_id'] as String? ?? '',
+        name: j['name'] as String? ?? '',
+        quantity: j['quantity'] as String?,
+        unit: j['unit'] as String?,
+        updatedAt: _parseDateOpt(j['updated_at']) ?? DateTime.now(),
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'family_id': familyId,
+        'name': name,
+        'quantity': quantity,
+        'unit': unit,
+        'updated_at': updatedAt.toIso8601String(),
+      };
+
+  PantryItem copyWith({
+    String? id,
+    String? familyId,
+    String? name,
+    String? quantity,
+    String? unit,
+    DateTime? updatedAt,
+  }) =>
+      PantryItem(
+        id: id ?? this.id,
+        familyId: familyId ?? this.familyId,
+        name: name ?? this.name,
+        quantity: quantity ?? this.quantity,
+        unit: unit ?? this.unit,
+        updatedAt: updatedAt ?? this.updatedAt,
+      );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FamilyActivityLog (trust / audit trail for sensitive actions)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class FamilyActivityLog {
+  final String id;
+  final String familyId;
+  final String actorUserId;
+  final String action;
+  final String? detail;
+  final String? relatedUserId;
+  final DateTime createdAt;
+
+  const FamilyActivityLog({
+    required this.id,
+    required this.familyId,
+    required this.actorUserId,
+    required this.action,
+    this.detail,
+    this.relatedUserId,
+    required this.createdAt,
+  });
+
+  String get mergeKey => id;
+
+  factory FamilyActivityLog.fromJson(Map<String, dynamic> j) =>
+      FamilyActivityLog(
+        id: j['id'] as String? ?? '',
+        familyId: j['family_id'] as String? ?? '',
+        actorUserId: j['actor_user_id'] as String? ?? '',
+        action: j['action'] as String? ?? '',
+        detail: j['detail'] as String?,
+        relatedUserId: j['related_user_id'] as String?,
+        createdAt: _parseDate(j['created_at']),
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'family_id': familyId,
+        'actor_user_id': actorUserId,
+        'action': action,
+        'detail': detail,
+        'related_user_id': relatedUserId,
+        'created_at': createdAt.toIso8601String(),
+      };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WellnessCheckIn (light daily mood pulse)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class WellnessCheckIn {
+  final String id;
+  final String familyId;
+  final String userId;
+  /// One of: great, good, ok, low, rough
+  final String mood;
+  final String? note;
+  final DateTime day;
+  final DateTime createdAt;
+
+  const WellnessCheckIn({
+    required this.id,
+    required this.familyId,
+    required this.userId,
+    required this.mood,
+    this.note,
+    required this.day,
+    required this.createdAt,
+  });
+
+  String get mergeKey => id;
+
+  factory WellnessCheckIn.fromJson(Map<String, dynamic> j) => WellnessCheckIn(
+        id: j['id'] as String? ?? '',
+        familyId: j['family_id'] as String? ?? '',
+        userId: j['user_id'] as String? ?? '',
+        mood: j['mood'] as String? ?? 'ok',
+        note: j['note'] as String?,
+        day: _parseDateOpt(j['day']) ?? DateTime.now(),
+        createdAt: _parseDate(j['created_at']),
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'family_id': familyId,
+        'user_id': userId,
+        'mood': mood,
+        'note': note,
+        'day': DateTime(day.year, day.month, day.day).toIso8601String(),
+        'created_at': createdAt.toIso8601String(),
+      };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3613,6 +4172,7 @@ class AppDB {
   final List<WorkoutSession> workoutSessions;
   final List<WorkoutExercise> workoutExercises;
   final List<WorkoutSet> workoutSets;
+  final List<ExercisePR> exercisePrs;
   final List<BudgetCategoryRecord> budgetCategories;
   final List<BudgetEntry> budgetEntries;
   final List<Transaction> transactions;
@@ -3640,6 +4200,9 @@ class AppDB {
   final List<NotificationPrefs> notificationPrefs;
   final List<ReadingPlan> readingPlans;
   final List<ExternalCalendar> externalCalendars;
+  final List<PantryItem> pantryItems;
+  final List<FamilyActivityLog> familyActivityLogs;
+  final List<WellnessCheckIn> wellnessCheckIns;
 
   const AppDB({
     this.users = const [],
@@ -3657,6 +4220,7 @@ class AppDB {
     this.workoutSessions = const [],
     this.workoutExercises = const [],
     this.workoutSets = const [],
+    this.exercisePrs = const [],
     this.budgetCategories = const <BudgetCategoryRecord>[],
     this.budgetEntries = const [],
     this.transactions = const [],
@@ -3684,6 +4248,9 @@ class AppDB {
     this.notificationPrefs = const [],
     this.readingPlans = const [],
     this.externalCalendars = const [],
+    this.pantryItems = const [],
+    this.familyActivityLogs = const [],
+    this.wellnessCheckIns = const [],
   });
 
   factory AppDB.empty() => const AppDB();
@@ -3706,6 +4273,7 @@ class AppDB {
     workoutSessions: _parseList(j['workoutSessions'] ?? j['workout_sessions'], WorkoutSession.fromJson),
     workoutExercises: _parseList(j['workoutExercises'] ?? j['workout_exercises'], WorkoutExercise.fromJson),
     workoutSets: _parseList(j['workoutSets'] ?? j['workout_sets'], WorkoutSet.fromJson),
+    exercisePrs: _parseList(j['exercisePrs'] ?? j['exercise_prs'], ExercisePR.fromJson),
     budgetCategories: _parseList(j['budgetCategories'] ?? j['budget_categories'], BudgetCategoryRecord.fromJson),
     budgetEntries: _parseList(j['budgetEntries'] ?? j['budget_entries'], BudgetEntry.fromJson),
     transactions: _parseList(j['transactions'], Transaction.fromJson),
@@ -3733,6 +4301,9 @@ class AppDB {
     notificationPrefs: _parseList(j['notificationPrefs'] ?? j['notification_prefs'], NotificationPrefs.fromJson),
     readingPlans: _parseList(j['readingPlans'] ?? j['reading_plans'], ReadingPlan.fromJson),
     externalCalendars: _parseList(j['externalCalendars'] ?? j['external_calendars'], ExternalCalendar.fromJson),
+    pantryItems: _parseList(j['pantryItems'] ?? j['pantry_items'], PantryItem.fromJson),
+    familyActivityLogs: _parseList(j['familyActivityLogs'] ?? j['family_activity_logs'], FamilyActivityLog.fromJson),
+    wellnessCheckIns: _parseList(j['wellnessCheckIns'] ?? j['wellness_check_ins'], WellnessCheckIn.fromJson),
   );
 
   /// fromCloudJson handles Supabase snake_case table names -> AppDB fields
@@ -3752,6 +4323,7 @@ class AppDB {
     workoutSessions: _parseList(cloud['workout_sessions'], WorkoutSession.fromJson),
     workoutExercises: _parseList(cloud['workout_exercises'], WorkoutExercise.fromJson),
     workoutSets: _parseList(cloud['workout_sets'], WorkoutSet.fromJson),
+    exercisePrs: _parseList(cloud['exercise_prs'], ExercisePR.fromJson),
     budgetCategories: _parseList(cloud['budget_categories'], BudgetCategoryRecord.fromJson),
     budgetEntries: _parseList(cloud['budget_entries'], BudgetEntry.fromJson),
     transactions: _parseList(cloud['transactions'], Transaction.fromJson),
@@ -3779,6 +4351,9 @@ class AppDB {
     notificationPrefs: const [],
     readingPlans: _parseList(cloud['reading_plans'], ReadingPlan.fromJson),
     externalCalendars: _parseList(cloud['external_calendars'], ExternalCalendar.fromJson),
+    pantryItems: _parseList(cloud['pantry_items'], PantryItem.fromJson),
+    familyActivityLogs: _parseList(cloud['family_activity_logs'], FamilyActivityLog.fromJson),
+    wellnessCheckIns: _parseList(cloud['wellness_check_ins'], WellnessCheckIn.fromJson),
   );
 
   Map<String, dynamic> toJson() => {
@@ -3797,6 +4372,7 @@ class AppDB {
     'workoutSessions': workoutSessions.map((e) => e.toJson()).toList(),
     'workoutExercises': workoutExercises.map((e) => e.toJson()).toList(),
     'workoutSets': workoutSets.map((e) => e.toJson()).toList(),
+    'exercisePrs': exercisePrs.map((e) => e.toJson()).toList(),
     'budgetCategories': budgetCategories.map((e) => e.toJson()).toList(),
     'budgetEntries': budgetEntries.map((e) => e.toJson()).toList(),
     'transactions': transactions.map((e) => e.toJson()).toList(),
@@ -3824,6 +4400,9 @@ class AppDB {
     'notificationPrefs': notificationPrefs.map((e) => e.toJson()).toList(),
     'readingPlans': readingPlans.map((e) => e.toJson()).toList(),
     'externalCalendars': externalCalendars.map((e) => e.toJson()).toList(),
+    'pantryItems': pantryItems.map((e) => e.toJson()).toList(),
+    'familyActivityLogs': familyActivityLogs.map((e) => e.toJson()).toList(),
+    'wellnessCheckIns': wellnessCheckIns.map((e) => e.toJson()).toList(),
   };
 
   AppDB copyWith({
@@ -3842,6 +4421,7 @@ class AppDB {
     List<WorkoutSession>? workoutSessions,
     List<WorkoutExercise>? workoutExercises,
     List<WorkoutSet>? workoutSets,
+    List<ExercisePR>? exercisePrs,
     List<BudgetCategoryRecord>? budgetCategories,
     List<BudgetEntry>? budgetEntries,
     List<Transaction>? transactions,
@@ -3869,6 +4449,9 @@ class AppDB {
     List<NotificationPrefs>? notificationPrefs,
     List<ReadingPlan>? readingPlans,
     List<ExternalCalendar>? externalCalendars,
+    List<PantryItem>? pantryItems,
+    List<FamilyActivityLog>? familyActivityLogs,
+    List<WellnessCheckIn>? wellnessCheckIns,
     // Convenience alias params
     List<PrayerWallEntry>? prayerRequests,
     List<PeriodCycle>? periodEntries,
@@ -3894,6 +4477,7 @@ class AppDB {
     workoutSessions: workoutSessions ?? this.workoutSessions,
     workoutExercises: workoutExercises ?? this.workoutExercises,
     workoutSets: workoutSets ?? this.workoutSets,
+    exercisePrs: exercisePrs ?? this.exercisePrs,
     budgetCategories: budgetCategories ?? this.budgetCategories,
     budgetEntries: budgetEntries ?? this.budgetEntries,
     transactions: transactions ?? this.transactions,
@@ -3921,6 +4505,9 @@ class AppDB {
     notificationPrefs: notificationPrefs ?? this.notificationPrefs,
     readingPlans: readingPlans ?? this.readingPlans,
     externalCalendars: externalCalendars ?? this.externalCalendars,
+    pantryItems: pantryItems ?? this.pantryItems,
+    familyActivityLogs: familyActivityLogs ?? this.familyActivityLogs,
+    wellnessCheckIns: wellnessCheckIns ?? this.wellnessCheckIns,
   );
 
   /// After [FieldEncryption.init], re-decrypt rows that were parsed while the
@@ -3957,6 +4544,8 @@ class AppDB {
           limit: c.limit,
           color: c.color,
           visibility: c.visibility,
+          rolloverEnabled: c.rolloverEnabled,
+          limitPeriod: c.limitPeriod,
         );
       }).toList(),
       budgetEntries: budgetEntries.map((e) {
@@ -4011,6 +4600,7 @@ class AppDB {
           date: s.date,
           durationMinutes: s.durationMinutes,
           notes: s.notes != null ? ds(s.notes) : null,
+          healthSyncedAt: s.healthSyncedAt,
           createdAt: s.createdAt,
         );
       }).toList(),
@@ -4025,6 +4615,12 @@ class AppDB {
           order: e.order,
           restSeconds: e.restSeconds,
           notes: e.notes != null ? ds(e.notes) : null,
+          techniqueNotes:
+              e.techniqueNotes != null ? ds(e.techniqueNotes) : null,
+          referenceUrl:
+              e.referenceUrl != null ? ds(e.referenceUrl) : null,
+          techniqueImageUrl: e.techniqueImageUrl,
+          exerciseDbId: e.exerciseDbId,
           createdAt: e.createdAt,
         );
       }).toList(),

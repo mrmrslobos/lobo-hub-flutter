@@ -42,7 +42,8 @@ class _ListsScreenState extends State<ListsScreen> {
     final updated = [...db.shoppingLists, list];
     await provider.saveAndSync(db.copyWith(shoppingLists: updated));
     if (visibility != Visibility.PRIVATE) {
-      NotificationService.notifyFamilyActivity(
+      NotificationService.notifyFamilyActivityWithDb(
+        provider.db,
         title: 'New List Created',
         body: '${provider.activeUser?.name ?? "Someone"} created: ${list.title}',
         path: '/lists',
@@ -149,7 +150,8 @@ class _ListsScreenState extends State<ListsScreen> {
     await provider.saveAndSync(db.copyWith(shoppingLists: updatedLists));
     setState(() => _selectedList = updatedList);
     if (list.visibility != Visibility.PRIVATE) {
-      NotificationService.notifyFamilyActivity(
+      NotificationService.notifyFamilyActivityWithDb(
+        provider.db,
         title: 'Item Added to ${list.title}',
         body: '${provider.activeUser?.name ?? "Someone"} added: $name',
         path: '/lists',
@@ -168,7 +170,8 @@ class _ListsScreenState extends State<ListsScreen> {
     await provider.saveAndSync(db.copyWith(shoppingLists: updatedLists));
     setState(() => _selectedList = updatedList);
     if (!item.checked && list.visibility != Visibility.PRIVATE) {
-      NotificationService.notifyFamilyActivity(
+      NotificationService.notifyFamilyActivityWithDb(
+        provider.db,
         title: '${list.title} Updated',
         body: '${provider.activeUser?.name ?? "Someone"} checked off: ${item.text}',
         path: '/lists',
@@ -182,6 +185,34 @@ class _ListsScreenState extends State<ListsScreen> {
     final provider = context.read<AppProvider>();
     final db = provider.db;
     final updatedList = list.copyWith(items: list.items.where((i) => i.id != itemId).toList());
+    final updatedLists = db.shoppingLists.map((l) => l.id == list.id ? updatedList : l).toList();
+    await provider.saveAndSync(db.copyWith(shoppingLists: updatedLists));
+    setState(() => _selectedList = updatedList);
+  }
+
+  Future<void> _clearCheckedItems(ShoppingList list) async {
+    final checked = list.items.where((i) => i.checked).toList();
+    if (checked.isEmpty) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove checked items'),
+        content: Text(
+          'Remove ${checked.length} checked ${checked.length == 1 ? 'item' : 'items'} from "${list.title}"?',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Remove', style: TextStyle(color: AppTheme.error)),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    final provider = context.read<AppProvider>();
+    final db = provider.db;
+    final updatedList = list.copyWith(items: list.items.where((i) => !i.checked).toList());
     final updatedLists = db.shoppingLists.map((l) => l.id == list.id ? updatedList : l).toList();
     await provider.saveAndSync(db.copyWith(shoppingLists: updatedLists));
     setState(() => _selectedList = updatedList);
@@ -423,6 +454,7 @@ class _ListsScreenState extends State<ListsScreen> {
           onAddItem: (name) => _addItem(_selectedList!, name),
           onToggleItem: (item) => _toggleItem(_selectedList!, item),
           onDeleteItem: (id) => _deleteItem(_selectedList!, id),
+          onClearChecked: () => _clearCheckedItems(_selectedList!),
           onDeleteList: () => _deleteList(_selectedList!),
           onAiCategorize: _showAiCategorization,
         ),
@@ -1061,12 +1093,15 @@ class _AiCategorizationSheetState extends State<_AiCategorizationSheet> {
 // List detail view
 // ─────────────────────────────────────────────
 
+enum _ListSortMode { manual, alphaAZ, alphaZA }
+
 class _ListDetailView extends StatefulWidget {
   final ShoppingList list;
   final VoidCallback onBack;
   final Future<void> Function(String) onAddItem;
   final Future<void> Function(ListItem) onToggleItem;
   final Future<void> Function(String) onDeleteItem;
+  final Future<void> Function() onClearChecked;
   final VoidCallback onDeleteList;
   final VoidCallback onAiCategorize;
 
@@ -1076,6 +1111,7 @@ class _ListDetailView extends StatefulWidget {
     required this.onAddItem,
     required this.onToggleItem,
     required this.onDeleteItem,
+    required this.onClearChecked,
     required this.onDeleteList,
     required this.onAiCategorize,
   });
@@ -1087,6 +1123,7 @@ class _ListDetailView extends StatefulWidget {
 class _ListDetailViewState extends State<_ListDetailView> {
   TextEditingController _addCtrl = TextEditingController();
   bool _groupedView = false;
+  _ListSortMode _sortMode = _ListSortMode.manual;
 
   @override
   void dispose() {
@@ -1200,10 +1237,22 @@ class _ListDetailViewState extends State<_ListDetailView> {
     await provider.saveAndSync(db.copyWith(shoppingLists: updatedLists));
   }
 
+  List<ListItem> _sortedItems(List<ListItem> items) {
+    if (_sortMode == _ListSortMode.manual) return List<ListItem>.from(items);
+    final copy = List<ListItem>.from(items);
+    copy.sort((a, b) {
+      final ca = a.text.toLowerCase();
+      final cb = b.text.toLowerCase();
+      final c = ca.compareTo(cb);
+      return _sortMode == _ListSortMode.alphaAZ ? c : -c;
+    });
+    return copy;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final unchecked = widget.list.items.where((i) => !i.checked).toList();
-    final checked = widget.list.items.where((i) => i.checked).toList();
+    final unchecked = _sortedItems(widget.list.items.where((i) => !i.checked).toList());
+    final checked = _sortedItems(widget.list.items.where((i) => i.checked).toList());
     final total = widget.list.items.length;
     final progress = total > 0 ? checked.length / total : 0.0;
 
@@ -1218,22 +1267,48 @@ class _ListDetailViewState extends State<_ListDetailView> {
       }
     }
 
+    final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      // backgroundColor handled by theme
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: cs.surface,
+        foregroundColor: cs.onSurface,
         elevation: 0,
         scrolledUnderElevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: AppTheme.stone700),
+          icon: Icon(Icons.arrow_back_rounded, color: cs.onSurface.withValues(alpha: 0.85)),
           onPressed: widget.onBack,
         ),
-        title: Text(widget.list.title, style: const TextStyle(
-          fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: AppTheme.stone900,
+        title: Text(widget.list.title, style: TextStyle(
+          fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: cs.onSurface,
         )),
         centerTitle: false,
         titleSpacing: 0,
         actions: [
+          PopupMenuButton<_ListSortMode>(
+            tooltip: 'Sort items',
+            icon: Icon(Icons.sort_rounded, color: AppTheme.stone500.withValues(alpha: 0.9)),
+            onSelected: (m) => setState(() {
+              _sortMode = m;
+              if (m != _ListSortMode.manual) _groupedView = false;
+            }),
+            itemBuilder: (ctx) => [
+              CheckedPopupMenuItem<_ListSortMode>(
+                value: _ListSortMode.manual,
+                checked: _sortMode == _ListSortMode.manual,
+                child: const Text('Manual order', style: TextStyle(fontFamily: 'Inter')),
+              ),
+              CheckedPopupMenuItem<_ListSortMode>(
+                value: _ListSortMode.alphaAZ,
+                checked: _sortMode == _ListSortMode.alphaAZ,
+                child: const Text('A → Z', style: TextStyle(fontFamily: 'Inter')),
+              ),
+              CheckedPopupMenuItem<_ListSortMode>(
+                value: _ListSortMode.alphaZA,
+                checked: _sortMode == _ListSortMode.alphaZA,
+                child: const Text('Z → A', style: TextStyle(fontFamily: 'Inter')),
+              ),
+            ],
+          ),
           if (hasCategories)
             IconButton(
               icon: Icon(
@@ -1338,6 +1413,21 @@ class _ListDetailViewState extends State<_ListDetailView> {
                     ),
                   ),
                 ],
+              ),
+            ),
+          ),
+        if (checked.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: () => widget.onClearChecked(),
+                icon: Icon(Icons.playlist_remove_rounded, size: 18, color: AppTheme.stone600),
+                label: Text(
+                  'Remove ${checked.length} checked',
+                  style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13),
+                ),
               ),
             ),
           ),

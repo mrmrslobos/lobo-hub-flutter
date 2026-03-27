@@ -17,10 +17,14 @@ void main() async {
     DeviceOrientation.portraitDown,
   ]);
 
-  // Set system UI overlay style
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+  // Initial status bar before MaterialApp; app.dart syncs to theme afterward.
+  final platformBright =
+      WidgetsBinding.instance.platformDispatcher.platformBrightness;
+  SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.dark,
+    statusBarIconBrightness: platformBright == Brightness.dark
+        ? Brightness.light
+        : Brightness.dark,
   ));
 
   // Initialize Supabase if env vars are set

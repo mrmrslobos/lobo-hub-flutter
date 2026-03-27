@@ -18,6 +18,7 @@ import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/subscription_modal.dart';
+import '../../utils/debounce.dart';
 
 // ─── Filter enum ──────────────────────────────────────────────────────────────
 
@@ -38,8 +39,8 @@ class _TasksScreenState extends State<TasksScreen> {
   String? _selectedMemberId;
   String _searchQuery = '';
   final _searchCtrl = TextEditingController();
-  List<String> _customFolderNames = [];
-  bool _customFoldersLoaded = false;
+  final _searchDebounce = Debouncer();
+  bool _migratedLocalTaskFolders = false;
   static const _taskFoldersKeyPrefix = 'task_folders_';
 
   static const _folderNames = ['Home', 'Work', 'Personal', 'Shopping', 'AI Generated', 'Event'];
@@ -53,43 +54,53 @@ class _TasksScreenState extends State<TasksScreen> {
     'Event': Icons.event_outlined,
   };
 
-  /// All folder names: defaults + custom (custom first so they appear at top after defaults).
-  List<String> get _allFolderNames => [
-    ..._folderNames,
-    ..._customFolderNames.where((n) => !_folderNames.any((d) => d.toLowerCase() == n.toLowerCase())),
-  ];
+  /// All folder names: defaults + custom from synced [Family.settings].
+  List<String> _allFolderNames(Family family) => [
+        ..._folderNames,
+        ...family.taskCustomFolderNames.where(
+          (n) => !_folderNames.any((d) => d.toLowerCase() == n.toLowerCase()),
+        ),
+      ];
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!_customFoldersLoaded && context.read<AppProvider>().activeFamily != null) {
-      _customFoldersLoaded = true;
-      _loadCustomFolders();
-    }
+    _maybeMigrateTaskFoldersFromPrefs();
   }
 
-  Future<void> _loadCustomFolders() async {
-    final prefs = await SharedPreferences.getInstance();
-    final familyId = context.read<AppProvider>().activeFamily?.id;
-    if (familyId == null) return;
-    final key = '$_taskFoldersKeyPrefix$familyId';
-    final json = prefs.getString(key);
-    if (json == null) return;
+  /// One-time: copy device-local folder list into [Family.settings] so other devices see it.
+  Future<void> _maybeMigrateTaskFoldersFromPrefs() async {
+    if (_migratedLocalTaskFolders) return;
+    final provider = context.read<AppProvider>();
+    final fam = provider.currentFamily;
+    if (fam == null) return;
+    _migratedLocalTaskFolders = true;
+    if (fam.taskCustomFolderNames.isNotEmpty) return;
+
     try {
-      final list = jsonDecode(json) as List<dynamic>?;
-      if (list != null && mounted) setState(() => _customFolderNames = list.map((e) => e.toString()).toList());
+      final prefs = await SharedPreferences.getInstance();
+      final key = '$_taskFoldersKeyPrefix${fam.id}';
+      final raw = prefs.getString(key);
+      if (raw == null || raw.isEmpty) return;
+      List<String> names = [];
+      try {
+        final list = jsonDecode(raw) as List<dynamic>?;
+        if (list != null) {
+          names = list.map((e) => e.toString().trim()).where((s) => s.isNotEmpty).toList();
+        }
+      } catch (_) {}
+      if (names.isEmpty) return;
+
+      final next = fam.withTaskCustomFolders(names);
+      provider.updateFamily(next);
+      await provider.saveAndSync(provider.db);
+      await prefs.remove(key);
     } catch (_) {}
   }
 
-  Future<void> _saveCustomFolders() async {
-    final familyId = context.read<AppProvider>().activeFamily?.id;
-    if (familyId == null) return;
-    final prefs = await SharedPreferences.getInstance();
-    final key = '$_taskFoldersKeyPrefix$familyId';
-    await prefs.setString(key, jsonEncode(_customFolderNames));
-  }
-
-  Future<void> _showCreateFolderDialog() async {
+  Future<void> _showCreateFolderDialog(AppProvider provider) async {
+    final fam = provider.currentFamily;
+    if (fam == null) return;
     final nameCtrl = TextEditingController();
     final created = await showDialog<bool>(
       context: context,
@@ -119,19 +130,22 @@ class _TasksScreenState extends State<TasksScreen> {
     if (created != true || !mounted) return;
     final name = nameCtrl.text.trim();
     if (name.isEmpty) return;
-    final exists = _allFolderNames.any((f) => f.toLowerCase() == name.toLowerCase());
+    final folders = _allFolderNames(fam);
+    final exists = folders.any((f) => f.toLowerCase() == name.toLowerCase());
     if (exists) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('A folder named "$name" already exists'), behavior: SnackBarBehavior.floating),
       );
       return;
     }
-    setState(() => _customFolderNames = [..._customFolderNames, name]..sort());
-    await _saveCustomFolders();
+    final next = fam.withTaskCustomFolders([...fam.taskCustomFolderNames, name]);
+    provider.updateFamily(next);
+    await provider.saveAndSync(provider.db);
   }
 
   @override
   void dispose() {
+    _searchDebounce.dispose();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -289,9 +303,11 @@ class _TasksScreenState extends State<TasksScreen> {
     return Consumer<AppProvider>(
       builder: (context, provider, _) {
         final tasks = _filteredTasks(provider);
-        final familyId = provider.activeFamily?.id;
+        final family = provider.currentFamily;
+        final familyId = family?.id;
         final userId = provider.activeUser?.id;
         final members = provider.familyMembers;
+        final folderNames = family == null ? _folderNames : _allFolderNames(family);
 
         // Counts for filters
         final allTasks = provider.db.tasks.where((t) => t.familyId == familyId && !t.completed).toList();
@@ -317,28 +333,7 @@ class _TasksScreenState extends State<TasksScreen> {
 
         return Scaffold(
           drawer: const AppDrawer(),
-          // backgroundColor handled by theme
-          appBar: AppBar(
-            backgroundColor: Colors.white,
-            elevation: 0,
-            scrolledUnderElevation: 0,
-            leading: Builder(
-              builder: (context) => IconButton(
-                icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
-                onPressed: () => Scaffold.of(context).openDrawer(),
-              ),
-            ),
-            title: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
-                const SizedBox(width: 6),
-                const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
-              ],
-            ),
-            centerTitle: false,
-            titleSpacing: 0,
-          ),
+          appBar: const FamilyHubAppBar(),
           body: ListView(
             padding: EdgeInsets.zero,
             children: [
@@ -473,7 +468,12 @@ class _TasksScreenState extends State<TasksScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: TextField(
                   controller: _searchCtrl,
-                  onChanged: (v) => setState(() => _searchQuery = v),
+                  onChanged: (v) {
+                    _searchDebounce.run(() {
+                      if (!mounted) return;
+                      setState(() => _searchQuery = v);
+                    });
+                  },
                   decoration: InputDecoration(
                     hintText: 'Search tasks...',
                     hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
@@ -482,6 +482,7 @@ class _TasksScreenState extends State<TasksScreen> {
                         ? IconButton(
                             icon: const Icon(Icons.close_rounded, size: 18),
                             onPressed: () {
+                              _searchDebounce.cancel();
                               _searchCtrl.clear();
                               setState(() => _searchQuery = '');
                             },
@@ -545,7 +546,7 @@ class _TasksScreenState extends State<TasksScreen> {
                         isSelected: _selectedFolder == null,
                         onTap: () => setState(() { _selectedFolder = null; _selectedMemberId = null; }),
                       ),
-                      for (final folder in _allFolderNames) ...[
+                      for (final folder in folderNames) ...[
                         const Divider(height: 1),
                         _buildFolderItem(
                           folder,
@@ -557,7 +558,7 @@ class _TasksScreenState extends State<TasksScreen> {
                       ],
                       const Divider(height: 1),
                       InkWell(
-                        onTap: _showCreateFolderDialog,
+                        onTap: () => _showCreateFolderDialog(provider),
                         child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                           child: Row(
@@ -1213,11 +1214,6 @@ class _TaskCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final assignees = task.assigneeIds
-        .map((id) => provider.userById(id))
-        .whereType<User>()
-        .toList();
-
     return Dismissible(
       key: Key(task.id),
       background: Container(
@@ -1380,17 +1376,24 @@ class _TaskCard extends StatelessWidget {
                   ),
                 ),
                 // Assignee avatars
-                if (assignees.isNotEmpty && !task.completed) ...[
+                if (task.assigneeIds.isNotEmpty && !task.completed) ...[
                   const SizedBox(width: 8),
                   SizedBox(
-                    width: assignees.length == 1 ? 28 : 28 + (assignees.length - 1) * 16.0,
+                    width: task.assigneeIds.length == 1
+                        ? 28
+                        : 28 + (task.assigneeIds.length - 1) * 16.0,
                     height: 28,
                     child: Stack(
                       children: [
-                        for (int i = 0; i < assignees.length; i++)
+                        for (int i = 0; i < task.assigneeIds.length; i++)
                           Positioned(
                             left: i * 16.0,
-                            child: AvatarInitials(name: assignees[i].name, size: 28),
+                            child: AvatarInitials(
+                              name: provider.displayNameForUserId(
+                                task.assigneeIds[i],
+                              ),
+                              size: 28,
+                            ),
                           ),
                       ],
                     ),
@@ -1662,7 +1665,8 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
         // Notify family about new shared task
         try {
           if (_assigneeIds.length > 1 || (_assigneeIds.isNotEmpty && _assigneeIds.first != userId)) {
-            NotificationService.notifyFamilyActivity(
+            NotificationService.notifyFamilyActivityWithDb(
+              provider.db,
               title: 'New Task Assigned',
               body: '${provider.activeUser?.name ?? 'Someone'} created: ${savedTask.title}',
               path: '/tasks',

@@ -1,6 +1,7 @@
 // lib/screens/subscription/subscription_screen.dart
 // Subscription plans & pricing screen for FamilyHub
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -9,6 +10,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../services/purchase_service.dart';
+import '../../utils/ai_family_household.dart';
 
 // ─── Currency pricing data ──────────────────────────────────────────────────
 
@@ -60,6 +63,8 @@ class SubscriptionScreen extends StatefulWidget {
 class _SubscriptionScreenState extends State<SubscriptionScreen> {
   bool _yearly = true;
   String _currency = 'AUD';
+  bool _restoreBusy = false;
+  SubscriptionTier? _purchasingTier;
 
   @override
   void initState() {
@@ -102,14 +107,58 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         final isTrialExpired = family.isTrialExpired;
         final isOnTrial = currentTier == SubscriptionTier.trial;
 
+        final fm = provider.db.familyMembers
+            .where((m) => m.familyId == family.id);
+        final declaredAdults = countDeclaredAdults(fm);
+        final declaredUnder16 = countDeclaredUnder16(fm);
+        final householdOverAiFamily =
+            aiFamilyHouseholdOverDeclaredLimits(
+          adultCount: declaredAdults,
+          under16Count: declaredUnder16,
+        );
+
+        final cs = Theme.of(context).colorScheme;
         return Scaffold(
-          // backgroundColor handled by theme
           appBar: AppBar(
-            backgroundColor: AppTheme.surface,
+            backgroundColor: cs.surface,
+            foregroundColor: cs.onSurface,
             elevation: 0,
             scrolledUnderElevation: 0,
-            title: const Text('Choose Your Plan', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.stone900)),
+            title: Text(
+              'Choose Your Plan',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontWeight: FontWeight.w800,
+                fontSize: 18,
+                color: cs.onSurface,
+              ),
+            ),
             centerTitle: true,
+            actions: [
+              if (!kIsWeb && PurchaseService.isConfigured)
+                TextButton(
+                  onPressed: (_restoreBusy || _purchasingTier != null)
+                      ? null
+                      : _restorePurchases,
+                  child: _restoreBusy
+                      ? SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: cs.primary,
+                          ),
+                        )
+                      : Text(
+                          'Restore',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontWeight: FontWeight.w700,
+                            color: cs.primary,
+                          ),
+                        ),
+                ),
+            ],
           ),
           body: ListView(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
@@ -208,7 +257,6 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 yearlyPrice: _prices.aiYearly,
                 color: const Color(0xFF8B5CF6),
                 icon: Icons.auto_awesome_rounded,
-                popular: true,
                 features: [
                   'Everything in Base, plus:',
                   'AI meal plan generation',
@@ -230,15 +278,100 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 yearlyPrice: _prices.aiFamilyYearly,
                 color: const Color(0xFF16A34A),
                 icon: Icons.family_restroom_rounded,
+                popular: true,
                 features: [
                   'Everything in AI, plus:',
-                  'Covers 2 adults + 4 children',
+                  'Designed for up to 2 adult accounts + 4 under-16',
                   'Family member dashboards',
                   'Kids mode with parental controls',
                   'Shared AI suggestions per member',
                   'Family activity insights',
                   'Premium support',
                 ],
+              ),
+              const SizedBox(height: 16),
+
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: householdOverAiFamily
+                      ? const Color(0xFFFFF7ED)
+                      : AppTheme.stone50,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: householdOverAiFamily
+                        ? const Color(0xFFFDBA74)
+                        : AppTheme.stone200,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          householdOverAiFamily
+                              ? Icons.info_outline_rounded
+                              : Icons.groups_rounded,
+                          size: 20,
+                          color: householdOverAiFamily
+                              ? const Color(0xFFEA580C)
+                              : AppTheme.stone600,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'AI Family household',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontWeight: FontWeight.w800,
+                              fontSize: 14,
+                              color: householdOverAiFamily
+                                  ? const Color(0xFF9A3412)
+                                  : AppTheme.stone800,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'In Settings → Manage members, each profile can tick “This person is under 16” (or a parent can tick it for a child). That keeps pricing aligned with “2 adults + 4 children” without collecting IDs — misrepresenting ages can breach store rules and your terms.',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 12,
+                        height: 1.35,
+                        color: householdOverAiFamily
+                            ? const Color(0xFF9A3412)
+                            : AppTheme.stone600,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      'This home: $declaredAdults adult${declaredAdults == 1 ? '' : 's'} declared, $declaredUnder16 under 16 declared (limit 2 + 4).',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                        color: AppTheme.stone700,
+                      ),
+                    ),
+                    if (householdOverAiFamily) ...[
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Your declared household is above the AI Family size — add individual AI seats or adjust declarations so billing matches your real household.',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 12,
+                          height: 1.35,
+                          color: Color(0xFF9A3412),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
               const SizedBox(height: 24),
 
@@ -434,7 +567,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: isCurrentPlan ? null : () => _handleSubscribe(tier),
+                    onPressed: isCurrentPlan ||
+                            _restoreBusy ||
+                            _purchasingTier != null
+                        ? null
+                        : () => _handleSubscribe(tier),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: isCurrentPlan ? AppTheme.stone200 : color,
                       foregroundColor: isCurrentPlan ? AppTheme.stone500 : Colors.white,
@@ -443,7 +580,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       textStyle: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15),
                     ),
-                    child: Text(isCurrentPlan ? 'Current Plan' : 'Subscribe'),
+                    child: _purchasingTier == tier && !isCurrentPlan
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : Text(isCurrentPlan ? 'Current Plan' : 'Subscribe'),
                   ),
                 ),
               ],
@@ -454,25 +597,109 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     );
   }
 
-  void _handleSubscribe(SubscriptionTier tier) {
+  Future<void> _restorePurchases() async {
+    if (!PurchaseService.isConfigured) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Add RevenueCat API keys at build time to enable purchases.')),
+      );
+      return;
+    }
+    setState(() => _restoreBusy = true);
+    final result = await PurchaseService.restorePurchases();
+    if (!mounted) return;
+    setState(() => _restoreBusy = false);
+    if (result.success) {
+      final app = context.read<AppProvider>();
+      await app.refreshStoreSubscription();
+      await app.refreshFromCloud();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Purchases restored. Syncing your account…')),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result.message ?? 'Restore failed.')),
+      );
+    }
+  }
+
+  Future<void> _handleSubscribe(SubscriptionTier tier) async {
     HapticFeedback.mediumImpact();
-    // TODO: Integrate with RevenueCat / in-app purchase flow
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Coming Soon', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800)),
-        content: const Text(
-          'In-app subscriptions will be available once the app is published to the App Store and Google Play. Stay tuned!',
-          style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone600),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Got it', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700)),
+    if (!PurchaseService.isConfigured) {
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('Store not configured', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800)),
+          content: const Text(
+            'Build the app with RevenueCat keys (RC_IOS_KEY / RC_ANDROID_KEY) and configure products in the RevenueCat dashboard. See docs/REVENUECAT.md.',
+            style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone600),
           ),
-        ],
-      ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('OK', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700)),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    setState(() => _purchasingTier = tier);
+    final pkg = await PurchaseService.packageForPlan(tier: tier, yearly: _yearly);
+    if (pkg == null) {
+      if (!mounted) return;
+      setState(() => _purchasingTier = null);
+      final wanted = PurchaseService.packageIdentifierCandidates(tier, _yearly);
+      final have = await PurchaseService.currentOfferingPackageIdentifiers();
+      final hint = have.isEmpty
+          ? 'The app did not receive any packages from RevenueCat. In the dashboard: Product catalog → Offerings → set an offering as **Current**, add packages with the ids below, and attach your App Store / Play products to each package.'
+          : 'Packages on the **current** offering right now: ${have.join(', ')}. The app looks for: ${wanted.join(' or ')}.';
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('Products unavailable', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800)),
+          content: SingleChildScrollView(
+            child: Text(
+              '$hint\n\n'
+              'Yearly plans use package id **annual** or **yearly** (both are accepted). See docs/REVENUECAT.md.',
+              style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone600, height: 1.35),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('OK', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700)),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final outcome = await PurchaseService.purchasePackage(pkg);
+    if (!mounted) return;
+    setState(() => _purchasingTier = null);
+
+    if (outcome.userCancelled) return;
+    if (!outcome.success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(outcome.message ?? 'Purchase failed.')),
+      );
+      return;
+    }
+
+    final app = context.read<AppProvider>();
+    await app.refreshStoreSubscription();
+    await app.refreshFromCloud();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Thank you! Your subscription is processing — sync complete.')),
     );
   }
 }

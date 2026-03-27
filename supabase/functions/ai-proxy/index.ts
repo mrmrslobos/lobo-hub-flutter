@@ -42,9 +42,32 @@ const FEATURE_TIER_MAP: Record<string, 'core' | 'ai'> = {
 
 const TIER_RANK: Record<string, number> = { free: 0, core: 1, ai: 2 };
 
-function tierAllows(familyTier: string | undefined, requiredTier: 'core' | 'ai'): boolean {
-  // undefined defaults to 'ai' during beta
-  const rank = TIER_RANK[familyTier ?? 'ai'] ?? 2;
+const TRIAL_MS = 14 * 24 * 60 * 60 * 1000;
+
+/** Matches Flutter [Family.hasAIAccess] / [Family.effectiveTrialStart]. */
+function effectiveAiRank(
+  subscriptionTier: string | undefined,
+  trialStartIso: string | null | undefined,
+  createdAtIso: string | null | undefined,
+): number {
+  const tier = (subscriptionTier ?? 'trial').toLowerCase();
+  if (tier === 'ai' || tier === 'ai_family') return TIER_RANK.ai;
+  if (tier === 'base') return TIER_RANK.core;
+  // subscription_tier === trial (or unknown): 14-day full access then core-only
+  const startRaw = trialStartIso && trialStartIso.length > 0 ? trialStartIso : createdAtIso;
+  const start = startRaw ? Date.parse(startRaw) : Date.now();
+  if (Number.isNaN(start)) return TIER_RANK.ai;
+  const expired = Date.now() - start >= TRIAL_MS;
+  return expired ? TIER_RANK.core : TIER_RANK.ai;
+}
+
+function tierAllows(
+  subscriptionTier: string | undefined,
+  trialStartIso: string | null | undefined,
+  createdAtIso: string | null | undefined,
+  requiredTier: 'core' | 'ai',
+): boolean {
+  const rank = effectiveAiRank(subscriptionTier, trialStartIso, createdAtIso);
   return rank >= TIER_RANK[requiredTier];
 }
 
@@ -77,7 +100,7 @@ Deno.serve(async (req) => {
 
     const { data: family, error: familyError } = await supabase
       .from('families')
-      .select('subscription_tier')
+      .select('subscription_tier, trial_start_date, created_at')
       .eq('id', familyId)
       .single();
 
@@ -87,7 +110,15 @@ Deno.serve(async (req) => {
     }
 
     const requiredTier = FEATURE_TIER_MAP[feature];
-    if (requiredTier && !tierAllows(family?.subscription_tier, requiredTier)) {
+    if (
+      requiredTier &&
+      !tierAllows(
+        family?.subscription_tier as string | undefined,
+        family?.trial_start_date as string | null | undefined,
+        family?.created_at as string | null | undefined,
+        requiredTier,
+      )
+    ) {
       return new Response(JSON.stringify({ error: 'subscription_required', tier: requiredTier }), {
         status: 402,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -111,11 +142,18 @@ Deno.serve(async (req) => {
       const reqBody: Record<string, unknown> = {
         contents: [{ parts: [{ text: prompt }] }],
       };
+      const genConfig: Record<string, unknown> = {};
       if (responseMimeType) {
-        reqBody.generationConfig = {
-          responseMimeType,
-          ...(responseSchema ? { responseSchema } : {}),
-        };
+        genConfig.responseMimeType = responseMimeType;
+        if (responseSchema) genConfig.responseSchema = responseSchema;
+      }
+      // Devotionals were repeating with default sampling; nudge variety for this feature only.
+      if (feature === 'ai_devotional') {
+        genConfig.temperature = 1.12;
+        genConfig.topP = 0.92;
+      }
+      if (Object.keys(genConfig).length > 0) {
+        reqBody.generationConfig = genConfig;
       }
 
       // Gemini 2.5+ models return "thinking" parts by default which can

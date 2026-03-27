@@ -16,6 +16,12 @@ import '../../services/ai_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/subscription_modal.dart';
+import '../../utils/debounce.dart';
+import '../../utils/budget_envelope.dart' show
+    effectiveCapForMonth,
+    limitPeriodLabel,
+    rolloverIntoMonth,
+    weekBucketRowsForCategory;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -42,6 +48,8 @@ class _BudgetScreenState extends State<BudgetScreen> {
   _BudgetFilter _filter = _BudgetFilter.all;
   final _currencyFmt = NumberFormat.currency(symbol: '\$', decimalDigits: 2);
   late DateTime _selectedMonth;
+  final _searchCtrl = TextEditingController();
+  final _searchDebounce = Debouncer();
   String _searchQuery = '';
   bool _showAllTransactions = false;
 
@@ -50,6 +58,13 @@ class _BudgetScreenState extends State<BudgetScreen> {
     super.initState();
     final now = DateTime.now();
     _selectedMonth = DateTime(now.year, now.month);
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce.dispose();
+    _searchCtrl.dispose();
+    super.dispose();
   }
 
   String _formatCurrency(double amount) => '\$${amount.toStringAsFixed(2)}';
@@ -188,6 +203,58 @@ class _BudgetScreenState extends State<BudgetScreen> {
     );
   }
 
+  void _showDebtTrackerSheet(Family family) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _DebtTrackerSheet(familyId: family.id),
+    );
+  }
+
+  void _showFoodBudgetSheet(Family family) {
+    final ctrl = TextEditingController(
+      text: (family.settings['foodBudgetMonthly'] as num?)?.toString() ?? '',
+    );
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Food budget (monthly)', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800)),
+        content: TextField(
+          controller: ctrl,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(
+            labelText: 'Cap for food category',
+            hintText: 'e.g. 600',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () async {
+              final v = double.tryParse(ctrl.text.trim());
+              final provider = context.read<AppProvider>();
+              final db = provider.db;
+              final nextSettings = Map<String, dynamic>.from(family.settings);
+              if (v == null || v <= 0) {
+                nextSettings.remove('foodBudgetMonthly');
+              } else {
+                nextSettings['foodBudgetMonthly'] = v;
+              }
+              final next = family.copyWith(settings: nextSettings);
+              await provider.saveAndSync(db.copyWith(
+                families: db.families.map((f) => f.id == family.id ? next : f).toList(),
+              ));
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showEditEntry(BudgetEntry entry) {
     showModalBottomSheet(
       context: context,
@@ -221,6 +288,8 @@ class _BudgetScreenState extends State<BudgetScreen> {
     required double totalIncome,
     required double totalExpenses,
     required String familyName,
+    required DateTime reportMonth,
+    required List<BudgetEntry> monthExpenseEntries,
   }) {
     showModalBottomSheet(
       context: context,
@@ -270,6 +339,8 @@ class _BudgetScreenState extends State<BudgetScreen> {
                     totalIncome: totalIncome,
                     totalExpenses: totalExpenses,
                     familyName: familyName,
+                    reportMonth: reportMonth,
+                    monthExpenseEntries: monthExpenseEntries,
                   );
                 },
               ),
@@ -288,6 +359,8 @@ class _BudgetScreenState extends State<BudgetScreen> {
                     totalIncome: totalIncome,
                     totalExpenses: totalExpenses,
                     familyName: familyName,
+                    reportMonth: reportMonth,
+                    monthExpenseEntries: monthExpenseEntries,
                   );
                 },
               ),
@@ -321,6 +394,8 @@ class _BudgetScreenState extends State<BudgetScreen> {
     required double totalIncome,
     required double totalExpenses,
     required String familyName,
+    required DateTime reportMonth,
+    required List<BudgetEntry> monthExpenseEntries,
   }) {
     final net = totalIncome - totalExpenses;
     final sorted = List<BudgetEntry>.from(entries)
@@ -354,6 +429,22 @@ class _BudgetScreenState extends State<BudgetScreen> {
       buf.writeln('');
     }
 
+    buf.writeln('BUDGET TARGETS (${DateFormat('MMMM yyyy').format(reportMonth)})');
+    for (final c in categories) {
+      if (c.limit <= 0) continue;
+      final spent = monthExpenseEntries
+          .where((e) => e.category.name == c.name)
+          .fold<double>(0, (s, e) => s + e.amount);
+      final cap = effectiveCapForMonth(c, entries, reportMonth);
+      final roll = rolloverIntoMonth(c, entries, reportMonth);
+      buf.writeln(
+        '  ${c.name}: ${limitPeriodLabel(c.limitPeriod)} limit \$${c.limit.toStringAsFixed(2)}'
+        '${c.rolloverEnabled ? ' · rollover in \$${roll.toStringAsFixed(2)}' : ''}'
+        ' · cap \$${cap.toStringAsFixed(2)} · spent \$${spent.toStringAsFixed(2)}',
+      );
+    }
+    buf.writeln('');
+
     // Transactions list
     buf.writeln('TRANSACTIONS (${sorted.length})');
     for (final e in sorted) {
@@ -372,15 +463,13 @@ class _BudgetScreenState extends State<BudgetScreen> {
     required double totalIncome,
     required double totalExpenses,
     required String familyName,
+    required DateTime reportMonth,
+    required List<BudgetEntry> monthExpenseEntries,
   }) {
     final net = totalIncome - totalExpenses;
     final byCategory = <String, double>{};
     for (final e in entries.where((e) => !e.isIncome)) {
       byCategory[e.category.name] = (byCategory[e.category.name] ?? 0) + e.amount;
-    }
-    final catLimits = <String, double>{};
-    for (final c in categories) {
-      catLimits[c.name] = c.limit;
     }
 
     showDialog(
@@ -412,16 +501,33 @@ class _BudgetScreenState extends State<BudgetScreen> {
               const Text('BUDGET CATEGORIES', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 11, letterSpacing: 1.0, color: AppTheme.stone400)),
               const SizedBox(height: 8),
               ...byCategory.entries.map((e) {
-                final limit = catLimits[e.key] ?? 0;
-                final pct = limit > 0 ? (e.value / limit * 100).toStringAsFixed(0) : '—';
+                BudgetCategoryRecord? rec;
+                for (final c in categories) {
+                  if (c.name == e.key) {
+                    rec = c;
+                    break;
+                  }
+                }
+                final cap = rec != null && rec.limit > 0
+                    ? effectiveCapForMonth(rec, entries, reportMonth)
+                    : 0.0;
+                final pct = cap > 0 ? (e.value / cap * 100).toStringAsFixed(0) : '—';
+                final limLabel = rec == null
+                    ? '—'
+                    : '${limitPeriodLabel(rec.limitPeriod)} ${_formatCurrency(rec.limit)}';
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: Row(children: [
-                    Expanded(flex: 3, child: Text(e.key, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13))),
-                    Expanded(flex: 2, child: Text('Limit: ${_formatCurrency(limit)}', style: const TextStyle(fontSize: 12, color: AppTheme.stone500))),
-                    Expanded(flex: 2, child: Text('Spent: ${_formatCurrency(e.value)}', style: const TextStyle(fontSize: 12, color: AppTheme.stone700, fontWeight: FontWeight.w600))),
-                    SizedBox(width: 50, child: Text('$pct%', textAlign: TextAlign.right, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.primary))),
-                  ]),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(e.key, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13)),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Limit $limLabel · Cap ${cap > 0 ? _formatCurrency(cap) : '—'} · Spent ${_formatCurrency(e.value)} · $pct%',
+                        style: const TextStyle(fontSize: 11, color: AppTheme.stone500),
+                      ),
+                    ],
+                  ),
                 );
               }),
               const SizedBox(height: 24),
@@ -634,6 +740,8 @@ class _BudgetScreenState extends State<BudgetScreen> {
                   totalIncome: totalIncome,
                   totalExpenses: totalExpenses,
                   familyName: family.name as String? ?? 'My Family',
+                  reportMonth: _selectedMonth,
+                  monthExpenseEntries: monthEntries.where((e) => !e.isIncome).toList(),
                 ),
                 backgroundColor: AppTheme.stone100,
                 foregroundColor: AppTheme.stone700,
@@ -651,6 +759,20 @@ class _BudgetScreenState extends State<BudgetScreen> {
                 label: 'Add Transaction',
                 onTap: _showAddSheet,
                 isPrimary: true,
+              ),
+              ActionChipButton(
+                icon: Icons.credit_card_rounded,
+                label: 'Debts',
+                onTap: () => _showDebtTrackerSheet(family),
+                backgroundColor: AppTheme.stone100,
+                foregroundColor: AppTheme.stone700,
+              ),
+              ActionChipButton(
+                icon: Icons.restaurant_rounded,
+                label: 'Food cap',
+                onTap: () => _showFoodBudgetSheet(family),
+                backgroundColor: AppTheme.stone100,
+                foregroundColor: AppTheme.stone700,
               ),
             ],
           ),
@@ -694,14 +816,30 @@ class _BudgetScreenState extends State<BudgetScreen> {
           // ─── Search ─────────────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: TextField(
-              onChanged: (v) => setState(() => _searchQuery = v),
+            child: Semantics(
+              label: 'Search transactions',
+              textField: true,
+              child: TextField(
+              controller: _searchCtrl,
+              onChanged: (v) {
+                _searchDebounce.run(() {
+                  if (!mounted) return;
+                  setState(() => _searchQuery = v);
+                });
+              },
               decoration: InputDecoration(
                 hintText: 'Search transactions...',
                 hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
                 prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
                 suffixIcon: _searchQuery.isNotEmpty
-                    ? IconButton(icon: const Icon(Icons.close_rounded, size: 18), onPressed: () => setState(() => _searchQuery = ''))
+                    ? IconButton(
+                        icon: const Icon(Icons.close_rounded, size: 18),
+                        onPressed: () {
+                          _searchDebounce.cancel();
+                          _searchCtrl.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                      )
                     : null,
                 filled: true,
                 fillColor: Colors.white,
@@ -710,6 +848,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
                 enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
                 focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primary)),
               ),
+            ),
             ),
           ),
           const SizedBox(height: 16),
@@ -741,6 +880,56 @@ class _BudgetScreenState extends State<BudgetScreen> {
             ]),
           ),
 
+          Builder(builder: (ctx) {
+            final cap = (family.settings['foodBudgetMonthly'] as num?)?.toDouble();
+            final foodSpent = monthEntries
+                .where((e) => !e.isIncome && e.category == BudgetCategory.food)
+                .fold<double>(0, (s, e) => s + e.amount);
+            if (cap == null || cap <= 0) return const SizedBox.shrink();
+            final frac = (foodSpent / cap).clamp(0.0, 1.5);
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+              child: SectionCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.restaurant_rounded, size: 18, color: AppTheme.stone600),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text(
+                            'Food spending vs cap',
+                            style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 14),
+                          ),
+                        ),
+                        Text(
+                          '\$${foodSpent.toStringAsFixed(0)} / \$${cap.toStringAsFixed(0)}',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                            color: foodSpent > cap ? AppTheme.error : AppTheme.stone600,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: LinearProgressIndicator(
+                        value: frac > 1 ? 1 : frac,
+                        minHeight: 8,
+                        backgroundColor: AppTheme.stone100,
+                        color: foodSpent > cap ? AppTheme.error : AppTheme.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+
           const SizedBox(height: 16),
 
           // ─── Filter Chips ───────────────────────────────────────────────
@@ -756,12 +945,14 @@ class _BudgetScreenState extends State<BudgetScreen> {
           ),
 
           // ─── Monthly Targets ───────────────────────────────────────────
-          Padding(
+          Semantics(
+            header: true,
+            child: Padding(
             padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
             child: Row(
               children: [
                 const Text(
-                  'Monthly Targets',
+                  'Budget targets',
                   style: TextStyle(fontFamily: 'Inter', fontSize: 17, fontWeight: FontWeight.w800, color: AppTheme.stone900),
                 ),
                 const Spacer(),
@@ -774,6 +965,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
                   child: const Text('Manage Categories', style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600)),
                 ),
               ],
+            ),
             ),
           ),
           if (categories.isEmpty)
@@ -788,7 +980,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
                 ),
                 child: const Center(
                   child: Text(
-                    'No categories yet. Add one to set monthly spending targets.',
+                    'No categories yet. Add one to set spending targets (weekly buckets + rollover optional).',
                     style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400),
                     textAlign: TextAlign.center,
                   ),
@@ -804,9 +996,17 @@ class _BudgetScreenState extends State<BudgetScreen> {
                   final spent = monthEntries
                       .where((e) => !e.isIncome && e.category.name == cat.name)
                       .fold<double>(0, (s, e) => s + e.amount);
-                  final pct = cat.limit > 0 ? (spent / cat.limit).clamp(0.0, 1.5) : 0.0;
+                  final cap = cat.limit > 0
+                      ? effectiveCapForMonth(cat, allEntries, _selectedMonth)
+                      : 0.0;
+                  final roll = cat.limit > 0 && cat.rolloverEnabled
+                      ? rolloverIntoMonth(cat, allEntries, _selectedMonth)
+                      : 0.0;
+                  final pct = cap > 0 ? (spent / cap).clamp(0.0, 1.5) : 0.0;
                   final overBudget = pct > 1.0;
                   final catColor = _categoryColor(cat.color ?? cat.name);
+                  final weekRows = weekBucketRowsForCategory(cat, allEntries, _selectedMonth);
+                  final denom = cap > 0 ? cap : cat.limit;
 
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 8),
@@ -825,15 +1025,25 @@ class _BudgetScreenState extends State<BudgetScreen> {
                             const SizedBox(width: 8),
                             Expanded(child: Text(cat.name, style: const TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone800))),
                             Text(
-                              '${_formatCurrency(spent)} / ${_formatCurrency(cat.limit)}',
+                              denom > 0
+                                  ? '${_formatCurrency(spent)} / ${_formatCurrency(denom)}'
+                                  : _formatCurrency(spent),
                               style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: overBudget ? AppTheme.error : AppTheme.stone500),
                             ),
                           ]),
+                          if (cat.limit > 0) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              '${limitPeriodLabel(cat.limitPeriod)} · base ${_formatCurrency(cat.limit)}'
+                              '${cat.rolloverEnabled && roll > 0 ? ' · rollover in ${_formatCurrency(roll)}' : ''}',
+                              style: const TextStyle(fontFamily: 'Inter', fontSize: 10, color: AppTheme.stone400),
+                            ),
+                          ],
                           const SizedBox(height: 8),
                           ClipRRect(
                             borderRadius: BorderRadius.circular(4),
                             child: LinearProgressIndicator(
-                              value: pct.clamp(0.0, 1.0),
+                              value: cap > 0 ? pct.clamp(0.0, 1.0) : 0,
                               minHeight: 6,
                               backgroundColor: AppTheme.stone100,
                               valueColor: AlwaysStoppedAnimation(overBudget ? AppTheme.error : catColor),
@@ -843,10 +1053,22 @@ class _BudgetScreenState extends State<BudgetScreen> {
                           Align(
                             alignment: Alignment.centerRight,
                             child: Text(
-                              cat.limit > 0 ? '${(pct * 100).toStringAsFixed(0)}%' : 'No limit set',
+                              cap > 0 ? '${(pct * 100).toStringAsFixed(0)}% of cap' : 'No limit set',
                               style: TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: overBudget ? AppTheme.error : AppTheme.stone400),
                             ),
                           ),
+                          if (weekRows.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            const Text('Weeks in this month', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.stone500)),
+                            const SizedBox(height: 2),
+                            ...weekRows.map((w) => Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Text(
+                                '${w.label}: spent ${_formatCurrency(w.spent)} / budget ${_formatCurrency(w.budgetWithCarry)} → carry ${_formatCurrency(w.carryToNext)}',
+                                style: const TextStyle(fontFamily: 'Inter', fontSize: 10, color: AppTheme.stone500, height: 1.25),
+                              ),
+                            )),
+                          ],
                         ],
                       ),
                     ),
@@ -880,7 +1102,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
                 title: 'Track every dollar as a family',
                 bullets: const [
                   'Add transactions manually or import a CSV / PDF bank statement',
-                  'Set monthly spending limits per category to stay on budget',
+                  'Set weekly or monthly caps per category, with optional rollover',
                   'The AI coach reviews your spending and suggests where to save',
                   'Switch between months to compare spending trends over time',
                 ],
@@ -2338,6 +2560,170 @@ $text
   }
 }
 
+// ─── Debt tracker (family.settings['debts']) ─────────────────────────────
+
+class _DebtTrackerSheet extends StatefulWidget {
+  final String familyId;
+  const _DebtTrackerSheet({required this.familyId});
+
+  @override
+  State<_DebtTrackerSheet> createState() => _DebtTrackerSheetState();
+}
+
+class _DebtTrackerSheetState extends State<_DebtTrackerSheet> {
+  final _nameCtrl = TextEditingController();
+  final _balCtrl = TextEditingController();
+  final _rateCtrl = TextEditingController(text: '0');
+  final _minCtrl = TextEditingController(text: '0');
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _balCtrl.dispose();
+    _rateCtrl.dispose();
+    _minCtrl.dispose();
+    super.dispose();
+  }
+
+  List<Map<String, dynamic>> _debtsFrom(Family f) {
+    final raw = f.settings['debts'];
+    if (raw is! List) return [];
+    return raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  }
+
+  Future<void> _persist(Family family, List<Map<String, dynamic>> debts) async {
+    final provider = context.read<AppProvider>();
+    final db = provider.db;
+    final next = family.copyWith(
+      settings: {...Map<String, dynamic>.from(family.settings), 'debts': debts},
+    );
+    await provider.saveAndSync(
+      db.copyWith(
+        families: db.families.map((f) => f.id == family.id ? next : f).toList(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.watch<AppProvider>();
+    Family? family;
+    for (final f in provider.db.families) {
+      if (f.id == widget.familyId) {
+        family = f;
+        break;
+      }
+    }
+    if (family == null) return const SizedBox.shrink();
+    final fam = family;
+    final debts = _debtsFrom(fam);
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.75,
+      maxChildSize: 0.95,
+      minChildSize: 0.45,
+      expand: false,
+      builder: (_, sc) => Container(
+        decoration: const BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: ListView(
+          controller: sc,
+          padding: EdgeInsets.fromLTRB(
+            20,
+            12,
+            20,
+            MediaQuery.of(context).viewInsets.bottom + 24,
+          ),
+          children: [
+            const Text(
+              'Debt tracker',
+              style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Manual balances (not bank-linked). Stored with your family.',
+              style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
+            ),
+            const SizedBox(height: 16),
+            ...debts.asMap().entries.map((e) {
+              final i = e.key;
+              final d = e.value;
+              final name = d['name']?.toString() ?? 'Debt';
+              final bal = (d['balance'] as num?)?.toDouble() ?? 0;
+              final rate = (d['aprPercent'] as num?)?.toDouble() ?? 0;
+              final minPay = (d['minPayment'] as num?)?.toDouble() ?? 0;
+              return ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(name, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+                subtitle: Text(
+                  'Balance \$${bal.toStringAsFixed(2)} · APR ${rate.toStringAsFixed(1)}% · Min \$${minPay.toStringAsFixed(2)}/mo',
+                  style: const TextStyle(fontFamily: 'Inter', fontSize: 11),
+                ),
+                trailing: IconButton(
+                  icon: const Icon(Icons.delete_outline_rounded, color: AppTheme.error),
+                  onPressed: () async {
+                    final nextList = List<Map<String, dynamic>>.from(debts)..removeAt(i);
+                    await _persist(fam, nextList);
+                  },
+                ),
+              );
+            }),
+            const Divider(height: 32),
+            const Text('Add debt', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _nameCtrl,
+              decoration: const InputDecoration(labelText: 'Name', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _balCtrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'Balance', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _rateCtrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'APR %', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _minCtrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'Min payment / month', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 12),
+            FilledButton(
+              onPressed: () async {
+                final name = _nameCtrl.text.trim();
+                if (name.isEmpty) return;
+                final bal = double.tryParse(_balCtrl.text.trim()) ?? 0;
+                final rate = double.tryParse(_rateCtrl.text.trim()) ?? 0;
+                final minP = double.tryParse(_minCtrl.text.trim()) ?? 0;
+                final nextList = [...debts, {
+                  'name': name,
+                  'balance': bal,
+                  'aprPercent': rate,
+                  'minPayment': minP,
+                }];
+                await _persist(fam, nextList);
+                _nameCtrl.clear();
+                _balCtrl.clear();
+                _rateCtrl.text = '0';
+                _minCtrl.text = '0';
+              },
+              child: const Text('Add'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ─── Manage Categories Sheet ──────────────────────────────────────────────
 
 class _ManageCategoriesSheet extends StatefulWidget {
@@ -2354,6 +2740,8 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
   String? _editingId;
   bool _isSaving = false;
   Visibility _categoryVisibility = Visibility.FAMILY;
+  bool _rolloverEnabled = false;
+  BudgetLimitPeriod _limitPeriod = BudgetLimitPeriod.monthly;
 
   static const _colorPresets = [
     'amber', 'blue', 'pink', 'emerald', 'purple', 'red', 'cyan',
@@ -2385,6 +2773,8 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
       limit: limit,
       color: _selectedColor,
       visibility: _categoryVisibility,
+      rolloverEnabled: _rolloverEnabled,
+      limitPeriod: _limitPeriod,
     );
     await provider.saveAndSync(db.copyWith(
       budgetCategories: [...db.budgetCategories, cat],
@@ -2410,6 +2800,8 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
       limit: limit,
       color: _selectedColor,
       visibility: _categoryVisibility,
+      rolloverEnabled: _rolloverEnabled,
+      limitPeriod: _limitPeriod,
     );
     await provider.saveAndSync(db.copyWith(
       budgetCategories: db.budgetCategories.map((c) => c.id == cat.id ? updated : c).toList(),
@@ -2449,6 +2841,8 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
       _limitCtrl.text = cat.limit.toStringAsFixed(0);
       _selectedColor = cat.color ?? 'blue';
       _categoryVisibility = cat.visibility;
+      _rolloverEnabled = cat.rolloverEnabled;
+      _limitPeriod = cat.limitPeriod;
     });
   }
 
@@ -2511,7 +2905,30 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
                       TextField(
                         controller: _limitCtrl,
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        decoration: const InputDecoration(labelText: 'Monthly budget limit', prefixIcon: Icon(Icons.attach_money_rounded)),
+                        decoration: const InputDecoration(
+                          labelText: 'Budget limit amount',
+                          helperText: 'Monthly: one cap for the calendar month. Weekly: each week-long bucket in the month (partial weeks prorated).',
+                          prefixIcon: Icon(Icons.attach_money_rounded),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      const Text('Period', style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.stone500)),
+                      const SizedBox(height: 6),
+                      SegmentedButton<BudgetLimitPeriod>(
+                        segments: const [
+                          ButtonSegment(value: BudgetLimitPeriod.monthly, label: Text('Monthly')),
+                          ButtonSegment(value: BudgetLimitPeriod.weekly, label: Text('Weekly')),
+                        ],
+                        selected: {_limitPeriod},
+                        onSelectionChanged: (s) => setState(() => _limitPeriod = s.first),
+                      ),
+                      const SizedBox(height: 10),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Rollover unused budget', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600)),
+                        subtitle: const Text('Carry leftover into the next month or week bucket', style: TextStyle(fontSize: 12)),
+                        value: _rolloverEnabled,
+                        onChanged: (v) => setState(() => _rolloverEnabled = v),
                       ),
                       const SizedBox(height: 12),
                       const Text('Visibility', style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.stone500)),
@@ -2551,7 +2968,14 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
                       Row(children: [
                         if (_editingId != null) ...[
                           TextButton(
-                            onPressed: () => setState(() { _editingId = null; _nameCtrl.clear(); _limitCtrl.clear(); _categoryVisibility = Visibility.FAMILY; }),
+                            onPressed: () => setState(() {
+                              _editingId = null;
+                              _nameCtrl.clear();
+                              _limitCtrl.clear();
+                              _categoryVisibility = Visibility.FAMILY;
+                              _rolloverEnabled = false;
+                              _limitPeriod = BudgetLimitPeriod.monthly;
+                            }),
                             child: const Text('Cancel'),
                           ),
                           const SizedBox(width: 8),
@@ -2599,7 +3023,11 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(cat.name, style: const TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone800)),
-                            Text('\$${cat.limit.toStringAsFixed(0)} / month', style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
+                            Text(
+                              '\$${cat.limit.toStringAsFixed(0)} · ${limitPeriodLabel(cat.limitPeriod)}'
+                              '${cat.rolloverEnabled ? ' · rollover' : ''}',
+                              style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400),
+                            ),
                           ],
                         )),
                         IconButton(

@@ -7,6 +7,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
+import '../models/models.dart' hide Priority;
+
 /// Simple time-of-day container (replaces the removed flutter_local_notifications Time class).
 class Time {
   final int hour;
@@ -320,6 +322,18 @@ class NotificationService {
     await _plugin.cancel(notifId);
   }
 
+  /// True when local time is inside [quietHoursStart]–[quietHoursEnd] (half-open).
+  /// Supports windows that cross midnight (e.g. 22 → 7).
+  static bool inQuietHours(int? quietHoursStart, int? quietHoursEnd) {
+    if (quietHoursStart == null || quietHoursEnd == null) return false;
+    final h = DateTime.now().hour;
+    if (quietHoursStart == quietHoursEnd) return false;
+    if (quietHoursStart < quietHoursEnd) {
+      return h >= quietHoursStart && h < quietHoursEnd;
+    }
+    return h >= quietHoursStart || h < quietHoursEnd;
+  }
+
   /// Notify other family members about an activity (not the actor).
   /// Sends a push notification via the Supabase edge function to all
   /// other devices in the family, excluding the current user.
@@ -329,7 +343,13 @@ class NotificationService {
     String? familyId,
     String? excludeUserId,
     String? path,
+    int? quietHoursStart,
+    int? quietHoursEnd,
   }) async {
+    if (inQuietHours(quietHoursStart, quietHoursEnd)) {
+      debugPrint('[NotificationService] Skipping push (quiet hours)');
+      return;
+    }
     // Send push notification to other family members via edge function
     try {
       if (familyId != null && excludeUserId != null) {
@@ -348,6 +368,58 @@ class NotificationService {
     } catch (e) {
       debugPrint('[NotificationService] notifyFamilyActivity push error: $e');
     }
+  }
+
+  /// Whether family push is enabled for this [path] (e.g. `/tasks`).
+  static bool shouldNotifyForPath(AppDB db, String? path) {
+    NotificationPrefs prefs = const NotificationPrefs();
+    for (final p in db.notificationPrefs) {
+      prefs = p;
+      break;
+    }
+    if (path == null || path.isEmpty) return true;
+    final loc = path.split('?').first;
+    if (loc.startsWith('/chat')) return prefs.chat;
+    if (loc.startsWith('/tasks')) return prefs.tasks;
+    if (loc.startsWith('/calendar')) return prefs.calendar;
+    if (loc.startsWith('/chores')) return prefs.chores;
+    if (loc.startsWith('/lists')) return prefs.lists;
+    if (loc.startsWith('/polls')) return prefs.polls;
+    if (loc.startsWith('/meals')) return prefs.meals;
+    if (loc.startsWith('/birthdays')) return prefs.birthdays;
+    if (loc.startsWith('/photos')) return prefs.photos;
+    if (loc.startsWith('/location')) return prefs.location;
+    return true;
+  }
+
+  /// Like [notifyFamilyActivity] but respects quiet hours from the first
+  /// [AppDB.notificationPrefs] row (device-local).
+  static Future<void> notifyFamilyActivityWithDb(
+    AppDB db, {
+    required String title,
+    required String body,
+    String? familyId,
+    String? excludeUserId,
+    String? path,
+  }) async {
+    if (!shouldNotifyForPath(db, path)) {
+      debugPrint('[NotificationService] Skipping push (module disabled in settings)');
+      return;
+    }
+    var prefs = const NotificationPrefs();
+    for (final p in db.notificationPrefs) {
+      prefs = p;
+      break;
+    }
+    await notifyFamilyActivity(
+      title: title,
+      body: body,
+      familyId: familyId,
+      excludeUserId: excludeUserId,
+      path: path,
+      quietHoursStart: prefs.quietHoursStart,
+      quietHoursEnd: prefs.quietHoursEnd,
+    );
   }
 
   static Future<String?> getFcmToken() async {

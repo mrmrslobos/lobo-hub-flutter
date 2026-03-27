@@ -8,6 +8,7 @@ import '../../app.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../config/theme.dart';
@@ -17,10 +18,11 @@ import '../../services/ai_service.dart';
 import '../../services/database_service.dart';
 import '../../services/notification_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/subscription_modal.dart';
+import '../../utils/debounce.dart';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -32,13 +34,168 @@ void _showSnack(BuildContext context, String msg) {
   ));
 }
 
-/// Extract the reference portion from a combined scripture string.
-/// e.g. "For God so loved...\n— John 3:16" → "John 3:16"
-/// Falls back to the full string if no em-dash separator is found.
-String _extractRef(String scripture) {
-  final idx = scripture.lastIndexOf('\u2014');
-  if (idx >= 0) return scripture.substring(idx + 1).trim();
-  return scripture;
+// Per-user daily devotional (schedule + default privacy). Stored in User.settings.
+const _kUserDailyEnabled = 'daily_devotional_enabled';
+const _kUserDailyHour = 'daily_devotional_hour';
+const _kUserDailyMinute = 'daily_devotional_minute';
+const _kUserDailyPrivate = 'daily_devotional_private_default';
+
+bool _userDailyEnabled(User? u, Family? f) {
+  if (u?.settings.containsKey(_kUserDailyEnabled) == true) {
+    return u!.settings[_kUserDailyEnabled] == true;
+  }
+  return f?.dailyDevotionalEnabled ?? false;
+}
+
+int _userDailyHour(User? u, Family? f) {
+  if (u?.settings[_kUserDailyHour] != null) {
+    return (u!.settings[_kUserDailyHour] as num).toInt();
+  }
+  return f?.dailyDevotionalHour ?? 7;
+}
+
+int _userDailyMinute(User? u, Family? f) {
+  if (u?.settings[_kUserDailyMinute] != null) {
+    return (u!.settings[_kUserDailyMinute] as num).toInt();
+  }
+  return f?.dailyDevotionalMinute ?? 0;
+}
+
+bool _userDailyPrivateDefault(User? u) => u?.settings[_kUserDailyPrivate] == true;
+
+int _userDailyNotificationId(String userId) =>
+    9910000 + (userId.hashCode.abs() % 900000);
+
+String _devotionalShareText(DevotionalEntry e) {
+  final buf = StringBuffer();
+  buf.writeln(e.title);
+  if (e.scripture != null && e.scripture!.trim().isNotEmpty) {
+    buf.writeln();
+    buf.writeln(e.scripture);
+  }
+  if (e.content != null && e.content!.trim().isNotEmpty) {
+    buf.writeln();
+    buf.writeln(e.content);
+  }
+  if (e.prayer != null && e.prayer!.trim().isNotEmpty) {
+    buf.writeln();
+    buf.writeln('Prayer: ${e.prayer}');
+  }
+  buf.writeln();
+  buf.writeln('Shared from FamilyHub');
+  return buf.toString();
+}
+
+bool _canSeeDevotional(DevotionalEntry e, String familyId, String? viewerId) {
+  if (e.familyId != familyId) return false;
+  if (e.visibility != Visibility.PRIVATE) return true;
+  if (viewerId == null || viewerId.isEmpty) return false;
+  return e.creatorId == viewerId;
+}
+
+/// Pull a reference from stored scripture (em/en/hyphen dash lines, or a ref-only line).
+String? _scriptureRefForAvoidList(String? scripture) {
+  if (scripture == null || scripture.trim().isEmpty) return null;
+  final lines = scripture
+      .split(RegExp(r'\r?\n'))
+      .map((l) => l.trim())
+      .where((l) => l.isNotEmpty)
+      .toList();
+  for (var i = lines.length - 1; i >= 0; i--) {
+    final line = lines[i];
+    final dash = RegExp(r'^[\u2014\u2013\-]\s*(.+)$');
+    final m = dash.firstMatch(line);
+    if (m != null) return m.group(1)!.trim();
+    if (line.length <= 120 &&
+        RegExp(r'\d+\s*:\s*\d+').hasMatch(line) &&
+        RegExp(r'[A-Za-z\u00C0-\u024F]').hasMatch(line)) {
+      return line;
+    }
+  }
+  final em = scripture.lastIndexOf('\u2014');
+  if (em >= 0) return scripture.substring(em + 1).trim();
+  final en = scripture.lastIndexOf('\u2013');
+  if (en >= 0) return scripture.substring(en + 1).trim();
+  return null;
+}
+
+/// Extract the reference portion for UI badges (short label when possible).
+String _extractRef(String scripture) =>
+    _scriptureRefForAvoidList(scripture) ?? scripture.trim();
+
+const _kScriptureBucketsDevotional = <String>[
+  'Old Testament narrative or Torah (not used in your avoid-list)',
+  'Wisdom literature — Job, Psalms, Proverbs, or Ecclesiastes',
+  'Major or minor prophets',
+  'The Gospels — life or teaching of Jesus',
+  'Acts and the early church',
+  'Pauline epistles (Romans through Philemon)',
+  'Hebrews, general epistles, or Revelation',
+];
+
+String _dailyScriptureBucket(String familyId, DateTime now) {
+  final dayKey =
+      '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+  var h = 0;
+  for (final cu in '$familyId$dayKey'.codeUnits) {
+    h = (h * 31 + cu) & 0x7fffffff;
+  }
+  return _kScriptureBucketsDevotional[h % _kScriptureBucketsDevotional.length];
+}
+
+/// Recent passages, titles, daily bucket, and a unique nonce so AI output varies run-to-run.
+String _devotionalVarietyBlock(AppDB db, String familyId) {
+  final sorted = db.devotionals
+      .where((e) => e.familyId == familyId)
+      .toList()
+    ..sort((a, b) {
+      final c = b.date.compareTo(a.date);
+      if (c != 0) return c;
+      return b.updatedAt.compareTo(a.updatedAt);
+    });
+
+  final refs = <String>[];
+  final titles = <String>[];
+  final seenR = <String>{};
+  final seenT = <String>{};
+
+  for (final e in sorted) {
+    if (refs.length < 16) {
+      final r = _scriptureRefForAvoidList(e.scripture);
+      if (r != null && r.isNotEmpty && seenR.add(r)) refs.add(r);
+    }
+    if (titles.length < 10) {
+      final t = e.title.trim();
+      if (t.isNotEmpty && t != 'Daily Devotional' && seenT.add(t)) titles.add(t);
+    }
+    if (refs.length >= 16 && titles.length >= 10) break;
+  }
+
+  final bucket = _dailyScriptureBucket(familyId, DateTime.now());
+  final nonce = const Uuid().v4();
+  final ts = DateTime.now().toUtc().toIso8601String();
+
+  final buf = StringBuffer()
+    ..write("\n\nToday's Scripture focus (choose ONE tight passage within this region): $bucket.")
+    ..write(
+      '\nAvoid overused default choices (e.g. John 3:16, Psalm 23, Philippians 4:6-7, Jeremiah 29:11) unless they truly fit and are not excluded below.',
+    );
+  if (refs.isNotEmpty) {
+    buf
+      ..write('\nIMPORTANT: Do NOT use these recently used passages (different book/chapter): ')
+      ..write(refs.join('; '))
+      ..write('.');
+  }
+  if (titles.isNotEmpty) {
+    buf
+      ..write('\nDo NOT reuse or lightly rephrase these recent titles: ')
+      ..write(titles.join('; '))
+      ..write('.');
+  }
+  buf
+    ..write('\nVary tone, metaphors, and structure; avoid boilerplate openings.')
+    ..write('\nUnique generation id (do not echo): $nonce at $ts.');
+  return buf.toString();
 }
 
 // ─── Main Screen ─────────────────────────────────────────────────────────────
@@ -191,9 +348,10 @@ class _DevotionalScreenState extends State<DevotionalScreen>
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
+    final uid = provider.activeUser?.id;
     final entries = provider.db.devotionalEntries
         .where((e) {
-          if (e.familyId != family.id) return false;
+          if (!_canSeeDevotional(e, family.id, uid)) return false;
           if (e.tags.contains('daily-auto-dismissed')) return false;
           // Also hide auto-generated devotionals for locally dismissed dates.
           // This catches new devotionals created by the cron with different IDs.
@@ -239,6 +397,19 @@ class _DevotionalScreenState extends State<DevotionalScreen>
               devotionalEntries: db.devotionalEntries.map((e) => e.id == updated.id ? updated : e).toList(),
             ));
             setState(() => _selectedEntry = updated);
+          },
+          onShare: () => Share.share(_devotionalShareText(_selectedEntry!)),
+          onShareWithFamily: () async {
+            final provider = context.read<AppProvider>();
+            final db = provider.db;
+            final updated = _selectedEntry!.copyWith(visibility: Visibility.FAMILY);
+            await provider.saveAndSync(db.copyWith(
+              devotionalEntries: db.devotionalEntries.map((e) => e.id == updated.id ? updated : e).toList(),
+            ));
+            setState(() => _selectedEntry = updated);
+            if (context.mounted) {
+              _showSnack(context, 'Shared with family');
+            }
           },
         ),
       );
@@ -370,7 +541,9 @@ class _DevotionalsTab extends StatefulWidget {
 
 class _DevotionalsTabState extends State<_DevotionalsTab> {
   final _topicCtrl = TextEditingController();
-  bool _isShared = true;
+  final _searchCtrl = TextEditingController();
+  final _searchDebounce = Debouncer();
+  late bool _isShared;
   bool _isGenerating = false;
   String _searchQuery = '';
   bool _showFavoritesOnly = false;
@@ -379,12 +552,16 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
   @override
   void initState() {
     super.initState();
+    final u = context.read<AppProvider>().activeUser;
+    _isShared = !_userDailyPrivateDefault(u);
     // Check if we need to auto-generate today's daily devotional
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybeGenerateDaily());
   }
 
   @override
   void dispose() {
+    _searchDebounce.dispose();
+    _searchCtrl.dispose();
     _topicCtrl.dispose();
     super.dispose();
   }
@@ -398,7 +575,9 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
     if (!mounted) return;
     final provider = context.read<AppProvider>();
     final family = provider.activeFamily;
-    if (family == null || !family.dailyDevotionalEnabled) return;
+    final user = provider.activeUser;
+    if (family == null || user == null) return;
+    if (!_userDailyEnabled(user, family)) return;
 
     final today = DateTime.now();
     final todayDate = DateTime(today.year, today.month, today.day);
@@ -407,6 +586,7 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
       try {
         return provider.db.devotionalEntries.firstWhere((e) =>
           e.familyId == family.id &&
+          e.creatorId == user.id &&
           e.tags.contains('daily-auto') &&
           DateTime(e.date.year, e.date.month, e.date.day) == todayDate,
         );
@@ -423,12 +603,12 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
       return;
     }
 
-    // Sync with cloud — the server generates devotionals via pg_cron
+    // Sync with cloud — the server may still generate a family-wide daily;
+    // prefer a row created by this user for today.
     try {
       final merged = await DatabaseService.reconcileCloud(provider.db, family.id);
       if (mounted) {
         provider.updateDb(merged);
-        // After sync, auto-open today's devotional if it arrived
         final synced = findTodaysDevotional();
         if (synced != null) {
           if (!widget.skipAutoOpen) widget.onSelectEntry(synced);
@@ -443,7 +623,7 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
     // the server, generate one client-side so the user isn't stuck on
     // "Awaiting..." forever.
     if (!mounted) return;
-    final utcDt = DateTime.utc(2024, 1, 1, family.dailyDevotionalHour, family.dailyDevotionalMinute);
+    final utcDt = DateTime.utc(2024, 1, 1, _userDailyHour(user, family), _userDailyMinute(user, family));
     final localDt = utcDt.toLocal();
     final scheduledToday = DateTime(today.year, today.month, today.day, localDt.hour, localDt.minute);
     if (today.isBefore(scheduledToday)) return; // not yet time
@@ -458,12 +638,22 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
     setState(() => _isGenerating = true);
     try {
       final provider = context.read<AppProvider>();
-      const prompt = '''Write a kids-friendly family devotional for today.
-Pick a random Bible verse and build a short, warm devotional around it.
-Return JSON with these exact fields: title, scripture, scriptureRef, content, reflectionPrompts (array of 3 discussion questions), prayer.
+      final variety = _devotionalVarietyBlock(provider.db, familyId);
+      final prompt = '''Write an adult-oriented daily devotional for today.
+Audience: mature adults navigating real life—work stress, relationships, parenting fatigue, grief, temptation, doubt, health, money worries, and ordinary discouragement. Speak with honesty and compassion; do not talk down, use childish language, or rely on simplistic moral tales.
+
+Pick one Bible verse or short passage (within the assigned Scripture region below) and build a focused devotional around it.
+
+Requirements:
+- Be direct where it helps: name common adult struggles without being graphic or sensational.
+- Anchor hope in God's character and in specific promises from Scripture (quote or paraphrase faithfully).
+- Close the main message on an uplifting, faith-filled note—realistic, not trite.
+- Aim for roughly 250–400 words in "content" when possible.
+
+Return JSON with these exact fields: title, scripture, scriptureRef, content, reflectionPrompts (array of 3 personal reflection or journaling prompts for an adult), prayer.
 For "scripture", write out the FULL verse text (e.g. "For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.").
 For "scriptureRef", provide only the reference (e.g. "John 3:16").
-Make the content warm, relatable, and suitable for children.''';
+For "prayer", write a sincere, adult-voiced prayer that names real tension and rests on God's promises.$variety''';
 
       final raw = await AiService.ask(
         prompt: prompt,
@@ -474,6 +664,9 @@ Make the content warm, relatable, and suitable for children.''';
 
       if (raw != null && mounted) {
         provider.saveAiHistory(module: 'devotional', prompt: 'Auto-generate daily devotional', response: raw);
+        final vis = _userDailyPrivateDefault(provider.activeUser)
+            ? Visibility.PRIVATE
+            : Visibility.FAMILY;
         try {
           final data = jsonDecode(raw) as Map<String, dynamic>;
           final scriptureRef = data['scriptureRef'] as String?;
@@ -491,7 +684,7 @@ Make the content warm, relatable, and suitable for children.''';
             reflectionPrompts: (data['reflectionPrompts'] as List?)?.cast<String>() ?? [],
             prayer: data['prayer'] as String?,
             date: DateTime.now(),
-            visibility: Visibility.FAMILY,
+            visibility: vis,
             tags: ['daily-auto'],
           );
           final db = provider.db;
@@ -507,7 +700,7 @@ Make the content warm, relatable, and suitable for children.''';
             title: 'Daily Devotional',
             content: raw,
             date: DateTime.now(),
-            visibility: Visibility.FAMILY,
+            visibility: vis,
             tags: ['daily-auto'],
           );
           final db = provider.db;
@@ -530,11 +723,22 @@ Make the content warm, relatable, and suitable for children.''';
     try {
       final topic = _topicCtrl.text.trim().isEmpty ? 'a random Bible verse' : _topicCtrl.text.trim();
       final provider = context.read<AppProvider>();
-      final prompt = '''Write a kids-friendly family devotional based on: $topic.
-Return JSON with these exact fields: title, scripture, scriptureRef, content, reflectionPrompts (array of 3 discussion questions), prayer.
+      final variety = _devotionalVarietyBlock(provider.db, widget.familyId);
+      final prompt = '''Write an adult-oriented daily devotional based on: $topic.
+Audience: mature adults navigating real life—work stress, relationships, parenting fatigue, grief, temptation, doubt, health, money worries, and ordinary discouragement. Speak with honesty and compassion; do not talk down, use childish language, or rely on simplistic moral tales.
+
+Center the passage in the Scripture region below unless the topic requires a specific text.
+
+Requirements:
+- Be direct where it helps: name common adult struggles without being graphic or sensational.
+- Anchor hope in God's character and in specific promises from Scripture (quote or paraphrase faithfully).
+- Close the main message on an uplifting, faith-filled note—realistic, not trite.
+- Aim for roughly 250–400 words in "content" when possible.
+
+Return JSON with these exact fields: title, scripture, scriptureRef, content, reflectionPrompts (array of 3 personal reflection or journaling prompts for an adult), prayer.
 For "scripture", write out the FULL verse text (e.g. "For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.").
 For "scriptureRef", provide only the reference (e.g. "John 3:16").
-Make the content warm, relatable, and suitable for children.''';
+For "prayer", write a sincere, adult-voiced prayer that names real tension and rests on God's promises.$variety''';
 
       final raw = await AiService.ask(
         prompt: prompt,
@@ -609,7 +813,7 @@ Make the content warm, relatable, and suitable for children.''';
             icon: Icons.auto_awesome,
             gradientColors: const [Color(0xFFF59E0B), Color(0xFFF97316)],
             title: 'AI Faith Assistant',
-            hintText: 'e.g. Patience, Hope, Forgiveness...',
+            hintText: 'e.g. Anxiety, burnout, forgiveness, grief...',
             controller: _topicCtrl,
             loading: _isGenerating,
             buttonLabel: 'Generate Now',
@@ -631,6 +835,12 @@ Make the content warm, relatable, and suitable for children.''';
           onTapToday: (entry) => widget.onSelectEntry(entry),
           onGenerateNow: () => _generateDailyFallback(widget.familyId),
           isGenerating: _isGenerating,
+          onUserSettingsChanged: () {
+            final u = context.read<AppProvider>().activeUser;
+            if (mounted) {
+              setState(() => _isShared = !_userDailyPrivateDefault(u));
+            }
+          },
         ),
         const SizedBox(height: 24),
 
@@ -714,13 +924,26 @@ Make the content warm, relatable, and suitable for children.''';
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 20),
                         child: TextField(
-                          onChanged: (v) => setState(() => _searchQuery = v),
+                          controller: _searchCtrl,
+                          onChanged: (v) {
+                            _searchDebounce.run(() {
+                              if (!mounted) return;
+                              setState(() => _searchQuery = v);
+                            });
+                          },
                           decoration: InputDecoration(
                             hintText: 'Search devotionals...',
                             hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
                             prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
                             suffixIcon: _searchQuery.isNotEmpty
-                                ? IconButton(icon: const Icon(Icons.close_rounded, size: 18), onPressed: () => setState(() => _searchQuery = ''))
+                                ? IconButton(
+                                    icon: const Icon(Icons.close_rounded, size: 18),
+                                    onPressed: () {
+                                      _searchDebounce.cancel();
+                                      _searchCtrl.clear();
+                                      setState(() => _searchQuery = '');
+                                    },
+                                  )
                                 : null,
                             filled: true,
                             fillColor: Colors.white,
@@ -949,11 +1172,13 @@ class _ReadingPlansTabState extends State<_ReadingPlansTab> {
     setState(() => _isGenerating = true);
     try {
       final provider = context.read<AppProvider>();
-      final prompt = '''Generate a $_duration-day family Bible reading plan on "$topic".
+      final prompt = '''Generate a $_duration-day adult Bible reading plan on "$topic".
+Each day should speak to grown believers facing daily life: stress, relationships, weariness, sin and repentance, hope, and God's promises—honest and direct, Scripture-centered, uplifting without being shallow.
+
 Return JSON: { "title": string, "description": string, "entries": [{ "day": number, "title": string, "scripture": string, "scriptureRef": string, "content": string, "discussion": string }] }
 For each entry's "scripture", write out the FULL verse text (e.g. "For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.").
 For "scriptureRef", provide only the book/chapter/verse reference (e.g. "John 3:16").
-Make it warm, kid-friendly, and relatable.''';
+For each entry's "discussion" field, provide one substantive personal reflection prompt for an adult (not a children's discussion question).''';
 
       final raw = await AiService.ask(
         prompt: prompt,
@@ -1190,6 +1415,8 @@ class _EntryDetailView extends StatelessWidget {
   final VoidCallback onDelete;
   final Future<void> Function(String) onUpdatePrayer;
   final VoidCallback onToggleFavorite;
+  final VoidCallback onShare;
+  final VoidCallback onShareWithFamily;
 
   const _EntryDetailView({
     required this.entry,
@@ -1197,21 +1424,29 @@ class _EntryDetailView extends StatelessWidget {
     required this.onDelete,
     required this.onUpdatePrayer,
     required this.onToggleFavorite,
+    required this.onShare,
+    required this.onShareWithFamily,
   });
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      // backgroundColor handled by theme
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: cs.surface,
+        foregroundColor: cs.onSurface,
         elevation: 0,
         scrolledUnderElevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: AppTheme.stone700),
+          icon: Icon(Icons.arrow_back_rounded, color: cs.onSurface.withValues(alpha: 0.85)),
           onPressed: onBack,
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.share_rounded, color: AppTheme.stone500),
+            tooltip: 'Share',
+            onPressed: onShare,
+          ),
           IconButton(
             icon: const Icon(Icons.delete_outline_rounded, color: AppTheme.stone400),
             onPressed: () async {
@@ -1239,7 +1474,7 @@ class _EntryDetailView extends StatelessWidget {
             // Scripture badge
             if (entry.scripture != null) ...[
               Text(
-                'KIDS FRIENDLY BASED ON ${_extractRef(entry.scripture!).toUpperCase()}',
+                'SCRIPTURE ROOT — ${_extractRef(entry.scripture!).toUpperCase()}',
                 style: const TextStyle(
                   fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700,
                   color: AppTheme.stone400, letterSpacing: 0.5,
@@ -1299,7 +1534,7 @@ class _EntryDetailView extends StatelessWidget {
                       children: [
                         Icon(Icons.favorite_outline_rounded, size: 16, color: const Color(0xFFEC4899)),
                         const SizedBox(width: 6),
-                        const Text('FAMILY REFLECTION', style: TextStyle(
+                        const Text('PERSONAL REFLECTION', style: TextStyle(
                           fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 11,
                           color: Color(0xFFEC4899), letterSpacing: 0.5,
                         )),
@@ -1439,6 +1674,43 @@ class _EntryDetailView extends StatelessWidget {
                 ),
               ],
             ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onShare,
+                    icon: const Icon(Icons.share_rounded, size: 18),
+                    label: const Text('Share text'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppTheme.primary,
+                      side: const BorderSide(color: Color(0xFFC7D2FE)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+                if (entry.visibility == Visibility.PRIVATE) ...[
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () {
+                        HapticFeedback.lightImpact();
+                        onShareWithFamily();
+                      },
+                      icon: const Icon(Icons.groups_rounded, size: 18),
+                      label: const Text('Share with family'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppTheme.primary,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ],
         ),
       ),
@@ -1523,14 +1795,15 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
     final currentEntry = _currentDay < entries.length ? entries[_currentDay] : null;
     final completedCount = entries.where((e) => e.userPrayer != null && e.userPrayer!.isNotEmpty).length;
 
+    final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      // backgroundColor handled by theme
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: cs.surface,
+        foregroundColor: cs.onSurface,
         elevation: 0,
         scrolledUnderElevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: AppTheme.stone700),
+          icon: Icon(Icons.arrow_back_rounded, color: cs.onSurface.withValues(alpha: 0.85)),
           onPressed: widget.onBack,
         ),
       ),
@@ -1677,7 +1950,7 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
                 const SizedBox(height: 20),
               ],
 
-              // Discussion
+              // Reflection prompts
               if (currentEntry.reflectionPrompts.isNotEmpty)
                 Container(
                   width: double.infinity,
@@ -1690,7 +1963,7 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('FAMILY DISCUSSION', style: TextStyle(
+                      const Text('REFLECT & APPLY', style: TextStyle(
                         fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 11,
                         color: Color(0xFFEA580C), letterSpacing: 0.5,
                       )),
@@ -1767,37 +2040,81 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
 
 // ─── Daily AI Devotional Schedule Card ──────────────────────────────────────
 
-class _DailyDevotionalCard extends StatelessWidget {
+class _DailyDevotionalCard extends StatefulWidget {
   final String familyId;
   final ValueChanged<DevotionalEntry>? onTapToday;
   final VoidCallback? onGenerateNow;
   final bool isGenerating;
+  final VoidCallback? onUserSettingsChanged;
 
-  const _DailyDevotionalCard({required this.familyId, this.onTapToday, this.onGenerateNow, this.isGenerating = false});
+  const _DailyDevotionalCard({
+    required this.familyId,
+    this.onTapToday,
+    this.onGenerateNow,
+    this.isGenerating = false,
+    this.onUserSettingsChanged,
+  });
 
-  static const _notifId = 9901; // stable ID for daily devotional notification
+  @override
+  State<_DailyDevotionalCard> createState() => _DailyDevotionalCardState();
+}
+
+class _DailyDevotionalCardState extends State<_DailyDevotionalCard> {
+  Future<void> _rescheduleUserNotif(AppProvider provider) async {
+    final user = provider.activeUser;
+    final family = provider.activeFamily;
+    if (user == null || family == null) return;
+    final nid = _userDailyNotificationId(user.id);
+    if (!_userDailyEnabled(user, family)) {
+      await NotificationService.cancel(nid);
+      return;
+    }
+    final utcRef = DateTime.utc(
+      2024,
+      1,
+      1,
+      _userDailyHour(user, family),
+      _userDailyMinute(user, family),
+    );
+    final local = utcRef.toLocal();
+    await NotificationService.scheduleDaily(
+      id: nid,
+      title: 'Daily devotional',
+      body: 'Open FamilyHub for today\'s reading.',
+      time: Time(local.hour, local.minute),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
     final family = provider.activeFamily;
-    if (family == null) return const SizedBox.shrink();
+    final user = provider.activeUser;
+    final familyId = widget.familyId;
+    if (family == null || user == null) return const SizedBox.shrink();
 
-    final enabled = family.dailyDevotionalEnabled;
-    // Stored values are UTC; convert to local for display
-    final utcDt = DateTime.utc(2024, 1, 1, family.dailyDevotionalHour, family.dailyDevotionalMinute);
+    final enabled = _userDailyEnabled(user, family);
+    final utcDt = DateTime.utc(
+      2024,
+      1,
+      1,
+      _userDailyHour(user, family),
+      _userDailyMinute(user, family),
+    );
     final localDt = utcDt.toLocal();
     final hour = localDt.hour;
     final minute = localDt.minute;
     final timeOfDay = TimeOfDay(hour: hour, minute: minute);
     final formattedTime = timeOfDay.format(context);
+    final dailyPrivate = _userDailyPrivateDefault(user);
 
-    // Check if today's devotional exists
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final todayEntry = enabled
         ? provider.db.devotionalEntries.cast<DevotionalEntry?>().firstWhere(
-            (e) => e!.familyId == familyId &&
+            (e) =>
+                e!.familyId == familyId &&
+                e.creatorId == user.id &&
                 e.tags.contains('daily-auto') &&
                 DateTime(e.date.year, e.date.month, e.date.day) == today,
             orElse: () => null,
@@ -1823,7 +2140,8 @@ class _DailyDevotionalCard extends StatelessWidget {
             Row(
               children: [
                 Container(
-                  width: 30, height: 30,
+                  width: 30,
+                  height: 30,
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(9),
@@ -1832,15 +2150,21 @@ class _DailyDevotionalCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 const Expanded(
-                  child: Text('Daily AI Devotional', style: TextStyle(
-                    fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white,
-                  )),
+                  child: Text(
+                    'Your daily AI devotional',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
+                      color: Colors.white,
+                    ),
+                  ),
                 ),
                 Transform.scale(
                   scale: 0.85,
                   child: Switch.adaptive(
                     value: enabled,
-                    onChanged: (val) => _toggle(context, val, hour, minute),
+                    onChanged: (val) => _toggleUser(context, val),
                     activeColor: Colors.white,
                     activeTrackColor: Colors.white.withValues(alpha: 0.35),
                     inactiveThumbColor: Colors.white70,
@@ -1852,14 +2176,72 @@ class _DailyDevotionalCard extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               enabled
-                  ? 'A fresh devotional is generated and delivered to your family every day \u2014 even if the app is closed.'
-                  : 'Enable to receive a fresh AI devotional at your chosen time each day.',
+                  ? 'Yours only: time and privacy are saved on your profile. New dailies start private if you choose — share any entry from its screen.'
+                  : 'Turn on for a personal daily reading at the time you pick.',
               style: TextStyle(
-                fontFamily: 'Inter', fontSize: 12, height: 1.4,
-                color: Colors.white.withValues(alpha: 0.8),
+                fontFamily: 'Inter',
+                fontSize: 12,
+                height: 1.4,
+                color: Colors.white.withValues(alpha: 0.85),
               ),
             ),
             if (enabled) ...[
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => _togglePrivateDefault(context, true),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                        decoration: BoxDecoration(
+                          color: dailyPrivate
+                              ? Colors.white
+                              : Colors.white.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+                        ),
+                        child: Text(
+                          'New dailies: Private',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontWeight: FontWeight.w700,
+                            fontSize: 11,
+                            color: dailyPrivate ? const Color(0xFF6366F1) : Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => _togglePrivateDefault(context, false),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                        decoration: BoxDecoration(
+                          color: !dailyPrivate
+                              ? Colors.white
+                              : Colors.white.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+                        ),
+                        child: Text(
+                          'New dailies: Family',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontWeight: FontWeight.w700,
+                            fontSize: 11,
+                            color: !dailyPrivate ? const Color(0xFF6366F1) : Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 12),
               Row(
                 children: [
@@ -1877,9 +2259,15 @@ class _DailyDevotionalCard extends StatelessWidget {
                         children: [
                           const Icon(Icons.access_time_rounded, size: 16, color: Colors.white),
                           const SizedBox(width: 8),
-                          Text(formattedTime, style: const TextStyle(
-                            fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: Colors.white,
-                          )),
+                          Text(
+                            formattedTime,
+                            style: const TextStyle(
+                              fontFamily: 'Inter',
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                              color: Colors.white,
+                            ),
+                          ),
                           const SizedBox(width: 6),
                           Icon(Icons.edit_rounded, size: 14, color: Colors.white.withValues(alpha: 0.7)),
                         ],
@@ -1901,19 +2289,25 @@ class _DailyDevotionalCard extends StatelessWidget {
                   const Spacer(),
                   if (todayEntry != null)
                     GestureDetector(
-                      onTap: () => onTapToday?.call(todayEntry),
+                      onTap: () => widget.onTapToday?.call(todayEntry),
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                         decoration: BoxDecoration(
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: const Text('Read Today\'s', style: TextStyle(
-                          fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF6366F1),
-                        )),
+                        child: const Text(
+                          'Read today\'s',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                            color: Color(0xFF6366F1),
+                          ),
+                        ),
                       ),
                     )
-                  else if (isGenerating)
+                  else if (widget.isGenerating)
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                       decoration: BoxDecoration(
@@ -1924,7 +2318,8 @@ class _DailyDevotionalCard extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           SizedBox(
-                            width: 14, height: 14,
+                            width: 14,
+                            height: 14,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
                               color: Colors.white.withValues(alpha: 0.7),
@@ -1934,7 +2329,9 @@ class _DailyDevotionalCard extends StatelessWidget {
                           Text(
                             'Generating...',
                             style: TextStyle(
-                              fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13,
+                              fontFamily: 'Inter',
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
                               color: Colors.white.withValues(alpha: 0.7),
                             ),
                           ),
@@ -1951,14 +2348,16 @@ class _DailyDevotionalCard extends StatelessWidget {
                       child: Text(
                         'Scheduled',
                         style: TextStyle(
-                          fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13,
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
                           color: Colors.white.withValues(alpha: 0.7),
                         ),
                       ),
                     )
                   else
                     GestureDetector(
-                      onTap: onGenerateNow,
+                      onTap: widget.onGenerateNow,
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                         decoration: BoxDecoration(
@@ -1966,9 +2365,11 @@ class _DailyDevotionalCard extends StatelessWidget {
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: const Text(
-                          'Generate Now',
+                          'Generate now',
                           style: TextStyle(
-                            fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13,
+                            fontFamily: 'Inter',
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
                             color: Color(0xFF6366F1),
                           ),
                         ),
@@ -1983,21 +2384,28 @@ class _DailyDevotionalCard extends StatelessWidget {
     );
   }
 
-  Future<void> _toggle(BuildContext context, bool val, int localHour, int localMinute) async {
+  Future<void> _toggleUser(BuildContext context, bool val) async {
     final provider = context.read<AppProvider>();
-    final family = provider.activeFamily!;
-    final updated = family.copyWith(dailyDevotionalEnabled: val);
-    final db = provider.db;
-    provider.updateFamily(updated);
-    await provider.saveAndSync(db.copyWith(
-      families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
-    ));
+    final user = provider.activeUser;
+    final family = provider.activeFamily;
+    if (user == null || family == null) return;
 
-    // Server-side FCM push handles notifications — no local scheduling needed.
-    // Cancel any previously scheduled local notification when toggling.
-    if (!val) {
-      await NotificationService.cancel(_notifId);
+    final patch = <String, dynamic>{_kUserDailyEnabled: val};
+    if (val &&
+        !user.settings.containsKey(_kUserDailyHour) &&
+        !user.settings.containsKey(_kUserDailyMinute)) {
+      patch[_kUserDailyHour] = family.dailyDevotionalHour;
+      patch[_kUserDailyMinute] = family.dailyDevotionalMinute;
     }
+    await provider.updateActiveUserSettings(patch);
+    await _rescheduleUserNotif(provider);
+    widget.onUserSettingsChanged?.call();
+  }
+
+  Future<void> _togglePrivateDefault(BuildContext context, bool private) async {
+    final provider = context.read<AppProvider>();
+    await provider.updateActiveUserSettings({_kUserDailyPrivate: private});
+    widget.onUserSettingsChanged?.call();
   }
 
   /// Manually invoke the daily-devotional edge function in test mode
@@ -2051,24 +2459,16 @@ class _DailyDevotionalCard extends StatelessWidget {
     );
     if (picked == null || !context.mounted) return;
 
-    // Convert local time to UTC for the server-side cron job
     final now = DateTime.now();
     final localDt = DateTime(now.year, now.month, now.day, picked.hour, picked.minute);
     final utcDt = localDt.toUtc();
 
     final provider = context.read<AppProvider>();
-    final family = provider.activeFamily!;
-    final updated = family.copyWith(
-      dailyDevotionalHour: utcDt.hour,
-      dailyDevotionalMinute: utcDt.minute,
-    );
-    final db = provider.db;
-    provider.updateFamily(updated);
-    await provider.saveAndSync(db.copyWith(
-      families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
-    ));
-
-    // Server-side FCM push handles notifications — no local scheduling needed.
+    await provider.updateActiveUserSettings({
+      _kUserDailyHour: utcDt.hour,
+      _kUserDailyMinute: utcDt.minute,
+    });
+    await _rescheduleUserNotif(provider);
   }
 
 }

@@ -10,6 +10,7 @@ import '../../providers/app_provider.dart';
 import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../utils/debounce.dart';
 
 // ─── Type config ─────────────────────────────────────────────────────────────
 
@@ -42,6 +43,37 @@ class BirthdaysScreen extends StatefulWidget {
 }
 
 class _BirthdaysScreenState extends State<BirthdaysScreen> {
+  final _searchCtrl = TextEditingController();
+  final _searchDebounce = Debouncer();
+  String _searchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _searchCtrl.addListener(() {
+      final t = _searchCtrl.text;
+      _searchDebounce.run(() {
+        if (mounted) setState(() => _searchQuery = t);
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    _searchDebounce.dispose();
+    super.dispose();
+  }
+
+  bool _occasionMatches(Occasion o, String q) {
+    if (q.isEmpty) return true;
+    if (o.title.toLowerCase().contains(q)) return true;
+    if (_typeLabel(o.type).toLowerCase().contains(q)) return true;
+    if (DateFormat('MMM d').format(o.date).toLowerCase().contains(q)) return true;
+    if (DateFormat('MMMM').format(o.date).toLowerCase().contains(q)) return true;
+    return false;
+  }
+
   // ── Helpers ────────────────────────────────────────────────────────────────
 
   int _daysUntil(Occasion occasion) {
@@ -146,7 +178,8 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
             ));
           } else {
             await provider.saveAndSync(db.copyWith(occasions: [...db.occasions, occasion]));
-            NotificationService.notifyFamilyActivity(
+            NotificationService.notifyFamilyActivityWithDb(
+              provider.db,
               title: 'New Occasion Added',
               body: '${provider.activeUser?.name ?? "Someone"} added: ${occasion.title}',
               path: '/birthdays',
@@ -251,8 +284,13 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
         .toList();
     occasions.sort((a, b) => _daysUntil(a).compareTo(_daysUntil(b)));
 
-    final upcoming = occasions.where((o) => _daysUntil(o) <= 30).toList();
-    final later = occasions.where((o) => _daysUntil(o) > 30).toList();
+    final q = _searchQuery.trim().toLowerCase();
+    final upcoming = occasions
+        .where((o) => _daysUntil(o) <= 30 && _occasionMatches(o, q))
+        .toList();
+    final later = occasions
+        .where((o) => _daysUntil(o) > 30 && _occasionMatches(o, q))
+        .toList();
 
     // Next occasion
     final nextOccasion = occasions.isNotEmpty ? occasions.first : null;
@@ -308,6 +346,45 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
             ),
           ),
           const SizedBox(height: 16),
+
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: TextField(
+              controller: _searchCtrl,
+              style: const TextStyle(fontFamily: 'Inter', fontSize: 14),
+              decoration: InputDecoration(
+                hintText: 'Search occasions…',
+                hintStyle: const TextStyle(fontFamily: 'Inter', color: AppTheme.stone400),
+                prefixIcon: const Icon(Icons.search, size: 20, color: AppTheme.stone400),
+                suffixIcon: _searchQuery.trim().isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Clear search',
+                        icon: const Icon(Icons.close_rounded, size: 20, color: AppTheme.stone400),
+                        onPressed: () {
+                          _searchCtrl.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                      ),
+                filled: true,
+                fillColor: AppTheme.stone50,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: AppTheme.stone200),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: AppTheme.stone200),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
+                ),
+                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
 
           // ── Next Up Banner ──
           if (nextOccasion != null && nextDays != null && nextDays <= 7)
@@ -431,6 +508,15 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
                     ),
                   ],
                 ),
+              ),
+            )
+          else if (upcoming.isEmpty && later.isEmpty && q.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: OnboardingCard(
+                emoji: '🔎',
+                title: 'No matches',
+                bullets: const ['Try another name or month', 'Clear search to see all occasions'],
               ),
             )
           else

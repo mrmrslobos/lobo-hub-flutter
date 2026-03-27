@@ -20,11 +20,13 @@ import '../../services/ai_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/subscription_modal.dart';
+import '../../utils/dashboard_ai_suggestions_cache.dart';
 import '../onboarding/walkthrough_screen.dart';
 
 // ─── AI Suggestion model ─────────────────────────────────────────────────────
 
 class _AISuggestion {
+  final String iconKey;
   final IconData icon;
   final String title;
   final String description;
@@ -33,6 +35,7 @@ class _AISuggestion {
   final String? route;
 
   const _AISuggestion({
+    this.iconKey = 'task',
     required this.icon,
     required this.title,
     required this.description,
@@ -78,21 +81,82 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   String? _dismissedAnnouncement;
   List<_AISuggestion> _suggestions = [];
+  /// Bits for AI suggestions from cache (0..2); local-only suggestions ignore this.
+  int _suggestionCompletedMask = 0;
+  bool _suggestionsFromGemini = false;
   bool _suggestionsLoading = true;
   bool _suggestionsLoaded = false;
+  bool _startTipDismissed = false;
+  bool _startTipReady = false;
 
   // Monthly Summary
   Map<String, dynamic>? _monthlySummary;
   bool _monthlySummaryLoading = false;
+  bool _fetchedGeminiSuggestions = false;
+  bool? _lastProviderHasAI;
+  late final AppProvider _appProvider;
 
   @override
   void initState() {
     super.initState();
+    _appProvider = context.read<AppProvider>();
+    _appProvider.addListener(_onAppProviderChanged);
+    _lastProviderHasAI = _appProvider.hasAIAccess;
     _loadDismissedAnnouncement();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadAISuggestions();
+      if (AiService.isAIBlocked) {
+        final p = context.read<AppProvider>();
+        final db = p.db;
+        final fid = p.activeFamily?.id ?? '';
+        setState(() {
+          _suggestionsLoading = false;
+          _suggestions = _generateLocalSuggestions(db, fid);
+          _suggestionCompletedMask = 0;
+          _suggestionsFromGemini = false;
+          _suggestionsLoaded = true;
+        });
+      } else {
+        _loadAISuggestions(forceRefresh: false);
+      }
       _showWalkthroughIfNeeded();
+      _loadStartTipDismissed();
     });
+  }
+
+  @override
+  void dispose() {
+    _appProvider.removeListener(_onAppProviderChanged);
+    super.dispose();
+  }
+
+  void _onAppProviderChanged() {
+    if (!mounted) return;
+    final p = _appProvider;
+    final now = p.hasAIAccess;
+    if (_lastProviderHasAI == false && now == true) {
+      if (!_fetchedGeminiSuggestions) {
+        _loadAISuggestions(forceRefresh: false);
+      }
+    }
+    _lastProviderHasAI = now;
+  }
+
+  Future<void> _loadStartTipDismissed() async {
+    if (!mounted) return;
+    final fam = context.read<AppProvider>().activeFamily?.id;
+    if (fam == null) return;
+    final p = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _startTipDismissed = p.getBool('lobohub_dashboard_tip_$fam') ?? false;
+      _startTipReady = true;
+    });
+  }
+
+  Future<void> _dismissStartTip(String familyId) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setBool('lobohub_dashboard_tip_$familyId', true);
+    if (mounted) setState(() => _startTipDismissed = true);
   }
 
   Future<void> _showWalkthroughIfNeeded() async {
@@ -123,11 +187,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _onRefresh() async {
     final provider = context.read<AppProvider>();
     await provider.saveAndSync(provider.db);
-    await _loadAISuggestions();
+    await _loadAISuggestions(forceRefresh: true);
   }
 
   Future<void> _loadMonthlySummary() async {
-    if (AiService.isAIBlocked) return;
+    if (!mounted) return;
+    if (AiService.isAIBlocked) {
+      await SubscriptionModal.show(
+        context,
+        feature: 'AI monthly recap',
+      );
+      return;
+    }
     if (_monthlySummaryLoading) return;
     setState(() => _monthlySummaryLoading = true);
 
@@ -206,10 +277,111 @@ Return a JSON object:
     }
   }
 
-  Future<void> _loadAISuggestions() async {
-    if (AiService.isAIBlocked) return;
+  List<_AISuggestion> _parseGeminiSuggestionsList(List decoded) {
+    return decoded.map((s) {
+      final map = s as Map<String, dynamic>;
+      final key = map['icon'] as String? ?? 'task';
+      return _AISuggestion(
+        iconKey: key,
+        icon: _iconFromString(key),
+        title: map['title'] as String? ?? '',
+        description: map['description'] as String? ?? '',
+        reasoning: map['reasoning'] as String?,
+        timeEstimate: map['timeEstimate'] as String?,
+        route: map['route'] as String?,
+      );
+    }).toList();
+  }
+
+  Future<void> _persistGeminiSuggestions({
+    required String userId,
+    required String familyId,
+    required List<_AISuggestion> suggestions,
+    required String contextHash,
+  }) async {
+    final records = suggestions
+        .map((s) => DashboardAiSuggestionRecord(
+              icon: s.iconKey,
+              title: s.title,
+              description: s.description,
+              reasoning: s.reasoning,
+              timeEstimate: s.timeEstimate,
+              route: s.route,
+            ))
+        .toList();
+    await saveDashboardAiCache(
+      userId,
+      familyId,
+      DashboardAiSuggestionsCachePayload(
+        suggestions: records,
+        contextHash: contextHash,
+        generatedAtIso: DateTime.now().toIso8601String(),
+        completedMask: _suggestionCompletedMask,
+      ),
+    );
+  }
+
+  void _applyCachedPayload(
+    DashboardAiSuggestionsCachePayload payload, {
+    required bool fromGemini,
+  }) {
+    _suggestionCompletedMask = payload.completedMask;
+    _suggestionsFromGemini = fromGemini;
+    _suggestions = payload.suggestions
+        .map((r) => _AISuggestion(
+              iconKey: r.icon,
+              icon: _iconFromString(r.icon),
+              title: r.title,
+              description: r.description,
+              reasoning: r.reasoning,
+              timeEstimate: r.timeEstimate,
+              route: r.route,
+            ))
+        .toList();
+  }
+
+  Future<void> _markSuggestionDone(int index) async {
+    if (!_suggestionsFromGemini || index < 0 || index > 2) return;
+    final provider = context.read<AppProvider>();
+    final user = provider.activeUser;
+    final family = provider.activeFamily;
+    if (user == null || family == null) return;
+
+    final bit = 1 << index;
+    if ((_suggestionCompletedMask & bit) != 0) return;
+
+    final newMask = _suggestionCompletedMask | bit;
+    setState(() => _suggestionCompletedMask = newMask);
+
+    final cached = await loadDashboardAiCache(user.id, family.id);
+    if (cached != null) {
+      await saveDashboardAiCache(
+        user.id,
+        family.id,
+        cached.copyWith(completedMask: newMask),
+      );
+    }
+
+    if (newMask == 0x7 || _suggestions.length < 3 && newMask == (1 << _suggestions.length) - 1) {
+      await _loadAISuggestions(forceRefresh: false);
+    }
+  }
+
+  Future<void> _loadAISuggestions({
+    bool showPaywallWhenLocked = false,
+    bool forceRefresh = false,
+  }) async {
     if (!mounted) return;
-    setState(() => _suggestionsLoading = true);
+    if (AiService.isAIBlocked) {
+      if (showPaywallWhenLocked && mounted) {
+        await SubscriptionModal.show(
+          context,
+          feature: 'AI suggestions',
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
 
     final provider = context.read<AppProvider>();
     final db = provider.db;
@@ -218,13 +390,68 @@ Return a JSON object:
     if (family == null || user == null) {
       setState(() {
         _suggestionsLoading = false;
-        _suggestions = _generateLocalSuggestions(db, family?.id ?? '', user?.id ?? '');
+        _suggestions = _generateLocalSuggestions(db, family?.id ?? '');
+        _suggestionCompletedMask = 0;
+        _suggestionsFromGemini = false;
         _suggestionsLoaded = true;
       });
       return;
     }
 
     final familyId = family.id;
+    final userId = user.id;
+    final fingerprint = dashboardSuggestionsContextFingerprint(
+      db: db,
+      familyId: familyId,
+      userId: userId,
+    );
+    final contextHash = hashDashboardContext(fingerprint);
+
+    if (!forceRefresh) {
+      final cached = await loadDashboardAiCache(userId, familyId);
+      if (cached != null &&
+          cached.suggestions.isNotEmpty &&
+          cached.contextHash == contextHash) {
+        if (!cached.allCompleted) {
+          if (!mounted) return;
+          setState(() {
+            _applyCachedPayload(cached, fromGemini: true);
+            _suggestionsLoading = false;
+            _suggestionsLoaded = true;
+            _fetchedGeminiSuggestions = true;
+          });
+          return;
+        }
+        final canRegen =
+            await canGenerateDashboardAiSuggestions(userId, familyId);
+        if (!canRegen) {
+          if (!mounted) return;
+          setState(() {
+            _applyCachedPayload(cached, fromGemini: true);
+            _suggestionsLoading = false;
+            _suggestionsLoaded = true;
+            _fetchedGeminiSuggestions = true;
+          });
+          return;
+        }
+      } else if (cached != null &&
+          cached.suggestions.isNotEmpty &&
+          cached.contextHash != contextHash &&
+          !cached.allCompleted) {
+        if (!mounted) return;
+        setState(() {
+          _applyCachedPayload(cached, fromGemini: true);
+          _suggestionsLoading = false;
+          _suggestionsLoaded = true;
+          _fetchedGeminiSuggestions = true;
+        });
+        return;
+      }
+    }
+
+    if (!mounted) return;
+    setState(() => _suggestionsLoading = true);
+
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
@@ -249,6 +476,58 @@ Habits: $habitsCompleted/$habits completed today
 Prayer wall entries: ${db.prayerWall.where((p) => p.familyId == familyId).length}
 Active lists: ${db.lists.where((l) => l.familyId == familyId).length}
 ''';
+
+    Future<void> showLocalFallback() async {
+      if (!mounted) return;
+      setState(() {
+        _suggestions = _generateLocalSuggestions(db, familyId);
+        _suggestionCompletedMask = 0;
+        _suggestionsFromGemini = false;
+        _suggestionsLoading = false;
+        _suggestionsLoaded = true;
+      });
+    }
+
+    final allowNetwork = forceRefresh ||
+        await canGenerateDashboardAiSuggestions(userId, familyId);
+
+    if (!allowNetwork) {
+      final cached = await loadDashboardAiCache(userId, familyId);
+      if (cached != null && cached.suggestions.isNotEmpty) {
+        if (!mounted) return;
+        setState(() {
+          _applyCachedPayload(cached, fromGemini: true);
+          _suggestionsLoading = false;
+          _suggestionsLoaded = true;
+          _fetchedGeminiSuggestions = true;
+        });
+        if (mounted && forceRefresh) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Daily AI suggestion limit reached ($kDashboardAiSuggestionsMaxGenerationsPerDay). Showing cached suggestions.',
+                style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600),
+              ),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+        return;
+      }
+      await showLocalFallback();
+      if (mounted && forceRefresh) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Daily AI limit reached ($kDashboardAiSuggestionsMaxGenerationsPerDay). Showing quick tips instead.',
+              style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600),
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
 
     try {
       final raw = await AiService.ask(
@@ -276,20 +555,22 @@ Return ONLY the JSON array, no markdown.''',
         try {
           final decoded = jsonDecode(raw);
           if (decoded is List) {
+            final parsed = _parseGeminiSuggestionsList(decoded);
+            await recordDashboardAiGeneration(userId, familyId);
+            _suggestionCompletedMask = 0;
+            await _persistGeminiSuggestions(
+              userId: userId,
+              familyId: familyId,
+              suggestions: parsed,
+              contextHash: contextHash,
+            );
+            if (!mounted) return;
             setState(() {
-              _suggestions = decoded.map((s) {
-                final map = s as Map<String, dynamic>;
-                return _AISuggestion(
-                  icon: _iconFromString(map['icon'] as String? ?? 'task'),
-                  title: map['title'] as String? ?? '',
-                  description: map['description'] as String? ?? '',
-                  reasoning: map['reasoning'] as String?,
-                  timeEstimate: map['timeEstimate'] as String?,
-                  route: map['route'] as String?,
-                );
-              }).toList();
+              _suggestions = parsed;
+              _suggestionsFromGemini = true;
               _suggestionsLoading = false;
               _suggestionsLoaded = true;
+              _fetchedGeminiSuggestions = true;
             });
             return;
           }
@@ -297,14 +578,7 @@ Return ONLY the JSON array, no markdown.''',
       }
     } catch (_) {}
 
-    // Fallback to local suggestions
-    if (mounted) {
-      setState(() {
-        _suggestions = _generateLocalSuggestions(db, familyId, user.id);
-        _suggestionsLoading = false;
-        _suggestionsLoaded = true;
-      });
-    }
+    await showLocalFallback();
   }
 
   List<_AISuggestion> _generateLocalSuggestions(AppDB db, String familyId, String userId) {
@@ -315,6 +589,7 @@ Return ONLY the JSON array, no markdown.''',
     final overdue = db.tasks.where((t) => t.familyId == familyId && !t.completed && t.dueDate != null && t.dueDate!.isBefore(today)).length;
     if (overdue > 0) {
       suggestions.add(_AISuggestion(
+        iconKey: 'task',
         icon: Icons.warning_amber_rounded,
         title: 'Tackle $overdue overdue task${overdue > 1 ? 's' : ''}',
         description: 'Clear your overdue items to stay on track.',
@@ -328,6 +603,7 @@ Return ONLY the JSON array, no markdown.''',
     final missing = ['breakfast', 'lunch', 'dinner'].where((m) => !mealsPlanned.contains(m)).toList();
     if (missing.isNotEmpty) {
       suggestions.add(_AISuggestion(
+        iconKey: 'meal',
         icon: Icons.restaurant_rounded,
         title: 'Plan ${missing.first} for today',
         description: 'You haven\'t planned ${missing.join(' or ')} yet.',
@@ -341,6 +617,7 @@ Return ONLY the JSON array, no markdown.''',
     final habitsCompleted = db.dailyHabitCompletions.where((c) => c.userId == userId && _isSameDay(c.date, today)).length;
     if (habits > 0 && habitsCompleted < habits) {
       suggestions.add(_AISuggestion(
+        iconKey: 'habit',
         icon: Icons.radio_button_checked_rounded,
         title: 'Complete your daily habits',
         description: '$habitsCompleted of $habits habits done. Keep the streak going!',
@@ -352,6 +629,7 @@ Return ONLY the JSON array, no markdown.''',
 
     if (suggestions.isEmpty) {
       suggestions.add(const _AISuggestion(
+        iconKey: 'task',
         icon: Icons.celebration_rounded,
         title: 'You\'re all caught up!',
         description: 'Great job staying on top of things. Enjoy your day!',
@@ -521,7 +799,9 @@ Return ONLY the JSON array, no markdown.''',
               padding: EdgeInsets.zero,
               children: [
                 _buildHeroSection(family),
+                _buildPlanChip(context, family),
                 _buildTrialBanner(context, family),
+                if (_startTipReady && !_startTipDismissed) _buildOnboardingHint(context, family.id),
                 _buildActionButtons(context),
                 _buildAnnouncementSection(context, provider, family),
                 if (!family.welcomeDismissed)
@@ -864,6 +1144,141 @@ Return ONLY the JSON array, no markdown.''',
     );
   }
 
+  Widget _buildPlanChip(BuildContext context, Family family) {
+    String label;
+    switch (family.subscriptionTier) {
+      case SubscriptionTier.trial:
+        label = 'Plan: Free trial';
+        break;
+      case SubscriptionTier.base:
+        label = 'Plan: Base';
+        break;
+      case SubscriptionTier.ai:
+        label = 'Plan: AI';
+        break;
+      case SubscriptionTier.ai_family:
+        label = 'Plan: AI Family';
+        break;
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+      child: Material(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => context.go('/subscription'),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            child: Row(
+              children: [
+                Icon(Icons.workspace_premium_outlined, size: 18, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+                Text(
+                  'Manage',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded, size: 18, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOnboardingHint(BuildContext context, String familyId) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      child: SectionCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Get started',
+                    style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 16),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => _dismissStartTip(familyId),
+                  icon: const Icon(Icons.close_rounded, size: 20),
+                  tooltip: 'Dismiss',
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'A few quick wins for your home:',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 13,
+                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+              ),
+            ),
+            const SizedBox(height: 10),
+            _onboardingBullet(context, 'Add this week’s tasks and assign them'),
+            _onboardingBullet(context, 'Put dinner on the meal plan'),
+            _onboardingBullet(context, 'Create a shared shopping list'),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                ActionChip(
+                  label: const Text('Tasks', style: TextStyle(fontFamily: 'Inter')),
+                  onPressed: () => context.go('/tasks'),
+                ),
+                ActionChip(
+                  label: const Text('Meals', style: TextStyle(fontFamily: 'Inter')),
+                  onPressed: () => context.go('/meals'),
+                ),
+                ActionChip(
+                  label: const Text('Lists', style: TextStyle(fontFamily: 'Inter')),
+                  onPressed: () => context.go('/lists'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _onboardingBullet(BuildContext context, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.check_circle_outline_rounded, size: 18, color: Theme.of(context).colorScheme.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(text, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, height: 1.35)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildTrialBanner(BuildContext context, Family family) {
     if (family.subscriptionTier != SubscriptionTier.trial) return const SizedBox.shrink();
     final expired = family.isTrialExpired;
@@ -1139,7 +1554,16 @@ Return ONLY the JSON array, no markdown.''',
                 itemBuilder: (_, i) {
                   final f = features[i];
                   return GestureDetector(
-                    onTap: () => context.push(f.route),
+                    onTap: () {
+                      if (AiService.isAIBlocked) {
+                        SubscriptionModal.show(
+                          context,
+                          feature: 'AI-powered features',
+                        );
+                      } else {
+                        context.push(f.route);
+                      }
+                    },
                     child: Container(
                       width: 150,
                       padding: const EdgeInsets.all(12),
@@ -1231,7 +1655,10 @@ Return ONLY the JSON array, no markdown.''',
                 ],
               )),
               GestureDetector(
-                onTap: _loadAISuggestions,
+                onTap: () => _loadAISuggestions(
+                  showPaywallWhenLocked: true,
+                  forceRefresh: true,
+                ),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
@@ -1264,7 +1691,7 @@ Return ONLY the JSON array, no markdown.''',
                 final s = entry.value;
                 return Padding(
                   padding: EdgeInsets.only(top: idx > 0 ? 10 : 0),
-                  child: _buildSuggestionCard(s),
+                  child: _buildSuggestionCard(s, idx),
                 );
               }),
           ],
@@ -1273,55 +1700,73 @@ Return ONLY the JSON array, no markdown.''',
     );
   }
 
-  Widget _buildSuggestionCard(_AISuggestion s) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppTheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFFDE68A).withValues(alpha: 0.5)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(children: [
-            Container(
-              width: 30, height: 30,
-              decoration: BoxDecoration(
-                color: const Color(0xFFFEF3C7),
-                borderRadius: BorderRadius.circular(8),
+  Widget _buildSuggestionCard(_AISuggestion s, int index) {
+    final gemini = _suggestionsFromGemini;
+    final done = gemini && index >= 0 && index <= 2 && ((_suggestionCompletedMask >> index) & 1) == 1;
+    return Opacity(
+      opacity: done ? 0.55 : 1,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFFDE68A).withValues(alpha: 0.5)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Container(
+                width: 30, height: 30,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF3C7),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(s.icon, size: 16, color: const Color(0xFFD97706)),
               ),
-              child: Icon(s.icon, size: 16, color: const Color(0xFFD97706)),
-            ),
-            const SizedBox(width: 10),
-            Expanded(child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(s.title, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF92400E))),
-                if (s.timeEstimate != null)
-                  Text(s.timeEstimate!, style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w500, color: Color(0xFFD97706))),
-              ],
-            )),
-            if (s.route != null)
-              GestureDetector(
-                onTap: () => context.go(s.route!),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFD97706),
-                    borderRadius: BorderRadius.circular(8),
+              const SizedBox(width: 10),
+              Expanded(child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(s.title, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF92400E))),
+                  if (s.timeEstimate != null)
+                    Text(s.timeEstimate!, style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w500, color: Color(0xFFD97706))),
+                ],
+              )),
+              if (s.route != null && !done)
+                GestureDetector(
+                  onTap: () => context.go(s.route!),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFD97706),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text('Go \u2192', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white)),
                   ),
-                  child: const Text('Go \u2192', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white)),
+                ),
+            ]),
+            const SizedBox(height: 8),
+            Text(s.description, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFF78350F), height: 1.4)),
+            if (s.reasoning != null) ...[
+              const SizedBox(height: 4),
+              Text(s.reasoning!, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontStyle: FontStyle.italic, color: Color(0xFFB45309))),
+            ],
+            if (gemini && !done) ...[
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () {
+                    HapticFeedback.lightImpact();
+                    _markSuggestionDone(index);
+                  },
+                  child: const Text('Done', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12)),
                 ),
               ),
-          ]),
-          const SizedBox(height: 8),
-          Text(s.description, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFF78350F), height: 1.4)),
-          if (s.reasoning != null) ...[
-            const SizedBox(height: 4),
-            Text(s.reasoning!, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontStyle: FontStyle.italic, color: Color(0xFFB45309))),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

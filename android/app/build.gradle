@@ -32,7 +32,8 @@ android {
 
     defaultConfig {
         applicationId 'com.lobohub.app'
-        minSdkVersion flutter.minSdkVersion
+        // health / Health Connect requires API 26+ (Flutter default is often 24)
+        minSdkVersion 26
         targetSdkVersion 36
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
@@ -84,4 +85,6 @@ dependencies {
     implementation 'androidx.multidex:multidex:2.0.1'
     implementation 'androidx.window:window:1.2.0'
     implementation 'androidx.window:window-java:1.2.0'
+    // MainActivity.enableEdgeToEdge() (predictable insets on Android 15+)
+    implementation 'androidx.activity:activity-ktx:1.9.3'
 }

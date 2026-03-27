@@ -10,6 +10,7 @@ import '../../providers/app_provider.dart';
 import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../utils/debounce.dart';
 
 class PollsScreen extends StatefulWidget {
   const PollsScreen({super.key});
@@ -21,7 +22,25 @@ class PollsScreen extends StatefulWidget {
 class _PollsScreenState extends State<PollsScreen> {
   String? _expandedPollId;
   int _selectedFilter = 0; // 0=Open, 1=Closed, 2=All
-  bool _closingExpired = false;
+  final _searchCtrl = TextEditingController();
+  final _searchDebounce = Debouncer();
+  String _searchQuery = '';
+
+  @override
+  void dispose() {
+    _searchDebounce.dispose();
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  bool _pollMatchesSearch(Poll p, String q) {
+    if (q.isEmpty) return true;
+    if (p.question.toLowerCase().contains(q)) return true;
+    for (final o in p.options) {
+      if (o.text.toLowerCase().contains(q)) return true;
+    }
+    return false;
+  }
 
   // ── Data helpers ───────────────────────────────────────────────────────────
 
@@ -120,7 +139,8 @@ class _PollsScreenState extends State<PollsScreen> {
             ));
           } else {
             await provider.saveAndSync(db.copyWith(polls: [...db.polls, poll]));
-            NotificationService.notifyFamilyActivity(
+            NotificationService.notifyFamilyActivityWithDb(
+              provider.db,
               title: 'New Poll',
               body: '${provider.activeUser?.name ?? "Someone"} asks: ${poll.question}',
               path: '/polls',
@@ -172,11 +192,15 @@ class _PollsScreenState extends State<PollsScreen> {
     final closedPolls = polls.where((p) => p.status == PollStatus.closed).toList();
     final myVotes = polls.where((p) => p.options.any((o) => o.voterIds.contains(user.id))).length;
 
-    final filteredPolls = _selectedFilter == 0
+    var filteredPolls = _selectedFilter == 0
         ? openPolls
         : _selectedFilter == 1
             ? closedPolls
             : polls;
+    final q = _searchQuery.trim().toLowerCase();
+    if (q.isNotEmpty) {
+      filteredPolls = filteredPolls.where((p) => _pollMatchesSearch(p, q)).toList();
+    }
 
     return Scaffold(
       drawer: const AppDrawer(),
@@ -228,6 +252,42 @@ class _PollsScreenState extends State<PollsScreen> {
             ),
           ),
           const SizedBox(height: 16),
+
+          // ── Search ──
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: TextField(
+              controller: _searchCtrl,
+              onChanged: (v) {
+                _searchDebounce.run(() {
+                  if (!mounted) return;
+                  setState(() => _searchQuery = v);
+                });
+              },
+              decoration: InputDecoration(
+                hintText: 'Search polls…',
+                hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
+                prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.close_rounded, size: 18),
+                        onPressed: () {
+                          _searchDebounce.cancel();
+                          _searchCtrl.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                      )
+                    : null,
+                filled: true,
+                fillColor: Colors.white,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primary)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
 
           // ── Filter Chips ──
           Padding(

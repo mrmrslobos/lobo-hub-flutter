@@ -3,8 +3,12 @@
 
 // ignore_for_file: avoid_catches_without_on_clauses
 
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show ThemeMode;
+import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show PostgresChangeEvent, PostgresChangeFilter, PostgresChangeFilterType, RealtimeChannel, Supabase;
@@ -15,8 +19,12 @@ import '../services/notification_service.dart';
 import '../services/ai_service.dart';
 import '../services/field_encryption_service.dart';
 import '../services/supabase_service.dart';
+import '../services/purchase_service.dart';
+import '../services/family_activity_service.dart';
 
 class AppProvider extends ChangeNotifier {
+  static const _notificationPrefsKey = 'lobohub_notification_prefs_v1';
+
   User? _activeUser;
   Family? _activeFamily;
   AppDB _db = AppDB.empty();
@@ -26,6 +34,8 @@ class AppProvider extends ChangeNotifier {
   RealtimeChannel? _realtimeChannel;
   RealtimeChannel? _postgresChannel;
   bool _isSyncing = false;
+  DateTime? _lastSuccessfulSyncAt;
+  String? _lastSyncError;
   ThemeMode _themeMode = ThemeMode.light;
 
   // ── Getters ───────────────────────────────────────────────────────────────
@@ -37,6 +47,8 @@ class AppProvider extends ChangeNotifier {
   bool get isLocked => _isLocked;
   bool get isAuthenticated => _activeUser != null && _activeFamily != null;
   bool get isSyncing => _isSyncing;
+  DateTime? get lastSuccessfulSyncAt => _lastSuccessfulSyncAt;
+  String? get lastSyncError => _lastSyncError;
   ThemeMode get themeMode => _themeMode;
   Set<String> get unreadModules => _unreadModules;
 
@@ -56,6 +68,7 @@ class AppProvider extends ChangeNotifier {
     try {
       await _loadThemeMode();
       _db = await DatabaseService.loadLocal();
+      await _loadNotificationPrefsIntoDb();
 
       if (SupabaseService.isConfigured) {
         final session = SupabaseService.currentSession;
@@ -75,6 +88,8 @@ class AppProvider extends ChangeNotifier {
   }
 
   Future<void> _resolveUserFromSession(String userId, String email) async {
+    await SupabaseService.claimOwnedFamilies();
+
     var user = _db.users.firstWhereOrNull((u) => u.id == userId);
 
     // Determine which family this user belongs to
@@ -105,18 +120,29 @@ class AppProvider extends ChangeNotifier {
             .from('family_members')
             .select()
             .eq('user_id', userId);
-        if (memberships is List && memberships.isNotEmpty) {
-          knownFamilyId = memberships.first['family_id'] as String?;
+        final rows = SupabaseService.rowsFromSelect(memberships);
+        if (rows.isNotEmpty) {
+          knownFamilyId = rows.first['family_id'] as String?;
         }
       } catch (e) {
         debugPrint('[AppProvider] Error fetching cloud membership: $e');
       }
     }
 
-    // Reconcile with cloud
+    // Reconcile with cloud. We must pull family + membership whenever the local
+    // DB is incomplete — not only when `user == null`. Otherwise a stale user
+    // row without `family_members` / `families` (reinstall, migration, cache
+    // glitch) leaves `knownFamilyId` from the cloud unused and the app shows
+    // "create home" even though the account already belongs to a family.
     if (knownFamilyId != null && SupabaseService.isConfigured) {
-      // If user not in local DB, we must sync from cloud first
-      if (user == null) {
+      final mem = _db.familyMembers.firstWhereOrNull((m) => m.userId == userId);
+      final fam = _db.families.firstWhereOrNull((f) => f.id == knownFamilyId);
+      final needsReconcile = user == null ||
+          mem == null ||
+          fam == null ||
+          mem.familyId != knownFamilyId;
+
+      if (needsReconcile) {
         try {
           final famRow = await SupabaseService.client
               .from('families')
@@ -159,16 +185,90 @@ class AppProvider extends ChangeNotifier {
         _activeUser = user;
         _activeFamily = family;
         FieldEncryption.init(family.id, family.joinCode);
+        _syncAIFlag();
         _startRealtimeListener();
         NotificationService.registerDeviceToken(family.id, user.id);
+        unawaited(_repairOwnerMembershipIfNeeded());
+        unawaited(PurchaseService.syncIdentity(user.id));
+        unawaited(refreshStoreSubscription());
       }
     }
+  }
+
+  /// If [families.owner_id] matches the active user but [family_members.role]
+  /// was downgraded (e.g. join-with-code upsert), restore OWNER and sync.
+  Future<void> _repairOwnerMembershipIfNeeded() async {
+    final user = _activeUser;
+    final fam = _activeFamily;
+    if (user == null || fam == null) return;
+
+    var members = DatabaseService.dedupeFamilyMembers(
+      List<FamilyMember>.from(_db.familyMembers),
+    );
+    final idx = members.indexWhere(
+      (m) => m.userId == user.id && m.familyId == fam.id,
+    );
+    if (idx < 0) return;
+
+    var changed = members.length != _db.familyMembers.length;
+    if (fam.ownerId == user.id && members[idx].role != Role.OWNER) {
+      members[idx] = members[idx].copyWith(role: Role.OWNER);
+      changed = true;
+    }
+    if (!changed) return;
+
+    _db = _db.copyWith(familyMembers: members);
+    await DatabaseService.saveLocal(_db);
+    if (SupabaseService.isConfigured) {
+      try {
+        await DatabaseService.syncToCloud(_db, fam.id);
+      } catch (e) {
+        debugPrint('[AppProvider] Owner membership repair sync failed: $e');
+      }
+    }
+    notifyListeners();
   }
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
   void _syncAIFlag() {
-    AiService.setAIBlocked(!(_activeFamily?.hasAIAccess ?? false));
+    AiService.setAIBlocked(!(currentFamily?.hasAIAccess ?? false));
+  }
+
+  /// After purchase or app resume: read RevenueCat entitlements and update
+  /// [Family.subscriptionTier] locally + on Supabase so [ai-proxy] matches the app.
+  Future<void> refreshStoreSubscription() async {
+    final fam = currentFamily;
+    if (fam == null || !PurchaseService.isConfigured) return;
+    try {
+      final info = await Purchases.getCustomerInfo();
+      final tier = PurchaseService.subscriptionTierFromCustomerInfo(info);
+      if (tier == null || tier == fam.subscriptionTier) {
+        _syncAIFlag();
+        return;
+      }
+      final updated = fam.copyWith(
+        subscriptionTier: tier,
+        updatedAt: DateTime.now(),
+      );
+      _activeFamily = updated;
+      _db = _db.copyWith(
+        families: _db.families.map((f) => f.id == updated.id ? updated : f).toList(),
+      );
+      _syncAIFlag();
+      notifyListeners();
+      await DatabaseService.saveLocal(_db);
+      if (SupabaseService.isConfigured) {
+        await SupabaseService.syncFamilySubscriptionTier(
+          familyId: updated.id,
+          tier: tier,
+        );
+        await _pullFromCloud();
+      }
+    } catch (e) {
+      debugPrint('[AppProvider] refreshStoreSubscription error: $e');
+      _syncAIFlag();
+    }
   }
 
   Future<void> authenticate(User user, Family family) async {
@@ -184,12 +284,38 @@ class AppProvider extends ChangeNotifier {
     _startRealtimeListener();
     NotificationService.registerDeviceToken(family.id, user.id);
     notifyListeners();
+    unawaited(_repairOwnerMembershipIfNeeded());
+    unawaited(_backfillMissingUsersIfNeeded(family.id));
+    unawaited(PurchaseService.syncIdentity(user.id));
+    unawaited(refreshStoreSubscription());
+  }
+
+  /// When [users] rows are missing for people in [family_members], load or stub
+  /// them so chores/tasks show real names (not generic "Member").
+  Future<void> _backfillMissingUsersIfNeeded(String familyId) async {
+    final needs = _db.familyMembers
+        .where((m) => m.familyId == familyId)
+        .any((m) => !_db.users.any((u) => u.id == m.userId));
+    if (!needs) return;
+    try {
+      final updated =
+          await DatabaseService.backfillMissingUsersForFamily(_db, familyId);
+      _db = updated;
+      await DatabaseService.saveLocal(_db);
+      notifyListeners();
+    } catch (e) {
+      debugPrint('[AppProvider] backfillMissingUsersIfNeeded: $e');
+    }
   }
 
   /// Update the in-memory DB (e.g. after cloud reconciliation).
   void setDb(AppDB db) {
     _db = db;
     notifyListeners();
+    final fid = _activeFamily?.id;
+    if (fid != null) {
+      unawaited(_backfillMissingUsersIfNeeded(fid));
+    }
   }
 
   /// Switch the active user (for kid account switching)
@@ -226,6 +352,10 @@ class AppProvider extends ChangeNotifier {
     'reading_plans',
     'rewards',
     'external_calendars',
+    'pantry_items',
+    'family_activity_logs',
+    'wellness_check_ins',
+    'exercise_prs',
   ];
 
   /// Start listening for realtime changes — both from other clients
@@ -241,7 +371,7 @@ class AppProvider extends ChangeNotifier {
     _realtimeChannel = SupabaseService.subscribeToFamily(
       familyId,
       onBroadcast: (payload) {
-        final senderId = payload is Map ? payload['user_id'] : null;
+        final senderId = payload['user_id'];
         if (senderId == _activeUser?.id) return;
         _pullFromCloud();
       },
@@ -295,8 +425,12 @@ class AppProvider extends ChangeNotifier {
     try {
       final merged = await DatabaseService.reconcileCloud(_db, familyId);
       _db = merged;
+      await _repairOwnerMembershipIfNeeded();
+      _lastSuccessfulSyncAt = DateTime.now();
+      _lastSyncError = null;
     } catch (e) {
       debugPrint('[AppProvider] pullFromCloud error: $e');
+      _lastSyncError = e.toString();
     } finally {
       _isSyncing = false;
       notifyListeners();
@@ -325,9 +459,40 @@ class AppProvider extends ChangeNotifier {
       } catch (_) {}
     }
 
+    await PurchaseService.revenueCatLogOut();
+
     FieldEncryption.clear();
     await DatabaseService.clearLocal();
     _db = AppDB.empty();
+    notifyListeners();
+  }
+
+  /// Destructive: sign out, clear all local app data (including device prefs),
+  /// and return to a fresh state. Does **not** delete server-side Supabase rows.
+  Future<void> resetAllLocalDataAndSignOut() async {
+    _stopRealtimeListener();
+    _activeUser = null;
+    _activeFamily = null;
+    _isLocked = false;
+    _unreadModules = {};
+    _lastSuccessfulSyncAt = null;
+    _lastSyncError = null;
+    _isSyncing = false;
+
+    if (SupabaseService.isConfigured) {
+      try {
+        await SupabaseService.signOut();
+      } catch (_) {}
+    }
+
+    await PurchaseService.revenueCatLogOut();
+
+    FieldEncryption.clear();
+    AiService.setAIBlocked(false);
+    await DatabaseService.wipeAllLocalStorage();
+    _db = AppDB.empty();
+    await _loadThemeMode();
+    await _loadNotificationPrefsIntoDb();
     notifyListeners();
   }
 
@@ -353,6 +518,20 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  /// Merge keys into [activeUser.settings] and persist (users table sync).
+  Future<void> updateActiveUserSettings(Map<String, dynamic> patch) async {
+    final u = _activeUser;
+    if (u == null || patch.isEmpty) return;
+    final next = Map<String, dynamic>.from(u.settings)..addAll(patch);
+    final updated = u.copyWith(settings: next);
+    _activeUser = updated;
+    _db = _db.copyWith(
+      users: _db.users.map((x) => x.id == u.id ? updated : x).toList(),
+    );
+    notifyListeners();
+    await saveAndSync(_db);
+  }
+
   /// Update DB, notify listeners immediately, then persist + cloud sync.
   Future<void> saveAndSync(AppDB newDb) async {
     _db = newDb;
@@ -367,10 +546,13 @@ class AppProvider extends ChangeNotifier {
       _isSyncing = true;
       final familyId = _activeFamily!.id;
       DatabaseService.syncToCloud(newDb, familyId).then((_) {
+        _lastSuccessfulSyncAt = DateTime.now();
+        _lastSyncError = null;
         // Broadcast again after sync completes so other devices pick up
         // the data that's now definitely in the cloud.
         _broadcastChange();
       }).catchError((e) {
+        _lastSyncError = e.toString();
         debugPrint('[AppProvider] cloud sync error: $e');
       }).whenComplete(() {
         _isSyncing = false;
@@ -505,6 +687,9 @@ class AppProvider extends ChangeNotifier {
 
   void updateFamily(Family family) {
     _activeFamily = family;
+    _db = _db.copyWith(
+      families: _db.families.map((f) => f.id == family.id ? family : f).toList(),
+    );
     _syncAIFlag();
     notifyListeners();
   }
@@ -535,9 +720,27 @@ class AppProvider extends ChangeNotifier {
   User? userById(String id) =>
       db.users.firstWhereOrNull((u) => u.id == id);
 
+  /// Display name for any [userId] in the active family (`family_members.display_name`
+  /// first so admins can override raw signup names, then [User.name], then [fallback]).
+  String displayNameForUserId(String userId, {String fallback = 'Member'}) {
+    final fid = activeFamily?.id;
+    if (fid != null) {
+      for (final m in db.familyMembers) {
+        if (m.userId == userId && m.familyId == fid) {
+          final dn = m.displayName?.trim();
+          if (dn != null && dn.isNotEmpty) return dn;
+          break;
+        }
+      }
+    }
+    final u = userById(userId);
+    if (u != null && u.name.trim().isNotEmpty) return u.name;
+    return fallback;
+  }
+
   /// Resolve a display name for a family member, preferring the User record name
   String memberDisplayName(FamilyMember member) =>
-      userById(member.id)?.name ?? member.name;
+      displayNameForUserId(member.id, fallback: member.name);
 
   // ── Theme ────────────────────────────────────────────────────────────────
 
@@ -590,6 +793,58 @@ class AppProvider extends ChangeNotifier {
   /// Available balance = earnings - approved redemptions
   double availableBalanceForUser(String userId) {
     return choreEarningsForUser(userId) - redemptionSpentForUser(userId);
+  }
+
+  /// First saved notification prefs row, or defaults (device-local).
+  NotificationPrefs get deviceNotificationPrefs {
+    for (final p in _db.notificationPrefs) {
+      return p;
+    }
+    return const NotificationPrefs();
+  }
+
+  Future<void> _loadNotificationPrefsIntoDb() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_notificationPrefsKey);
+      if (raw == null || raw.isEmpty) return;
+      final j = jsonDecode(raw) as Map<String, dynamic>;
+      final p = NotificationPrefs.fromJson(j);
+      _db = _db.copyWith(notificationPrefs: [p]);
+    } catch (e) {
+      debugPrint('[AppProvider] notification prefs load: $e');
+    }
+  }
+
+  Future<void> setDeviceNotificationPrefs(NotificationPrefs prefs) async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      await sp.setString(_notificationPrefsKey, jsonEncode(prefs.toJson()));
+      _db = _db.copyWith(notificationPrefs: [prefs]);
+      notifyListeners();
+    } catch (e) {
+      debugPrint('[AppProvider] notification prefs save: $e');
+    }
+  }
+
+  /// Record a trust / audit event for the active family.
+  Future<void> logFamilyActivity({
+    required String action,
+    String? detail,
+    String? relatedUserId,
+  }) async {
+    final fam = _activeFamily;
+    final uid = _activeUser?.id;
+    if (fam == null || uid == null) return;
+    final next = FamilyActivityService.append(
+      _db,
+      familyId: fam.id,
+      actorUserId: uid,
+      action: action,
+      detail: detail,
+      relatedUserId: relatedUserId,
+    );
+    await saveAndSync(next);
   }
 }
 

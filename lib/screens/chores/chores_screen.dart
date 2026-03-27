@@ -10,6 +10,7 @@ import '../../providers/app_provider.dart';
 import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../utils/debounce.dart';
 
 // ─── Icon & Color palettes for chore creation ────────────────────────────────
 
@@ -60,9 +61,11 @@ class _ChoresScreenState extends State<ChoresScreen> {
   int _weekOffset = 0;
   String _searchQuery = '';
   final _searchCtrl = TextEditingController();
+  final _searchDebounce = Debouncer();
 
   @override
   void dispose() {
+    _searchDebounce.dispose();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -108,9 +111,22 @@ class _ChoresScreenState extends State<ChoresScreen> {
         completedAt: DateTime.now(),
         approvalStatus: chore.requiresApproval ? ApprovalStatus.PENDING : ApprovalStatus.APPROVED,
       );
-      await provider.saveAndSync(db.copyWith(
+      var nextDb = db.copyWith(
         choreCompletions: [...db.choreCompletions, completion],
-      ));
+      );
+      if (!chore.requiresApproval &&
+          chore.rotationEnabled &&
+          chore.assignees.length > 1) {
+        final nextCursor =
+            (chore.rotationCursor + 1) % chore.assignees.length;
+        nextDb = nextDb.copyWith(
+          chores: nextDb.chores
+              .map((c) =>
+                  c.id == chore.id ? c.copyWith(rotationCursor: nextCursor) : c)
+              .toList(),
+        );
+      }
+      await provider.saveAndSync(nextDb);
       if (mounted && !chore.requiresApproval) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('${chore.title} done! +${chore.points} pts'),
@@ -159,7 +175,24 @@ class _ChoresScreenState extends State<ChoresScreen> {
         approvalStatus: approve ? ApprovalStatus.APPROVED : ApprovalStatus.REJECTED,
       );
     }).toList();
-    await provider.saveAndSync(db.copyWith(choreCompletions: updated));
+    var nextDb = db.copyWith(choreCompletions: updated);
+    if (approve) {
+      final cc = db.choreCompletions.firstWhere((c) => c.id == completionId);
+      final chore = db.chores.firstWhereOrNull((c) => c.id == cc.choreId);
+      if (chore != null &&
+          chore.rotationEnabled &&
+          chore.assignees.length > 1) {
+        final nextCursor =
+            (chore.rotationCursor + 1) % chore.assignees.length;
+        nextDb = nextDb.copyWith(
+          chores: nextDb.chores
+              .map((c) =>
+                  c.id == chore.id ? c.copyWith(rotationCursor: nextCursor) : c)
+              .toList(),
+        );
+      }
+    }
+    await provider.saveAndSync(nextDb);
     if (mounted) {
       final chore = db.chores.where((c) => c.id == db.choreCompletions.firstWhere((cc) => cc.id == completionId).choreId).firstOrNull;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -188,7 +221,8 @@ class _ChoresScreenState extends State<ChoresScreen> {
             ));
           } else {
             await provider.saveAndSync(db.copyWith(chores: [...db.chores, chore]));
-            NotificationService.notifyFamilyActivity(
+            NotificationService.notifyFamilyActivityWithDb(
+              provider.db,
               title: 'New Chore Added',
               body: '${provider.activeUser?.name ?? "Someone"} added: ${chore.title}',
               path: '/chores',
@@ -281,7 +315,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
   }
 
   Widget _buildPendingApprovals(AppProvider provider, User user, String familyId,
-      List<Chore> allChores, List<ChoreCompletion> completions, List<User> members) {
+      List<Chore> allChores, List<ChoreCompletion> completions) {
     final myRole = provider.db.familyMembers
         .firstWhereOrNull((m) => m.familyId == familyId && m.userId == user.id)?.role;
     if (myRole != Role.OWNER && myRole != Role.ADMIN) return const SizedBox.shrink();
@@ -330,11 +364,12 @@ class _ChoresScreenState extends State<ChoresScreen> {
             const SizedBox(height: 14),
             ...pending.map((cc) {
               final chore = allChores.firstWhereOrNull((c) => c.id == cc.choreId);
-              final member = members.firstWhereOrNull((m) => m.id == cc.userId);
+              final displayName = provider.displayNameForUserId(cc.userId);
+              final firstName = displayName.split(' ').first;
               return Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: Row(children: [
-                  AvatarInitials(name: member?.name ?? '?', size: 28),
+                  AvatarInitials(name: displayName, size: 28),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(
@@ -343,7 +378,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
                         Text(chore?.title ?? 'Chore', style: const TextStyle(
                           fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone800,
                         )),
-                        Text('${member?.name.split(' ').first ?? 'Member'} \u00B7 ${DateFormat.MMMd().format(cc.date)}',
+                        Text('$firstName \u00B7 ${DateFormat.MMMd().format(cc.date)}',
                           style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
                         ),
                       ],
@@ -456,11 +491,13 @@ class _ChoresScreenState extends State<ChoresScreen> {
         choreRows.add(_ChoreRow(chore: chore, userId: user.id, userName: 'You'));
       } else {
         for (final assigneeId in chore.assigneeIds) {
-          final m = members.where((u) => u.id == assigneeId).firstOrNull;
+          final label = assigneeId == user.id
+              ? 'You'
+              : provider.displayNameForUserId(assigneeId).split(' ').first;
           choreRows.add(_ChoreRow(
             chore: chore,
             userId: assigneeId,
-            userName: assigneeId == user.id ? 'You' : (m?.name.split(' ').first ?? 'Member'),
+            userName: label,
           ));
         }
       }
@@ -522,7 +559,12 @@ class _ChoresScreenState extends State<ChoresScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: TextField(
               controller: _searchCtrl,
-              onChanged: (v) => setState(() => _searchQuery = v),
+              onChanged: (v) {
+                _searchDebounce.run(() {
+                  if (!mounted) return;
+                  setState(() => _searchQuery = v);
+                });
+              },
               decoration: InputDecoration(
                 hintText: 'Search chores...',
                 hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
@@ -531,6 +573,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
                     ? IconButton(
                         icon: const Icon(Icons.close_rounded, size: 18),
                         onPressed: () {
+                          _searchDebounce.cancel();
                           _searchCtrl.clear();
                           setState(() => _searchQuery = '');
                         },
@@ -870,7 +913,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
           const SizedBox(height: 16),
 
           // ── Pending Approvals (owners/admins only) ────────────────
-          _buildPendingApprovals(provider, user, familyId, allChores, completions, members),
+          _buildPendingApprovals(provider, user, familyId, allChores, completions),
 
           // ── Family Status Today ───────────────────────────────────
           Padding(
@@ -1125,6 +1168,7 @@ class _ChoreFormSheetState extends State<_ChoreFormSheet> {
   List<int> _customDays = [];
   List<String> _assigneeIds = [];
   bool _requiresApproval = false;
+  bool _rotationEnabled = false;
   bool _isSaving = false;
 
   bool get _isEditing => widget.editChore != null;
@@ -1145,6 +1189,7 @@ class _ChoreFormSheetState extends State<_ChoreFormSheet> {
       _customDays = List.from(c.daysOfWeek);
       _assigneeIds = List.from(c.assigneeIds);
       _requiresApproval = c.requiresApproval;
+      _rotationEnabled = c.rotationEnabled;
       if (c.color != null) {
         final parsed = Color(int.tryParse(c.color!.replaceFirst('#', '0xFF')) ?? 0xFF7C6BFF);
         final idx = _choreColors.indexWhere((cc) => cc.value == parsed.value);
@@ -1188,6 +1233,8 @@ class _ChoreFormSheetState extends State<_ChoreFormSheet> {
       assignees: _assigneeIds,
       color: '#${_choreColors[_selectedColorIndex].value.toRadixString(16).substring(2)}',
       requiresApproval: _requiresApproval,
+      rotationEnabled: _assigneeIds.length > 1 && _rotationEnabled,
+      rotationCursor: widget.editChore?.rotationCursor ?? 0,
       createdAt: widget.editChore?.createdAt ?? DateTime.now(),
     );
     await widget.onSave(chore);
@@ -1498,8 +1545,10 @@ class _ChoreFormSheetState extends State<_ChoreFormSheet> {
                       spacing: 8, runSpacing: 8,
                       children: members.map((m) {
                         final isAssigned = _assigneeIds.contains(m.userId);
-                        final memberUser = provider.userById(m.userId);
-                        final name = memberUser?.name ?? m.displayName ?? 'Member';
+                        final name = provider.displayNameForUserId(
+                          m.userId,
+                          fallback: m.displayName ?? 'Member',
+                        );
                         final isMe = m.userId == currentUser?.id;
                         return GestureDetector(
                           onTap: () => setState(() {
@@ -1533,6 +1582,52 @@ class _ChoreFormSheetState extends State<_ChoreFormSheet> {
                       }).toList(),
                     ),
                     const SizedBox(height: 20),
+                  ],
+
+                  if (_assigneeIds.length > 1) ...[
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: _rotationEnabled ? AppTheme.primary.withValues(alpha: 0.05) : AppTheme.stone50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: _rotationEnabled ? AppTheme.primary.withValues(alpha: 0.3) : AppTheme.stone200,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 32,
+                            height: 32,
+                            decoration: BoxDecoration(
+                              color: AppTheme.primary.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(Icons.rotate_right_rounded, size: 16, color: AppTheme.primary),
+                          ),
+                          const SizedBox(width: 10),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Rotate assignees', style: TextStyle(
+                                  fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 14, color: AppTheme.stone800,
+                                )),
+                                Text('After someone completes it, the next person is “up next”', style: TextStyle(
+                                  fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400,
+                                )),
+                              ],
+                            ),
+                          ),
+                          Switch.adaptive(
+                            value: _rotationEnabled,
+                            onChanged: (v) => setState(() => _rotationEnabled = v),
+                            activeColor: AppTheme.primary,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
                   ],
 
                   // Requires Parental Approval

@@ -3,10 +3,12 @@
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 
 import '../config/theme.dart';
+import '../models/models.dart';
+import '../providers/app_provider.dart';
 import '../services/ai_service.dart';
-import '../services/purchase_service.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SubscriptionModal — bottom sheet paywall
@@ -108,31 +110,42 @@ class SubscriptionModal extends StatelessWidget {
           const SizedBox(height: 28),
 
           // Primary CTA
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: ElevatedButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                context.go('/subscription');
-                onUpgrade?.call();
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primary,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
+          Consumer<AppProvider>(
+            builder: (ctx, app, _) {
+              final family = app.activeFamily;
+              final onTrial =
+                  family?.subscriptionTier == SubscriptionTier.trial &&
+                      (family?.isTrialExpired != true);
+              final cta = onTrial
+                  ? 'Subscribe to unlock AI'
+                  : 'View plans & subscribe';
+              return SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(ctx).pop();
+                    ctx.go('/subscription');
+                    onUpgrade?.call();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: Text(
+                    cta,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
-                elevation: 0,
-              ),
-              child: const Text(
-                'Start 14-Day Free Trial',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
+              );
+            },
           ),
           const SizedBox(height: 10),
 

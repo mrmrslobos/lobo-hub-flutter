@@ -121,6 +121,9 @@ create table if not exists budget_categories (
   visibility text not null default 'FAMILY'
 );
 
+alter table budget_categories add column if not exists rollover_enabled boolean not null default false;
+alter table budget_categories add column if not exists limit_period text not null default 'monthly';
+
 create table if not exists transactions (
   id text primary key,
   family_id text not null,
@@ -239,6 +242,11 @@ alter table tasks add column if not exists completed_by text;
 alter table tasks add column if not exists updated_by text;
 alter table events add column if not exists recurrence text default 'NONE';
 
+-- RSVP lists (user ids) for family events
+alter table events add column if not exists rsvp_yes_ids jsonb not null default '[]'::jsonb;
+alter table events add column if not exists rsvp_no_ids jsonb not null default '[]'::jsonb;
+alter table events add column if not exists rsvp_maybe_ids jsonb not null default '[]'::jsonb;
+
 -- Tables added after initial deployment (safe to run on existing schemas)
 create table if not exists fitness_plans (
   id           text primary key,
@@ -249,6 +257,8 @@ create table if not exists fitness_plans (
   profile      jsonb not null default '{}'::jsonb,
   created_at   text not null
 );
+
+alter table fitness_plans add column if not exists plan_id text;
 
 create table if not exists reward_items (
   id          text primary key,
@@ -421,6 +431,7 @@ alter table families add column if not exists settings jsonb;
 -- family_members: ensure columns added after initial create exist.
 alter table family_members add column if not exists module_access jsonb;
 alter table family_members add column if not exists display_name text;
+alter table family_members add column if not exists declared_under_16 boolean not null default false;
 
 -- =============================================================================
 -- Push Notification device tokens
@@ -684,6 +695,7 @@ alter table families add column if not exists daily_devotional_hour smallint not
 alter table families add column if not exists daily_devotional_minute smallint not null default 0;
 alter table families add column if not exists currency text not null default 'AUD';
 alter table families add column if not exists trial_start_date timestamptz;
+alter table families add column if not exists updated_at timestamptz not null default now();
 
 -- Devotional favorites (per-entry, local-first but synced)
 alter table devotionals add column if not exists is_favorited boolean not null default false;
@@ -717,3 +729,5 @@ DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE messages;           EX
 DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE health_records;     EXCEPTION WHEN OTHERS THEN NULL; END $$;
 DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE reading_plans;      EXCEPTION WHEN OTHERS THEN NULL; END $$;
 DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE rewards;            EXCEPTION WHEN OTHERS THEN NULL; END $$;
+
+-- Owner-only destructive RPC: see migrations/26_delete_family_cloud_data.sql

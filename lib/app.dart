@@ -3,6 +3,7 @@
 
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
@@ -72,6 +73,7 @@ class _FamilyHubAppState extends State<FamilyHubApp> with WidgetsBindingObserver
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && _provider.isAuthenticated) {
       _provider.refreshFromCloud();
+      unawaited(_provider.refreshStoreSubscription());
       _consumePendingRoute();
     }
   }
@@ -324,17 +326,36 @@ class _FamilyHubAppState extends State<FamilyHubApp> with WidgetsBindingObserver
         home: Scaffold(body: Center(child: CircularProgressIndicator())),
       );
     }
-    return BiometricLockScreen(
-      child: MaterialApp.router(
-        title: AppConfig.appName,
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.lightTheme,
-        darkTheme: AppTheme.darkTheme,
-        themeMode: ThemeMode.light,
-        routerConfig: _router,
-        builder: (context, child) =>
-            ConnectivityWrapper(child: child ?? const SizedBox.shrink()),
-      ),
+    return ListenableBuilder(
+      listenable: _provider,
+      builder: (context, _) {
+        return BiometricLockScreen(
+          child: MaterialApp.router(
+            title: AppConfig.appName,
+            debugShowCheckedModeBanner: false,
+            theme: AppTheme.lightTheme,
+            darkTheme: AppTheme.darkTheme,
+            themeMode: _provider.themeMode,
+            routerConfig: _router,
+            builder: (context, child) {
+              final theme = Theme.of(context);
+              final dark = theme.brightness == Brightness.dark;
+              SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
+                statusBarColor: Colors.transparent,
+                statusBarIconBrightness:
+                    dark ? Brightness.light : Brightness.dark,
+                systemNavigationBarColor: theme.colorScheme.surface,
+                systemNavigationBarIconBrightness:
+                    dark ? Brightness.light : Brightness.dark,
+                systemNavigationBarContrastEnforced: false,
+              ));
+              return ConnectivityWrapper(
+                child: child ?? const SizedBox.shrink(),
+              );
+            },
+          ),
+        );
+      },
     );
   }
 }

@@ -9,6 +9,7 @@ import '../config/theme.dart';
 import '../models/models.dart';
 import '../providers/app_provider.dart';
 import '../services/ai_service.dart';
+import 'subscription_modal.dart';
 
 const _uuid = Uuid();
 
@@ -51,6 +52,8 @@ class _AiRefineInputState extends State<AiRefineInput> {
   Future<void> _submit() async {
     final text = _controller.text.trim();
     if (text.isEmpty || _loading) return;
+
+    if (SubscriptionModal.guardAI(context)) return;
 
     setState(() => _loading = true);
 

@@ -8,6 +8,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../models/models.dart' hide User;
+
 class SupabaseService {
   static SupabaseClient get client => Supabase.instance.client;
   static GoTrueClient get auth => Supabase.instance.client.auth;
@@ -57,6 +59,67 @@ class SupabaseService {
 
   static User? get currentUser => auth.currentUser;
 
+  /// Idempotent server RPC: re-links `users` / `family_members` / `families`
+  /// rows from a legacy random profile id to the current Supabase Auth UUID
+  /// when the email matches. Without this, RLS sees no membership and the
+  /// app offers "create home" even for existing accounts.
+  static Future<void> claimOwnedFamilies() async {
+    if (!isConfigured) return;
+    try {
+      await client.rpc('claim_owned_families');
+    } catch (e) {
+      debugPrint('[SupabaseService] claim_owned_families failed: $e');
+    }
+  }
+
+  /// Updates `families.subscription_tier` for [familyId] (any family member).
+  /// Requires migration `21_family_subscription_tier_sync.sql` on the project.
+  static Future<void> syncFamilySubscriptionTier({
+    required String familyId,
+    required SubscriptionTier tier,
+  }) async {
+    if (!isConfigured) return;
+    try {
+      await client.rpc(
+        'sync_family_subscription_tier',
+        params: {
+          'p_family_id': familyId,
+          'p_tier': tier.name,
+        },
+      );
+    } catch (e) {
+      debugPrint('[SupabaseService] sync_family_subscription_tier failed: $e');
+    }
+  }
+
+  /// Deletes all Supabase rows for [familyId]. **Home owner only** (enforced server-side).
+  /// Requires migration `26_delete_family_cloud_data.sql`.
+  static Future<void> deleteFamilyCloudData({required String familyId}) async {
+    if (!isConfigured) return;
+    await client.rpc(
+      'delete_family_cloud_data',
+      params: {'p_family_id': familyId},
+    );
+  }
+
+  /// Normalizes a PostgREST `.select()` result to row maps.
+  static List<Map<String, dynamic>> rowsFromSelect(dynamic response) {
+    if (response == null) return [];
+    if (response is List) {
+      return response
+          .whereType<Map>()
+          .map((m) => Map<String, dynamic>.from(m))
+          .toList();
+    }
+    if (response is Iterable) {
+      return response
+          .whereType<Map>()
+          .map((m) => Map<String, dynamic>.from(m))
+          .toList();
+    }
+    return [];
+  }
+
   static Future<void> resetPasswordForEmail(
     String email, {
     String? redirectTo,
@@ -98,10 +161,14 @@ class SupabaseService {
       'external_calendars',
       'rewards',
       'reading_plans',
+      'pantry_items',
+      'family_activity_logs',
+      'wellness_check_ins',
       // Strong integration: family-visible structured workouts
       'workout_sessions',
       'workout_exercises',
       'workout_sets',
+      'exercise_prs',
     ];
 
     const familyIdTables = [

@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../config/theme.dart';
@@ -20,6 +21,9 @@ import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/subscription_modal.dart';
+import '../../utils/debounce.dart';
+
+enum _EventRsvpChoice { yes, no, maybe, clear }
 
 // ─── CalendarScreen ───────────────────────────────────────────────────────────
 
@@ -37,6 +41,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
   bool _isSyncing = false;
   String _searchQuery = '';
   final _searchCtrl = TextEditingController();
+  final _searchDebounce = Debouncer();
+  /// Hide events from these layers: `'__family__'` = only family-created events; else [ExternalCalendar.id].
+  final Set<String> _hiddenCalendarLayers = {};
 
   // AI Event Strategist
   final _aiController = TextEditingController();
@@ -45,6 +52,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   @override
   void dispose() {
+    _searchDebounce.dispose();
     _aiController.dispose();
     _searchCtrl.dispose();
     super.dispose();
@@ -132,6 +140,40 @@ class _CalendarScreenState extends State<CalendarScreen> {
       ),
       builder: (_) => const _EventPlannerWizard(),
     );
+  }
+
+  Future<void> _shareFamilyAgenda(BuildContext context) async {
+    final provider = context.read<AppProvider>();
+    final familyId = provider.activeFamily?.id;
+    if (familyId == null) return;
+    final now = DateTime.now();
+    final until = now.add(const Duration(days: 14));
+    final evs = provider.db.events
+        .where((e) =>
+            e.familyId == familyId &&
+            e.externalCalendarId == null &&
+            e.start.isAfter(now.subtract(const Duration(days: 1))) &&
+            e.start.isBefore(until))
+        .toList()
+      ..sort((a, b) => a.start.compareTo(b.start));
+    if (evs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No family events in the next two weeks'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
+    final buf = StringBuffer();
+    buf.writeln('Family agenda (next 2 weeks)');
+    buf.writeln('');
+    for (final e in evs) {
+      buf.write(DateFormat('EEE MMM d, h:mm a').format(e.start));
+      buf.write(' — ${e.title}');
+      if (e.location != null && e.location!.trim().isNotEmpty) {
+        buf.write(' @ ${e.location!.trim()}');
+      }
+      buf.writeln();
+    }
+    await Share.share(buf.toString().trim(), subject: 'Family agenda');
   }
 
   // ── Google Calendar ──────────────────────────────────────────────────────
@@ -402,6 +444,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
     );
   }
 
+  bool _eventLayerVisible(CalendarEvent e) {
+    final key = e.externalCalendarId ?? '__family__';
+    return !_hiddenCalendarLayers.contains(key);
+  }
+
   List<CalendarEvent> _eventsForDay(
       AppProvider provider, DateTime day) {
     final familyId = provider.activeFamily?.id;
@@ -409,6 +456,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
     return provider.db.events
         .where((e) {
           if (e.familyId != familyId || !isSameDay(e.startDate, day)) return false;
+          if (!_eventLayerVisible(e)) return false;
           if (_searchQuery.isNotEmpty) {
             final q = _searchQuery.toLowerCase();
             if (!e.title.toLowerCase().contains(q) &&
@@ -430,6 +478,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
     final map = <DateTime, List<CalendarEvent>>{};
     for (final e in provider.db.events) {
       if (e.familyId != familyId) continue;
+      if (!_eventLayerVisible(e)) continue;
       final key = DateTime(
           e.startDate.year, e.startDate.month, e.startDate.day);
       map.putIfAbsent(key, () => []).add(e);
@@ -457,20 +506,59 @@ class _CalendarScreenState extends State<CalendarScreen> {
     await provider.saveAndSync(db.copyWith(events: events));
   }
 
+  Future<void> _saveEventRsvp(CalendarEvent event, String userId, _EventRsvpChoice choice) async {
+    if (event.externalCalendarId != null) return;
+    final provider = context.read<AppProvider>();
+    final db = provider.db;
+    var yes = List<String>.from(event.rsvpYesIds);
+    var no = List<String>.from(event.rsvpNoIds);
+    var maybe = List<String>.from(event.rsvpMaybeIds);
+    yes.remove(userId);
+    no.remove(userId);
+    maybe.remove(userId);
+    switch (choice) {
+      case _EventRsvpChoice.yes:
+        yes.add(userId);
+        break;
+      case _EventRsvpChoice.no:
+        no.add(userId);
+        break;
+      case _EventRsvpChoice.maybe:
+        maybe.add(userId);
+        break;
+      case _EventRsvpChoice.clear:
+        break;
+    }
+    final updated = event.copyWith(
+      rsvpYesIds: yes,
+      rsvpNoIds: no,
+      rsvpMaybeIds: maybe,
+      updatedAt: DateTime.now(),
+    );
+    final events = db.events.map((e) => e.id == event.id ? updated : e).toList();
+    await provider.saveAndSync(db.copyWith(events: events));
+    if (mounted) setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<AppProvider>(
       builder: (context, provider, _) {
-        final selectedEvents = _eventsForDay(provider, _selectedDay);
-        final eventMap = _buildEventMap(provider);
-
-        // Upcoming events (next 7 days)
         final now = DateTime.now();
         final todayDate = DateTime(now.year, now.month, now.day);
+        final selectedEvents = _eventsForDay(provider, _selectedDay);
+        final eventMap = _buildEventMap(provider);
+        final weekAgenda = List.generate(7, (i) {
+          final d = todayDate.add(Duration(days: i));
+          return (day: d, events: _eventsForDay(provider, d));
+        });
+
+        // Upcoming events (next 7 days)
         final weekEnd = todayDate.add(const Duration(days: 7));
         final upcomingEvents = provider.db.events
             .where((e) =>
                 e.familyId == provider.activeFamily?.id &&
+                _eventLayerVisible(e) &&
                 e.startDate.isAfter(todayDate) &&
                 e.startDate.isBefore(weekEnd))
             .toList()
@@ -478,28 +566,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
         return Scaffold(
           drawer: const AppDrawer(),
-          // backgroundColor handled by theme
-          appBar: AppBar(
-            backgroundColor: Colors.white,
-            elevation: 0,
-            scrolledUnderElevation: 0,
-            leading: Builder(
-              builder: (context) => IconButton(
-                icon: const Icon(Icons.menu_rounded, color: AppTheme.stone700),
-                onPressed: () => Scaffold.of(context).openDrawer(),
-              ),
-            ),
-            title: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.auto_awesome, size: 20, color: AppTheme.primary),
-                const SizedBox(width: 6),
-                const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
-              ],
-            ),
-            centerTitle: false,
-            titleSpacing: 0,
-          ),
+          appBar: const FamilyHubAppBar(),
           body: ListView(
             padding: EdgeInsets.zero,
             children: [
@@ -512,8 +579,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     icon: Icons.calendar_month_outlined,
                     label: 'My Calendars',
                     onTap: _showMyCalendars,
-                    backgroundColor: Colors.white,
-                    foregroundColor: AppTheme.stone700,
+                    backgroundColor: Theme.of(context).colorScheme.surface,
+                    foregroundColor: Theme.of(context).colorScheme.onSurface,
                   ),
                   ActionChipButton(
                     icon: Icons.sync_rounded,
@@ -521,8 +588,73 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     onTap: _isSyncing ? () {} : _connectGoogleCalendar,
                     isPrimary: true,
                   ),
+                  ActionChipButton(
+                    icon: Icons.share_rounded,
+                    label: 'Share agenda',
+                    onTap: () => _shareFamilyAgenda(context),
+                    backgroundColor: Theme.of(context).colorScheme.surface,
+                    foregroundColor: Theme.of(context).colorScheme.onSurface,
+                  ),
                 ],
               ),
+
+              // Layer visibility (family vs connected calendars)
+              Builder(builder: (ctx) {
+                final uid = provider.activeUser?.id;
+                final ext = uid == null
+                    ? <ExternalCalendar>[]
+                    : provider.db.externalCalendars
+                        .where((c) => c.userId == uid)
+                        .toList();
+                if (ext.isEmpty) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'SHOW LAYERS',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1,
+                          color: Theme.of(ctx).colorScheme.onSurface.withValues(alpha: 0.45),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          FilterChip(
+                            label: const Text('Family', style: TextStyle(fontFamily: 'Inter', fontSize: 12)),
+                            selected: !_hiddenCalendarLayers.contains('__family__'),
+                            onSelected: (v) => setState(() {
+                              if (v) {
+                                _hiddenCalendarLayers.remove('__family__');
+                              } else {
+                                _hiddenCalendarLayers.add('__family__');
+                              }
+                            }),
+                          ),
+                          ...ext.map((c) => FilterChip(
+                                label: Text(c.name, style: const TextStyle(fontFamily: 'Inter', fontSize: 12)),
+                                selected: !_hiddenCalendarLayers.contains(c.id),
+                                onSelected: (v) => setState(() {
+                                  if (v) {
+                                    _hiddenCalendarLayers.remove(c.id);
+                                  } else {
+                                    _hiddenCalendarLayers.add(c.id);
+                                  }
+                                }),
+                              )),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              }),
 
               // Add event + AI plan row
               Padding(
@@ -577,13 +709,18 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: TextField(
                   controller: _searchCtrl,
-                  onChanged: (v) => setState(() => _searchQuery = v),
+                  onChanged: (v) {
+                    _searchDebounce.run(() {
+                      if (!mounted) return;
+                      setState(() => _searchQuery = v);
+                    });
+                  },
                   decoration: InputDecoration(
                     hintText: 'Search events...',
                     hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
                     prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
                     suffixIcon: _searchQuery.isNotEmpty
-                        ? IconButton(icon: const Icon(Icons.close_rounded, size: 18), onPressed: () { _searchCtrl.clear(); setState(() => _searchQuery = ''); })
+                        ? IconButton(icon: const Icon(Icons.close_rounded, size: 18), onPressed: () { _searchDebounce.cancel(); _searchCtrl.clear(); setState(() => _searchQuery = ''); })
                         : null,
                     filled: true,
                     fillColor: Colors.white,
@@ -770,7 +907,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                             ),
                           ),
                         ),
-                      ClipRRect(
+                      RepaintBoundary(
+                    child: ClipRRect(
                     borderRadius: BorderRadius.circular(16),
                     child: TableCalendar<CalendarEvent>(
                       firstDay: DateTime.utc(2020, 1, 1),
@@ -874,8 +1012,163 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       ),
                     ),
                   ),
+                ),
                     ],
                   ),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Week agenda (mobile-friendly)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Text(
+                          'THIS WEEK',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: AppTheme.stone400,
+                            letterSpacing: 1.1,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '${weekAgenda.fold<int>(0, (s, x) => s + x.events.length)} events',
+                          style: const TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.stone300,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    ...weekAgenda.map((row) {
+                      final d = row.day;
+                      final evs = row.events;
+                      final isSel = isSameDay(d, _selectedDay);
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Material(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(12),
+                            onTap: () => setState(() {
+                              _selectedDay = d;
+                              _focusedDay = d;
+                            }),
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: isSel ? AppTheme.primary : AppTheme.stone100,
+                                  width: isSel ? 1.5 : 1,
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(
+                                        isSameDay(d, todayDate)
+                                            ? 'Today'
+                                            : DateFormat('EEE, MMM d').format(d),
+                                        style: TextStyle(
+                                          fontFamily: 'Inter',
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w800,
+                                          color: isSel ? AppTheme.primary : AppTheme.stone800,
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      if (evs.isNotEmpty)
+                                        Text(
+                                          '${evs.length}',
+                                          style: const TextStyle(
+                                            fontFamily: 'Inter',
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w700,
+                                            color: AppTheme.stone400,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                  if (evs.isEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 6),
+                                      child: Text(
+                                        'Nothing scheduled',
+                                        style: TextStyle(
+                                          fontFamily: 'Inter',
+                                          fontSize: 12,
+                                          color: AppTheme.stone400.withValues(alpha: 0.9),
+                                        ),
+                                      ),
+                                    )
+                                  else
+                                    ...evs.take(4).map((e) => Padding(
+                                          padding: const EdgeInsets.only(top: 8),
+                                          child: Row(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                DateFormat('h:mm a').format(e.startDate),
+                                                style: const TextStyle(
+                                                  fontFamily: 'Inter',
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: AppTheme.stone500,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 10),
+                                              Expanded(
+                                                child: Text(
+                                                  e.title,
+                                                  maxLines: 2,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                    fontFamily: 'Inter',
+                                                    fontSize: 13,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: AppTheme.stone800,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        )),
+                                  if (evs.length > 4)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 6),
+                                      child: Text(
+                                        '+ ${evs.length - 4} more',
+                                        style: const TextStyle(
+                                          fontFamily: 'Inter',
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppTheme.primary,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                  ],
                 ),
               ),
               const SizedBox(height: 20),
@@ -984,8 +1277,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       ...selectedEvents.map((event) => _EventCard(
                         event: event,
                         provider: provider,
+                        currentUserId: provider.activeUser?.id,
                         onEdit: () => _showAddEventSheet(context, event: event),
                         onDelete: () => _deleteEvent(provider, event),
+                        onRsvp: provider.activeUser?.id != null
+                            ? (choice) => _saveEventRsvp(event, provider.activeUser!.id, choice)
+                            : null,
                       )),
                   ],
                 ),
@@ -1017,9 +1314,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     children: upcomingEvents.map((event) => _EventCard(
                       event: event,
                       provider: provider,
+                      currentUserId: provider.activeUser?.id,
                       onEdit: () => _showAddEventSheet(context, event: event),
                       onDelete: () => _deleteEvent(provider, event),
                       showDate: true,
+                      onRsvp: provider.activeUser?.id != null
+                          ? (choice) => _saveEventRsvp(event, provider.activeUser!.id, choice)
+                          : null,
                     )).toList(),
                   ),
                 ),
@@ -1155,15 +1456,19 @@ class _CalendarScreenState extends State<CalendarScreen> {
 class _EventCard extends StatelessWidget {
   final CalendarEvent event;
   final AppProvider provider;
+  final String? currentUserId;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final Future<void> Function(_EventRsvpChoice choice)? onRsvp;
   final bool showDate;
 
   const _EventCard({
     required this.event,
     required this.provider,
+    this.currentUserId,
     required this.onEdit,
     required this.onDelete,
+    this.onRsvp,
     this.showDate = false,
   });
 
@@ -1184,11 +1489,66 @@ class _EventCard extends StatelessWidget {
     return start;
   }
 
+  Widget _rsvpChip({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+    required String semanticsLabel,
+  }) {
+    return Semantics(
+      button: true,
+      label: semanticsLabel,
+      selected: selected,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: selected ? AppTheme.primary.withValues(alpha: 0.12) : AppTheme.stone50,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: selected ? AppTheme.primary : AppTheme.stone200,
+                width: selected ? 1.5 : 1,
+              ),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: selected ? AppTheme.primary : AppTheme.stone600,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final creator = provider.userById(event.createdBy);
     final color = _visibilityColor();
     final isExternal = event.externalCalendarId != null;
+    final uid = currentUserId;
+    final showRsvp = !isExternal && uid != null && onRsvp != null && event.visibility == Visibility.FAMILY;
+    _EventRsvpChoice? myChoice;
+    if (showRsvp && uid != null) {
+      if (event.rsvpYesIds.contains(uid)) {
+        myChoice = _EventRsvpChoice.yes;
+      } else if (event.rsvpNoIds.contains(uid)) {
+        myChoice = _EventRsvpChoice.no;
+      } else if (event.rsvpMaybeIds.contains(uid)) {
+        myChoice = _EventRsvpChoice.maybe;
+      }
+    }
+    final yesCount = event.rsvpYesIds.length;
+    final noCount = event.rsvpNoIds.length;
+    final maybeCount = event.rsvpMaybeIds.length;
 
     return Dismissible(
       key: Key(event.id),
@@ -1335,6 +1695,45 @@ class _EventCard extends StatelessWidget {
                                 creator.name.split(' ').first,
                                 style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400),
                               ),
+                            ],
+                          ),
+                        ],
+                        if (showRsvp) ...[
+                          const SizedBox(height: 10),
+                          Text(
+                            'RSVP · $yesCount going · $maybeCount maybe · $noCount can\'t',
+                            style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.stone500),
+                          ),
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              _rsvpChip(
+                                label: 'Going',
+                                selected: myChoice == _EventRsvpChoice.yes,
+                                semanticsLabel: 'RSVP going for ${event.title}',
+                                onTap: () => onRsvp!(_EventRsvpChoice.yes),
+                              ),
+                              _rsvpChip(
+                                label: 'Maybe',
+                                selected: myChoice == _EventRsvpChoice.maybe,
+                                semanticsLabel: 'RSVP maybe for ${event.title}',
+                                onTap: () => onRsvp!(_EventRsvpChoice.maybe),
+                              ),
+                              _rsvpChip(
+                                label: 'Can\'t',
+                                selected: myChoice == _EventRsvpChoice.no,
+                                semanticsLabel: 'RSVP can\'t go for ${event.title}',
+                                onTap: () => onRsvp!(_EventRsvpChoice.no),
+                              ),
+                              if (myChoice != null)
+                                _rsvpChip(
+                                  label: 'Clear',
+                                  selected: false,
+                                  semanticsLabel: 'Clear RSVP for ${event.title}',
+                                  onTap: () => onRsvp!(_EventRsvpChoice.clear),
+                                ),
                             ],
                           ),
                         ],
@@ -1493,7 +1892,8 @@ class _EventFormSheetState extends State<_EventFormSheet> {
       }
       await provider.saveAndSync(db.copyWith(events: events));
       if (widget.editEvent == null) {
-        NotificationService.notifyFamilyActivity(
+        NotificationService.notifyFamilyActivityWithDb(
+          provider.db,
           title: 'New Calendar Event',
           body: '${provider.activeUser?.name ?? "Someone"} added: ${event.title}',
           path: '/calendar',

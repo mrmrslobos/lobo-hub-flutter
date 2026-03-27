@@ -9,6 +9,7 @@ import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../utils/debounce.dart';
 
 const _uuid = Uuid();
 
@@ -56,6 +57,17 @@ class HabitsScreen extends StatefulWidget {
 }
 
 class _HabitsScreenState extends State<HabitsScreen> {
+  final _searchCtrl = TextEditingController();
+  final _searchDebounce = Debouncer();
+  String _searchQuery = '';
+
+  @override
+  void dispose() {
+    _searchDebounce.dispose();
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
@@ -72,15 +84,23 @@ class _HabitsScreenState extends State<HabitsScreen> {
         .where((h) => h.userId == user.id || h.isShared)
         .toList();
 
+    final q = _searchQuery.trim().toLowerCase();
+    final habitsForUi = q.isEmpty
+        ? allHabits
+        : allHabits.where((h) {
+            if (h.label.toLowerCase().contains(q)) return true;
+            final d = h.description?.toLowerCase() ?? '';
+            return d.contains(q);
+          }).toList();
+
     final todayCompletions = db.habitCompletions
         .where((c) => c.userId == user.id && _isSameDay(c.date, today))
         .toList();
 
-    final completed = allHabits
+    final completed = habitsForUi
         .where((h) => todayCompletions.any((c) => c.habitId == h.id))
         .length;
 
-    // Best streak across all habits
     int bestStreak = 0;
     for (final h in allHabits) {
       final s = _calcStreak(h, db.habitCompletions, user.id);
@@ -117,7 +137,7 @@ class _HabitsScreenState extends State<HabitsScreen> {
                 _MiniStat(
                   icon: Icons.track_changes_rounded,
                   iconColor: AppTheme.primary,
-                  value: '${allHabits.length}',
+                  value: '${habitsForUi.length}',
                   label: 'Habits',
                 ),
                 const SizedBox(width: 10),
@@ -138,11 +158,47 @@ class _HabitsScreenState extends State<HabitsScreen> {
             ),
 
             // ─── Progress card ───────────────────────────────────
-            if (allHabits.isNotEmpty)
+            if (habitsForUi.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-                child: _ProgressCard(completed: completed, total: allHabits.length),
+                child: _ProgressCard(completed: completed, total: habitsForUi.length),
               ),
+
+            if (allHabits.isNotEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                child: TextField(
+                  controller: _searchCtrl,
+                  onChanged: (v) {
+                    _searchDebounce.run(() {
+                      if (!mounted) return;
+                      setState(() => _searchQuery = v);
+                    });
+                  },
+                  decoration: InputDecoration(
+                    hintText: 'Search habits…',
+                    hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
+                    prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.close_rounded, size: 18),
+                            onPressed: () {
+                              _searchDebounce.cancel();
+                              _searchCtrl.clear();
+                              setState(() => _searchQuery = '');
+                            },
+                          )
+                        : null,
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primary)),
+                  ),
+                ),
+              ),
+            ],
 
             // ─── Habit list ──────────────────────────────────────
             if (allHabits.isEmpty)
@@ -160,6 +216,15 @@ class _HabitsScreenState extends State<HabitsScreen> {
                   onAction: () => _showAddHabitSheet(context, user, family, db, provider),
                 ),
               )
+            else if (habitsForUi.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: EmptyState(
+                  emoji: '🔍',
+                  title: 'No matching habits',
+                  subtitle: 'Try a different search term',
+                ),
+              )
             else
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -174,7 +239,7 @@ class _HabitsScreenState extends State<HabitsScreen> {
                         color: AppTheme.stone400, letterSpacing: 1.1,
                       )),
                     ),
-                    ...allHabits.map((habit) {
+                    ...habitsForUi.map((habit) {
                       final isDone = todayCompletions.any((c) => c.habitId == habit.id);
                       final streak = _calcStreak(habit, db.habitCompletions, user.id);
                       return Dismissible(
