@@ -22,6 +22,7 @@ class PollsScreen extends StatefulWidget {
 class _PollsScreenState extends State<PollsScreen> {
   String? _expandedPollId;
   int _selectedFilter = 0; // 0=Open, 1=Closed, 2=All
+  bool _closingExpired = false;
   final _searchCtrl = TextEditingController();
   final _searchDebounce = Debouncer();
   String _searchQuery = '';
