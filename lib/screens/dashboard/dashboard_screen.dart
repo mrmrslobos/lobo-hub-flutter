@@ -463,7 +463,7 @@ Return a JSON object:
     final mealsPlanned = meals.map((m) => m.mealType).toSet();
     final upcomingEvents = db.events.where((e) => e.familyId == familyId && !e.startDate.isBefore(today) && e.startDate.isBefore(today.add(const Duration(days: 3)))).toList();
     final habits = db.dailyHabits.where((h) => h.familyId == familyId).length;
-    final habitsCompleted = db.dailyHabitCompletions.where((c) => _isSameDay(c.date, today)).length;
+    final habitsCompleted = db.dailyHabitCompletions.where((c) => c.userId == user.id && _isSameDay(c.date, today)).length;
 
     final contextStr = '''
 Family: ${family.name}
@@ -581,7 +581,7 @@ Return ONLY the JSON array, no markdown.''',
     await showLocalFallback();
   }
 
-  List<_AISuggestion> _generateLocalSuggestions(AppDB db, String familyId) {
+  List<_AISuggestion> _generateLocalSuggestions(AppDB db, String familyId, String userId) {
     final suggestions = <_AISuggestion>[];
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -614,7 +614,7 @@ Return ONLY the JSON array, no markdown.''',
     }
 
     final habits = db.dailyHabits.where((h) => h.familyId == familyId).length;
-    final habitsCompleted = db.dailyHabitCompletions.where((c) => _isSameDay(c.date, today)).length;
+    final habitsCompleted = db.dailyHabitCompletions.where((c) => c.userId == userId && _isSameDay(c.date, today)).length;
     if (habits > 0 && habitsCompleted < habits) {
       suggestions.add(_AISuggestion(
         iconKey: 'habit',

@@ -40,6 +40,48 @@ No `test/` directory exists in the repository (a stub `widget_test.dart` is auto
 
 Edge Functions live under `supabase/functions/` (TypeScript/Deno). They are deployed to Supabase Cloud and are not required for local Flutter web development. Functions include: `ai-proxy`, `daily-devotional`, `weekly-digest`, `notify-family`, `calendar-sync`.
 
+### Building for Android and iOS
+
+**Android:**
+```
+flutter build apk --release \
+  --dart-define=SUPABASE_URL=<url> \
+  --dart-define=SUPABASE_ANON_KEY=<key>
+```
+Requires `key.properties` + keystore for release signing (see `android/app/build.gradle`).
+
+**iOS:**
+```
+flutter build ipa \
+  --dart-define=SUPABASE_URL=<url> \
+  --dart-define=SUPABASE_ANON_KEY=<key>
+```
+Requires Xcode with a valid Apple Developer signing team. Open `ios/Runner.xcworkspace` in Xcode to set your team under Signing & Capabilities.
+
+**Before first iOS build:** Replace `YOUR_IOS_CLIENT_ID` in `ios/Runner/Info.plist` with your real Google OAuth client ID (from Google Cloud Console). Without this, Google Sign-In will crash on iOS.
+
+### RevenueCat in-app purchases setup
+
+The app uses `purchases_flutter` (RevenueCat SDK). Integration is in `lib/services/purchase_service.dart` and initialized in `main.dart` via `--dart-define`:
+
+1. **Create a RevenueCat account** at https://app.revenuecat.com
+2. **Create a project** and add your App Store (iOS) and Play Store (Android) apps
+3. **Create products** in App Store Connect / Google Play Console:
+   - `base` — Base plan (essential family features)
+   - `ai` — AI plan (AI-powered features)
+   - `ai_family` — AI Family plan (2 adults + 4 children)
+4. **Create entitlements** in RevenueCat matching the app's checks: `base`, `ai`
+5. **Create offerings** with the products attached
+6. **Copy API keys** from RevenueCat → Project Settings → API Keys:
+   - iOS: Public Apple API Key → use as `RC_IOS_KEY`
+   - Android: Public Google API Key → use as `RC_ANDROID_KEY`
+7. **Pass keys via dart-define:**
+   ```
+   --dart-define=RC_IOS_KEY=appl_xxxxx
+   --dart-define=RC_ANDROID_KEY=goog_xxxxx
+   ```
+8. The subscription screen is at `lib/screens/subscription/subscription_screen.dart` — currently shows "Coming Soon". Wire it to `PurchaseService.checkEntitlements()` and `Purchases.getOfferings()` for real purchase flows.
+
 ### Key gotchas
 
 - The `README.md` references `npm install` / `npm run dev`, but there is **no `package.json`** in the repository. Those instructions apply to a separate web variant that is not included. The actual app is Flutter.
