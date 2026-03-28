@@ -79,13 +79,27 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
+  /// In-memory cache so suggestions survive widget recreation without
+  /// re-reading SharedPreferences or calling Gemini again.
+  static List<_AISuggestion>? _cachedSuggestions;
+  static int _cachedCompletedMask = 0;
+  static bool _cachedFromGemini = false;
+  static String? _cachedForKey;
+
   String? _dismissedAnnouncement;
   List<_AISuggestion> _suggestions = [];
-  /// Bits for AI suggestions from cache (0..2); local-only suggestions ignore this.
   int _suggestionCompletedMask = 0;
   bool _suggestionsFromGemini = false;
   bool _suggestionsLoading = true;
   bool _suggestionsLoaded = false;
+
+  void _persistToMemoryCache() {
+    _cachedSuggestions = List.of(_suggestions);
+    _cachedCompletedMask = _suggestionCompletedMask;
+    _cachedFromGemini = _suggestionsFromGemini;
+    final p = context.read<AppProvider>();
+    _cachedForKey = '${p.activeUser?.id}_${p.activeFamily?.id}';
+  }
   bool _startTipDismissed = false;
   bool _startTipReady = false;
 
@@ -103,8 +117,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _appProvider.addListener(_onAppProviderChanged);
     _lastProviderHasAI = _appProvider.hasAIAccess;
     _loadDismissedAnnouncement();
+
+    // Restore in-memory cache instantly to avoid spinner on re-navigation
+    final cacheKey = '${_appProvider.activeUser?.id}_${_appProvider.activeFamily?.id}';
+    if (_cachedSuggestions != null && _cachedForKey == cacheKey) {
+      _suggestions = _cachedSuggestions!;
+      _suggestionCompletedMask = _cachedCompletedMask;
+      _suggestionsFromGemini = _cachedFromGemini;
+      _suggestionsLoading = false;
+      _suggestionsLoaded = true;
+    }
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (AiService.isAIBlocked) {
+      if (_suggestionsLoaded) {
+        // Already have suggestions from cache — skip API call
+      } else if (AiService.isAIBlocked) {
         final p = context.read<AppProvider>();
         final db = p.db;
         final fid = p.activeFamily?.id ?? '';
@@ -339,6 +366,7 @@ Return a JSON object:
               route: r.route,
             ))
         .toList();
+    _persistToMemoryCache();
   }
 
   Future<void> _markSuggestionDone(int index) async {
@@ -572,6 +600,7 @@ Return ONLY the JSON array, no markdown.''',
               _suggestionsLoading = false;
               _suggestionsLoaded = true;
               _fetchedGeminiSuggestions = true;
+              _persistToMemoryCache();
             });
             return;
           }
