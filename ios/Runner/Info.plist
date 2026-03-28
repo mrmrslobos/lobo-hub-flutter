@@ -45,8 +45,6 @@
 	<string>FamilyHub needs permission to save photos to your library.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>FamilyHub uses your location to share with family members.</string>
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>FamilyHub uses your location to keep family members updated.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>FamilyHub uses Face ID to keep your family data private.</string>
 	<key>NSMicrophoneUsageDescription</key>
