@@ -121,9 +121,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     // Restore in-memory cache instantly to avoid spinner on re-navigation
     final cacheKey = '${_appProvider.activeUser?.id}_${_appProvider.activeFamily?.id}';
     if (_cachedSuggestions != null && _cachedForKey == cacheKey) {
-      _suggestions = _cachedSuggestions!;
+      _suggestions = List.of(_cachedSuggestions!);
       _suggestionCompletedMask = _cachedCompletedMask;
       _suggestionsFromGemini = _cachedFromGemini;
+      _fetchedGeminiSuggestions = _cachedFromGemini;
       _suggestionsLoading = false;
       _suggestionsLoaded = true;
     }
@@ -380,7 +381,10 @@ Return a JSON object:
     if ((_suggestionCompletedMask & bit) != 0) return;
 
     final newMask = _suggestionCompletedMask | bit;
-    setState(() => _suggestionCompletedMask = newMask);
+    setState(() {
+      _suggestionCompletedMask = newMask;
+      _persistToMemoryCache();
+    });
 
     final cached = await loadDashboardAiCache(user.id, family.id);
     if (cached != null) {
