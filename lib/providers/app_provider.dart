@@ -558,6 +558,18 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  /// Await after poll / vote changes so Supabase stays in sync.
+  Future<void> syncPollsNow() async {
+    final fam = _activeFamily;
+    if (fam == null || !SupabaseService.isConfigured) return;
+    try {
+      await DatabaseService.pushFamilyPollsToCloudNow(_db, fam.id);
+      _broadcastChange();
+    } catch (e) {
+      debugPrint('[AppProvider] syncPollsNow: $e');
+    }
+  }
+
   /// Merge keys into [activeUser.settings] and persist (users table sync).
   Future<void> updateActiveUserSettings(Map<String, dynamic> patch) async {
     final u = _activeUser;

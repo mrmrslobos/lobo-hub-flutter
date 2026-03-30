@@ -364,6 +364,80 @@ class DatabaseService {
     await _deleteRemovedRows('chore_completions', completionIds, familyId);
   }
 
+  /// Upserts polls and poll_votes for [familyId], tombstone-deletes removed rows,
+  /// and removes orphan [poll_votes] rows whose [poll_id] no longer exists locally.
+  static Future<void> pushFamilyPollsToCloudNow(AppDB db, String familyId) async {
+    if (!SupabaseService.isConfigured) return;
+    final polls = db.polls.where((p) => p.familyId == familyId).toList();
+    final pollIds = polls.map((p) => p.id).toSet();
+    final votes =
+        db.pollVotes.where((v) => v.familyId == familyId).toList();
+    final voteIds = votes.map((v) => v.id).toSet();
+
+    const chunk = 40;
+    for (var i = 0; i < polls.length; i += chunk) {
+      final slice = polls.sublist(i, math.min(i + chunk, polls.length));
+      final rows = slice
+          .map((p) => {...p.toJson(), 'family_id': familyId})
+          .toList();
+      try {
+        await SupabaseService.upsertTable('polls', rows);
+      } catch (e) {
+        debugPrint('[DatabaseService] polls chunk upsert failed, retry per row: $e');
+        for (final p in slice) {
+          try {
+            await SupabaseService.upsertTable('polls', [
+              {...p.toJson(), 'family_id': familyId},
+            ]);
+          } catch (e2) {
+            debugPrint('[DatabaseService] poll ${p.id} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedRows('polls', pollIds, familyId);
+
+    for (var i = 0; i < votes.length; i += chunk) {
+      final slice = votes.sublist(i, math.min(i + chunk, votes.length));
+      final rows = slice.map((v) => v.toJson()).toList();
+      try {
+        await SupabaseService.upsertTable('poll_votes', rows);
+      } catch (e) {
+        debugPrint(
+            '[DatabaseService] poll_votes chunk upsert failed, retry per row: $e');
+        for (final v in slice) {
+          try {
+            await SupabaseService.upsertTable('poll_votes', [v.toJson()]);
+          } catch (e2) {
+            debugPrint('[DatabaseService] poll_vote ${v.id} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedRows('poll_votes', voteIds, familyId);
+
+    try {
+      final cloudVotes = await SupabaseService.client
+          .from('poll_votes')
+          .select('id,poll_id')
+          .eq('family_id', familyId);
+      for (final r in cloudVotes as List) {
+        final pid = r['poll_id'] as String?;
+        final vid = r['id'] as String?;
+        if (pid == null || vid == null) continue;
+        if (!pollIds.contains(pid)) {
+          await SupabaseService.deleteRows('poll_votes', {'id': vid});
+        }
+      }
+    } catch (e) {
+      final msg = e.toString();
+      if (!msg.contains('PGRST205') &&
+          !msg.contains('Could not find the table')) {
+        debugPrint('[DatabaseService] poll_votes orphan cleanup failed: $e');
+      }
+    }
+  }
+
   /// Push local data to Supabase. Safe to fire-and-forget.
   /// Syncs for the same [familyId] are serialized so concurrent [saveAndSync]
   /// calls cannot leave Supabase with an older snapshot.

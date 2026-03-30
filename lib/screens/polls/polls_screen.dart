@@ -26,6 +26,11 @@ class _PollsScreenState extends State<PollsScreen> {
   final _searchDebounce = Debouncer();
   String _searchQuery = '';
 
+  Future<void> _persistPolls(AppProvider provider, AppDB next) async {
+    await provider.saveAndSync(next);
+    if (provider.activeFamily != null) await provider.syncPollsNow();
+  }
+
   @override
   void dispose() {
     _searchDebounce.dispose();
@@ -64,7 +69,7 @@ class _PollsScreenState extends State<PollsScreen> {
 
     final updatedPoll = poll.copyWith(options: updatedOptions);
     final updatedPolls = db.polls.map((p) => p.id == poll.id ? updatedPoll : p).toList();
-    await provider.saveAndSync(db.copyWith(polls: updatedPolls));
+    await _persistPolls(provider, db.copyWith(polls: updatedPolls));
   }
 
   Future<void> _closePoll(Poll poll) async {
@@ -92,9 +97,12 @@ class _PollsScreenState extends State<PollsScreen> {
     final provider = context.read<AppProvider>();
     final db = provider.db;
     final updatedPoll = poll.copyWith(status: PollStatus.closed);
-    await provider.saveAndSync(db.copyWith(
-      polls: db.polls.map((p) => p.id == poll.id ? updatedPoll : p).toList(),
-    ));
+    await _persistPolls(
+      provider,
+      db.copyWith(
+        polls: db.polls.map((p) => p.id == poll.id ? updatedPoll : p).toList(),
+      ),
+    );
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: const Text('Poll closed'),
@@ -120,7 +128,13 @@ class _PollsScreenState extends State<PollsScreen> {
     if (confirmed != true) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(polls: db.polls.where((p) => p.id != pollId).toList()));
+    await _persistPolls(
+      provider,
+      db.copyWith(
+        polls: db.polls.where((p) => p.id != pollId).toList(),
+        pollVotes: db.pollVotes.where((v) => v.pollId != pollId).toList(),
+      ),
+    );
   }
 
   void _showCreatePollSheet({Poll? editPoll}) {
@@ -134,11 +148,17 @@ class _PollsScreenState extends State<PollsScreen> {
           final provider = context.read<AppProvider>();
           final db = provider.db;
           if (editPoll != null) {
-            await provider.saveAndSync(db.copyWith(
-              polls: db.polls.map((p) => p.id == editPoll.id ? poll : p).toList(),
-            ));
+            await _persistPolls(
+              provider,
+              db.copyWith(
+                polls: db.polls.map((p) => p.id == editPoll.id ? poll : p).toList(),
+              ),
+            );
           } else {
-            await provider.saveAndSync(db.copyWith(polls: [...db.polls, poll]));
+            await _persistPolls(
+              provider,
+              db.copyWith(polls: [...db.polls, poll]),
+            );
             NotificationService.notifyFamilyActivityWithDb(
               provider.db,
               title: 'New Poll',
@@ -180,7 +200,7 @@ class _PollsScreenState extends State<PollsScreen> {
           }
           return p;
         }).toList();
-        await provider.saveAndSync(db.copyWith(polls: updatedPolls));
+        await _persistPolls(provider, db.copyWith(polls: updatedPolls));
       });
     }
 
@@ -269,6 +289,7 @@ class _PollsScreenState extends State<PollsScreen> {
                 suffixIcon: _searchQuery.isNotEmpty
                     ? IconButton(
                         icon: const Icon(Icons.close_rounded, size: 18),
+                        tooltip: 'Clear search',
                         onPressed: () {
                           _searchDebounce.cancel();
                           _searchCtrl.clear();
