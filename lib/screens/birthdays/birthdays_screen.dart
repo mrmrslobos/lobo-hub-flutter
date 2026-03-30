@@ -47,6 +47,22 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
   final _searchDebounce = Debouncer();
   String _searchQuery = '';
 
+  static List<int> _occasionReminderIds(Occasion occasion) {
+    final idBase = occasion.id.hashCode.abs() % 100000;
+    return [idBase, idBase + 1];
+  }
+
+  void _cancelOccasionReminders(Occasion occasion) {
+    for (final id in _occasionReminderIds(occasion)) {
+      NotificationService.cancel(id);
+    }
+  }
+
+  Future<void> _persistOccasions(AppProvider provider, AppDB next) async {
+    await provider.saveAndSync(next);
+    if (provider.activeFamily != null) await provider.syncOccasionsNow();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -100,13 +116,14 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
   }
 
   void _scheduleReminders(Occasion occasion) {
+    _cancelOccasionReminders(occasion);
     final now = DateTime.now();
     final thisYear = DateTime(now.year, occasion.date.month, occasion.date.day);
     final nextOccurrence = thisYear.isBefore(now)
         ? DateTime(now.year + 1, occasion.date.month, occasion.date.day)
         : thisYear;
 
-    final idBase = occasion.id.hashCode.abs() % 100000;
+    final idBase = _occasionReminderIds(occasion).first;
 
     // Day-of reminder at 9 AM
     final dayOf = DateTime(nextOccurrence.year, nextOccurrence.month, nextOccurrence.day, 9);
@@ -157,9 +174,12 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
     if (confirmed != true) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
-      occasions: db.occasions.where((o) => o.id != id).toList(),
-    ));
+    final removed = db.occasions.firstWhereOrNull((o) => o.id == id);
+    if (removed != null) _cancelOccasionReminders(removed);
+    await _persistOccasions(
+      provider,
+      db.copyWith(occasions: db.occasions.where((o) => o.id != id).toList()),
+    );
   }
 
   void _showAddSheet({Occasion? editOccasion}) {
@@ -173,11 +193,20 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
           final provider = context.read<AppProvider>();
           final db = provider.db;
           if (editOccasion != null) {
-            await provider.saveAndSync(db.copyWith(
-              occasions: db.occasions.map((o) => o.id == editOccasion.id ? occasion : o).toList(),
-            ));
+            _cancelOccasionReminders(editOccasion);
+            await _persistOccasions(
+              provider,
+              db.copyWith(
+                occasions: db.occasions
+                    .map((o) => o.id == editOccasion.id ? occasion : o)
+                    .toList(),
+              ),
+            );
           } else {
-            await provider.saveAndSync(db.copyWith(occasions: [...db.occasions, occasion]));
+            await _persistOccasions(
+              provider,
+              db.copyWith(occasions: [...db.occasions, occasion]),
+            );
             NotificationService.notifyFamilyActivityWithDb(
               provider.db,
               title: 'New Occasion Added',
@@ -871,6 +900,7 @@ class _OccasionFormSheetState extends State<_OccasionFormSheet> {
                 const Spacer(),
                 IconButton(
                   icon: const Icon(Icons.close_rounded, color: AppTheme.stone400),
+                  tooltip: 'Close',
                   onPressed: () => Navigator.pop(context),
                 ),
               ],

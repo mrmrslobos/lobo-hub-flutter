@@ -438,6 +438,38 @@ class DatabaseService {
     }
   }
 
+  /// Upserts special_dates (occasions) for [familyId] and tombstone-deletes removed rows.
+  static Future<void> pushFamilySpecialDatesToCloudNow(
+    AppDB db,
+    String familyId,
+  ) async {
+    if (!SupabaseService.isConfigured) return;
+    final rows = db.specialDates
+        .where((s) => s.familyId == familyId)
+        .map((s) => {...s.toJson(), 'family_id': familyId})
+        .toList();
+    final localIds = rows.map((r) => r['id'] as String).toSet();
+    const chunk = 40;
+    for (var i = 0; i < rows.length; i += chunk) {
+      final slice = rows.sublist(i, math.min(i + chunk, rows.length));
+      try {
+        await SupabaseService.upsertTable('special_dates', slice);
+      } catch (e) {
+        debugPrint(
+            '[DatabaseService] special_dates chunk upsert failed, retry per row: $e');
+        for (final r in slice) {
+          try {
+            await SupabaseService.upsertTable('special_dates', [r]);
+          } catch (e2) {
+            debugPrint(
+                '[DatabaseService] special_date ${r['id']} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedRows('special_dates', localIds, familyId);
+  }
+
   /// Push local data to Supabase. Safe to fire-and-forget.
   /// Syncs for the same [familyId] are serialized so concurrent [saveAndSync]
   /// calls cannot leave Supabase with an older snapshot.

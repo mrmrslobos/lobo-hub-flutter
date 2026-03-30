@@ -570,6 +570,18 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  /// Await after occasion (special_dates) add/edit/delete so Supabase stays in sync.
+  Future<void> syncOccasionsNow() async {
+    final fam = _activeFamily;
+    if (fam == null || !SupabaseService.isConfigured) return;
+    try {
+      await DatabaseService.pushFamilySpecialDatesToCloudNow(_db, fam.id);
+      _broadcastChange();
+    } catch (e) {
+      debugPrint('[AppProvider] syncOccasionsNow: $e');
+    }
+  }
+
   /// Merge keys into [activeUser.settings] and persist (users table sync).
   Future<void> updateActiveUserSettings(Map<String, dynamic> patch) async {
     final u = _activeUser;
