@@ -582,6 +582,38 @@ class DatabaseService {
     await _deleteRemovedRows('saved_places', placeIds, familyId);
   }
 
+  /// Upserts [health_records] for [familyId] and tombstone-deletes removed rows.
+  static Future<void> pushFamilyHealthRecordsToCloudNow(
+    AppDB db,
+    String familyId,
+  ) async {
+    if (!SupabaseService.isConfigured) return;
+    final rows = db.healthRecords
+        .where((h) => h.familyId == familyId)
+        .map((h) => {...h.toJson(), 'family_id': familyId})
+        .toList();
+    final localIds = rows.map((r) => r['id'] as String).toSet();
+    const chunk = 25;
+    for (var i = 0; i < rows.length; i += chunk) {
+      final slice = rows.sublist(i, math.min(i + chunk, rows.length));
+      try {
+        await SupabaseService.upsertTable('health_records', slice);
+      } catch (e) {
+        debugPrint(
+            '[DatabaseService] health_records chunk upsert failed, retry per row: $e');
+        for (final r in slice) {
+          try {
+            await SupabaseService.upsertTable('health_records', [r]);
+          } catch (e2) {
+            debugPrint(
+                '[DatabaseService] health_record ${r['id']} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedRows('health_records', localIds, familyId);
+  }
+
   /// Push local data to Supabase. Safe to fire-and-forget.
   /// Syncs for the same [familyId] are serialized so concurrent [saveAndSync]
   /// calls cannot leave Supabase with an older snapshot.

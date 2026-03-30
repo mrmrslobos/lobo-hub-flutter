@@ -226,8 +226,12 @@ class _HealthScreenState extends State<HealthScreen> {
       insurancePolicyNumber: updated.insurancePolicyNumber,
       notes: updated.notes,
       updatedAt: DateTime.now(),
+      type: updated.type,
+      title: updated.title,
+      data: updated.data,
     );
     await provider.saveAndSync(db.copyWith(healthRecords: [...filtered, withTimestamp]));
+    if (provider.activeFamily != null) await provider.syncHealthRecordsNow();
   }
 
   void _shareEmergencyCard(HealthRecord record, String name) {
@@ -437,6 +441,7 @@ class _HealthScreenState extends State<HealthScreen> {
                           tooltip: 'Clear search',
                           icon: const Icon(Icons.close_rounded, size: 20, color: AppTheme.stone400),
                           onPressed: () {
+                            _healthSearchDebounce.cancel();
                             _healthSearchCtrl.clear();
                             setState(() => _healthSearchQuery = '');
                           },
