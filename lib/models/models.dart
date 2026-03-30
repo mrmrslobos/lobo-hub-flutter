@@ -711,7 +711,14 @@ class Task {
   // Convenience getters for screen compatibility
   List<String> get assigneeIds => assignees;
   String get createdBy => creatorId;
-  bool get isOverdue => !completed && dueDate != null && dueDate!.isBefore(DateTime.now());
+  /// Overdue when the due **calendar day** is before today (date-only dues are not overdue at 9am on the due day).
+  bool get isOverdue {
+    if (completed || dueDate == null) return false;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final dueDay = DateTime(dueDate!.year, dueDate!.month, dueDate!.day);
+    return dueDay.isBefore(today);
+  }
 
   Task copyWith({
     String? id, String? familyId, String? creatorId, String? title,

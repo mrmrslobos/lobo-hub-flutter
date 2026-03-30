@@ -22,7 +22,7 @@ import '../../utils/debounce.dart';
 
 // ─── Filter enum ──────────────────────────────────────────────────────────────
 
-enum _TaskFilter { all, mine, others, today, highPriority, done }
+enum _TaskFilter { all, mine, others, today, overdue, highPriority, done }
 
 // ─── Tasks screen ─────────────────────────────────────────────────────────────
 
@@ -191,6 +191,8 @@ class _TasksScreenState extends State<TasksScreen> {
           return !t.completed && !t.assigneeIds.contains(userId) && t.createdBy != userId && t.assigneeIds.isNotEmpty;
         case _TaskFilter.today:
           return !t.completed && t.dueDate != null && _isSameDay(t.dueDate!, today);
+        case _TaskFilter.overdue:
+          return !t.completed && t.isOverdue;
         case _TaskFilter.highPriority:
           return !t.completed && t.priority == Priority.HIGH;
         case _TaskFilter.done:
@@ -198,8 +200,8 @@ class _TasksScreenState extends State<TasksScreen> {
       }
     }).toList()
       ..sort((a, b) {
-        if (_filter == _TaskFilter.done) {
-          return 0; // keep insertion order for completed
+        if (_filter == _TaskFilter.done || _filter == _TaskFilter.overdue) {
+          return 0; // keep stable order for completed / overdue lists
         }
         if (a.isOverdue && !b.isOverdue) return -1;
         if (!a.isOverdue && b.isOverdue) return 1;
@@ -218,9 +220,11 @@ class _TasksScreenState extends State<TasksScreen> {
   Future<void> _toggleComplete(AppProvider provider, Task task) async {
     HapticFeedback.lightImpact();
     final db = provider.db;
+    final uid = provider.activeUser?.id;
     final updated = task.copyWith(
       completed: !task.completed,
-      completedBy: !task.completed ? provider.activeUser?.id : null,
+      completedBy: !task.completed ? uid : null,
+      updatedBy: uid,
       updatedAt: DateTime.now(),
     );
     var tasks = db.tasks.map((t) => t.id == task.id ? updated : t).toList();
@@ -232,6 +236,7 @@ class _TasksScreenState extends State<TasksScreen> {
         id: const Uuid().v4(),
         completed: false,
         completedBy: null,
+        updatedBy: uid,
         dueDate: nextDue,
         updatedAt: DateTime.now(),
       );
@@ -316,6 +321,7 @@ class _TasksScreenState extends State<TasksScreen> {
         final today = DateTime(now.year, now.month, now.day);
         final otherTasks = allTasks.where((t) => !t.assigneeIds.contains(userId) && t.createdBy != userId && t.assigneeIds.isNotEmpty).toList();
         final dueTodayTasks = allTasks.where((t) => t.dueDate != null && _isSameDay(t.dueDate!, today)).toList();
+        final overdueFilterTasks = allTasks.where((t) => t.isOverdue).toList();
         final highPriorityTasks = allTasks.where((t) => t.priority == Priority.HIGH).toList();
         final doneTasks = provider.db.tasks.where((t) => t.familyId == familyId && t.completed).toList();
         final overdueTasks = allTasks.where((t) => t.isOverdue).toList();
@@ -437,7 +443,10 @@ class _TasksScreenState extends State<TasksScreen> {
                     ),
                     const SizedBox(width: 10),
                     GestureDetector(
-                      onTap: () => _showAiBreakdownSheet(context),
+                      onTap: () {
+                        if (SubscriptionModal.guardAI(context)) return;
+                        _showAiBreakdownSheet(context);
+                      },
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
                         decoration: BoxDecoration(
@@ -481,6 +490,7 @@ class _TasksScreenState extends State<TasksScreen> {
                     suffixIcon: _searchQuery.isNotEmpty
                         ? IconButton(
                             icon: const Icon(Icons.close_rounded, size: 18),
+                            tooltip: 'Clear search',
                             onPressed: () {
                               _searchDebounce.cancel();
                               _searchCtrl.clear();
@@ -513,6 +523,14 @@ class _TasksScreenState extends State<TasksScreen> {
                       _FilterChip(label: 'Others', count: otherTasks.length, selected: _filter == _TaskFilter.others, onTap: () => setState(() => _filter = _TaskFilter.others)),
                       const SizedBox(width: 8),
                       _FilterChip(label: 'Today', count: dueTodayTasks.length, selected: _filter == _TaskFilter.today, onTap: () => setState(() => _filter = _TaskFilter.today)),
+                      const SizedBox(width: 8),
+                      _FilterChip(
+                        label: 'Overdue',
+                        count: overdueFilterTasks.length,
+                        selected: _filter == _TaskFilter.overdue,
+                        onTap: () => setState(() => _filter = _TaskFilter.overdue),
+                        color: overdueFilterTasks.isNotEmpty ? AppTheme.error : null,
+                      ),
                       const SizedBox(width: 8),
                       _FilterChip(label: 'Urgent', count: highPriorityTasks.length, selected: _filter == _TaskFilter.highPriority, onTap: () => setState(() => _filter = _TaskFilter.highPriority), color: highPriorityTasks.isNotEmpty ? AppTheme.error : null),
                       const SizedBox(width: 8),
@@ -668,7 +686,11 @@ class _TasksScreenState extends State<TasksScreen> {
                 child: Row(
                   children: [
                     Text(
-                      _filter == _TaskFilter.done ? 'COMPLETED' : 'TASKS',
+                      _filter == _TaskFilter.done
+                          ? 'COMPLETED'
+                          : _filter == _TaskFilter.overdue
+                              ? 'OVERDUE'
+                              : 'TASKS',
                       style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1),
                     ),
                     const SizedBox(width: 8),
@@ -707,35 +729,46 @@ class _TasksScreenState extends State<TasksScreen> {
   }
 
   Widget _buildEmptyState() {
-    IconData icon;
-    String title;
-    String subtitle;
+    late IconData icon;
+    late String title;
+    late String subtitle;
 
     switch (_filter) {
       case _TaskFilter.done:
         icon = Icons.check_circle_outline_rounded;
         title = 'No completed tasks yet';
         subtitle = 'Tasks you complete will appear here';
+        break;
       case _TaskFilter.today:
         icon = Icons.today_rounded;
         title = 'Nothing due today';
         subtitle = 'Enjoy your free time!';
+        break;
+      case _TaskFilter.overdue:
+        icon = Icons.event_busy_rounded;
+        title = 'No overdue tasks';
+        subtitle = 'You are on top of deadlines';
+        break;
       case _TaskFilter.highPriority:
         icon = Icons.flag_outlined;
         title = 'No urgent tasks';
         subtitle = 'All high-priority items are handled';
+        break;
       case _TaskFilter.mine:
         icon = Icons.person_outline_rounded;
         title = 'No tasks assigned to you';
         subtitle = 'Create a task or ask someone to assign one';
+        break;
       case _TaskFilter.others:
         icon = Icons.people_outline_rounded;
         title = 'No tasks from others';
         subtitle = 'Tasks assigned to family members show here';
+        break;
       case _TaskFilter.all:
         icon = Icons.task_alt_rounded;
         title = 'All clear!';
         subtitle = 'Tap "New Task" to add something';
+        break;
     }
 
     if (_searchQuery.isNotEmpty) {
@@ -1214,7 +1247,14 @@ class _TaskCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Dismissible(
+    final actionHint = task.completed
+        ? 'Swipe right to mark incomplete, left to delete. Tap to edit.'
+        : 'Swipe right to complete, left to delete. Tap to edit.';
+    return Semantics(
+      container: true,
+      label: '${task.completed ? "Completed task" : "Task"}: ${task.title}',
+      hint: actionHint,
+      child: Dismissible(
       key: Key(task.id),
       background: Container(
         alignment: Alignment.centerLeft,
@@ -1301,7 +1341,10 @@ class _TaskCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // Animated checkbox
-                GestureDetector(
+                Semantics(
+                  button: true,
+                  label: task.completed ? 'Mark task incomplete' : 'Mark task complete',
+                  child: GestureDetector(
                   onTap: onToggle,
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
@@ -1326,6 +1369,7 @@ class _TaskCard extends StatelessWidget {
                         ? const Icon(Icons.check_rounded, size: 14, color: Colors.white)
                         : null,
                   ),
+                ),
                 ),
                 const SizedBox(width: 12),
                 // Content
@@ -1404,6 +1448,7 @@ class _TaskCard extends StatelessWidget {
           ),
         ),
       ),
+    ),
     );
   }
 }
