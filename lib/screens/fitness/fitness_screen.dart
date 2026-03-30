@@ -77,6 +77,11 @@ void _showSnack(BuildContext context, String msg) {
   ));
 }
 
+Future<void> _persistFitness(AppProvider provider, AppDB newDb) async {
+  await provider.saveAndSync(newDb);
+  await provider.syncFitnessNow();
+}
+
 Future<bool> _confirmRemove(BuildContext context, String title, String message) async {
   final confirmed = await showDialog<bool>(
     context: context,
@@ -210,7 +215,7 @@ Future<void> _persistCompletedWorkout(
     workoutExercises: [...next.workoutExercises, ...exercises],
     workoutSets: [...next.workoutSets, ...sets],
   );
-  await provider.saveAndSync(next);
+  await _persistFitness(provider, next);
 }
 
 String? _exerciseImageUrl(Map exercise) {
@@ -443,7 +448,8 @@ Write 2-4 short paragraphs: (1) what went well or patterns you notice, (2) one c
         onSave: (metric) async {
           final provider = context.read<AppProvider>();
           final db = provider.db;
-          await provider.saveAndSync(db.copyWith(fitness: [...db.fitness, metric]));
+          await _persistFitness(
+              provider, db.copyWith(fitness: [...db.fitness, metric]));
         },
       ),
     );
@@ -496,7 +502,7 @@ Write 2-4 short paragraphs: (1) what went well or patterns you notice, (2) one c
             'family_id': family.id,
             'created_at': DateTime.now().toIso8601String(),
           });
-          await provider.saveAndSync(db.copyWith(fitnessPlans: plans));
+          await _persistFitness(provider, db.copyWith(fitnessPlans: plans));
           if (mounted) setState(() => _selectedPlanIndex = 0);
         },
       ),
@@ -517,7 +523,7 @@ Write 2-4 short paragraphs: (1) what went well or patterns you notice, (2) one c
     final sessionsToKeep =
         db.workoutSessions.where((s) => s.id != sessionId).toList();
 
-    await provider.saveAndSync(db.copyWith(
+    await _persistFitness(provider, db.copyWith(
       workoutSessions: sessionsToKeep,
       workoutExercises: exercisesToKeep,
       workoutSets: setsToKeep,
@@ -1086,13 +1092,18 @@ Write 2-4 short paragraphs: (1) what went well or patterns you notice, (2) one c
                 prefixIcon: const Icon(Icons.search, size: 20, color: AppTheme.stone400),
                 suffixIcon: _logSearchQuery.isEmpty
                     ? null
-                    : IconButton(
-                        tooltip: 'Clear search',
-                        icon: const Icon(Icons.close_rounded, size: 20, color: AppTheme.stone400),
-                        onPressed: () {
-                          _logSearchCtrl.clear();
-                          setState(() => _logSearchQuery = '');
-                        },
+                    : Semantics(
+                        label: 'Clear search',
+                        button: true,
+                        child: IconButton(
+                          tooltip: 'Clear search',
+                          icon: const Icon(Icons.close_rounded, size: 20, color: AppTheme.stone400),
+                          onPressed: () {
+                            _logSearchDebounce.cancel();
+                            _logSearchCtrl.clear();
+                            setState(() => _logSearchQuery = '');
+                          },
+                        ),
                       ),
                 filled: true,
                 fillColor: AppTheme.stone50,
@@ -1320,12 +1331,12 @@ class _StoredPlanViewState extends State<_StoredPlanView> {
         final idx = plans.indexWhere((p) => p is Map && fitnessPlanStableId(p) == sid);
         if (idx >= 0) {
           plans[idx] = planMap;
-          await provider.saveAndSync(db.copyWith(fitnessPlans: plans));
+          await _persistFitness(provider, db.copyWith(fitnessPlans: plans));
         } else {
-          await provider.saveAndSync(db);
+          await _persistFitness(provider, db);
         }
       } else {
-        await provider.saveAndSync(db);
+        await _persistFitness(provider, db);
       }
       if (mounted) {
         setState(() {});
@@ -1542,7 +1553,7 @@ Apply the requested change while keeping everything else sensible.
           'family_id': familyId,
           'created_at': DateTime.now().toIso8601String(),
         });
-        await provider.saveAndSync(db.copyWith(fitnessPlans: plans));
+        await _persistFitness(provider, db.copyWith(fitnessPlans: plans));
 
         if (mounted) {
           _refineController.clear();

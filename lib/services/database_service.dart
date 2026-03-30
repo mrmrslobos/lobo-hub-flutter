@@ -321,6 +321,216 @@ class DatabaseService {
     await _deleteRemovedRows('pantry_items', pantryIds, familyId);
   }
 
+  /// Upserts the current user's fitness metrics, AI plans, logs, workout graph,
+  /// and PRs for [familyId], with tombstone deletes (same pattern as meals/tasks).
+  static Future<void> pushFamilyFitnessToCloudNow(
+    AppDB db,
+    String familyId,
+  ) async {
+    if (!SupabaseService.isConfigured) return;
+    final uid = SupabaseService.currentUser?.id;
+    if (uid == null) return;
+    const chunk = 40;
+
+    final metrics = db.fitness.where((f) => f.userId == uid).toList();
+    final metricRows = metrics.map((f) => f.toJson()).toList();
+    final metricIds = metrics.map((f) => f.id).toSet();
+    for (var i = 0; i < metricRows.length; i += chunk) {
+      final slice =
+          metricRows.sublist(i, math.min(i + chunk, metricRows.length));
+      try {
+        await SupabaseService.upsertTable('fitness', slice);
+      } catch (e) {
+        debugPrint(
+            '[DatabaseService] fitness chunk upsert failed, retry per row: $e');
+        for (var j = 0; j < slice.length; j++) {
+          try {
+            await SupabaseService.upsertTable('fitness', [slice[j]]);
+          } catch (e2) {
+            debugPrint(
+                '[DatabaseService] fitness metric ${slice[j]['id']} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedUserRows('fitness', metricIds, uid);
+
+    final plans = db.fitnessPlans
+        .whereType<Map>()
+        .where((p) => p['user_id'] == uid)
+        .map((p) {
+          final row = fitnessPlanRowForCloud(
+            Map<String, dynamic>.from(p as Map),
+            familyId,
+          );
+          for (final k in _fitnessPlansCloudOmit) {
+            row.remove(k);
+          }
+          return row;
+        })
+        .toList();
+    final planIds = db.fitnessPlans
+        .whereType<Map>()
+        .where((p) => p['user_id'] == uid)
+        .map((p) => fitnessPlanCloudRowId(p, familyId))
+        .toSet();
+    for (var i = 0; i < plans.length; i += chunk) {
+      final slice = plans.sublist(i, math.min(i + chunk, plans.length));
+      try {
+        await SupabaseService.upsertTable('fitness_plans', slice);
+      } catch (e) {
+        debugPrint(
+            '[DatabaseService] fitness_plans chunk upsert failed, retry per row: $e');
+        for (var j = 0; j < slice.length; j++) {
+          try {
+            await SupabaseService.upsertTable('fitness_plans', [slice[j]]);
+          } catch (e2) {
+            debugPrint(
+                '[DatabaseService] fitness_plan ${slice[j]['id']} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedUserRows('fitness_plans', planIds, uid);
+
+    final logs = db.fitnessLogs
+        .where((l) => l.familyId == familyId && l.userId == uid)
+        .toList();
+    final logRows =
+        logs.map((l) => {...l.toJson(), 'family_id': familyId}).toList();
+    final logIds = logs.map((l) => l.id).toSet();
+    for (var i = 0; i < logRows.length; i += chunk) {
+      final slice = logRows.sublist(i, math.min(i + chunk, logRows.length));
+      try {
+        await SupabaseService.upsertTable('fitness_logs', slice);
+      } catch (e) {
+        debugPrint(
+            '[DatabaseService] fitness_logs chunk upsert failed, retry per row: $e');
+        for (var j = 0; j < slice.length; j++) {
+          try {
+            await SupabaseService.upsertTable('fitness_logs', [slice[j]]);
+          } catch (e2) {
+            debugPrint(
+                '[DatabaseService] fitness_log ${slice[j]['id']} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedRows('fitness_logs', logIds, familyId);
+
+    final sessions = db.workoutSessions
+        .where((s) => s.familyId == familyId && s.userId == uid)
+        .toList();
+    final sessionRows = sessions.map((s) {
+      final row = Map<String, dynamic>.from(s.toJson());
+      row['family_id'] = familyId;
+      for (final k in _workoutSessionCloudOmit) {
+        row.remove(k);
+      }
+      return row;
+    }).toList();
+    final sessionIds = sessions.map((s) => s.id).toSet();
+    for (var i = 0; i < sessionRows.length; i += chunk) {
+      final slice =
+          sessionRows.sublist(i, math.min(i + chunk, sessionRows.length));
+      try {
+        await SupabaseService.upsertTable('workout_sessions', slice);
+      } catch (e) {
+        debugPrint(
+            '[DatabaseService] workout_sessions chunk upsert failed, retry per row: $e');
+        for (var j = 0; j < slice.length; j++) {
+          try {
+            await SupabaseService.upsertTable('workout_sessions', [slice[j]]);
+          } catch (e2) {
+            debugPrint(
+                '[DatabaseService] workout_session ${slice[j]['id']} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedRows('workout_sessions', sessionIds, familyId);
+
+    final wex = db.workoutExercises
+        .where((e) => e.familyId == familyId && e.userId == uid)
+        .toList();
+    final wexRows = wex.map((e) {
+      final row = Map<String, dynamic>.from(e.toJson());
+      row['family_id'] = familyId;
+      for (final k in _workoutExerciseCloudOmit) {
+        row.remove(k);
+      }
+      return row;
+    }).toList();
+    final wexIds = wex.map((e) => e.id).toSet();
+    for (var i = 0; i < wexRows.length; i += chunk) {
+      final slice = wexRows.sublist(i, math.min(i + chunk, wexRows.length));
+      try {
+        await SupabaseService.upsertTable('workout_exercises', slice);
+      } catch (e) {
+        debugPrint(
+            '[DatabaseService] workout_exercises chunk upsert failed, retry per row: $e');
+        for (var j = 0; j < slice.length; j++) {
+          try {
+            await SupabaseService.upsertTable('workout_exercises', [slice[j]]);
+          } catch (e2) {
+            debugPrint(
+                '[DatabaseService] workout_exercise ${slice[j]['id']} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedRows('workout_exercises', wexIds, familyId);
+
+    final wsets = db.workoutSets
+        .where((set) => set.familyId == familyId && set.userId == uid)
+        .toList();
+    final setRows =
+        wsets.map((set) => {...set.toJson(), 'family_id': familyId}).toList();
+    final setIds = wsets.map((set) => set.id).toSet();
+    for (var i = 0; i < setRows.length; i += chunk) {
+      final slice = setRows.sublist(i, math.min(i + chunk, setRows.length));
+      try {
+        await SupabaseService.upsertTable('workout_sets', slice);
+      } catch (e) {
+        debugPrint(
+            '[DatabaseService] workout_sets chunk upsert failed, retry per row: $e');
+        for (var j = 0; j < slice.length; j++) {
+          try {
+            await SupabaseService.upsertTable('workout_sets', [slice[j]]);
+          } catch (e2) {
+            debugPrint(
+                '[DatabaseService] workout_set ${slice[j]['id']} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedRows('workout_sets', setIds, familyId);
+
+    final prs = db.exercisePrs
+        .where((p) => p.familyId == familyId && p.userId == uid)
+        .toList();
+    final prRows = prs.map((p) => p.toJson()).toList();
+    final prIds = prs.map((p) => p.id).toSet();
+    for (var i = 0; i < prRows.length; i += chunk) {
+      final slice = prRows.sublist(i, math.min(i + chunk, prRows.length));
+      try {
+        await SupabaseService.upsertTable('exercise_prs', slice);
+      } catch (e) {
+        debugPrint(
+            '[DatabaseService] exercise_prs chunk upsert failed, retry per row: $e');
+        for (var j = 0; j < slice.length; j++) {
+          try {
+            await SupabaseService.upsertTable('exercise_prs', [slice[j]]);
+          } catch (e2) {
+            debugPrint(
+                '[DatabaseService] exercise_pr ${slice[j]['id']} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedRows('exercise_prs', prIds, familyId);
+  }
+
   /// Upserts all tasks for [familyId] and applies tombstone deletes. Await after
   /// saves so new tasks reach Supabase even when the full background sync fails
   /// (RLS batch issues, payload size, or tasks from other families polluting the batch).
@@ -1084,14 +1294,20 @@ class DatabaseService {
             .map((set) => set.id)
             .toSet(),
       ),
-      upAndClean(
-        'exercise_prs',
-        db.exercisePrs
-            .where((p) => p.familyId == fid)
-            .map((p) => p.toJson())
-            .toList(),
-        db.exercisePrs.where((p) => p.familyId == fid).map((p) => p.id).toSet(),
-      ),
+      if (currentUserId != null)
+        upAndClean(
+          'exercise_prs',
+          db.exercisePrs
+              .where((p) => p.familyId == fid && p.userId == currentUserId)
+              .map((p) => p.toJson())
+              .toList(),
+          db.exercisePrs
+              .where((p) => p.familyId == fid && p.userId == currentUserId)
+              .map((p) => p.id)
+              .toSet(),
+        )
+      else
+        Future.value(),
       upAndClean('budget_categories',
           db.budgetCategories.map((b) => {...b.toJson(), 'family_id': fid}).toList(),
           db.budgetCategories.map((b) => b.id).toSet()),

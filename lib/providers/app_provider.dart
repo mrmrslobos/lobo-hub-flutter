@@ -643,6 +643,18 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  /// Await after workout / weight / plan / PR changes so Supabase stays in sync.
+  Future<void> syncFitnessNow() async {
+    final fam = _activeFamily;
+    if (fam == null || !SupabaseService.isConfigured) return;
+    try {
+      await DatabaseService.pushFamilyFitnessToCloudNow(_db, fam.id);
+      _broadcastChange();
+    } catch (e) {
+      debugPrint('[AppProvider] syncFitnessNow: $e');
+    }
+  }
+
   /// Merge keys into [activeUser.settings] and persist (users table sync).
   Future<void> updateActiveUserSettings(Map<String, dynamic> patch) async {
     final u = _activeUser;
