@@ -631,6 +631,18 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  /// Await after recipe, meal plan, or pantry changes so Supabase stays in sync.
+  Future<void> syncMealsNow() async {
+    final fam = _activeFamily;
+    if (fam == null || !SupabaseService.isConfigured) return;
+    try {
+      await DatabaseService.pushFamilyMealsToCloudNow(_db, fam.id);
+      _broadcastChange();
+    } catch (e) {
+      debugPrint('[AppProvider] syncMealsNow: $e');
+    }
+  }
+
   /// Merge keys into [activeUser.settings] and persist (users table sync).
   Future<void> updateActiveUserSettings(Map<String, dynamic> patch) async {
     final u = _activeUser;

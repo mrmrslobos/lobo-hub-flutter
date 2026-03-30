@@ -216,6 +216,111 @@ class DatabaseService {
     return m;
   }
 
+  static Map<String, dynamic> _recipeRowForCloud(Recipe r, String familyId) {
+    final row = Map<String, dynamic>.from(r.toJson());
+    row['family_id'] = familyId;
+    for (final k in _recipeCloudOmit) {
+      row.remove(k);
+    }
+    return row;
+  }
+
+  static Map<String, dynamic> _mealPlanRowForCloud(
+    MealPlanEntry m,
+    String familyId,
+  ) {
+    final row = Map<String, dynamic>.from(m.toJson());
+    row['family_id'] = familyId;
+    for (final k in _mealPlanCloudOmit) {
+      row.remove(k);
+    }
+    return row;
+  }
+
+  /// Upserts [recipes], [meal_plans], and [pantry_items] for [familyId] with
+  /// tombstone deletes. Await after saves so meal data reaches Supabase even when
+  /// the full background sync fails (and so we never upsert another family's
+  /// recipes with the active [family_id]).
+  static Future<void> pushFamilyMealsToCloudNow(
+    AppDB db,
+    String familyId,
+  ) async {
+    if (!SupabaseService.isConfigured) return;
+    const chunk = 40;
+
+    final recipes = db.recipes.where((r) => r.familyId == familyId).toList();
+    final recipeRows =
+        recipes.map((r) => _recipeRowForCloud(r, familyId)).toList();
+    final recipeIds = recipes.map((r) => r.id).toSet();
+    for (var i = 0; i < recipeRows.length; i += chunk) {
+      final slice =
+          recipeRows.sublist(i, math.min(i + chunk, recipeRows.length));
+      try {
+        await SupabaseService.upsertTable('recipes', slice);
+      } catch (e) {
+        debugPrint(
+            '[DatabaseService] recipes chunk upsert failed, retry per row: $e');
+        for (var j = 0; j < slice.length; j++) {
+          try {
+            await SupabaseService.upsertTable('recipes', [slice[j]]);
+          } catch (e2) {
+            debugPrint(
+                '[DatabaseService] recipe ${slice[j]['id']} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedRows('recipes', recipeIds, familyId);
+
+    final meals =
+        db.mealPlans.where((m) => m.familyId == familyId).toList();
+    final mealRows =
+        meals.map((m) => _mealPlanRowForCloud(m, familyId)).toList();
+    final mealIds = meals.map((m) => m.id).toSet();
+    for (var i = 0; i < mealRows.length; i += chunk) {
+      final slice = mealRows.sublist(i, math.min(i + chunk, mealRows.length));
+      try {
+        await SupabaseService.upsertTable('meal_plans', slice);
+      } catch (e) {
+        debugPrint(
+            '[DatabaseService] meal_plans chunk upsert failed, retry per row: $e');
+        for (var j = 0; j < slice.length; j++) {
+          try {
+            await SupabaseService.upsertTable('meal_plans', [slice[j]]);
+          } catch (e2) {
+            debugPrint(
+                '[DatabaseService] meal_plan ${slice[j]['id']} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedRows('meal_plans', mealIds, familyId);
+
+    final pantry =
+        db.pantryItems.where((p) => p.familyId == familyId).toList();
+    final pantryRows = pantry.map((p) => p.toJson()).toList();
+    final pantryIds = pantry.map((p) => p.id).toSet();
+    for (var i = 0; i < pantryRows.length; i += chunk) {
+      final slice =
+          pantryRows.sublist(i, math.min(i + chunk, pantryRows.length));
+      try {
+        await SupabaseService.upsertTable('pantry_items', slice);
+      } catch (e) {
+        debugPrint(
+            '[DatabaseService] pantry_items chunk upsert failed, retry per row: $e');
+        for (var j = 0; j < slice.length; j++) {
+          try {
+            await SupabaseService.upsertTable('pantry_items', [slice[j]]);
+          } catch (e2) {
+            debugPrint(
+                '[DatabaseService] pantry_item ${slice[j]['id']} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedRows('pantry_items', pantryIds, familyId);
+  }
+
   /// Upserts all tasks for [familyId] and applies tombstone deletes. Await after
   /// saves so new tasks reach Supabase even when the full background sync fails
   /// (RLS batch issues, payload size, or tasks from other families polluting the batch).
@@ -865,28 +970,15 @@ class DatabaseService {
       upAndClean(
           'recipes',
           db.recipes
-              .map((r) {
-                final row = Map<String, dynamic>.from(r.toJson());
-                row['family_id'] = fid;
-                for (final k in _recipeCloudOmit) {
-                  row.remove(k);
-                }
-                return row;
-              })
+              .where((r) => r.familyId == fid)
+              .map((r) => _recipeRowForCloud(r, fid))
               .toList(),
-          db.recipes.map((r) => r.id).toSet()),
+          db.recipes.where((r) => r.familyId == fid).map((r) => r.id).toSet()),
       upAndClean(
           'meal_plans',
           db.mealPlans
               .where((m) => m.familyId == fid)
-              .map((m) {
-                final row = Map<String, dynamic>.from(m.toJson());
-                row['family_id'] = fid;
-                for (final k in _mealPlanCloudOmit) {
-                  row.remove(k);
-                }
-                return row;
-              })
+              .map((m) => _mealPlanRowForCloud(m, fid))
               .toList(),
           db.mealPlans.where((m) => m.familyId == fid).map((m) => m.id).toSet()),
       upAndClean('lists',

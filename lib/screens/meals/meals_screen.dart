@@ -31,6 +31,11 @@ void _showSnack(BuildContext context, String msg) {
   ));
 }
 
+Future<void> _persistMeals(AppProvider provider, AppDB newDb) async {
+  await provider.saveAndSync(newDb);
+  await provider.syncMealsNow();
+}
+
 /// Normalize recipe titles so AI duplicates ("Taco Night" vs "taco night") match.
 String _recipeTitleNormKey(String title) =>
     title.toLowerCase().trim().replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
@@ -340,7 +345,7 @@ Return a JSON array of exactly 3 objects, each with these fields:
     }
   }
 
-  void _saveChefRecipe(Map<String, dynamic> suggestion) {
+  Future<void> _saveChefRecipe(Map<String, dynamic> suggestion) async {
     final provider = context.read<AppProvider>();
     final db = provider.db;
     final userId = provider.activeUser?.id ?? '';
@@ -392,10 +397,12 @@ Return a JSON array of exactly 3 objects, each with these fields:
       createdBy: userId,
     );
 
-    provider.saveAndSync(db.copyWith(recipes: [...db.recipes, newRecipe]));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Saved "${newRecipe.title}" to Recipe Box'), behavior: SnackBarBehavior.floating),
-    );
+    await _persistMeals(provider, db.copyWith(recipes: [...db.recipes, newRecipe]));
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Saved "${newRecipe.title}" to Recipe Box'), behavior: SnackBarBehavior.floating),
+      );
+    }
   }
 
   // ── AI Week Planner ──
@@ -668,7 +675,11 @@ Return a JSON array of 7 objects, each with:
       dbState = dbState.copyWith(tasks: [...dbState.tasks, ...mealTasks]);
 
       await provider.saveAndSync(dbState);
-      if (provider.activeFamily != null) await provider.syncTasksNow();
+      if (provider.activeFamily != null) {
+        await provider.syncTasksNow();
+        await provider.syncListsNow();
+        await provider.syncMealsNow();
+      }
 
       try {
         NotificationService.notifyFamilyActivityWithDb(
@@ -866,7 +877,7 @@ Return a JSON array of 7 objects, each with:
         mealPlans: [...db.mealPlans, ...newMealPlans],
       );
 
-      await provider.saveAndSync(db);
+      await _persistMeals(provider, db);
 
       try {
         NotificationService.notifyFamilyActivityWithDb(
@@ -958,7 +969,8 @@ Return a JSON array of 7 objects, each with:
         createdBy: userId,
       );
 
-      await provider.saveAndSync(db.copyWith(recipes: [...db.recipes, newRecipe]));
+      await _persistMeals(
+          provider, db.copyWith(recipes: [...db.recipes, newRecipe]));
 
       if (mounted) {
         setState(() { _importLoading = false; _importUrlController.clear(); });
@@ -1024,14 +1036,17 @@ Return a JSON array of 7 objects, each with:
       unit: unitCtrl.text.trim().isEmpty ? null : unitCtrl.text.trim(),
       updatedAt: DateTime.now(),
     );
-    await provider.saveAndSync(db.copyWith(pantryItems: [...db.pantryItems, item]));
+    await _persistMeals(
+        provider, db.copyWith(pantryItems: [...db.pantryItems, item]));
   }
 
   Future<void> _removePantryItem(PantryItem item) async {
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(
-      db.copyWith(pantryItems: db.pantryItems.where((p) => p.id != item.id).toList()),
+    await _persistMeals(
+      provider,
+      db.copyWith(
+          pantryItems: db.pantryItems.where((p) => p.id != item.id).toList()),
     );
   }
 
@@ -1618,7 +1633,8 @@ class _MealPlanTabState extends State<_MealPlanTab> {
       sourceMealPlanId: source.id,
     );
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(mealPlans: [...db.mealPlans, copy]));
+    await _persistMeals(
+        provider, db.copyWith(mealPlans: [...db.mealPlans, copy]));
     if (context.mounted) _showSnack(context, 'Copied to ${DateFormat('EEE MMM d').format(nextWeek)}');
   }
 
@@ -1656,7 +1672,8 @@ class _MealPlanTabState extends State<_MealPlanTab> {
       leftoverMealPlanId: source.id,
     );
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(mealPlans: [...db.mealPlans, copy]));
+    await _persistMeals(
+        provider, db.copyWith(mealPlans: [...db.mealPlans, copy]));
     if (context.mounted) {
       _showSnack(context, 'Leftovers scheduled for ${DateFormat('EEE').format(targetDay)} $targetMealType');
     }
@@ -1750,6 +1767,7 @@ class _MealPlanTabState extends State<_MealPlanTab> {
     );
     final db = provider.db;
     await provider.saveAndSync(db.copyWith(lists: [...db.lists, list]));
+    await provider.syncListsNow();
     if (context.mounted) {
       _showSnack(context, 'Added ${listItems.length} items to Lists');
     }
@@ -2404,7 +2422,7 @@ class _MealSlotCard extends StatelessWidget {
     final provider = context.read<AppProvider>();
     final db = provider.db;
     final updated = db.mealPlans.where((m) => m.id != meal!.id).toList();
-    provider.saveAndSync(db.copyWith(mealPlans: updated));
+    await _persistMeals(provider, db.copyWith(mealPlans: updated));
     if (context.mounted) _showSnack(context, 'Meal removed');
   }
 
@@ -2533,7 +2551,7 @@ The replacement should be similar in style but different. Keep it healthy and fa
         return m;
       }).toList();
 
-      await provider.saveAndSync(db.copyWith(
+      await _persistMeals(provider, db.copyWith(
         mealPlans: updated,
         recipes: nextRecipes,
       ));
@@ -2665,7 +2683,7 @@ class _AddMealSheetState extends State<_AddMealSheet> {
       );
       final meals =
           db.mealPlans.map((m) => m.id == updated.id ? updated : m).toList();
-      await provider.saveAndSync(db.copyWith(mealPlans: meals));
+      await _persistMeals(provider, db.copyWith(mealPlans: meals));
     } else {
       final newMeal = MealPlan(
         id: const Uuid().v4(),
@@ -2678,7 +2696,7 @@ class _AddMealSheetState extends State<_AddMealSheet> {
         notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
       );
       final meals = [...db.mealPlans, newMeal];
-      await provider.saveAndSync(db.copyWith(mealPlans: meals));
+      await _persistMeals(provider, db.copyWith(mealPlans: meals));
       try {
         NotificationService.notifyFamilyActivityWithDb(
           provider.db,
@@ -3025,13 +3043,17 @@ class _RecipesTabState extends State<_RecipesTab> {
               prefixIcon: const Icon(Icons.search, color: AppTheme.stone400, size: 20),
               suffixIcon: _query.isEmpty
                   ? null
-                  : IconButton(
-                      tooltip: 'Clear search',
-                      icon: const Icon(Icons.close_rounded, size: 20, color: AppTheme.stone400),
-                      onPressed: () {
-                        _searchCtrl.clear();
-                        setState(() => _query = '');
-                      },
+                  : Semantics(
+                      label: 'Clear search',
+                      button: true,
+                      child: IconButton(
+                        tooltip: 'Clear search',
+                        icon: const Icon(Icons.close_rounded, size: 20, color: AppTheme.stone400),
+                        onPressed: () {
+                          _searchCtrl.clear();
+                          setState(() => _query = '');
+                        },
+                      ),
                     ),
               filled: true,
               fillColor: AppTheme.stone50,
@@ -3368,10 +3390,15 @@ class _RecipeDetailSheet extends StatelessWidget {
                           );
                           if (confirmed == true && context.mounted) {
                             final db = provider.db;
-                            final updated = db.recipes.where((r) => r.id != recipe.id).toList();
-                            provider.saveAndSync(db.copyWith(recipes: updated));
+                            final updated =
+                                db.recipes.where((r) => r.id != recipe.id).toList();
+                            await provider.saveAndSync(
+                                db.copyWith(recipes: updated));
+                            await provider.syncMealsNow();
                             if (ctx.mounted) Navigator.pop(ctx);
-                            if (context.mounted) _showSnack(context, 'Recipe deleted');
+                            if (context.mounted) {
+                              _showSnack(context, 'Recipe deleted');
+                            }
                           }
                         },
                         child: Container(
@@ -3766,6 +3793,7 @@ class _ImportUrlDialogState extends State<_ImportUrlDialog> {
 
       await provider.saveAndSync(
           db.copyWith(recipes: [...db.recipes, newRecipe]));
+      await provider.syncMealsNow();
 
       if (mounted) Navigator.pop(context);
     } catch (e) {
@@ -4030,6 +4058,7 @@ class _AddRecipeSheetState extends State<_AddRecipeSheet> {
           .map((r) => r.id == updated.id ? updated : r)
           .toList();
       await provider.saveAndSync(db.copyWith(recipes: recipes));
+      await provider.syncMealsNow();
     } else {
       final newRecipe = Recipe(
         id: const Uuid().v4(),
@@ -4048,6 +4077,7 @@ class _AddRecipeSheetState extends State<_AddRecipeSheet> {
       );
       await provider.saveAndSync(
           db.copyWith(recipes: [...db.recipes, newRecipe]));
+      await provider.syncMealsNow();
     }
 
     if (mounted) Navigator.pop(context);
