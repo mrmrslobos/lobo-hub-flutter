@@ -34,6 +34,11 @@ void _showSnack(BuildContext context, String msg) {
   ));
 }
 
+Future<void> _persistDevotional(AppProvider provider, AppDB newDb) async {
+  await provider.saveAndSync(newDb);
+  await provider.syncDevotionalsNow();
+}
+
 // Per-user daily devotional (schedule + default privacy). Stored in User.settings.
 const _kUserDailyEnabled = 'daily_devotional_enabled';
 const _kUserDailyHour = 'daily_devotional_hour';
@@ -299,7 +304,7 @@ class _DevotionalScreenState extends State<DevotionalScreen>
 
       // 2) Mark as dismissed in the DB so the edge function sees it
       //    and won't regenerate.
-      await provider.saveAndSync(db.copyWith(
+      await _persistDevotional(provider, db.copyWith(
         devotionalEntries: db.devotionalEntries.map((e) {
           if (e.id == id) {
             final newTags = e.tags
@@ -312,7 +317,7 @@ class _DevotionalScreenState extends State<DevotionalScreen>
         }).toList(),
       ));
     } else {
-      await provider.saveAndSync(db.copyWith(
+      await _persistDevotional(provider, db.copyWith(
         devotionalEntries: db.devotionalEntries.where((e) => e.id != id).toList(),
       ));
     }
@@ -384,7 +389,7 @@ class _DevotionalScreenState extends State<DevotionalScreen>
             final provider = context.read<AppProvider>();
             final db = provider.db;
             final updated = _selectedEntry!.copyWith(userPrayer: prayer);
-            await provider.saveAndSync(db.copyWith(
+            await _persistDevotional(provider, db.copyWith(
               devotionalEntries: db.devotionalEntries.map((e) => e.id == updated.id ? updated : e).toList(),
             ));
             setState(() => _selectedEntry = updated);
@@ -393,7 +398,7 @@ class _DevotionalScreenState extends State<DevotionalScreen>
             final provider = context.read<AppProvider>();
             final db = provider.db;
             final updated = _selectedEntry!.copyWith(isFavorited: !_selectedEntry!.isFavorited);
-            await provider.saveAndSync(db.copyWith(
+            await _persistDevotional(provider, db.copyWith(
               devotionalEntries: db.devotionalEntries.map((e) => e.id == updated.id ? updated : e).toList(),
             ));
             setState(() => _selectedEntry = updated);
@@ -403,7 +408,7 @@ class _DevotionalScreenState extends State<DevotionalScreen>
             final provider = context.read<AppProvider>();
             final db = provider.db;
             final updated = _selectedEntry!.copyWith(visibility: Visibility.FAMILY);
-            await provider.saveAndSync(db.copyWith(
+            await _persistDevotional(provider, db.copyWith(
               devotionalEntries: db.devotionalEntries.map((e) => e.id == updated.id ? updated : e).toList(),
             ));
             setState(() => _selectedEntry = updated);
@@ -688,7 +693,7 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
             tags: ['daily-auto'],
           );
           final db = provider.db;
-          await provider.saveAndSync(db.copyWith(
+          await _persistDevotional(provider, db.copyWith(
             devotionalEntries: [...db.devotionalEntries, entry],
           ));
           if (mounted) widget.onSelectEntry(entry);
@@ -704,7 +709,7 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
             tags: ['daily-auto'],
           );
           final db = provider.db;
-          await provider.saveAndSync(db.copyWith(
+          await _persistDevotional(provider, db.copyWith(
             devotionalEntries: [...db.devotionalEntries, entry],
           ));
           if (mounted) widget.onSelectEntry(entry);
@@ -769,7 +774,7 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
             visibility: _isShared ? Visibility.FAMILY : Visibility.PRIVATE,
           );
           final db = provider.db;
-          await provider.saveAndSync(db.copyWith(
+          await _persistDevotional(provider, db.copyWith(
             devotionalEntries: [...db.devotionalEntries, entry],
           ));
           _topicCtrl.clear();
@@ -786,7 +791,7 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
             visibility: _isShared ? Visibility.FAMILY : Visibility.PRIVATE,
           );
           final db = provider.db;
-          await provider.saveAndSync(db.copyWith(
+          await _persistDevotional(provider, db.copyWith(
             devotionalEntries: [...db.devotionalEntries, entry],
           ));
           if (mounted) widget.onSelectEntry(entry);
@@ -936,13 +941,18 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
                             hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
                             prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
                             suffixIcon: _searchQuery.isNotEmpty
-                                ? IconButton(
-                                    icon: const Icon(Icons.close_rounded, size: 18),
-                                    onPressed: () {
-                                      _searchDebounce.cancel();
-                                      _searchCtrl.clear();
-                                      setState(() => _searchQuery = '');
-                                    },
+                                ? Semantics(
+                                    label: 'Clear search',
+                                    button: true,
+                                    child: IconButton(
+                                      tooltip: 'Clear search',
+                                      icon: const Icon(Icons.close_rounded, size: 18),
+                                      onPressed: () {
+                                        _searchDebounce.cancel();
+                                        _searchCtrl.clear();
+                                        setState(() => _searchQuery = '');
+                                      },
+                                    ),
                                   )
                                 : null,
                             filled: true,
@@ -1237,7 +1247,7 @@ For each entry's "discussion" field, provide one substantive personal reflection
         );
 
         final db = provider.db;
-        await provider.saveAndSync(db.copyWith(
+        await _persistDevotional(provider, db.copyWith(
           devotionalEntries: [...db.devotionalEntries, ...newEntries],
           readingPlans: [...db.readingPlans, plan],
         ));
@@ -1984,7 +1994,7 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
                 children: [
                   Expanded(
                     child: ElevatedButton.icon(
-                      onPressed: () {
+                      onPressed: () async {
                         HapticFeedback.lightImpact();
                         // Mark as complete (save a userPrayer marker)
                         final provider = context.read<AppProvider>();
@@ -1994,11 +2004,12 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
                               ? currentEntry.userPrayer
                               : 'completed',
                         );
-                        provider.saveAndSync(db.copyWith(
+                        await _persistDevotional(provider, db.copyWith(
                           devotionalEntries: db.devotionalEntries.map(
                             (e) => e.id == updated.id ? updated : e,
                           ).toList(),
                         ));
+                        if (!context.mounted) return;
                         setState(() {});
                         _showSnack(context, 'Day ${_currentDay + 1} complete!');
                       },

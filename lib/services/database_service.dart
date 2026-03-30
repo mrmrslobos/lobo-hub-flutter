@@ -594,6 +594,66 @@ class DatabaseService {
     await _deleteRemovedUserRows('period_symptoms', symptomIds, uid);
   }
 
+  /// Upserts [devotionals] and [reading_plans] for [familyId] only. Prevents
+  /// cross-home reassignment when syncing (same issue as recipes/lists).
+  static Future<void> pushFamilyDevotionalsToCloudNow(
+    AppDB db,
+    String familyId,
+  ) async {
+    if (!SupabaseService.isConfigured) return;
+    const chunk = 40;
+
+    final devotionals =
+        db.devotionals.where((d) => d.familyId == familyId).toList();
+    final devRows = devotionals
+        .map((d) => {...d.toJson(), 'family_id': familyId})
+        .toList();
+    final devIds = devotionals.map((d) => d.id).toSet();
+    for (var i = 0; i < devRows.length; i += chunk) {
+      final slice = devRows.sublist(i, math.min(i + chunk, devRows.length));
+      try {
+        await SupabaseService.upsertTable('devotionals', slice);
+      } catch (e) {
+        debugPrint(
+            '[DatabaseService] devotionals chunk upsert failed, retry per row: $e');
+        for (var j = 0; j < slice.length; j++) {
+          try {
+            await SupabaseService.upsertTable('devotionals', [slice[j]]);
+          } catch (e2) {
+            debugPrint(
+                '[DatabaseService] devotional ${slice[j]['id']} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedRows('devotionals', devIds, familyId);
+
+    final plans =
+        db.readingPlans.where((r) => r.familyId == familyId).toList();
+    final planRows = plans
+        .map((r) => {...r.toJson(), 'family_id': familyId})
+        .toList();
+    final planIds = plans.map((r) => r.id).toSet();
+    for (var i = 0; i < planRows.length; i += chunk) {
+      final slice = planRows.sublist(i, math.min(i + chunk, planRows.length));
+      try {
+        await SupabaseService.upsertTable('reading_plans', slice);
+      } catch (e) {
+        debugPrint(
+            '[DatabaseService] reading_plans chunk upsert failed, retry per row: $e');
+        for (var j = 0; j < slice.length; j++) {
+          try {
+            await SupabaseService.upsertTable('reading_plans', [slice[j]]);
+          } catch (e2) {
+            debugPrint(
+                '[DatabaseService] reading_plan ${slice[j]['id']} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedRows('reading_plans', planIds, familyId);
+  }
+
   /// Upserts all tasks for [familyId] and applies tombstone deletes. Await after
   /// saves so new tasks reach Supabase even when the full background sync fails
   /// (RLS batch issues, payload size, or tasks from other families polluting the batch).
@@ -1257,9 +1317,13 @@ class DatabaseService {
       upAndClean('lists',
           db.lists.map((l) => {...l.toJson(), 'family_id': fid}).toList(),
           db.lists.map((l) => l.id).toSet()),
-      upAndClean('devotionals',
-          db.devotionals.map((d) => {...d.toJson(), 'family_id': fid}).toList(),
-          db.devotionals.map((d) => d.id).toSet()),
+      upAndClean(
+          'devotionals',
+          db.devotionals
+              .where((d) => d.familyId == fid)
+              .map((d) => {...d.toJson(), 'family_id': fid})
+              .toList(),
+          db.devotionals.where((d) => d.familyId == fid).map((d) => d.id).toSet()),
       if (currentUserId != null)
         Future.wait([
           upAndCleanUser(
@@ -1491,9 +1555,13 @@ class DatabaseService {
       upAndClean('rewards',
           db.rewards.map((r) => {...r.toJson(), 'family_id': fid}).toList(),
           db.rewards.map((r) => r.id).toSet()),
-      upAndClean('reading_plans',
-          db.readingPlans.map((r) => {...r.toJson(), 'family_id': fid}).toList(),
-          db.readingPlans.map((r) => r.id).toSet()),
+      upAndClean(
+          'reading_plans',
+          db.readingPlans
+              .where((r) => r.familyId == fid)
+              .map((r) => {...r.toJson(), 'family_id': fid})
+              .toList(),
+          db.readingPlans.where((r) => r.familyId == fid).map((r) => r.id).toSet()),
       upAndClean(
           'pantry_items',
           db.pantryItems
