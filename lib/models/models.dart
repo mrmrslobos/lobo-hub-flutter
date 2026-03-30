@@ -3401,6 +3401,40 @@ class FamilyPhoto {
 
   // Convenience alias
   String get uploadedBy => uploaderId;
+
+  static const Object _unsetCaption = Object();
+  static const Object _unsetMilestone = Object();
+
+  FamilyPhoto copyWith({
+    String? id,
+    String? familyId,
+    String? uploaderId,
+    String? url,
+    Object? caption = _unsetCaption,
+    DateTime? takenAt,
+    DateTime? createdAt,
+    List<Reaction>? reactions,
+    Object? milestoneId = _unsetMilestone,
+    List<String>? tags,
+    Visibility? visibility,
+  }) =>
+      FamilyPhoto(
+        id: id ?? this.id,
+        familyId: familyId ?? this.familyId,
+        uploaderId: uploaderId ?? this.uploaderId,
+        url: url ?? this.url,
+        caption: identical(caption, _unsetCaption)
+            ? this.caption
+            : caption as String?,
+        takenAt: takenAt ?? this.takenAt,
+        createdAt: createdAt ?? this.createdAt,
+        reactions: reactions ?? this.reactions,
+        milestoneId: identical(milestoneId, _unsetMilestone)
+            ? this.milestoneId
+            : milestoneId as String?,
+        tags: tags ?? this.tags,
+        visibility: visibility ?? this.visibility,
+      );
 }
 
 class Milestone {

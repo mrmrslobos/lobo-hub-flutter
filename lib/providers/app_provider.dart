@@ -582,6 +582,19 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  /// Await after photo / milestone changes so Supabase stays in sync.
+  Future<void> syncPhotosAndMilestonesNow() async {
+    final fam = _activeFamily;
+    if (fam == null || !SupabaseService.isConfigured) return;
+    try {
+      await DatabaseService.pushFamilyPhotosAndMilestonesToCloudNow(
+          _db, fam.id);
+      _broadcastChange();
+    } catch (e) {
+      debugPrint('[AppProvider] syncPhotosAndMilestonesNow: $e');
+    }
+  }
+
   /// Merge keys into [activeUser.settings] and persist (users table sync).
   Future<void> updateActiveUserSettings(Map<String, dynamic> patch) async {
     final u = _activeUser;

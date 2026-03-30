@@ -44,6 +44,16 @@ class _PhotosScreenState extends State<PhotosScreen> {
   bool _isUploading = false;
   String _searchQuery = '';
 
+  Future<void> _persistPhotosAndMilestones(
+    AppProvider provider,
+    AppDB next,
+  ) async {
+    await provider.saveAndSync(next);
+    if (provider.activeFamily != null) {
+      await provider.syncPhotosAndMilestonesNow();
+    }
+  }
+
   // ─── Helpers ────────────────────────────────────────────────────────────────
 
   bool _isNetworkUrl(String url) =>
@@ -122,7 +132,10 @@ class _PhotosScreenState extends State<PhotosScreen> {
       tags: [],
       createdAt: DateTime.now(),
     );
-    await provider.saveAndSync(db.copyWith(photos: [...db.photos, photo]));
+    await _persistPhotosAndMilestones(
+      provider,
+      db.copyWith(photos: [...db.photos, photo]),
+    );
 
     try {
       NotificationService.notifyFamilyActivityWithDb(
@@ -177,7 +190,10 @@ class _PhotosScreenState extends State<PhotosScreen> {
     if (confirmed != true || !mounted) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(photos: db.photos.where((p) => p.id != id).toList()));
+    await _persistPhotosAndMilestones(
+      provider,
+      db.copyWith(photos: db.photos.where((p) => p.id != id).toList()),
+    );
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -203,21 +219,14 @@ class _PhotosScreenState extends State<PhotosScreen> {
     final db = provider.db;
     final updatedPhotos = db.photos.map((p) {
       if (p.id != photo.id) return p;
-      return FamilyPhoto(
-        id: p.id,
-        familyId: p.familyId,
-        uploaderId: p.uploaderId,
-        url: p.url,
+      return p.copyWith(
         caption: newCaption.isEmpty ? null : newCaption,
-        takenAt: p.takenAt,
-        createdAt: p.createdAt,
-        reactions: p.reactions,
-        milestoneId: p.milestoneId,
-        tags: p.tags,
-        visibility: p.visibility,
       );
     }).toList();
-    await provider.saveAndSync(db.copyWith(photos: updatedPhotos));
+    await _persistPhotosAndMilestones(
+      provider,
+      db.copyWith(photos: updatedPhotos),
+    );
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -243,22 +252,13 @@ class _PhotosScreenState extends State<PhotosScreen> {
 
     final updatedPhotos = db.photos.map((p) {
       if (p.id != photo.id) return p;
-      return FamilyPhoto(
-        id: p.id,
-        familyId: p.familyId,
-        uploaderId: p.uploaderId,
-        url: p.url,
-        caption: p.caption,
-        takenAt: p.takenAt,
-        createdAt: p.createdAt,
-        reactions: newReactions,
-        milestoneId: p.milestoneId,
-        tags: p.tags,
-        visibility: p.visibility,
-      );
+      return p.copyWith(reactions: newReactions);
     }).toList();
 
-    await provider.saveAndSync(db.copyWith(photos: updatedPhotos));
+    await _persistPhotosAndMilestones(
+      provider,
+      db.copyWith(photos: updatedPhotos),
+    );
   }
 
   Future<void> _deleteMilestone(Milestone ms) async {
@@ -295,9 +295,12 @@ class _PhotosScreenState extends State<PhotosScreen> {
 
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
-      milestones: db.milestones.where((m) => m.id != ms.id).toList(),
-    ));
+    await _persistPhotosAndMilestones(
+      provider,
+      db.copyWith(
+        milestones: db.milestones.where((m) => m.id != ms.id).toList(),
+      ),
+    );
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -543,6 +546,7 @@ class _PhotosScreenState extends State<PhotosScreen> {
                   suffixIcon: _searchQuery.isNotEmpty
                       ? IconButton(
                           icon: const Icon(Icons.close_rounded, size: 18),
+                          tooltip: 'Clear search',
                           onPressed: () {
                             _searchDebounce.cancel();
                             _searchCtrl.clear();
@@ -1304,6 +1308,9 @@ class _AddMilestoneSheetState extends State<_AddMilestoneSheet> {
         );
       }).toList();
       await provider.saveAndSync(db.copyWith(milestones: updatedMilestones));
+      if (provider.activeFamily != null) {
+        await provider.syncPhotosAndMilestonesNow();
+      }
     } else {
       final milestone = Milestone(
         id: const Uuid().v4(),
@@ -1318,6 +1325,9 @@ class _AddMilestoneSheetState extends State<_AddMilestoneSheet> {
         createdAt: DateTime.now(),
       );
       await provider.saveAndSync(db.copyWith(milestones: [...db.milestones, milestone]));
+      if (provider.activeFamily != null) {
+        await provider.syncPhotosAndMilestonesNow();
+      }
     }
 
     if (mounted) {

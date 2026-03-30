@@ -470,6 +470,62 @@ class DatabaseService {
     await _deleteRemovedRows('special_dates', localIds, familyId);
   }
 
+  /// Upserts [family_photos] and [milestones] for [familyId] and tombstone-deletes removed rows.
+  static Future<void> pushFamilyPhotosAndMilestonesToCloudNow(
+    AppDB db,
+    String familyId,
+  ) async {
+    if (!SupabaseService.isConfigured) return;
+    const chunk = 40;
+
+    final photos = db.familyPhotos.where((p) => p.familyId == familyId).toList();
+    final photoRows =
+        photos.map((p) => {...p.toJson(), 'family_id': familyId}).toList();
+    final photoIds = photos.map((p) => p.id).toSet();
+    for (var i = 0; i < photoRows.length; i += chunk) {
+      final slice = photoRows.sublist(i, math.min(i + chunk, photoRows.length));
+      try {
+        await SupabaseService.upsertTable('family_photos', slice);
+      } catch (e) {
+        debugPrint(
+            '[DatabaseService] family_photos chunk upsert failed, retry per row: $e');
+        for (final r in slice) {
+          try {
+            await SupabaseService.upsertTable('family_photos', [r]);
+          } catch (e2) {
+            debugPrint(
+                '[DatabaseService] family_photo ${r['id']} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedRows('family_photos', photoIds, familyId);
+
+    final milestones =
+        db.milestones.where((m) => m.familyId == familyId).toList();
+    final msRows =
+        milestones.map((m) => {...m.toJson(), 'family_id': familyId}).toList();
+    final msIds = milestones.map((m) => m.id).toSet();
+    for (var i = 0; i < msRows.length; i += chunk) {
+      final slice = msRows.sublist(i, math.min(i + chunk, msRows.length));
+      try {
+        await SupabaseService.upsertTable('milestones', slice);
+      } catch (e) {
+        debugPrint(
+            '[DatabaseService] milestones chunk upsert failed, retry per row: $e');
+        for (final r in slice) {
+          try {
+            await SupabaseService.upsertTable('milestones', [r]);
+          } catch (e2) {
+            debugPrint(
+                '[DatabaseService] milestone ${r['id']} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedRows('milestones', msIds, familyId);
+  }
+
   /// Push local data to Supabase. Safe to fire-and-forget.
   /// Syncs for the same [familyId] are serialized so concurrent [saveAndSync]
   /// calls cannot leave Supabase with an older snapshot.
