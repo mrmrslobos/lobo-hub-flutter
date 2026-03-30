@@ -23,6 +23,16 @@ void _showSnack(BuildContext context, String msg) {
   ));
 }
 
+Future<void> _persistBudget(AppProvider provider, AppDB newDb) async {
+  await provider.saveAndSync(newDb);
+  await provider.syncBudgetNow();
+}
+
+Future<void> _persistRewards(AppProvider provider, AppDB newDb) async {
+  await provider.saveAndSync(newDb);
+  await provider.syncRewardsNow();
+}
+
 // ─── Main Screen ─────────────────────────────────────────────────────────────
 
 class RewardsScreen extends StatefulWidget {
@@ -57,8 +67,8 @@ class _RewardsScreenState extends State<RewardsScreen>
         onSave: (goal) async {
           final provider = context.read<AppProvider>();
           final db = provider.db;
-          await provider
-              .saveAndSync(db.copyWith(savingsGoals: [...db.savingsGoals, goal]));
+          await _persistBudget(
+              provider, db.copyWith(savingsGoals: [...db.savingsGoals, goal]));
         },
       ),
     );
@@ -79,7 +89,7 @@ class _RewardsScreenState extends State<RewardsScreen>
       }
       return g;
     }).toList();
-    await provider.saveAndSync(db.copyWith(savingsGoals: updated));
+    await _persistBudget(provider, db.copyWith(savingsGoals: updated));
   }
 
   Future<void> _deleteGoal(String goalId) async {
@@ -104,7 +114,7 @@ class _RewardsScreenState extends State<RewardsScreen>
     HapticFeedback.lightImpact();
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
+    await _persistBudget(provider, db.copyWith(
       savingsGoals: db.savingsGoals.where((g) => g.id != goalId).toList(),
     ));
     if (mounted) _showSnack(context, 'Goal removed');
@@ -161,7 +171,7 @@ class _RewardsScreenState extends State<RewardsScreen>
       status: RedemptionStatus.PENDING,
       requestedAt: DateTime.now(),
     );
-    await provider.saveAndSync(db.copyWith(
+    await _persistRewards(provider, db.copyWith(
       rewardRedemptions: [...db.rewardRedemptions, redemption],
     ));
     if (mounted) _showSnack(context, 'Request sent! Waiting for approval.');
@@ -207,7 +217,7 @@ class _RewardsScreenState extends State<RewardsScreen>
       }
     }
 
-    await provider.saveAndSync(newDb);
+    await _persistRewards(provider, newDb);
     if (mounted) {
       _showSnack(
         context,
@@ -312,7 +322,7 @@ class _RewardsScreenState extends State<RewardsScreen>
     HapticFeedback.lightImpact();
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
+    await _persistRewards(provider, db.copyWith(
       rewards: db.rewards.where((r) => r.id != rewardId).toList(),
     ));
     if (mounted) _showSnack(context, 'Reward removed');
@@ -329,13 +339,13 @@ class _RewardsScreenState extends State<RewardsScreen>
           final provider = context.read<AppProvider>();
           final db = provider.db;
           if (editReward != null) {
-            await provider.saveAndSync(db.copyWith(
+            await _persistRewards(provider, db.copyWith(
               rewards:
                   db.rewards.map((r) => r.id == reward.id ? reward : r).toList(),
             ));
           } else {
-            await provider
-                .saveAndSync(db.copyWith(rewards: [...db.rewards, reward]));
+            await _persistRewards(
+                provider, db.copyWith(rewards: [...db.rewards, reward]));
           }
         },
       ),
@@ -773,13 +783,18 @@ class _StoreTabState extends State<_StoreTab> {
                 prefixIcon: const Icon(Icons.search, size: 20, color: AppTheme.stone400),
                 suffixIcon: _query.trim().isEmpty
                     ? null
-                    : IconButton(
-                        tooltip: 'Clear search',
-                        icon: const Icon(Icons.close_rounded, size: 20, color: AppTheme.stone400),
-                        onPressed: () {
-                          _searchCtrl.clear();
-                          setState(() => _query = '');
-                        },
+                    : Semantics(
+                        label: 'Clear search',
+                        button: true,
+                        child: IconButton(
+                          tooltip: 'Clear search',
+                          icon: const Icon(Icons.close_rounded, size: 20, color: AppTheme.stone400),
+                          onPressed: () {
+                            _debounce.cancel();
+                            _searchCtrl.clear();
+                            setState(() => _query = '');
+                          },
+                        ),
                       ),
                 filled: true,
                 fillColor: AppTheme.surface,

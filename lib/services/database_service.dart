@@ -767,6 +767,64 @@ class DatabaseService {
         'savings_goals', goals.map((g) => g.id).toSet(), familyId);
   }
 
+  /// Upserts [rewards], [reward_items], and [reward_redemptions] for [familyId]
+  /// only (prevents cross-home reassignment).
+  static Future<void> pushFamilyRewardsToCloudNow(
+    AppDB db,
+    String familyId,
+  ) async {
+    if (!SupabaseService.isConfigured) return;
+    const chunk = 40;
+
+    Future<void> upsertChunked(
+      String table,
+      List<Map<String, dynamic>> rows,
+    ) async {
+      for (var i = 0; i < rows.length; i += chunk) {
+        final slice = rows.sublist(i, math.min(i + chunk, rows.length));
+        try {
+          await SupabaseService.upsertTable(table, slice);
+        } catch (e) {
+          debugPrint(
+              '[DatabaseService] $table chunk upsert failed, retry per row: $e');
+          for (final r in slice) {
+            try {
+              await SupabaseService.upsertTable(table, [r]);
+            } catch (e2) {
+              debugPrint('[DatabaseService] $table ${r['id']} sync failed: $e2');
+            }
+          }
+        }
+      }
+    }
+
+    final catalog =
+        db.rewards.where((r) => r.familyId == familyId).toList();
+    await upsertChunked(
+      'rewards',
+      catalog.map((r) => {...r.toJson(), 'family_id': familyId}).toList(),
+    );
+    await _deleteRemovedRows('rewards', catalog.map((r) => r.id).toSet(), familyId);
+
+    final items =
+        db.rewardItems.where((i) => i.familyId == familyId).toList();
+    await upsertChunked(
+      'reward_items',
+      items.map((i) => {...i.toJson(), 'family_id': familyId}).toList(),
+    );
+    await _deleteRemovedRows(
+        'reward_items', items.map((i) => i.id).toSet(), familyId);
+
+    final redemptions =
+        db.rewardRedemptions.where((r) => r.familyId == familyId).toList();
+    await upsertChunked(
+      'reward_redemptions',
+      redemptions.map((r) => {...r.toJson(), 'family_id': familyId}).toList(),
+    );
+    await _deleteRemovedRows(
+        'reward_redemptions', redemptions.map((r) => r.id).toSet(), familyId);
+  }
+
   /// Upserts all tasks for [familyId] and applies tombstone deletes. Await after
   /// saves so new tasks reach Supabase even when the full background sync fails
   /// (RLS batch issues, payload size, or tasks from other families polluting the batch).
@@ -1617,12 +1675,23 @@ class DatabaseService {
       upAndClean('poll_votes',
           db.pollVotes.map((v) => v.toJson()).toList(),
           db.pollVotes.map((v) => v.id).toSet()),
-      upAndClean('reward_items',
-          db.rewardItems.map((r) => {...r.toJson(), 'family_id': fid}).toList(),
-          db.rewardItems.map((r) => r.id).toSet()),
-      upAndClean('reward_redemptions',
-          db.rewardRedemptions.map((r) => r.toJson()).toList(),
-          db.rewardRedemptions.map((r) => r.id).toSet()),
+      upAndClean(
+          'reward_items',
+          db.rewardItems
+              .where((r) => r.familyId == fid)
+              .map((r) => {...r.toJson(), 'family_id': fid})
+              .toList(),
+          db.rewardItems.where((r) => r.familyId == fid).map((r) => r.id).toSet()),
+      upAndClean(
+          'reward_redemptions',
+          db.rewardRedemptions
+              .where((r) => r.familyId == fid)
+              .map((r) => {...r.toJson(), 'family_id': fid})
+              .toList(),
+          db.rewardRedemptions
+              .where((r) => r.familyId == fid)
+              .map((r) => r.id)
+              .toSet()),
       upAndClean(
           'savings_goals',
           db.savingsGoals
@@ -1694,9 +1763,13 @@ class DatabaseService {
       upAndClean('external_calendars',
           db.externalCalendars.map((c) => {...c.toJson(), 'family_id': fid}).toList(),
           db.externalCalendars.map((c) => c.id).toSet()),
-      upAndClean('rewards',
-          db.rewards.map((r) => {...r.toJson(), 'family_id': fid}).toList(),
-          db.rewards.map((r) => r.id).toSet()),
+      upAndClean(
+          'rewards',
+          db.rewards
+              .where((r) => r.familyId == fid)
+              .map((r) => {...r.toJson(), 'family_id': fid})
+              .toList(),
+          db.rewards.where((r) => r.familyId == fid).map((r) => r.id).toSet()),
       upAndClean(
           'reading_plans',
           db.readingPlans
