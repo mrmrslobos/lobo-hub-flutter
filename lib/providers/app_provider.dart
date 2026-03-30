@@ -715,6 +715,18 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  /// Await after chat send / reaction / delete so Supabase stays in sync.
+  Future<void> syncMessagesNow() async {
+    final fam = _activeFamily;
+    if (fam == null || !SupabaseService.isConfigured) return;
+    try {
+      await DatabaseService.pushFamilyMessagesToCloudNow(_db, fam.id);
+      _broadcastChange();
+    } catch (e) {
+      debugPrint('[AppProvider] syncMessagesNow: $e');
+    }
+  }
+
   /// Merge keys into [activeUser.settings] and persist (users table sync).
   Future<void> updateActiveUserSettings(Map<String, dynamic> patch) async {
     final u = _activeUser;

@@ -25,6 +25,11 @@ void _showSnack(BuildContext context, String msg) {
   ));
 }
 
+Future<void> _persistChat(AppProvider provider, AppDB newDb) async {
+  await provider.saveAndSync(newDb);
+  await provider.syncMessagesNow();
+}
+
 // ─── Chat screen ──────────────────────────────────────────────────────────────
 
 class ChatScreen extends StatefulWidget {
@@ -99,7 +104,7 @@ class _ChatScreenState extends State<ChatScreen> {
       );
 
       final db = provider.db;
-      await provider.saveAndSync(db.copyWith(messages: [...db.messages, msg]));
+      await _persistChat(provider, db.copyWith(messages: [...db.messages, msg]));
 
       _textCtrl.clear();
       setState(() => _replyTo = null);
@@ -129,7 +134,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final db = provider.db;
     final messages =
         db.messages.map((m) => m.id == msg.id ? updated : m).toList();
-    await provider.saveAndSync(db.copyWith(messages: messages));
+    await _persistChat(provider, db.copyWith(messages: messages));
   }
 
   Future<void> _deleteMessage(AppProvider provider, ChatMessage msg) async {
@@ -146,7 +151,7 @@ class _ChatScreenState extends State<ChatScreen> {
     );
     if (confirmed != true) return;
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
+    await _persistChat(provider, db.copyWith(
       messages: db.messages.where((m) => m.id != msg.id).toList(),
     ));
   }
@@ -289,19 +294,24 @@ class _ChatScreenState extends State<ChatScreen> {
           drawer: const AppDrawer(),
           appBar: FamilyHubAppBar(
             actions: [
-              IconButton(
-                icon: Icon(
-                  _showSearch ? Icons.close_rounded : Icons.search_rounded,
-                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55),
+              Semantics(
+                label: _showSearch ? 'Close search' : 'Search messages',
+                button: true,
+                child: IconButton(
+                  tooltip: _showSearch ? 'Close search' : 'Search messages',
+                  icon: Icon(
+                    _showSearch ? Icons.close_rounded : Icons.search_rounded,
+                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55),
+                  ),
+                  onPressed: () => setState(() {
+                    _showSearch = !_showSearch;
+                    if (!_showSearch) {
+                      _searchDebounce.cancel();
+                      _searchCtrl.clear();
+                      _searchQuery = '';
+                    }
+                  }),
                 ),
-                onPressed: () => setState(() {
-                  _showSearch = !_showSearch;
-                  if (!_showSearch) {
-                    _searchDebounce.cancel();
-                    _searchCtrl.clear();
-                    _searchQuery = '';
-                  }
-                }),
               ),
             ],
           ),
@@ -326,13 +336,18 @@ class _ChatScreenState extends State<ChatScreen> {
                       hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
                       prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
                       suffixIcon: _searchQuery.isNotEmpty
-                          ? IconButton(
-                              icon: const Icon(Icons.close_rounded, size: 18),
-                              onPressed: () {
-                                _searchDebounce.cancel();
-                                _searchCtrl.clear();
-                                setState(() => _searchQuery = '');
-                              },
+                          ? Semantics(
+                              label: 'Clear search',
+                              button: true,
+                              child: IconButton(
+                                tooltip: 'Clear search',
+                                icon: const Icon(Icons.close_rounded, size: 18),
+                                onPressed: () {
+                                  _searchDebounce.cancel();
+                                  _searchCtrl.clear();
+                                  setState(() => _searchQuery = '');
+                                },
+                              ),
                             )
                           : null,
                       filled: true,

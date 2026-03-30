@@ -825,6 +825,39 @@ class DatabaseService {
         'reward_redemptions', redemptions.map((r) => r.id).toSet(), familyId);
   }
 
+  /// Upserts [messages] for [familyId] only (prevents cross-home reassignment).
+  static Future<void> pushFamilyMessagesToCloudNow(
+    AppDB db,
+    String familyId,
+  ) async {
+    if (!SupabaseService.isConfigured) return;
+    const chunk = 40;
+
+    final msgs =
+        db.messages.where((m) => m.familyId == familyId).toList();
+    final rows =
+        msgs.map((m) => {...m.toJson(), 'family_id': familyId}).toList();
+    final ids = msgs.map((m) => m.id).toSet();
+    for (var i = 0; i < rows.length; i += chunk) {
+      final slice = rows.sublist(i, math.min(i + chunk, rows.length));
+      try {
+        await SupabaseService.upsertTable('messages', slice);
+      } catch (e) {
+        debugPrint(
+            '[DatabaseService] messages chunk upsert failed, retry per row: $e');
+        for (var j = 0; j < slice.length; j++) {
+          try {
+            await SupabaseService.upsertTable('messages', [slice[j]]);
+          } catch (e2) {
+            debugPrint(
+                '[DatabaseService] message ${slice[j]['id']} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedRows('messages', ids, familyId);
+  }
+
   /// Upserts all tasks for [familyId] and applies tombstone deletes. Await after
   /// saves so new tasks reach Supabase even when the full background sync fails
   /// (RLS batch issues, payload size, or tasks from other families polluting the batch).
@@ -1721,9 +1754,13 @@ class DatabaseService {
       upAndClean('user_locations',
           db.userLocations.map((u) => u.toJson()).toList(),
           db.userLocations.map((u) => u.id).toSet()),
-      upAndClean('messages',
-          db.messages.map((m) => {...m.toJson(), 'family_id': fid}).toList(),
-          db.messages.map((m) => m.id).toSet()),
+      upAndClean(
+          'messages',
+          db.messages
+              .where((m) => m.familyId == fid)
+              .map((m) => {...m.toJson(), 'family_id': fid})
+              .toList(),
+          db.messages.where((m) => m.familyId == fid).map((m) => m.id).toSet()),
       upAndClean('health_records',
           db.healthRecords.map((h) => {...h.toJson(), 'family_id': fid}).toList(),
           db.healthRecords.map((h) => h.id).toSet()),
