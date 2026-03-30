@@ -2475,6 +2475,30 @@ class ChoreCompletion {
     'approved_by': approvedBy,
     'approved_at': approvedAt?.toIso8601String(),
   };
+
+  ChoreCompletion copyWith({
+    String? id,
+    String? choreId,
+    String? userId,
+    String? familyId,
+    DateTime? date,
+    DateTime? completedAt,
+    ApprovalStatus? approvalStatus,
+    String? approvedBy,
+    DateTime? approvedAt,
+    bool clearApprovalMeta = false,
+  }) =>
+      ChoreCompletion(
+        id: id ?? this.id,
+        choreId: choreId ?? this.choreId,
+        userId: userId ?? this.userId,
+        familyId: familyId ?? this.familyId,
+        date: date ?? this.date,
+        completedAt: completedAt ?? this.completedAt,
+        approvalStatus: approvalStatus ?? this.approvalStatus,
+        approvedBy: clearApprovalMeta ? null : (approvedBy ?? this.approvedBy),
+        approvedAt: clearApprovalMeta ? null : (approvedAt ?? this.approvedAt),
+      );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

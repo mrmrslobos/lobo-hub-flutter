@@ -63,6 +63,11 @@ class _ChoresScreenState extends State<ChoresScreen> {
   final _searchCtrl = TextEditingController();
   final _searchDebounce = Debouncer();
 
+  Future<void> _persistChores(AppProvider provider, AppDB next) async {
+    await provider.saveAndSync(next);
+    if (provider.activeFamily != null) await provider.syncChoresNow();
+  }
+
   @override
   void dispose() {
     _searchDebounce.dispose();
@@ -98,9 +103,13 @@ class _ChoresScreenState extends State<ChoresScreen> {
     final existing = _completionsForChore(chore.id, userId, day, db.choreCompletions);
     if (existing.isNotEmpty) {
       final ids = existing.map((e) => e.id).toSet();
-      await provider.saveAndSync(db.copyWith(
-        choreCompletions: db.choreCompletions.where((c) => !ids.contains(c.id)).toList(),
-      ));
+      await _persistChores(
+        provider,
+        db.copyWith(
+          choreCompletions:
+              db.choreCompletions.where((c) => !ids.contains(c.id)).toList(),
+        ),
+      );
     } else {
       final completion = ChoreCompletion(
         id: const Uuid().v4(),
@@ -126,7 +135,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
               .toList(),
         );
       }
-      await provider.saveAndSync(nextDb);
+      await _persistChores(provider, nextDb);
       if (mounted && !chore.requiresApproval) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('${chore.title} done! +${chore.points} pts'),
@@ -154,25 +163,28 @@ class _ChoresScreenState extends State<ChoresScreen> {
     if (confirmed != true) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
-      chores: db.chores.where((c) => c.id != choreId).toList(),
-      choreCompletions: db.choreCompletions.where((c) => c.choreId != choreId).toList(),
-    ));
+    await _persistChores(
+      provider,
+      db.copyWith(
+        chores: db.chores.where((c) => c.id != choreId).toList(),
+        choreCompletions:
+            db.choreCompletions.where((c) => c.choreId != choreId).toList(),
+      ),
+    );
   }
 
   Future<void> _approveCompletion(String completionId, {bool approve = true}) async {
     final provider = context.read<AppProvider>();
     final db = provider.db;
+    final actorId = provider.activeUser?.id;
     final updated = db.choreCompletions.map((c) {
       if (c.id != completionId) return c;
-      return ChoreCompletion(
-        id: c.id,
-        choreId: c.choreId,
-        userId: c.userId,
-        familyId: c.familyId,
-        date: c.date,
-        completedAt: c.completedAt,
-        approvalStatus: approve ? ApprovalStatus.APPROVED : ApprovalStatus.REJECTED,
+      return c.copyWith(
+        approvalStatus:
+            approve ? ApprovalStatus.APPROVED : ApprovalStatus.REJECTED,
+        approvedBy: approve ? actorId : null,
+        approvedAt: approve ? DateTime.now() : null,
+        clearApprovalMeta: !approve,
       );
     }).toList();
     var nextDb = db.copyWith(choreCompletions: updated);
@@ -192,7 +204,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
         );
       }
     }
-    await provider.saveAndSync(nextDb);
+    await _persistChores(provider, nextDb);
     if (mounted) {
       final chore = db.chores.where((c) => c.id == db.choreCompletions.firstWhere((cc) => cc.id == completionId).choreId).firstOrNull;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -216,11 +228,19 @@ class _ChoresScreenState extends State<ChoresScreen> {
           final provider = context.read<AppProvider>();
           final db = provider.db;
           if (editChore != null) {
-            await provider.saveAndSync(db.copyWith(
-              chores: db.chores.map((c) => c.id == editChore.id ? chore : c).toList(),
-            ));
+            await _persistChores(
+              provider,
+              db.copyWith(
+                chores: db.chores
+                    .map((c) => c.id == editChore.id ? chore : c)
+                    .toList(),
+              ),
+            );
           } else {
-            await provider.saveAndSync(db.copyWith(chores: [...db.chores, chore]));
+            await _persistChores(
+              provider,
+              db.copyWith(chores: [...db.chores, chore]),
+            );
             NotificationService.notifyFamilyActivityWithDb(
               provider.db,
               title: 'New Chore Added',
@@ -572,6 +592,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
                 suffixIcon: _searchQuery.isNotEmpty
                     ? IconButton(
                         icon: const Icon(Icons.close_rounded, size: 18),
+                        tooltip: 'Clear search',
                         onPressed: () {
                           _searchDebounce.cancel();
                           _searchCtrl.clear();

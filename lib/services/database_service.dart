@@ -315,6 +315,55 @@ class DatabaseService {
     await _deleteRemovedRows('events', localIds, familyId);
   }
 
+  /// Upserts chores and chore completions for [familyId] and applies tombstone deletes.
+  static Future<void> pushFamilyChoresToCloudNow(AppDB db, String familyId) async {
+    if (!SupabaseService.isConfigured) return;
+    final chores = db.chores.where((c) => c.familyId == familyId).toList();
+    final choreIds = chores.map((c) => c.id).toSet();
+    final completions =
+        db.choreCompletions.where((c) => c.familyId == familyId).toList();
+    final completionIds = completions.map((c) => c.id).toSet();
+
+    const chunk = 40;
+    for (var i = 0; i < chores.length; i += chunk) {
+      final slice = chores.sublist(i, math.min(i + chunk, chores.length));
+      final rows = slice.map(_choreRowForCloud).toList();
+      try {
+        await SupabaseService.upsertTable('chores', rows);
+      } catch (e) {
+        debugPrint('[DatabaseService] chores chunk upsert failed, retry per row: $e');
+        for (final c in slice) {
+          try {
+            await SupabaseService.upsertTable('chores', [_choreRowForCloud(c)]);
+          } catch (e2) {
+            debugPrint('[DatabaseService] chore ${c.id} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedRows('chores', choreIds, familyId);
+
+    for (var i = 0; i < completions.length; i += chunk) {
+      final slice =
+          completions.sublist(i, math.min(i + chunk, completions.length));
+      final rows = slice.map((c) => c.toJson()).toList();
+      try {
+        await SupabaseService.upsertTable('chore_completions', rows);
+      } catch (e) {
+        debugPrint(
+            '[DatabaseService] chore_completions chunk upsert failed, retry per row: $e');
+        for (final c in slice) {
+          try {
+            await SupabaseService.upsertTable('chore_completions', [c.toJson()]);
+          } catch (e2) {
+            debugPrint('[DatabaseService] chore_completion ${c.id} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedRows('chore_completions', completionIds, familyId);
+  }
+
   /// Push local data to Supabase. Safe to fire-and-forget.
   /// Syncs for the same [familyId] are serialized so concurrent [saveAndSync]
   /// calls cannot leave Supabase with an older snapshot.
