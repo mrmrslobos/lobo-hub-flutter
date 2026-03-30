@@ -614,6 +614,119 @@ class DatabaseService {
     await _deleteRemovedRows('health_records', localIds, familyId);
   }
 
+  static Set<String> _familyMemberUserIds(AppDB db, String familyId) => db
+      .familyMembers
+      .where((m) => m.familyId == familyId)
+      .map((m) => m.userId)
+      .toSet();
+
+  /// Habits that belong to this home ([family_id] match) or are legacy personal
+  /// rows ([family_id] null) for a member of this family.
+  static List<DailyHabit> _dailyHabitsForFamilySync(AppDB db, String familyId) {
+    final memberIds = _familyMemberUserIds(db, familyId);
+    return db.dailyHabits.where((h) {
+      if (h.familyId == familyId) return true;
+      if (h.familyId == null && memberIds.contains(h.userId)) return true;
+      return false;
+    }).toList();
+  }
+
+  static List<DailyHabitCompletion> _habitCompletionsToSyncForFamily(
+    AppDB db,
+    String familyId,
+    String userId,
+  ) {
+    final habitIds =
+        _dailyHabitsForFamilySync(db, familyId).map((h) => h.id).toSet();
+    return db.dailyHabitCompletions
+        .where((c) => c.userId == userId && habitIds.contains(c.habitId))
+        .toList();
+  }
+
+  /// Tombstone-delete removed [daily_habits] rows, including legacy rows with
+  /// null [family_id] (standard [_deleteRemovedRows] only sees [family_id] = [familyId]).
+  static Future<void> _deleteRemovedHabitRows(String familyId) async {
+    if (!SupabaseService.isConfigured || _deletedKeys.isEmpty) return;
+    try {
+      final cloudRows = await SupabaseService.client
+          .from('daily_habits')
+          .select('id')
+          .or('family_id.eq.$familyId,family_id.is.null');
+      final cloudIds =
+          (cloudRows as List).map((r) => r['id'] as String).toSet();
+      final removed = cloudIds.intersection(_deletedKeys);
+      for (final id in removed) {
+        await SupabaseService.deleteRows('daily_habits', {'id': id});
+      }
+    } catch (e) {
+      final msg = e.toString();
+      if (msg.contains('PGRST205') || msg.contains('Could not find the table')) {
+        return;
+      }
+      debugPrint('[DatabaseService] Failed to delete removed daily_habits rows: $e');
+    }
+  }
+
+  /// Upserts [daily_habits] and the current user's [daily_habit_completions] for
+  /// this family, with tombstone deletes (same reliability pattern as lists/tasks).
+  static Future<void> pushFamilyHabitsToCloudNow(
+    AppDB db,
+    String familyId,
+  ) async {
+    if (!SupabaseService.isConfigured) return;
+    const chunk = 40;
+    final habits = _dailyHabitsForFamilySync(db, familyId);
+    final habitRows = habits.map((h) => h.toJson()).toList();
+    final habitIds = habits.map((h) => h.id).toSet();
+
+    for (var i = 0; i < habitRows.length; i += chunk) {
+      final slice =
+          habitRows.sublist(i, math.min(i + chunk, habitRows.length));
+      try {
+        await SupabaseService.upsertTable('daily_habits', slice);
+      } catch (e) {
+        debugPrint(
+            '[DatabaseService] daily_habits chunk upsert failed, retry per row: $e');
+        for (var j = 0; j < slice.length; j++) {
+          try {
+            await SupabaseService.upsertTable('daily_habits', [slice[j]]);
+          } catch (e2) {
+            debugPrint(
+                '[DatabaseService] daily_habit ${slice[j]['id']} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedHabitRows(familyId);
+
+    final uid = SupabaseService.currentUser?.id;
+    if (uid == null) return;
+    final completions = _habitCompletionsToSyncForFamily(db, familyId, uid);
+    final completionRows = completions.map((c) => c.toJson()).toList();
+    final completionIds = completions.map((c) => c.id).toSet();
+
+    for (var i = 0; i < completionRows.length; i += chunk) {
+      final slice =
+          completionRows.sublist(i, math.min(i + chunk, completionRows.length));
+      try {
+        await SupabaseService.upsertTable('daily_habit_completions', slice);
+      } catch (e) {
+        debugPrint(
+            '[DatabaseService] daily_habit_completions chunk upsert failed, retry per row: $e');
+        for (var j = 0; j < slice.length; j++) {
+          try {
+            await SupabaseService.upsertTable(
+                'daily_habit_completions', [slice[j]]);
+          } catch (e2) {
+            debugPrint(
+                '[DatabaseService] daily_habit_completion ${slice[j]['id']} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedUserRows('daily_habit_completions', completionIds, uid);
+  }
+
   /// Push local data to Supabase. Safe to fire-and-forget.
   /// Syncs for the same [familyId] are serialized so concurrent [saveAndSync]
   /// calls cannot leave Supabase with an older snapshot.
@@ -899,22 +1012,24 @@ class DatabaseService {
       upAndClean('ai_history',
           db.aiHistory.map((a) => a.toJson()).toList(),
           db.aiHistory.map((a) => a.id).toSet()),
-      upAndClean('daily_habits',
-          db.dailyHabits.map((h) => h.toJson()).toList(),
-          db.dailyHabits.map((h) => h.id).toSet()),
+      (() async {
+        final habits = _dailyHabitsForFamilySync(db, fid);
+        await up('daily_habits', habits.map((h) => h.toJson()).toList());
+        await _deleteRemovedHabitRows(fid);
+      })(),
       if (currentUserId != null)
-        upAndCleanUser(
-          'daily_habit_completions',
-          db.dailyHabitCompletions
-              .where((c) => c.userId == currentUserId)
-              .map((c) => c.toJson())
-              .toList(),
-          db.dailyHabitCompletions
-              .where((c) => c.userId == currentUserId)
-              .map((c) => c.id)
-              .toSet(),
-          userId: currentUserId,
-        )
+        (() async {
+          final completions =
+              _habitCompletionsToSyncForFamily(db, fid, currentUserId);
+          await up(
+              'daily_habit_completions',
+              completions.map((c) => c.toJson()).toList());
+          await _deleteRemovedUserRows(
+            'daily_habit_completions',
+            completions.map((c) => c.id).toSet(),
+            currentUserId,
+          );
+        })()
       else
         Future.value(),
       upAndClean(

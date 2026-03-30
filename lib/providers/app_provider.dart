@@ -619,6 +619,18 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  /// Await after habit / completion changes so Supabase stays in sync.
+  Future<void> syncHabitsNow() async {
+    final fam = _activeFamily;
+    if (fam == null || !SupabaseService.isConfigured) return;
+    try {
+      await DatabaseService.pushFamilyHabitsToCloudNow(_db, fam.id);
+      _broadcastChange();
+    } catch (e) {
+      debugPrint('[AppProvider] syncHabitsNow: $e');
+    }
+  }
+
   /// Merge keys into [activeUser.settings] and persist (users table sync).
   Future<void> updateActiveUserSettings(Map<String, dynamic> patch) async {
     final u = _activeUser;

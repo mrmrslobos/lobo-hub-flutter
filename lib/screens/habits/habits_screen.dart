@@ -41,6 +41,15 @@ void _showSnack(BuildContext context, String msg) {
   ));
 }
 
+Future<void> _persistHabits(
+  AppProvider provider,
+  AppDB newDb,
+  String familyId,
+) async {
+  await provider.saveAndSync(newDb);
+  await provider.syncHabitsNow();
+}
+
 const List<String> _defaultEmojis = [
   '💪', '🏃', '🧘', '💧', '🥗', '📚', '✍️', '🎯',
   '🌅', '🛌', '🚴', '🏊', '🧠', '🎨', '🎵', '🙏',
@@ -80,9 +89,12 @@ class _HabitsScreenState extends State<HabitsScreen> {
     }
 
     final today = DateTime.now();
-    final allHabits = db.dailyHabits
-        .where((h) => h.userId == user.id || h.isShared)
-        .toList();
+    final allHabits = db.dailyHabits.where((h) {
+      final inThisHome = h.familyId == null || h.familyId == family.id;
+      if (!inThisHome) return false;
+      if (h.userId == user.id) return true;
+      return h.isShared;
+    }).toList();
 
     final q = _searchQuery.trim().toLowerCase();
     final habitsForUi = q.isEmpty
@@ -180,13 +192,18 @@ class _HabitsScreenState extends State<HabitsScreen> {
                     hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
                     prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
                     suffixIcon: _searchQuery.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.close_rounded, size: 18),
-                            onPressed: () {
-                              _searchDebounce.cancel();
-                              _searchCtrl.clear();
-                              setState(() => _searchQuery = '');
-                            },
+                        ? Semantics(
+                            label: 'Clear search',
+                            button: true,
+                            child: IconButton(
+                              tooltip: 'Clear search',
+                              icon: const Icon(Icons.close_rounded, size: 18),
+                              onPressed: () {
+                                _searchDebounce.cancel();
+                                _searchCtrl.clear();
+                                setState(() => _searchQuery = '');
+                              },
+                            ),
                           )
                         : null,
                     filled: true,
@@ -267,7 +284,13 @@ class _HabitsScreenState extends State<HabitsScreen> {
                         onDismissed: (_) async {
                           final updatedHabits = db.dailyHabits.where((h) => h.id != habit.id).toList();
                           final updatedCompletions = db.habitCompletions.where((c) => c.habitId != habit.id).toList();
-                          await provider.saveAndSync(db.copyWith(dailyHabits: updatedHabits, habitCompletions: updatedCompletions));
+                          await _persistHabits(
+                            provider,
+                            db.copyWith(
+                                dailyHabits: updatedHabits,
+                                habitCompletions: updatedCompletions),
+                            family.id,
+                          );
                           if (context.mounted) _showSnack(context, 'Habit deleted');
                         },
                         background: Container(
@@ -294,7 +317,9 @@ class _HabitsScreenState extends State<HabitsScreen> {
                           habit: habit,
                           isDone: isDone,
                           streak: streak,
-                          onToggle: () => _toggleCompletion(context, provider, db, habit, isDone, user, todayCompletions),
+                          onToggle: () => _toggleCompletion(
+                              context, provider, db, family, habit, isDone,
+                              user, todayCompletions),
                           onLongPress: () => _showHabitOptions(context, provider, db, habit, user, family),
                         ),
                       );
@@ -311,7 +336,7 @@ class _HabitsScreenState extends State<HabitsScreen> {
   // ─── Toggle completion ──────────────────────────────────────────────────────
 
   Future<void> _toggleCompletion(
-    BuildContext context, AppProvider provider, AppDB db,
+    BuildContext context, AppProvider provider, AppDB db, Family family,
     DailyHabit habit, bool isDone, User user,
     List<DailyHabitCompletion> todayCompletions,
   ) async {
@@ -330,7 +355,8 @@ class _HabitsScreenState extends State<HabitsScreen> {
       );
       updated = [...db.habitCompletions, completion];
     }
-    await provider.saveAndSync(db.copyWith(habitCompletions: updated));
+    await _persistHabits(provider, db.copyWith(habitCompletions: updated),
+        family.id);
   }
 
   // ─── Habit options (edit / delete) ──────────────────────────────────────────
@@ -436,7 +462,12 @@ class _HabitsScreenState extends State<HabitsScreen> {
                 if (confirmed != true) return;
                 final updated = db.dailyHabits.where((h) => h.id != habit.id).toList();
                 final updatedCompletions = db.habitCompletions.where((c) => c.habitId != habit.id).toList();
-                await provider.saveAndSync(db.copyWith(dailyHabits: updated, habitCompletions: updatedCompletions));
+                await _persistHabits(
+                  provider,
+                  db.copyWith(
+                      dailyHabits: updated, habitCompletions: updatedCompletions),
+                  family.id,
+                );
                 if (context.mounted) _showSnack(context, 'Habit deleted');
               },
             ),
@@ -468,7 +499,8 @@ class _HabitsScreenState extends State<HabitsScreen> {
           } else {
             updatedHabits = [...db.dailyHabits, habit];
           }
-          await provider.saveAndSync(db.copyWith(dailyHabits: updatedHabits));
+          await _persistHabits(
+              provider, db.copyWith(dailyHabits: updatedHabits), family.id);
         },
         userId: user.id,
         familyId: family.id,
@@ -615,120 +647,133 @@ class _HabitCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final streakLabel =
+        streak > 0 ? '$streak day${streak == 1 ? '' : 's'} streak' : null;
+    final semanticsLabel = [
+      isDone ? 'Completed habit' : 'Habit',
+      habit.title,
+      if (streakLabel != null) streakLabel,
+      if (habit.isShared) 'Shared with family',
+    ].join(', ');
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: GestureDetector(
-        onTap: onToggle,
-        onLongPress: onLongPress,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            color: isDone ? AppTheme.primaryLight : Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: isDone ? AppTheme.primary.withValues(alpha: 0.3) : AppTheme.stone100,
-            ),
-          ),
-          child: Row(children: [
-            // Emoji icon badge
-            Container(
-              width: 44, height: 44,
-              decoration: BoxDecoration(
-                color: isDone
-                    ? AppTheme.primary.withValues(alpha: 0.12)
-                    : AppTheme.stone50,
-                borderRadius: BorderRadius.circular(12),
+      child: Semantics(
+        button: true,
+        label: semanticsLabel,
+        hint: 'Tap to mark ${isDone ? 'not done' : 'done'} for today. Long press for more options.',
+        child: GestureDetector(
+          onTap: onToggle,
+          onLongPress: onLongPress,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: isDone ? AppTheme.primaryLight : Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isDone ? AppTheme.primary.withValues(alpha: 0.3) : AppTheme.stone100,
               ),
-              child: Center(child: Text(habit.emoji, style: const TextStyle(fontSize: 22))),
             ),
-            const SizedBox(width: 12),
+            child: Row(children: [
+              // Emoji icon badge
+              Container(
+                width: 44, height: 44,
+                decoration: BoxDecoration(
+                  color: isDone
+                      ? AppTheme.primary.withValues(alpha: 0.12)
+                      : AppTheme.stone50,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Center(child: Text(habit.emoji, style: const TextStyle(fontSize: 22))),
+              ),
+              const SizedBox(width: 12),
 
-            // Title + meta
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    habit.title,
-                    style: TextStyle(
-                      fontFamily: 'Inter', fontSize: 15, fontWeight: FontWeight.w700,
-                      color: AppTheme.stone900,
-                      decoration: isDone ? TextDecoration.lineThrough : null,
-                      decorationColor: AppTheme.stone400,
-                    ),
-                  ),
-                  if (habit.description != null && habit.description!.isNotEmpty) ...[
-                    const SizedBox(height: 2),
+              // Title + meta
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      habit.description!,
-                      style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
-                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                      habit.title,
+                      style: TextStyle(
+                        fontFamily: 'Inter', fontSize: 15, fontWeight: FontWeight.w700,
+                        color: AppTheme.stone900,
+                        decoration: isDone ? TextDecoration.lineThrough : null,
+                        decorationColor: AppTheme.stone400,
+                      ),
                     ),
-                  ],
-                  const SizedBox(height: 4),
-                  Row(children: [
-                    if (streak > 0) ...[
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF59E0B).withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Row(mainAxisSize: MainAxisSize.min, children: [
-                          const Text('\u{1F525}', style: TextStyle(fontSize: 10)),
-                          const SizedBox(width: 3),
-                          Text('$streak day${streak == 1 ? '' : 's'}', style: const TextStyle(
-                            fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFFF59E0B),
-                          )),
-                        ]),
-                      ),
-                      const SizedBox(width: 6),
-                    ],
-                    if (habit.isShared) ...[
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: AppTheme.primary.withValues(alpha: 0.08),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                          Icon(Icons.people_outline, size: 11, color: AppTheme.primary),
-                          SizedBox(width: 3),
-                          Text('Shared', style: TextStyle(
-                            fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w600, color: AppTheme.primary,
-                          )),
-                        ]),
-                      ),
-                      const SizedBox(width: 6),
-                    ],
-                    if (habit.targetValue != null && habit.targetUnit != null)
+                    if (habit.description != null && habit.description!.isNotEmpty) ...[
+                      const SizedBox(height: 2),
                       Text(
-                        '${habit.targetValue} ${habit.targetUnit}',
-                        style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400),
+                        habit.description!,
+                        style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
+                        maxLines: 1, overflow: TextOverflow.ellipsis,
                       ),
-                  ]),
-                ],
-              ),
-            ),
-
-            // Completion toggle
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              width: 34, height: 34,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: isDone ? AppTheme.primary : Colors.transparent,
-                border: Border.all(
-                  color: isDone ? AppTheme.primary : AppTheme.stone300,
-                  width: 2,
+                    ],
+                    const SizedBox(height: 4),
+                    Row(children: [
+                      if (streak > 0) ...[
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF59E0B).withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            const Text('\u{1F525}', style: TextStyle(fontSize: 10)),
+                            const SizedBox(width: 3),
+                            Text('$streak day${streak == 1 ? '' : 's'}', style: const TextStyle(
+                              fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFFF59E0B),
+                            )),
+                          ]),
+                        ),
+                        const SizedBox(width: 6),
+                      ],
+                      if (habit.isShared) ...[
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primary.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                            Icon(Icons.people_outline, size: 11, color: AppTheme.primary),
+                            SizedBox(width: 3),
+                            Text('Shared', style: TextStyle(
+                              fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w600, color: AppTheme.primary,
+                            )),
+                          ]),
+                        ),
+                        const SizedBox(width: 6),
+                      ],
+                      if (habit.targetValue != null && habit.targetUnit != null)
+                        Text(
+                          '${habit.targetValue} ${habit.targetUnit}',
+                          style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400),
+                        ),
+                    ]),
+                  ],
                 ),
               ),
-              child: isDone
-                  ? const Icon(Icons.check_rounded, color: Colors.white, size: 18)
-                  : null,
-            ),
-          ]),
+
+              // Completion indicator (card is the single semantic button)
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                width: 34, height: 34,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isDone ? AppTheme.primary : Colors.transparent,
+                  border: Border.all(
+                    color: isDone ? AppTheme.primary : AppTheme.stone300,
+                    width: 2,
+                  ),
+                ),
+                child: isDone
+                    ? const Icon(Icons.check_rounded, color: Colors.white, size: 18)
+                    : null,
+              ),
+            ]),
+          ),
         ),
       ),
     );
@@ -925,7 +970,8 @@ class _AddHabitSheetState extends State<_AddHabitSheet> {
                       ])),
                       Switch.adaptive(
                         value: _isShared,
-                        activeColor: AppTheme.primary,
+                        activeTrackColor: AppTheme.primary.withValues(alpha: 0.45),
+                        activeThumbColor: AppTheme.primary,
                         onChanged: (v) => setState(() => _isShared = v),
                       ),
                     ]),
