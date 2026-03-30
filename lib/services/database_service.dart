@@ -531,6 +531,69 @@ class DatabaseService {
     await _deleteRemovedRows('exercise_prs', prIds, familyId);
   }
 
+  /// Upserts [period_cycles] and [period_symptoms] for the signed-in user and
+  /// [familyId] only. Prevents cross-user / cross-home row reassignment during
+  /// full sync (RLS is per-user, but the client was sending every local row).
+  static Future<void> pushFamilyPeriodDataToCloudNow(
+    AppDB db,
+    String familyId,
+  ) async {
+    if (!SupabaseService.isConfigured) return;
+    final uid = SupabaseService.currentUser?.id;
+    if (uid == null) return;
+    const chunk = 40;
+
+    final cycles = db.periodCycles
+        .where((c) => c.userId == uid && c.familyId == familyId)
+        .toList();
+    final cycleRows = cycles.map((c) => c.toJson()).toList();
+    final cycleIds = cycles.map((c) => c.id).toSet();
+    for (var i = 0; i < cycleRows.length; i += chunk) {
+      final slice =
+          cycleRows.sublist(i, math.min(i + chunk, cycleRows.length));
+      try {
+        await SupabaseService.upsertTable('period_cycles', slice);
+      } catch (e) {
+        debugPrint(
+            '[DatabaseService] period_cycles chunk upsert failed, retry per row: $e');
+        for (var j = 0; j < slice.length; j++) {
+          try {
+            await SupabaseService.upsertTable('period_cycles', [slice[j]]);
+          } catch (e2) {
+            debugPrint(
+                '[DatabaseService] period_cycle ${slice[j]['id']} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedUserRows('period_cycles', cycleIds, uid);
+
+    final symptoms = db.periodSymptoms
+        .where((s) => s.userId == uid && s.familyId == familyId)
+        .toList();
+    final symptomRows = symptoms.map((s) => s.toJson()).toList();
+    final symptomIds = symptoms.map((s) => s.id).toSet();
+    for (var i = 0; i < symptomRows.length; i += chunk) {
+      final slice =
+          symptomRows.sublist(i, math.min(i + chunk, symptomRows.length));
+      try {
+        await SupabaseService.upsertTable('period_symptoms', slice);
+      } catch (e) {
+        debugPrint(
+            '[DatabaseService] period_symptoms chunk upsert failed, retry per row: $e');
+        for (var j = 0; j < slice.length; j++) {
+          try {
+            await SupabaseService.upsertTable('period_symptoms', [slice[j]]);
+          } catch (e2) {
+            debugPrint(
+                '[DatabaseService] period_symptom ${slice[j]['id']} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedUserRows('period_symptoms', symptomIds, uid);
+  }
+
   /// Upserts all tasks for [familyId] and applies tombstone deletes. Await after
   /// saves so new tasks reach Supabase even when the full background sync fails
   /// (RLS batch issues, payload size, or tasks from other families polluting the batch).
@@ -1389,12 +1452,39 @@ class DatabaseService {
       upAndClean('health_records',
           db.healthRecords.map((h) => {...h.toJson(), 'family_id': fid}).toList(),
           db.healthRecords.map((h) => h.id).toSet()),
-      upAndClean('period_cycles',
-          db.periodCycles.map((c) => c.toJson()).toList(),
-          db.periodCycles.map((c) => c.id).toSet()),
-      upAndClean('period_symptoms',
-          db.periodSymptoms.map((s) => s.toJson()).toList(),
-          db.periodSymptoms.map((s) => s.id).toSet()),
+      if (currentUserId != null)
+        Future.wait([
+          upAndCleanUser(
+            'period_cycles',
+            db.periodCycles
+                .where((c) =>
+                    c.userId == currentUserId && c.familyId == fid)
+                .map((c) => c.toJson())
+                .toList(),
+            db.periodCycles
+                .where((c) =>
+                    c.userId == currentUserId && c.familyId == fid)
+                .map((c) => c.id)
+                .toSet(),
+            userId: currentUserId,
+          ),
+          upAndCleanUser(
+            'period_symptoms',
+            db.periodSymptoms
+                .where((s) =>
+                    s.userId == currentUserId && s.familyId == fid)
+                .map((s) => s.toJson())
+                .toList(),
+            db.periodSymptoms
+                .where((s) =>
+                    s.userId == currentUserId && s.familyId == fid)
+                .map((s) => s.id)
+                .toSet(),
+            userId: currentUserId,
+          ),
+        ])
+      else
+        Future.value(),
       upAndClean('external_calendars',
           db.externalCalendars.map((c) => {...c.toJson(), 'family_id': fid}).toList(),
           db.externalCalendars.map((c) => c.id).toSet()),

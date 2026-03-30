@@ -655,6 +655,18 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  /// Await after period / symptom log changes so Supabase stays in sync.
+  Future<void> syncPeriodTrackerNow() async {
+    final fam = _activeFamily;
+    if (fam == null || !SupabaseService.isConfigured) return;
+    try {
+      await DatabaseService.pushFamilyPeriodDataToCloudNow(_db, fam.id);
+      _broadcastChange();
+    } catch (e) {
+      debugPrint('[AppProvider] syncPeriodTrackerNow: $e');
+    }
+  }
+
   /// Merge keys into [activeUser.settings] and persist (users table sync).
   Future<void> updateActiveUserSettings(Map<String, dynamic> patch) async {
     final u = _activeUser;

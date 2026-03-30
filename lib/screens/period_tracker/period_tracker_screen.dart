@@ -105,6 +105,11 @@ Future<bool> _confirmRemove(BuildContext context, String title, String message) 
   return confirmed == true;
 }
 
+Future<void> _persistPeriod(AppProvider provider, AppDB newDb) async {
+  await provider.saveAndSync(newDb);
+  await provider.syncPeriodTrackerNow();
+}
+
 InputDecoration _styledInput(String hint, {IconData? icon}) => InputDecoration(
   hintText: hint,
   hintStyle: const TextStyle(color: AppTheme.stone300, fontFamily: 'Inter', fontSize: 13),
@@ -425,7 +430,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
           } else {
             updated = [...db.periodEntries, entry];
           }
-          await provider.saveAndSync(db.copyWith(periodEntries: updated));
+          await _persistPeriod(provider, db.copyWith(periodEntries: updated));
         },
       ),
     );
@@ -463,7 +468,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
         onSave: (log) async {
           final provider = context.read<AppProvider>();
           final db = provider.db;
-          await provider.saveAndSync(db.copyWith(
+          await _persistPeriod(provider, db.copyWith(
             periodSymptoms: [...db.periodSymptoms, log],
           ));
         },
@@ -497,7 +502,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
           notes: log.notes,
           createdAt: log.createdAt,
         );
-        await provider.saveAndSync(db.copyWith(
+        await _persistPeriod(provider, db.copyWith(
           periodSymptoms: db.periodSymptoms.map((s) => s.id == log.id ? updatedLog : s).toList(),
         ));
       }
@@ -510,7 +515,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
         symptoms: const ['Intimate 💕'],
         createdAt: DateTime.now(),
       );
-      await provider.saveAndSync(db.copyWith(
+      await _persistPeriod(provider, db.copyWith(
         periodSymptoms: [...db.periodSymptoms, log],
       ));
     }
@@ -589,7 +594,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
                   }
 
                   if (newEntries.isNotEmpty) {
-                    await provider.saveAndSync(db.copyWith(
+                    await _persistPeriod(provider, db.copyWith(
                       periodEntries: [...db.periodEntries, ...newEntries],
                     ));
                   }
@@ -619,7 +624,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     if (!ok) return;
     final provider = this.context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
+    await _persistPeriod(provider, db.copyWith(
       periodEntries: db.periodEntries.where((e) => e.id != id).toList(),
     ));
   }
@@ -985,13 +990,18 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
               prefixIcon: const Icon(Icons.search, size: 20, color: AppTheme.stone400),
               suffixIcon: _historySearchQuery.trim().isEmpty
                   ? null
-                  : IconButton(
-                      tooltip: 'Clear search',
-                      icon: const Icon(Icons.close_rounded, size: 20, color: AppTheme.stone400),
-                      onPressed: () {
-                        _historySearchCtrl.clear();
-                        setState(() => _historySearchQuery = '');
-                      },
+                  : Semantics(
+                      label: 'Clear search',
+                      button: true,
+                      child: IconButton(
+                        tooltip: 'Clear search',
+                        icon: const Icon(Icons.close_rounded, size: 20, color: AppTheme.stone400),
+                        onPressed: () {
+                          _historySearchDebounce.cancel();
+                          _historySearchCtrl.clear();
+                          setState(() => _historySearchQuery = '');
+                        },
+                      ),
                     ),
               filled: true,
               fillColor: AppTheme.surface,
