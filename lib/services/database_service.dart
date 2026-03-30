@@ -97,7 +97,7 @@ class DatabaseService {
   static const _usersCloudOmit = {'settings'};
 
   /// Events columns some older DBs lack (PGRST204).
-  static const _eventsCloudOmit = {'shared_with'};
+  static const _eventsCloudOmit = <String>{};
 
   /// Prayer wall columns some older DBs lack (PGRST204).
   static const _prayerWallCloudOmit = {'prayed_by_ids'};
@@ -275,6 +275,44 @@ class DatabaseService {
       }
     }
     await _deleteRemovedRows('lists', localIds, familyId);
+  }
+
+  /// Upserts all calendar events for [familyId] and applies tombstone deletes.
+  static Future<void> pushFamilyEventsToCloudNow(AppDB db, String familyId) async {
+    if (!SupabaseService.isConfigured) return;
+    final familyEvents =
+        db.events.where((e) => e.familyId == familyId).toList();
+    final localIds = familyEvents.map((e) => e.id).toSet();
+    const chunk = 40;
+    for (var i = 0; i < familyEvents.length; i += chunk) {
+      final slice = familyEvents.sublist(
+          i, math.min(i + chunk, familyEvents.length));
+      final rows = slice
+          .map((e) => {...e.toJson(), 'family_id': familyId})
+          .toList();
+      for (final m in rows) {
+        for (final k in _eventsCloudOmit) {
+          m.remove(k);
+        }
+      }
+      try {
+        await SupabaseService.upsertTable('events', rows);
+      } catch (e) {
+        debugPrint('[DatabaseService] events chunk upsert failed, retry per row: $e');
+        for (final ev in slice) {
+          try {
+            final one = {...ev.toJson(), 'family_id': familyId};
+            for (final k in _eventsCloudOmit) {
+              one.remove(k);
+            }
+            await SupabaseService.upsertTable('events', [one]);
+          } catch (e2) {
+            debugPrint('[DatabaseService] event ${ev.id} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedRows('events', localIds, familyId);
   }
 
   /// Push local data to Supabase. Safe to fire-and-forget.

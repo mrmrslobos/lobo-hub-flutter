@@ -534,6 +534,18 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  /// Await after event create/edit/delete/RSVP so events reach Supabase reliably.
+  Future<void> syncEventsNow() async {
+    final fam = _activeFamily;
+    if (fam == null || !SupabaseService.isConfigured) return;
+    try {
+      await DatabaseService.pushFamilyEventsToCloudNow(_db, fam.id);
+      _broadcastChange();
+    } catch (e) {
+      debugPrint('[AppProvider] syncEventsNow: $e');
+    }
+  }
+
   /// Merge keys into [activeUser.settings] and persist (users table sync).
   Future<void> updateActiveUserSettings(Map<String, dynamic> patch) async {
     final u = _activeUser;

@@ -58,6 +58,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
     super.dispose();
   }
 
+  Future<void> _persistEvents(AppProvider provider, List<CalendarEvent> events) async {
+    await provider.saveAndSync(provider.db.copyWith(events: events));
+    if (provider.activeFamily != null) await provider.syncEventsNow();
+  }
+
   Future<void> _handleAiQuickPlan() async {
     if (SubscriptionModal.guardAI(context)) return;
     final input = _aiController.text.trim();
@@ -112,9 +117,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
       );
 
       final db = provider.db;
-      await provider.saveAndSync(db.copyWith(
-        events: [...db.events, event],
-      ));
+      await _persistEvents(provider, [...db.events, event]);
 
       _aiController.clear();
       if (mounted) {
@@ -254,6 +257,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
       }
 
       await provider.saveAndSync(db);
+      if (provider.activeFamily != null) await provider.syncEventsNow();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Synced ${selected.length} calendar(s) from Google')),
@@ -313,6 +317,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
         events: [...otherEvents, ...newEvents],
         externalCalendars: updatedCalendars,
       ));
+      if (provider.activeFamily != null) await provider.syncEventsNow();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -353,6 +358,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
       externalCalendars: db.externalCalendars.where((c) => c.id != cal.id).toList(),
       events: db.events.where((e) => e.externalCalendarId != cal.id).toList(),
     ));
+    if (provider.activeFamily != null) await provider.syncEventsNow();
   }
 
   // ── ICS URL Import ───────────────────────────────────────────────────────
@@ -399,6 +405,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
         externalCalendars: [...db.externalCalendars, extCal],
         events: [...db.events, ...events],
       ));
+      if (provider.activeFamily != null) await provider.syncEventsNow();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -502,7 +509,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   Future<void> _deleteEvent(AppProvider provider, CalendarEvent event) async {
     final db = provider.db;
     final events = db.events.where((e) => e.id != event.id).toList();
-    await provider.saveAndSync(db.copyWith(events: events));
+    await _persistEvents(provider, events);
   }
 
   Future<void> _saveEventRsvp(CalendarEvent event, String userId, _EventRsvpChoice choice) async {
@@ -535,7 +542,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
       updatedAt: DateTime.now(),
     );
     final events = db.events.map((e) => e.id == event.id ? updated : e).toList();
-    await provider.saveAndSync(db.copyWith(events: events));
+    await _persistEvents(provider, events);
     if (mounted) setState(() {});
   }
 
@@ -682,7 +689,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     ),
                     const SizedBox(width: 10),
                     GestureDetector(
-                      onTap: _showEventPlannerWizard,
+                      onTap: () {
+                        if (SubscriptionModal.guardAI(context)) return;
+                        _showEventPlannerWizard();
+                      },
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
                         decoration: BoxDecoration(
@@ -719,7 +729,15 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
                     prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
                     suffixIcon: _searchQuery.isNotEmpty
-                        ? IconButton(icon: const Icon(Icons.close_rounded, size: 18), onPressed: () { _searchDebounce.cancel(); _searchCtrl.clear(); setState(() => _searchQuery = ''); })
+                        ? IconButton(
+                            icon: const Icon(Icons.close_rounded, size: 18),
+                            tooltip: 'Clear search',
+                            onPressed: () {
+                              _searchDebounce.cancel();
+                              _searchCtrl.clear();
+                              setState(() => _searchQuery = '');
+                            },
+                          )
                         : null,
                     filled: true,
                     fillColor: Colors.white,
@@ -775,7 +793,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                       style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white.withValues(alpha: 0.7)),
                                     ),
                                     GestureDetector(
-                                      onTap: _showEventPlannerWizard,
+                                      onTap: () {
+                                        if (SubscriptionModal.guardAI(context)) return;
+                                        _showEventPlannerWizard();
+                                      },
                                       child: const Text(
                                         'Plan Event',
                                         style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white, decoration: TextDecoration.underline, decorationColor: Colors.white),
@@ -1863,23 +1884,39 @@ class _EventFormSheetState extends State<_EventFormSheet> {
       final db = provider.db;
       const uuid = Uuid();
 
-      final event = CalendarEvent(
-        id: widget.editEvent?.id ?? uuid.v4(),
-        familyId: provider.activeFamily!.id,
-        creatorId: widget.editEvent?.creatorId ??
-            provider.activeUser!.id,
-        title: _titleCtrl.text.trim(),
-        description: _descCtrl.text.trim().isEmpty
-            ? null
-            : _descCtrl.text.trim(),
-        location: _locationCtrl.text.trim().isEmpty
-            ? null
-            : _locationCtrl.text.trim(),
-        start: _startDate,
-        end: _allDay ? _startDate : _endDate,
-        visibility: _visibility,
-        sharedWith: _sharedWith,
-      );
+      final base = widget.editEvent;
+      final event = base == null
+          ? CalendarEvent(
+              id: uuid.v4(),
+              familyId: provider.activeFamily!.id,
+              creatorId: provider.activeUser!.id,
+              title: _titleCtrl.text.trim(),
+              description: _descCtrl.text.trim().isEmpty
+                  ? null
+                  : _descCtrl.text.trim(),
+              location: _locationCtrl.text.trim().isEmpty
+                  ? null
+                  : _locationCtrl.text.trim(),
+              start: _startDate,
+              end: _allDay ? _startDate : _endDate,
+              visibility: _visibility,
+              sharedWith: _sharedWith,
+              updatedAt: DateTime.now(),
+            )
+          : base.copyWith(
+              title: _titleCtrl.text.trim(),
+              description: _descCtrl.text.trim().isEmpty
+                  ? null
+                  : _descCtrl.text.trim(),
+              location: _locationCtrl.text.trim().isEmpty
+                  ? null
+                  : _locationCtrl.text.trim(),
+              start: _startDate,
+              end: _allDay ? _startDate : _endDate,
+              visibility: _visibility,
+              sharedWith: _sharedWith,
+              updatedAt: DateTime.now(),
+            );
 
       List<CalendarEvent> events;
       if (widget.editEvent != null) {
@@ -1890,6 +1927,7 @@ class _EventFormSheetState extends State<_EventFormSheet> {
         events = [...db.events, event];
       }
       await provider.saveAndSync(db.copyWith(events: events));
+      if (provider.activeFamily != null) await provider.syncEventsNow();
       if (widget.editEvent == null) {
         NotificationService.notifyFamilyActivityWithDb(
           provider.db,
@@ -2751,6 +2789,11 @@ class _EventPlannerWizardState extends State<_EventPlannerWizard> {
         tasks: [...db.tasks, ...newTasks],
         lists: [...db.lists, ...newLists],
       ));
+      if (provider.activeFamily != null) {
+        await provider.syncEventsNow();
+        await provider.syncTasksNow();
+        await provider.syncListsNow();
+      }
 
       setState(() {
         _planResult = result;
