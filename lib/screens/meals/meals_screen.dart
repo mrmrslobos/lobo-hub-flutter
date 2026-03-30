@@ -1519,6 +1519,8 @@ Return a JSON array of 7 objects, each with:
               // ── RECIPE BOX section ──
               _RecipesTab(onCookMode: _openCookMode),
             ],
+
+            const MedicalDisclaimerFooter(),
           ],
         ),
       ),

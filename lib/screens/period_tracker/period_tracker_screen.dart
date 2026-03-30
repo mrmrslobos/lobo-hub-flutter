@@ -787,6 +787,8 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
             if (_selectedTab == 0) _buildCalendarTab(entries),
             if (_selectedTab == 1) _buildHistoryTab(entries, _historySearchQuery),
             if (_selectedTab == 2) _buildInsightsTab(entries, avgCycle, daysUntil),
+
+            const MedicalDisclaimerFooter(),
           ],
         ),
       ),

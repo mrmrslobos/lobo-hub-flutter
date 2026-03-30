@@ -1198,6 +1198,8 @@ Write 2-4 short paragraphs: (1) what went well or patterns you notice, (2) one c
                     ),
                   ),
                 )),
+
+          const MedicalDisclaimerFooter(),
         ],
       ),
     );

@@ -601,6 +601,8 @@ class _HealthScreenState extends State<HealthScreen> {
                 ]),
               ),
             ),
+
+            const MedicalDisclaimerFooter(),
           ],
         ),
       ),
