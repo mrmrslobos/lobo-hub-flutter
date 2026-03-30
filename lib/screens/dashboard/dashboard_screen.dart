@@ -186,6 +186,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _onRefresh() async {
     final provider = context.read<AppProvider>();
+    await provider.refreshFromCloud();
     await provider.saveAndSync(provider.db);
     await _loadAISuggestions(forceRefresh: true);
   }
@@ -976,6 +977,7 @@ Return ONLY the JSON array, no markdown.''',
                             await provider.saveAndSync(db.copyWith(
                               choreCompletions: [...db.choreCompletions, completion],
                             ));
+                            await provider.syncChoresNow();
                           },
                           child: Container(
                             padding: const EdgeInsets.all(12),
@@ -1218,10 +1220,14 @@ Return ONLY the JSON array, no markdown.''',
                     style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 16),
                   ),
                 ),
-                IconButton(
-                  onPressed: () => _dismissStartTip(familyId),
-                  icon: const Icon(Icons.close_rounded, size: 20),
-                  tooltip: 'Dismiss',
+                Semantics(
+                  label: 'Dismiss get started tips',
+                  button: true,
+                  child: IconButton(
+                    onPressed: () => _dismissStartTip(familyId),
+                    icon: const Icon(Icons.close_rounded, size: 20),
+                    tooltip: 'Dismiss',
+                  ),
                 ),
               ],
             ),
@@ -1520,19 +1526,24 @@ Return ONLY the JSON array, no markdown.''',
                       ),
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.close_rounded, color: Colors.white70, size: 18),
-                    onPressed: () {
-                      final updated = family.copyWith(welcomeDismissed: true);
-                      final db = provider.db;
-                      provider.updateFamily(updated);
-                      provider.saveAndSync(db.copyWith(
-                        families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
-                      ));
-                    },
-                    splashRadius: 18,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  Semantics(
+                    label: 'Dismiss try AI features card',
+                    button: true,
+                    child: IconButton(
+                      tooltip: 'Dismiss',
+                      icon: const Icon(Icons.close_rounded, color: Colors.white70, size: 18),
+                      onPressed: () {
+                        final updated = family.copyWith(welcomeDismissed: true);
+                        final db = provider.db;
+                        provider.updateFamily(updated);
+                        provider.saveAndSync(db.copyWith(
+                          families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
+                        ));
+                      },
+                      splashRadius: 18,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    ),
                   ),
                 ],
               ),

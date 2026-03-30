@@ -52,9 +52,24 @@ String dashboardSuggestionsContextFingerprint({
           !e.startDate.isBefore(today) &&
           e.startDate.isBefore(today.add(const Duration(days: 3))))
       .toList();
-  final habits = db.dailyHabits.where((h) => h.familyId == familyId).length;
+  final memberIds = db.familyMembers
+      .where((m) => m.familyId == familyId)
+      .map((m) => m.userId)
+      .toSet();
+  bool habitInHome(DailyHabit h) {
+    if (h.familyId == familyId) return true;
+    if (h.familyId == null && memberIds.contains(h.userId)) return true;
+    return false;
+  }
+
+  final familyHabits =
+      db.dailyHabits.where(habitInHome).map((h) => h.id).toSet();
+  final habits = familyHabits.length;
   final habitsCompleted = db.dailyHabitCompletions
-      .where((c) => _isSameDay(c.date, today))
+      .where((c) =>
+          c.userId == userId &&
+          familyHabits.contains(c.habitId) &&
+          _isSameDay(c.date, today))
       .length;
   final prayer = db.prayerWall.where((p) => p.familyId == familyId).length;
   final lists = db.lists.where((l) => l.familyId == familyId).length;
