@@ -699,6 +699,74 @@ class DatabaseService {
     await _deleteRemovedRows('prayer_wall', ids, familyId);
   }
 
+  /// Upserts [budget_categories], [budget_entries], [transactions], and
+  /// [savings_goals] for [familyId] only (prevents cross-home reassignment).
+  static Future<void> pushFamilyBudgetToCloudNow(
+    AppDB db,
+    String familyId,
+  ) async {
+    if (!SupabaseService.isConfigured) return;
+    const chunk = 40;
+
+    Future<void> upsertChunked(
+      String table,
+      List<Map<String, dynamic>> rows,
+    ) async {
+      for (var i = 0; i < rows.length; i += chunk) {
+        final slice = rows.sublist(i, math.min(i + chunk, rows.length));
+        try {
+          await SupabaseService.upsertTable(table, slice);
+        } catch (e) {
+          debugPrint(
+              '[DatabaseService] $table chunk upsert failed, retry per row: $e');
+          for (final r in slice) {
+            try {
+              await SupabaseService.upsertTable(table, [r]);
+            } catch (e2) {
+              debugPrint('[DatabaseService] $table ${r['id']} sync failed: $e2');
+            }
+          }
+        }
+      }
+    }
+
+    final categories =
+        db.budgetCategories.where((b) => b.familyId == familyId).toList();
+    await upsertChunked(
+      'budget_categories',
+      categories.map((b) => {...b.toJson(), 'family_id': familyId}).toList(),
+    );
+    await _deleteRemovedRows(
+        'budget_categories', categories.map((b) => b.id).toSet(), familyId);
+
+    final entries =
+        db.budgetEntries.where((e) => e.familyId == familyId).toList();
+    await upsertChunked(
+      'budget_entries',
+      entries.map((e) => {...e.toJson(), 'family_id': familyId}).toList(),
+    );
+    await _deleteRemovedRows(
+        'budget_entries', entries.map((e) => e.id).toSet(), familyId);
+
+    final txs =
+        db.transactions.where((t) => t.familyId == familyId).toList();
+    await upsertChunked(
+      'transactions',
+      txs.map((t) => {...t.toJson(), 'family_id': familyId}).toList(),
+    );
+    await _deleteRemovedRows(
+        'transactions', txs.map((t) => t.id).toSet(), familyId);
+
+    final goals =
+        db.savingsGoals.where((g) => g.familyId == familyId).toList();
+    await upsertChunked(
+      'savings_goals',
+      goals.map((g) => {...g.toJson(), 'family_id': familyId}).toList(),
+    );
+    await _deleteRemovedRows(
+        'savings_goals', goals.map((g) => g.id).toSet(), familyId);
+  }
+
   /// Upserts all tasks for [familyId] and applies tombstone deletes. Await after
   /// saves so new tasks reach Supabase even when the full background sync fails
   /// (RLS batch issues, payload size, or tasks from other families polluting the batch).
@@ -1480,15 +1548,36 @@ class DatabaseService {
         )
       else
         Future.value(),
-      upAndClean('budget_categories',
-          db.budgetCategories.map((b) => {...b.toJson(), 'family_id': fid}).toList(),
-          db.budgetCategories.map((b) => b.id).toSet()),
-      upAndClean('budget_entries',
-          db.budgetEntries.map((b) => {...b.toJson(), 'family_id': fid}).toList(),
-          db.budgetEntries.map((b) => b.id).toSet()),
-      upAndClean('transactions',
-          db.transactions.map((t) => {...t.toJson(), 'family_id': fid}).toList(),
-          db.transactions.map((t) => t.id).toSet()),
+      upAndClean(
+          'budget_categories',
+          db.budgetCategories
+              .where((b) => b.familyId == fid)
+              .map((b) => {...b.toJson(), 'family_id': fid})
+              .toList(),
+          db.budgetCategories
+              .where((b) => b.familyId == fid)
+              .map((b) => b.id)
+              .toSet()),
+      upAndClean(
+          'budget_entries',
+          db.budgetEntries
+              .where((e) => e.familyId == fid)
+              .map((e) => {...e.toJson(), 'family_id': fid})
+              .toList(),
+          db.budgetEntries
+              .where((e) => e.familyId == fid)
+              .map((e) => e.id)
+              .toSet()),
+      upAndClean(
+          'transactions',
+          db.transactions
+              .where((t) => t.familyId == fid)
+              .map((t) => {...t.toJson(), 'family_id': fid})
+              .toList(),
+          db.transactions
+              .where((t) => t.familyId == fid)
+              .map((t) => t.id)
+              .toSet()),
       upAndClean('ai_history',
           db.aiHistory.map((a) => a.toJson()).toList(),
           db.aiHistory.map((a) => a.id).toSet()),
@@ -1534,9 +1623,13 @@ class DatabaseService {
       upAndClean('reward_redemptions',
           db.rewardRedemptions.map((r) => r.toJson()).toList(),
           db.rewardRedemptions.map((r) => r.id).toSet()),
-      upAndClean('savings_goals',
-          db.savingsGoals.map((g) => {...g.toJson(), 'family_id': fid}).toList(),
-          db.savingsGoals.map((g) => g.id).toSet()),
+      upAndClean(
+          'savings_goals',
+          db.savingsGoals
+              .where((g) => g.familyId == fid)
+              .map((g) => {...g.toJson(), 'family_id': fid})
+              .toList(),
+          db.savingsGoals.where((g) => g.familyId == fid).map((g) => g.id).toSet()),
       upAndClean(
           'prayer_wall',
           db.prayerWall

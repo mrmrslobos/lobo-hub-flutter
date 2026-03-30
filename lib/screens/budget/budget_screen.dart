@@ -33,6 +33,11 @@ void _showSnack(BuildContext context, String msg) {
   ));
 }
 
+Future<void> _persistBudget(AppProvider provider, AppDB newDb) async {
+  await provider.saveAndSync(newDb);
+  await provider.syncBudgetNow();
+}
+
 // ─── Budget screen ────────────────────────────────────────────────────────────
 
 class BudgetScreen extends StatefulWidget {
@@ -87,7 +92,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
     HapticFeedback.lightImpact();
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
+    await _persistBudget(provider, db.copyWith(
       budgetEntries: db.budgetEntries.where((e) => e.id != id).toList(),
     ));
   }
@@ -101,8 +106,8 @@ class _BudgetScreenState extends State<BudgetScreen> {
         onSave: (entry) async {
           final provider = context.read<AppProvider>();
           final db = provider.db;
-          await provider.saveAndSync(
-              db.copyWith(budgetEntries: [...db.budgetEntries, entry]));
+          await _persistBudget(
+              provider, db.copyWith(budgetEntries: [...db.budgetEntries, entry]));
         },
       ),
     );
@@ -117,8 +122,8 @@ class _BudgetScreenState extends State<BudgetScreen> {
         onSave: (goal) async {
           final provider = context.read<AppProvider>();
           final db = provider.db;
-          await provider.saveAndSync(
-              db.copyWith(savingsGoals: [...db.savingsGoals, goal]));
+          await _persistBudget(
+              provider, db.copyWith(savingsGoals: [...db.savingsGoals, goal]));
         },
       ),
     );
@@ -139,7 +144,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
     if (confirmed != true) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
+    await _persistBudget(provider, db.copyWith(
       savingsGoals: db.savingsGoals.where((g) => g.id != id).toList(),
     ));
   }
@@ -185,7 +190,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
               final goals = db.savingsGoals
                   .map((g) => g.id == goal.id ? updated : g)
                   .toList();
-              await provider.saveAndSync(db.copyWith(savingsGoals: goals));
+              await _persistBudget(provider, db.copyWith(savingsGoals: goals));
             },
             child: const Text('Add'),
           ),
@@ -265,7 +270,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
         onSave: (updated) async {
           final provider = context.read<AppProvider>();
           final db = provider.db;
-          await provider.saveAndSync(db.copyWith(
+          await _persistBudget(provider, db.copyWith(
             budgetEntries: db.budgetEntries.map((e) => e.id == updated.id ? updated : e).toList(),
           ));
         },
@@ -832,13 +837,18 @@ class _BudgetScreenState extends State<BudgetScreen> {
                 hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
                 prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
                 suffixIcon: _searchQuery.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.close_rounded, size: 18),
-                        onPressed: () {
-                          _searchDebounce.cancel();
-                          _searchCtrl.clear();
-                          setState(() => _searchQuery = '');
-                        },
+                    ? Semantics(
+                        label: 'Clear search',
+                        button: true,
+                        child: IconButton(
+                          tooltip: 'Clear search',
+                          icon: const Icon(Icons.close_rounded, size: 18),
+                          onPressed: () {
+                            _searchDebounce.cancel();
+                            _searchCtrl.clear();
+                            setState(() => _searchQuery = '');
+                          },
+                        ),
                       )
                     : null,
                 filled: true,
@@ -2331,7 +2341,7 @@ $text
       );
     }).toList();
 
-    await provider.saveAndSync(db.copyWith(
+    await _persistBudget(provider, db.copyWith(
       budgetEntries: [...db.budgetEntries, ...newEntries],
     ));
 
@@ -2776,7 +2786,7 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
       rolloverEnabled: _rolloverEnabled,
       limitPeriod: _limitPeriod,
     );
-    await provider.saveAndSync(db.copyWith(
+    await _persistBudget(provider, db.copyWith(
       budgetCategories: [...db.budgetCategories, cat],
     ));
     _nameCtrl.clear();
@@ -2803,7 +2813,7 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
       rolloverEnabled: _rolloverEnabled,
       limitPeriod: _limitPeriod,
     );
-    await provider.saveAndSync(db.copyWith(
+    await _persistBudget(provider, db.copyWith(
       budgetCategories: db.budgetCategories.map((c) => c.id == cat.id ? updated : c).toList(),
     ));
     _nameCtrl.clear();
@@ -2829,7 +2839,7 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
     );
     if (confirmed != true) return;
 
-    await provider.saveAndSync(db.copyWith(
+    await _persistBudget(provider, db.copyWith(
       budgetCategories: db.budgetCategories.where((c) => c.id != cat.id).toList(),
     ));
   }

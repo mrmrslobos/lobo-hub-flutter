@@ -691,6 +691,18 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  /// Await after budget / savings goal changes so Supabase stays in sync.
+  Future<void> syncBudgetNow() async {
+    final fam = _activeFamily;
+    if (fam == null || !SupabaseService.isConfigured) return;
+    try {
+      await DatabaseService.pushFamilyBudgetToCloudNow(_db, fam.id);
+      _broadcastChange();
+    } catch (e) {
+      debugPrint('[AppProvider] syncBudgetNow: $e');
+    }
+  }
+
   /// Merge keys into [activeUser.settings] and persist (users table sync).
   Future<void> updateActiveUserSettings(Map<String, dynamic> patch) async {
     final u = _activeUser;
