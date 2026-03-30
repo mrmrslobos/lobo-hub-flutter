@@ -85,7 +85,8 @@ create table if not exists lists (
   title text not null,
   items jsonb not null default '[]'::jsonb,
   category text not null,
-  visibility text not null default 'FAMILY'
+  visibility text not null default 'FAMILY',
+  shared_with jsonb not null default '[]'::jsonb
 );
 
 create table if not exists devotionals (
@@ -385,6 +386,9 @@ begin
   end if;
   if not exists (select 1 from information_schema.columns where table_name='lists' and column_name='visibility') then
     alter table lists add column visibility text not null default 'FAMILY';
+  end if;
+  if not exists (select 1 from information_schema.columns where table_name='lists' and column_name='shared_with') then
+    alter table lists add column shared_with jsonb not null default '[]'::jsonb;
   end if;
   -- devotionals
   if not exists (select 1 from information_schema.columns where table_name='devotionals' and column_name='family_id') then

@@ -244,6 +244,39 @@ class DatabaseService {
     await _deleteRemovedRows('tasks', localIds, familyId);
   }
 
+  /// Upserts all shopping lists for [familyId] and applies tombstone deletes.
+  /// Await after saves so list edits reach Supabase even when the full background
+  /// sync fails (same pattern as [pushFamilyTasksToCloudNow]).
+  static Future<void> pushFamilyListsToCloudNow(AppDB db, String familyId) async {
+    if (!SupabaseService.isConfigured) return;
+    final familyLists =
+        db.lists.where((l) => l.familyId == familyId).toList();
+    final localIds = familyLists.map((l) => l.id).toSet();
+    const chunk = 25;
+    for (var i = 0; i < familyLists.length; i += chunk) {
+      final slice = familyLists.sublist(
+          i, math.min(i + chunk, familyLists.length));
+      final rows = slice
+          .map((l) => {...l.toJson(), 'family_id': familyId})
+          .toList();
+      try {
+        await SupabaseService.upsertTable('lists', rows);
+      } catch (e) {
+        debugPrint('[DatabaseService] lists chunk upsert failed, retry per row: $e');
+        for (final l in slice) {
+          try {
+            await SupabaseService.upsertTable('lists', [
+              {...l.toJson(), 'family_id': familyId},
+            ]);
+          } catch (e2) {
+            debugPrint('[DatabaseService] list ${l.id} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedRows('lists', localIds, familyId);
+  }
+
   /// Push local data to Supabase. Safe to fire-and-forget.
   /// Syncs for the same [familyId] are serialized so concurrent [saveAndSync]
   /// calls cannot leave Supabase with an older snapshot.

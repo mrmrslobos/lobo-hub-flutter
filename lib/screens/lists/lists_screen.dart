@@ -27,6 +27,11 @@ class _ListsScreenState extends State<ListsScreen> {
 
   // ── Data helpers ───────────────────────────────────────────────────────────
 
+  Future<void> _persistLists(AppProvider provider, List<ShoppingList> nextLists) async {
+    await provider.saveAndSync(provider.db.copyWith(shoppingLists: nextLists));
+    if (provider.activeFamily != null) await provider.syncListsNow();
+  }
+
   Future<void> _createList(String name, {Visibility visibility = Visibility.FAMILY, List<String> sharedWith = const []}) async {
     final provider = context.read<AppProvider>();
     final db = provider.db;
@@ -40,7 +45,7 @@ class _ListsScreenState extends State<ListsScreen> {
       sharedWith: sharedWith,
     );
     final updated = [...db.shoppingLists, list];
-    await provider.saveAndSync(db.copyWith(shoppingLists: updated));
+    await _persistLists(provider, updated);
     if (visibility != Visibility.PRIVATE) {
       NotificationService.notifyFamilyActivityWithDb(
         provider.db,
@@ -57,9 +62,10 @@ class _ListsScreenState extends State<ListsScreen> {
   Future<void> _deleteList(ShoppingList list) async {
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
-      shoppingLists: db.shoppingLists.where((l) => l.id != list.id).toList(),
-    ));
+    await _persistLists(
+      provider,
+      db.shoppingLists.where((l) => l.id != list.id).toList(),
+    );
     if (_selectedList?.id == list.id) setState(() => _selectedList = null);
   }
 
@@ -125,11 +131,12 @@ class _ListsScreenState extends State<ListsScreen> {
               final provider = context.read<AppProvider>();
               final db = provider.db;
               final updated = list.copyWith(title: newName);
-              await provider.saveAndSync(db.copyWith(
-                shoppingLists: db.shoppingLists
+              await _persistLists(
+                provider,
+                db.shoppingLists
                     .map((l) => l.id == list.id ? updated : l)
                     .toList(),
-              ));
+              );
               if (_selectedList?.id == list.id) {
                 setState(() => _selectedList = updated);
               }
@@ -147,7 +154,7 @@ class _ListsScreenState extends State<ListsScreen> {
     final newItem = ListItem(id: const Uuid().v4(), text: name, checked: false);
     final updatedList = list.copyWith(items: [...list.items, newItem]);
     final updatedLists = db.shoppingLists.map((l) => l.id == list.id ? updatedList : l).toList();
-    await provider.saveAndSync(db.copyWith(shoppingLists: updatedLists));
+    await _persistLists(provider, updatedLists);
     setState(() => _selectedList = updatedList);
     if (list.visibility != Visibility.PRIVATE) {
       NotificationService.notifyFamilyActivityWithDb(
@@ -167,7 +174,7 @@ class _ListsScreenState extends State<ListsScreen> {
     final updatedItems = list.items.map((i) => i.id == item.id ? i.copyWith(checked: !i.checked) : i).toList();
     final updatedList = list.copyWith(items: updatedItems);
     final updatedLists = db.shoppingLists.map((l) => l.id == list.id ? updatedList : l).toList();
-    await provider.saveAndSync(db.copyWith(shoppingLists: updatedLists));
+    await _persistLists(provider, updatedLists);
     setState(() => _selectedList = updatedList);
     if (!item.checked && list.visibility != Visibility.PRIVATE) {
       NotificationService.notifyFamilyActivityWithDb(
@@ -186,7 +193,7 @@ class _ListsScreenState extends State<ListsScreen> {
     final db = provider.db;
     final updatedList = list.copyWith(items: list.items.where((i) => i.id != itemId).toList());
     final updatedLists = db.shoppingLists.map((l) => l.id == list.id ? updatedList : l).toList();
-    await provider.saveAndSync(db.copyWith(shoppingLists: updatedLists));
+    await _persistLists(provider, updatedLists);
     setState(() => _selectedList = updatedList);
   }
 
@@ -214,7 +221,7 @@ class _ListsScreenState extends State<ListsScreen> {
     final db = provider.db;
     final updatedList = list.copyWith(items: list.items.where((i) => !i.checked).toList());
     final updatedLists = db.shoppingLists.map((l) => l.id == list.id ? updatedList : l).toList();
-    await provider.saveAndSync(db.copyWith(shoppingLists: updatedLists));
+    await _persistLists(provider, updatedLists);
     setState(() => _selectedList = updatedList);
   }
 
@@ -316,6 +323,7 @@ class _ListsScreenState extends State<ListsScreen> {
   }
 
   Future<void> _showAiCategorization() async {
+    if (SubscriptionModal.guardAI(context)) return;
     ShoppingList? list = _selectedList;
 
     if (list == null) {
@@ -537,7 +545,10 @@ class _ListsScreenState extends State<ListsScreen> {
                   Row(children: [
                     Expanded(
                       child: GestureDetector(
-                        onTap: _showAiCategorization,
+                        onTap: () {
+                          if (SubscriptionModal.guardAI(context)) return;
+                          _showAiCategorization();
+                        },
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 10),
                           decoration: BoxDecoration(
@@ -559,7 +570,10 @@ class _ListsScreenState extends State<ListsScreen> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: GestureDetector(
-                        onTap: _showAiTextToChecklist,
+                        onTap: () {
+                          if (SubscriptionModal.guardAI(context)) return;
+                          _showAiTextToChecklist();
+                        },
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 10),
                           decoration: BoxDecoration(
@@ -1009,7 +1023,7 @@ class _AiCategorizationSheetState extends State<_AiCategorizationSheet> {
               width: double.infinity,
               height: 52,
               child: ElevatedButton.icon(
-                onPressed: () {
+                onPressed: () async {
                   final itemToCategory = <String, String>{};
                   for (final entry in _categories!.entries) {
                     for (final itemName in entry.value) {
@@ -1038,8 +1052,10 @@ class _AiCategorizationSheetState extends State<_AiCategorizationSheet> {
                   final updatedLists = db.shoppingLists
                       .map((l) => l.id == widget.list.id ? updatedList : l)
                       .toList();
-                  provider.saveAndSync(db.copyWith(shoppingLists: updatedLists));
+                  await provider.saveAndSync(db.copyWith(shoppingLists: updatedLists));
+                  if (provider.activeFamily != null) await provider.syncListsNow();
 
+                  if (!context.mounted) return;
                   Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                     content: const Text('Categories applied! Use the group icon to view by category.'),
@@ -1121,21 +1137,18 @@ class _ListDetailView extends StatefulWidget {
 }
 
 class _ListDetailViewState extends State<_ListDetailView> {
-  TextEditingController _addCtrl = TextEditingController();
+  /// Set by [Autocomplete.fieldViewBuilder]; do not dispose (owned by Autocomplete).
+  TextEditingController? _addItemFieldCtrl;
   bool _groupedView = false;
   _ListSortMode _sortMode = _ListSortMode.manual;
 
-  @override
-  void dispose() {
-    _addCtrl.dispose();
-    super.dispose();
-  }
-
   void _submit() {
-    final name = _addCtrl.text.trim();
+    final c = _addItemFieldCtrl;
+    if (c == null) return;
+    final name = c.text.trim();
     if (name.isNotEmpty) {
       widget.onAddItem(name);
-      _addCtrl.clear();
+      c.clear();
     }
   }
 
@@ -1235,6 +1248,7 @@ class _ListDetailViewState extends State<_ListDetailView> {
     final updatedList = widget.list.copyWith(items: updatedItems);
     final updatedLists = db.shoppingLists.map((l) => l.id == widget.list.id ? updatedList : l).toList();
     await provider.saveAndSync(db.copyWith(shoppingLists: updatedLists));
+    if (provider.activeFamily != null) await provider.syncListsNow();
   }
 
   List<ListItem> _sortedItems(List<ListItem> items) {
@@ -1321,7 +1335,10 @@ class _ListDetailViewState extends State<_ListDetailView> {
           IconButton(
             icon: const Icon(Icons.auto_awesome, color: AppTheme.stone500, size: 20),
             tooltip: 'AI Categorize',
-            onPressed: widget.onAiCategorize,
+            onPressed: () {
+              if (SubscriptionModal.guardAI(context)) return;
+              widget.onAiCategorize();
+            },
           ),
           IconButton(
             icon: const Icon(Icons.delete_outline_rounded, color: AppTheme.error, size: 20),
@@ -1554,11 +1571,11 @@ class _ListDetailViewState extends State<_ListDetailView> {
                   return allNames.take(5);
                 },
                 onSelected: (value) {
-                  _addCtrl.text = value;
+                  _addItemFieldCtrl?.text = value;
                   _submit();
                 },
                 fieldViewBuilder: (context, textEditingController, focusNode, onFieldSubmitted) {
-                  _addCtrl = textEditingController;
+                  _addItemFieldCtrl = textEditingController;
                   return TextField(
                     controller: textEditingController,
                     focusNode: focusNode,
@@ -1580,15 +1597,21 @@ class _ListDetailViewState extends State<_ListDetailView> {
               ),
             ),
             const SizedBox(width: 10),
-            GestureDetector(
-              onTap: _submit,
-              child: Container(
-                width: 44, height: 44,
-                decoration: BoxDecoration(
-                  color: AppTheme.primary,
+            Semantics(
+              button: true,
+              label: 'Add item to list',
+              child: Material(
+                color: AppTheme.primary,
+                borderRadius: BorderRadius.circular(12),
+                child: InkWell(
+                  onTap: _submit,
                   borderRadius: BorderRadius.circular(12),
+                  child: const SizedBox(
+                    width: 44,
+                    height: 44,
+                    child: Icon(Icons.send_rounded, size: 18, color: Colors.white),
+                  ),
                 ),
-                child: const Icon(Icons.send_rounded, size: 18, color: Colors.white),
               ),
             ),
           ]),
@@ -1677,7 +1700,18 @@ class _AiTextToChecklistSheetState extends State<_AiTextToChecklistSheet> {
         );
       }).where((i) => i.text.isNotEmpty).toList();
 
-      final listTitle = 'AI: ${text.length > 20 ? '${text.substring(0, 20)}...' : text}';
+      var listTitle = 'AI: ${text.length > 20 ? '${text.substring(0, 20)}...' : text}';
+      final existingTitles = db.shoppingLists
+          .where((l) => l.familyId == familyId)
+          .map((l) => l.title.toLowerCase())
+          .toSet();
+      if (existingTitles.contains(listTitle.toLowerCase())) {
+        var n = 2;
+        while (existingTitles.contains('${listTitle.toLowerCase()} ($n)')) {
+          n++;
+        }
+        listTitle = '$listTitle ($n)';
+      }
       final newList = ShoppingList(
         id: const Uuid().v4(),
         familyId: familyId,
@@ -1687,6 +1721,7 @@ class _AiTextToChecklistSheetState extends State<_AiTextToChecklistSheet> {
       );
 
       await provider.saveAndSync(db.copyWith(shoppingLists: [...db.shoppingLists, newList]));
+      if (provider.activeFamily != null) await provider.syncListsNow();
 
       if (mounted) {
         Navigator.pop(context);
