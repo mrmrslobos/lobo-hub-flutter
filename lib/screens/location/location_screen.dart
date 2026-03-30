@@ -79,6 +79,29 @@ class _LocationScreenState extends State<LocationScreen> {
   final _placeSearchCtrl = TextEditingController();
   final _placeSearchDebounce = Debouncer();
   String _placeSearchQuery = '';
+  DateTime? _lastLocationCloudPush;
+
+  static const _locationCloudPushMinInterval = Duration(seconds: 25);
+  static const _locationCloudPushMinMoveM = 30.0;
+
+  Future<void> _persistLocationData(AppProvider provider, AppDB next) async {
+    await provider.saveAndSync(next);
+    if (provider.activeFamily != null) await provider.syncLocationDataNow();
+  }
+
+  bool _shouldPushLocationShare(
+    UserLocation previous,
+    double lat,
+    double lng,
+  ) {
+    final now = DateTime.now();
+    if (_lastLocationCloudPush == null) return true;
+    if (now.difference(_lastLocationCloudPush!) >= _locationCloudPushMinInterval) {
+      return true;
+    }
+    return _haversine(previous.latitude, previous.longitude, lat, lng) >=
+        _locationCloudPushMinMoveM;
+  }
 
   @override
   void initState() {
@@ -168,24 +191,27 @@ class _LocationScreenState extends State<LocationScreen> {
       );
 
       if (existing != null && existing.isSharing) {
+        final updatedRow = existing.copyWith(
+          latitude: position.latitude,
+          longitude: position.longitude,
+          accuracy: position.accuracy,
+          placeName: placeName,
+          nearPlace: nearPlace,
+          isSharing: true,
+          updatedAt: DateTime.now(),
+        );
         final updated = db.locationShares.map((l) {
-          if (l.id == existing.id) {
-            return LocationShare(
-              id: l.id,
-              familyId: l.familyId,
-              userId: l.userId,
-              latitude: position.latitude,
-              longitude: position.longitude,
-              accuracy: position.accuracy,
-              placeName: placeName,
-              nearPlace: nearPlace,
-              isSharing: true,
-              updatedAt: DateTime.now(),
-            );
-          }
+          if (l.id == existing.id) return updatedRow;
           return l;
         }).toList();
-        await provider.saveAndSync(db.copyWith(locationShares: updated.cast<UserLocation>()));
+        final nextDb = db.copyWith(locationShares: updated.cast<UserLocation>());
+        if (_shouldPushLocationShare(
+            existing, position.latitude, position.longitude)) {
+          await _persistLocationData(provider, nextDb);
+          _lastLocationCloudPush = DateTime.now();
+        } else {
+          await provider.saveAndSync(nextDb);
+        }
       }
     } catch (e) {
       debugPrint('Location update error: $e');
@@ -252,25 +278,26 @@ class _LocationScreenState extends State<LocationScreen> {
         isSharing: sharing,
         updatedAt: DateTime.now(),
       );
-      await provider.saveAndSync(db.copyWith(locationShares: [...db.locationShares, newShare]));
+      await _persistLocationData(
+        provider,
+        db.copyWith(locationShares: [...db.locationShares, newShare]),
+      );
+      if (sharing) _lastLocationCloudPush = DateTime.now();
     } else {
       final updated = db.locationShares.map((l) {
         if (l.id == current.id) {
-          return LocationShare(
-            id: l.id,
-            familyId: l.familyId,
-            userId: l.userId,
-            latitude: l.latitude,
-            longitude: l.longitude,
-            placeName: l.placeName,
-            nearPlace: l.nearPlace,
+          return l.copyWith(
             isSharing: sharing,
             updatedAt: DateTime.now(),
           );
         }
         return l;
       }).toList();
-      await provider.saveAndSync(db.copyWith(locationShares: updated.cast<UserLocation>()));
+      await _persistLocationData(
+        provider,
+        db.copyWith(locationShares: updated.cast<UserLocation>()),
+      );
+      if (sharing) _lastLocationCloudPush = DateTime.now();
     }
 
     if (sharing) {
@@ -326,9 +353,12 @@ class _LocationScreenState extends State<LocationScreen> {
     if (confirmed != true || !mounted) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
-      savedPlaces: db.savedPlaces.where((p) => p.id != place.id).toList(),
-    ));
+    await _persistLocationData(
+      provider,
+      db.copyWith(
+        savedPlaces: db.savedPlaces.where((p) => p.id != place.id).toList(),
+      ),
+    );
     if (mounted) _showSnack('Place deleted');
   }
 
@@ -551,6 +581,7 @@ class _LocationScreenState extends State<LocationScreen> {
                           tooltip: 'Clear search',
                           icon: const Icon(Icons.close_rounded, size: 20, color: AppTheme.stone400),
                           onPressed: () {
+                            _placeSearchDebounce.cancel();
                             _placeSearchCtrl.clear();
                             setState(() => _placeSearchQuery = '');
                           },
@@ -1081,19 +1112,16 @@ class _AddPlaceSheetState extends State<_AddPlaceSheet> {
     if (_isEditing) {
       final updated = db.savedPlaces.map((p) {
         if (p.id != widget.editing!.id) return p;
-        return SavedPlace(
-          id: p.id,
-          familyId: p.familyId,
-          creatorId: p.creatorId,
+        return p.copyWith(
           name: _nameCtrl.text.trim(),
           emoji: _emoji,
           latitude: pos?.lat ?? p.latitude,
           longitude: pos?.lng ?? p.longitude,
           radiusMetres: _radius,
-          createdAt: p.createdAt,
         );
       }).toList();
       await provider.saveAndSync(db.copyWith(savedPlaces: updated));
+      if (provider.activeFamily != null) await provider.syncLocationDataNow();
     } else {
       final place = SavedPlace(
         id: const Uuid().v4(),
@@ -1107,6 +1135,7 @@ class _AddPlaceSheetState extends State<_AddPlaceSheet> {
         createdAt: DateTime.now(),
       );
       await provider.saveAndSync(db.copyWith(savedPlaces: [...db.savedPlaces, place]));
+      if (provider.activeFamily != null) await provider.syncLocationDataNow();
     }
 
     if (mounted) {

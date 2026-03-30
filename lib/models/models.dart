@@ -3550,6 +3550,31 @@ class UserLocation {
 
   // Convenience getter
   String? get address => placeName ?? nearPlace;
+
+  UserLocation copyWith({
+    String? id,
+    String? familyId,
+    String? userId,
+    double? latitude,
+    double? longitude,
+    double? accuracy,
+    String? placeName,
+    String? nearPlace,
+    bool? isSharing,
+    DateTime? updatedAt,
+  }) =>
+      UserLocation(
+        id: id ?? this.id,
+        familyId: familyId ?? this.familyId,
+        userId: userId ?? this.userId,
+        latitude: latitude ?? this.latitude,
+        longitude: longitude ?? this.longitude,
+        accuracy: accuracy ?? this.accuracy,
+        placeName: placeName ?? this.placeName,
+        nearPlace: nearPlace ?? this.nearPlace,
+        isSharing: isSharing ?? this.isSharing,
+        updatedAt: updatedAt ?? this.updatedAt,
+      );
 }
 
 class SavedPlace {
@@ -3598,6 +3623,29 @@ class SavedPlace {
     'radius_metres': radiusMetres,
     'created_at': createdAt.toIso8601String(),
   };
+
+  SavedPlace copyWith({
+    String? id,
+    String? familyId,
+    String? creatorId,
+    String? name,
+    String? emoji,
+    double? latitude,
+    double? longitude,
+    double? radiusMetres,
+    DateTime? createdAt,
+  }) =>
+      SavedPlace(
+        id: id ?? this.id,
+        familyId: familyId ?? this.familyId,
+        creatorId: creatorId ?? this.creatorId,
+        name: name ?? this.name,
+        emoji: emoji ?? this.emoji,
+        latitude: latitude ?? this.latitude,
+        longitude: longitude ?? this.longitude,
+        radiusMetres: radiusMetres ?? this.radiusMetres,
+        createdAt: createdAt ?? this.createdAt,
+      );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -595,6 +595,18 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  /// Await after location shares or saved places change so Supabase stays in sync.
+  Future<void> syncLocationDataNow() async {
+    final fam = _activeFamily;
+    if (fam == null || !SupabaseService.isConfigured) return;
+    try {
+      await DatabaseService.pushFamilyLocationDataToCloudNow(_db, fam.id);
+      _broadcastChange();
+    } catch (e) {
+      debugPrint('[AppProvider] syncLocationDataNow: $e');
+    }
+  }
+
   /// Merge keys into [activeUser.settings] and persist (users table sync).
   Future<void> updateActiveUserSettings(Map<String, dynamic> patch) async {
     final u = _activeUser;

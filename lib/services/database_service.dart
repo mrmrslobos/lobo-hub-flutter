@@ -526,6 +526,62 @@ class DatabaseService {
     await _deleteRemovedRows('milestones', msIds, familyId);
   }
 
+  /// Upserts [user_locations] and [saved_places] for [familyId] and tombstone-deletes removed rows.
+  static Future<void> pushFamilyLocationDataToCloudNow(
+    AppDB db,
+    String familyId,
+  ) async {
+    if (!SupabaseService.isConfigured) return;
+    const chunk = 40;
+
+    final locs =
+        db.userLocations.where((u) => u.familyId == familyId).toList();
+    final locRows = locs.map((u) => u.toJson()).toList();
+    final locIds = locs.map((u) => u.id).toSet();
+    for (var i = 0; i < locRows.length; i += chunk) {
+      final slice = locRows.sublist(i, math.min(i + chunk, locRows.length));
+      try {
+        await SupabaseService.upsertTable('user_locations', slice);
+      } catch (e) {
+        debugPrint(
+            '[DatabaseService] user_locations chunk upsert failed, retry per row: $e');
+        for (final r in slice) {
+          try {
+            await SupabaseService.upsertTable('user_locations', [r]);
+          } catch (e2) {
+            debugPrint(
+                '[DatabaseService] user_location ${r['id']} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedRows('user_locations', locIds, familyId);
+
+    final places =
+        db.savedPlaces.where((p) => p.familyId == familyId).toList();
+    final placeRows =
+        places.map((p) => {...p.toJson(), 'family_id': familyId}).toList();
+    final placeIds = places.map((p) => p.id).toSet();
+    for (var i = 0; i < placeRows.length; i += chunk) {
+      final slice = placeRows.sublist(i, math.min(i + chunk, placeRows.length));
+      try {
+        await SupabaseService.upsertTable('saved_places', slice);
+      } catch (e) {
+        debugPrint(
+            '[DatabaseService] saved_places chunk upsert failed, retry per row: $e');
+        for (final r in slice) {
+          try {
+            await SupabaseService.upsertTable('saved_places', [r]);
+          } catch (e2) {
+            debugPrint(
+                '[DatabaseService] saved_place ${r['id']} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedRows('saved_places', placeIds, familyId);
+  }
+
   /// Push local data to Supabase. Safe to fire-and-forget.
   /// Syncs for the same [familyId] are serialized so concurrent [saveAndSync]
   /// calls cannot leave Supabase with an older snapshot.
