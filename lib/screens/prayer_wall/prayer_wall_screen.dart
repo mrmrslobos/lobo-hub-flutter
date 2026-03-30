@@ -24,6 +24,11 @@ void _showSnack(BuildContext context, String msg) {
   ));
 }
 
+Future<void> _persistPrayerWall(AppProvider provider, AppDB newDb) async {
+  await provider.saveAndSync(newDb);
+  await provider.syncPrayerWallNow();
+}
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const _warmAmber = Color(0xFFD97706);
@@ -83,7 +88,7 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
     final newPrayed = request.prayedByIds.contains(userId)
         ? request.prayedByIds.where((id) => id != userId).toList()
         : [...request.prayedByIds, userId];
-    await provider.saveAndSync(db.copyWith(
+    await _persistPrayerWall(provider, db.copyWith(
       prayerRequests: db.prayerRequests
           .map((r) => r.id == request.id ? r.copyWith(prayedByIds: newPrayed) : r)
           .toList(),
@@ -98,7 +103,7 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
     final newReactions = hasReacted
         ? request.reactions.where((r) => !(r.userId == userId && r.emoji == emoji)).toList()
         : [...request.reactions, Reaction(userId: userId, emoji: emoji)];
-    await provider.saveAndSync(db.copyWith(
+    await _persistPrayerWall(provider, db.copyWith(
       prayerRequests: db.prayerRequests
           .map((r) => r.id == request.id ? r.copyWith(reactions: newReactions) : r)
           .toList(),
@@ -109,7 +114,7 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
     HapticFeedback.mediumImpact();
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
+    await _persistPrayerWall(provider, db.copyWith(
       prayerRequests: db.prayerRequests
           .map((r) => r.id == request.id ? r.copyWith(answeredAt: DateTime.now()) : r)
           .toList(),
@@ -122,7 +127,7 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
   Future<void> _deleteRequest(String id) async {
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
+    await _persistPrayerWall(provider, db.copyWith(
       prayerRequests: db.prayerRequests.where((r) => r.id != id).toList(),
     ));
     if (mounted) _showSnack(context, 'Prayer removed');
@@ -140,7 +145,7 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
         onSave: (request) async {
           final provider = context.read<AppProvider>();
           final db = provider.db;
-          await provider.saveAndSync(
+          await _persistPrayerWall(provider,
               db.copyWith(prayerRequests: [...db.prayerRequests, request]));
           try {
             final isGratitude = request.type == PrayerWallType.GRATITUDE;
@@ -309,13 +314,18 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
                 hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
                 prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
                 suffixIcon: _searchQuery.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.close_rounded, size: 18),
-                        onPressed: () {
-                          _searchDebounce.cancel();
-                          _searchCtrl.clear();
-                          setState(() => _searchQuery = '');
-                        },
+                    ? Semantics(
+                        label: 'Clear search',
+                        button: true,
+                        child: IconButton(
+                          tooltip: 'Clear search',
+                          icon: const Icon(Icons.close_rounded, size: 18),
+                          onPressed: () {
+                            _searchDebounce.cancel();
+                            _searchCtrl.clear();
+                            setState(() => _searchQuery = '');
+                          },
+                        ),
                       )
                     : null,
                 filled: true,

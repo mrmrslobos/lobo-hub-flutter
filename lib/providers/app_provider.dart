@@ -679,6 +679,18 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  /// Await after prayer wall edits so Supabase stays in sync.
+  Future<void> syncPrayerWallNow() async {
+    final fam = _activeFamily;
+    if (fam == null || !SupabaseService.isConfigured) return;
+    try {
+      await DatabaseService.pushFamilyPrayerWallToCloudNow(_db, fam.id);
+      _broadcastChange();
+    } catch (e) {
+      debugPrint('[AppProvider] syncPrayerWallNow: $e');
+    }
+  }
+
   /// Merge keys into [activeUser.settings] and persist (users table sync).
   Future<void> updateActiveUserSettings(Map<String, dynamic> patch) async {
     final u = _activeUser;

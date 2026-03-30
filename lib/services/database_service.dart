@@ -237,6 +237,18 @@ class DatabaseService {
     return row;
   }
 
+  static Map<String, dynamic> _prayerWallRowForCloud(
+    PrayerWallEntry p,
+    String familyId,
+  ) {
+    final row = Map<String, dynamic>.from(p.toJson());
+    row['family_id'] = familyId;
+    for (final k in _prayerWallCloudOmit) {
+      row.remove(k);
+    }
+    return row;
+  }
+
   /// Upserts [recipes], [meal_plans], and [pantry_items] for [familyId] with
   /// tombstone deletes. Await after saves so meal data reaches Supabase even when
   /// the full background sync fails (and so we never upsert another family's
@@ -652,6 +664,39 @@ class DatabaseService {
       }
     }
     await _deleteRemovedRows('reading_plans', planIds, familyId);
+  }
+
+  /// Upserts [prayer_wall] rows for [familyId] only (prevents cross-home reassignment).
+  static Future<void> pushFamilyPrayerWallToCloudNow(
+    AppDB db,
+    String familyId,
+  ) async {
+    if (!SupabaseService.isConfigured) return;
+    const chunk = 40;
+
+    final posts =
+        db.prayerWall.where((p) => p.familyId == familyId).toList();
+    final rows =
+        posts.map((p) => _prayerWallRowForCloud(p, familyId)).toList();
+    final ids = posts.map((p) => p.id).toSet();
+    for (var i = 0; i < rows.length; i += chunk) {
+      final slice = rows.sublist(i, math.min(i + chunk, rows.length));
+      try {
+        await SupabaseService.upsertTable('prayer_wall', slice);
+      } catch (e) {
+        debugPrint(
+            '[DatabaseService] prayer_wall chunk upsert failed, retry per row: $e');
+        for (var j = 0; j < slice.length; j++) {
+          try {
+            await SupabaseService.upsertTable('prayer_wall', [slice[j]]);
+          } catch (e2) {
+            debugPrint(
+                '[DatabaseService] prayer_wall ${slice[j]['id']} sync failed: $e2');
+          }
+        }
+      }
+    }
+    await _deleteRemovedRows('prayer_wall', ids, familyId);
   }
 
   /// Upserts all tasks for [familyId] and applies tombstone deletes. Await after
@@ -1492,9 +1537,13 @@ class DatabaseService {
       upAndClean('savings_goals',
           db.savingsGoals.map((g) => {...g.toJson(), 'family_id': fid}).toList(),
           db.savingsGoals.map((g) => g.id).toSet()),
-      upAndClean('prayer_wall',
-          db.prayerWall.map((p) => {...p.toJson(), 'family_id': fid}).toList(),
-          db.prayerWall.map((p) => p.id).toSet()),
+      upAndClean(
+          'prayer_wall',
+          db.prayerWall
+              .where((p) => p.familyId == fid)
+              .map((p) => _prayerWallRowForCloud(p, fid))
+              .toList(),
+          db.prayerWall.where((p) => p.familyId == fid).map((p) => p.id).toSet()),
       upAndClean('special_dates',
           db.specialDates.map((s) => {...s.toJson(), 'family_id': fid}).toList(),
           db.specialDates.map((s) => s.id).toSet()),
