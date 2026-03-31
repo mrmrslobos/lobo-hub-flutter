@@ -129,6 +129,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _showMedicalDisclaimerIfNeeded();
       if (_suggestionsLoaded) {
         // Already have suggestions from cache — skip API call
       } else if (AiService.isAIBlocked) {
@@ -196,6 +197,46 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
       ));
     }
+  }
+
+  static const _disclaimerKey = 'medical_disclaimer_accepted';
+
+  Future<void> _showMedicalDisclaimerIfNeeded() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool(_disclaimerKey) == true) return;
+    if (!mounted) return;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.medical_information_rounded, color: Color(0xFFDC2626), size: 24),
+            SizedBox(width: 10),
+            Text('Health Disclaimer'),
+          ],
+        ),
+        content: const Text(
+          'FamilyHub includes health and wellness features such as fitness tracking, meal planning, period tracking, and health records.\n\n'
+          'These features are for informational purposes only and are not a substitute for professional medical advice, diagnosis, or treatment.\n\n'
+          'Always seek the advice of your doctor or qualified healthcare provider with any questions regarding a medical condition. Never disregard professional medical advice because of information provided by this app.',
+          style: TextStyle(fontFamily: 'Inter', fontSize: 13, height: 1.5),
+        ),
+        actions: [
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () async {
+                await prefs.setBool(_disclaimerKey, true);
+                if (ctx.mounted) Navigator.pop(ctx);
+              },
+              child: const Text('I Understand'),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _loadDismissedAnnouncement() async {
