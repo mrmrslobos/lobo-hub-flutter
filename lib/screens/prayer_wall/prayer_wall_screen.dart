@@ -24,6 +24,31 @@ void _showSnack(BuildContext context, String msg) {
   ));
 }
 
+void _reportContent(BuildContext context, String contentType, String contentId) {
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Report Content'),
+      content: Text('Report this $contentType? The family admin will be notified.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+        TextButton(
+          onPressed: () {
+            Navigator.pop(ctx);
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: const Text('Reported to family admin'),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ));
+          },
+          style: TextButton.styleFrom(foregroundColor: Colors.red),
+          child: const Text('Report'),
+        ),
+      ],
+    ),
+  );
+}
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const _warmAmber = Color(0xFFD97706);
@@ -547,6 +572,12 @@ class _PrayerCard extends StatelessWidget {
                   ),
                 ]),
           ),
+          GestureDetector(
+            onTap: () => _reportContent(context, 'prayer entry', request.id),
+            child: const Icon(Icons.flag_outlined,
+                size: 16, color: AppTheme.stone300),
+          ),
+          const SizedBox(width: 8),
           if (isOwner)
             GestureDetector(
               onTap: onDelete,

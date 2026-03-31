@@ -344,6 +344,26 @@ class _HealthScreenState extends State<HealthScreen> {
               ],
             ),
 
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline_rounded, size: 14, color: Theme.of(context).textTheme.bodySmall?.color ?? const Color(0xFFA8A29E)),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'For informational purposes only. Not a substitute for professional medical advice. Always consult your doctor.',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 11,
+                        color: Theme.of(context).textTheme.bodySmall?.color ?? const Color(0xFFA8A29E),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
             // ─── Stat cards ──────────────────────────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),

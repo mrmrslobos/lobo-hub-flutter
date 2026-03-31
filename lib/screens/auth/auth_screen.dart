@@ -10,6 +10,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 
+import 'package:url_launcher/url_launcher.dart';
+
 import '../../config/theme.dart';
 import '../../config/module_config.dart';
 import '../../config/app_config.dart';
@@ -807,14 +809,36 @@ class _AuthScreenState extends State<AuthScreen> {
             _oauthButtons(),
           ],
           const SizedBox(height: 12),
-          Text(
-            'By creating an account, you agree to our Terms of Service and Privacy Policy.',
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 11,
-              fontFamily: 'Inter',
-              color: AppTheme.stone400,
-            ),
+          Wrap(
+            alignment: WrapAlignment.center,
+            children: [
+              const Text(
+                'By creating an account, you agree to our ',
+                style: TextStyle(fontSize: 11, fontFamily: 'Inter', color: AppTheme.stone400),
+              ),
+              GestureDetector(
+                onTap: () => launchUrl(Uri.parse(AppConfig.termsOfServiceUrl), mode: LaunchMode.externalApplication),
+                child: const Text(
+                  'Terms of Service',
+                  style: TextStyle(fontSize: 11, fontFamily: 'Inter', color: AppTheme.primary, decoration: TextDecoration.underline),
+                ),
+              ),
+              const Text(
+                ' and ',
+                style: TextStyle(fontSize: 11, fontFamily: 'Inter', color: AppTheme.stone400),
+              ),
+              GestureDetector(
+                onTap: () => launchUrl(Uri.parse(AppConfig.privacyPolicyUrl), mode: LaunchMode.externalApplication),
+                child: const Text(
+                  'Privacy Policy',
+                  style: TextStyle(fontSize: 11, fontFamily: 'Inter', color: AppTheme.primary, decoration: TextDecoration.underline),
+                ),
+              ),
+              const Text(
+                '.',
+                style: TextStyle(fontSize: 11, fontFamily: 'Inter', color: AppTheme.stone400),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
           Row(
