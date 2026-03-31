@@ -639,6 +639,26 @@ Write 2-4 short paragraphs: (1) what went well or patterns you notice, (2) one c
             ],
           ),
 
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline_rounded, size: 14, color: Theme.of(context).textTheme.bodySmall?.color ?? const Color(0xFFA8A29E)),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'AI-generated plans are for informational purposes only. Consult a healthcare professional before starting any exercise program.',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 11,
+                      color: Theme.of(context).textTheme.bodySmall?.color ?? const Color(0xFFA8A29E),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
           Builder(builder: (ctx) {
             final prs = provider.db.exercisePrs
                 .where((p) => p.userId == user.id && p.familyId == family.id)
@@ -1939,7 +1959,7 @@ For every exercise, "howTo" is REQUIRED (plain text, not markdown). Use simple, 
         return;
       }
       final raw = await AiService.ask(
-        prompt: 'You are a certified personal trainer. Respond with valid JSON only, no markdown or code fences.\n\n$prompt',
+        prompt: 'You are a helpful fitness assistant. Respond with valid JSON only, no markdown or code fences.\n\n$prompt',
         feature: 'ai_fitness',
         familyId: familyId,
       );

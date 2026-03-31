@@ -561,6 +561,19 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                     ),
                   );
                 }),
+                if (tier == SubscriptionTier.ai || tier == SubscriptionTier.ai_family)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Text(
+                      'AI features provide general wellness information only and are not a substitute for professional medical, nutritional, or fitness advice.',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 10,
+                        fontStyle: FontStyle.italic,
+                        color: AppTheme.stone400,
+                      ),
+                    ),
+                  ),
                 const SizedBox(height: 16),
 
                 // CTA button

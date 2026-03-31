@@ -9,6 +9,9 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
+import 'package:url_launcher/url_launcher.dart';
+
+import '../config/app_config.dart';
 import '../config/theme.dart';
 import '../models/models.dart';
 import '../providers/app_provider.dart';
@@ -1299,10 +1302,10 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
                     color: AppTheme.primaryLight,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Column(
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
+                      const Text(
                         'About',
                         style: TextStyle(
                           fontFamily: 'Inter',
@@ -1311,8 +1314,8 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
                           color: AppTheme.primaryDark,
                         ),
                       ),
-                      SizedBox(height: 4),
-                      Text(
+                      const SizedBox(height: 4),
+                      const Text(
                         'FamilyHub',
                         style: TextStyle(
                           fontFamily: 'Inter',
@@ -1321,12 +1324,120 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
                           color: AppTheme.stone900,
                         ),
                       ),
-                      Text(
+                      const Text(
                         'Version 1.0.0',
                         style: TextStyle(
                           fontFamily: 'Inter',
                           fontSize: 13,
                           color: AppTheme.stone500,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      GestureDetector(
+                        onTap: () => launchUrl(Uri.parse(AppConfig.privacyPolicyUrl), mode: LaunchMode.externalApplication),
+                        child: const Row(
+                          children: [
+                            Icon(Icons.privacy_tip_outlined, size: 16, color: AppTheme.primary),
+                            SizedBox(width: 6),
+                            Text(
+                              'Privacy Policy',
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: AppTheme.primary,
+                                decoration: TextDecoration.underline,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // Delete Account section
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppTheme.error.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppTheme.error.withValues(alpha: 0.2)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Danger Zone',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                          color: AppTheme.error,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            showDialog(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                title: Row(children: [
+                                  Container(
+                                    width: 36, height: 36,
+                                    decoration: BoxDecoration(
+                                      color: AppTheme.error.withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: const Icon(Icons.warning_amber_rounded, size: 18, color: AppTheme.error),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  const Expanded(
+                                    child: Text('Delete My Account', style: TextStyle(fontFamily: 'Inter', fontSize: 17, fontWeight: FontWeight.w800)),
+                                  ),
+                                ]),
+                                content: const Text(
+                                  'This will permanently delete your account and remove you from all families. This cannot be undone.',
+                                  style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone600),
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(ctx),
+                                    child: const Text('Cancel', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, color: AppTheme.stone500)),
+                                  ),
+                                  TextButton(
+                                    onPressed: () {
+                                      Navigator.pop(ctx);
+                                      Navigator.pop(context);
+                                      final provider = context.read<AppProvider>();
+                                      provider.deleteAccount().then((_) {
+                                        if (context.mounted) {
+                                          GoRouter.of(context).go('/');
+                                        }
+                                      });
+                                    },
+                                    child: const Text('Delete Account', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, color: AppTheme.error)),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.delete_forever_rounded, size: 18),
+                          label: const Text('Delete My Account'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppTheme.error,
+                            side: const BorderSide(color: AppTheme.error),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            textStyle: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14),
+                          ),
                         ),
                       ),
                     ],

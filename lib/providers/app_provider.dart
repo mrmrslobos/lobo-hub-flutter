@@ -496,6 +496,38 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Delete the current user's account: remove cloud data, sign out, clear local.
+  Future<void> deleteAccount() async {
+    final userId = _activeUser?.id;
+    final familyId = _activeFamily?.id;
+
+    _stopRealtimeListener();
+
+    if (SupabaseService.isConfigured && userId != null) {
+      try {
+        if (familyId != null) {
+          await SupabaseService.deleteRows('family_members', {'user_id': userId, 'family_id': familyId});
+        }
+        await SupabaseService.deleteRows('users', {'id': userId});
+      } catch (_) {}
+      try {
+        await SupabaseService.signOut();
+      } catch (_) {}
+    }
+
+    await PurchaseService.revenueCatLogOut();
+
+    _activeUser = null;
+    _activeFamily = null;
+    _isLocked = false;
+    _unreadModules = {};
+    FieldEncryption.clear();
+    AiService.setAIBlocked(false);
+    await DatabaseService.wipeAllLocalStorage();
+    _db = AppDB.empty();
+    notifyListeners();
+  }
+
   // ── DB mutations ──────────────────────────────────────────────────────────
 
   /// Update DB in-memory and persist to local storage (no cloud sync).

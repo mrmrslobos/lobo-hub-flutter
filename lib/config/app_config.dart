@@ -22,7 +22,7 @@ class AppConfig {
   static const String defaultUserName = 'Family Member';
 
   // AI
-  static const String aiCoachName = 'AI Health Coach';
+  static const String aiCoachName = 'AI Wellness Assistant';
 
   // Storage keys
   static const String storageKey = 'lobohub_db';
@@ -34,6 +34,9 @@ class AppConfig {
   // Theme
   static const String themeColorHex = '#6366f1';
   static const String backgroundColorHex = '#fcfcf9';
+
+  // Legal
+  static const String privacyPolicyUrl = 'https://lobohub.au/privacy';
 
   // OAuth / deep-link redirects
   static const String oauthRedirectScheme = 'com.lobohub.app://login-callback';

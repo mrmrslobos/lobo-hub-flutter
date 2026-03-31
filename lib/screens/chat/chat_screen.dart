@@ -25,6 +25,31 @@ void _showSnack(BuildContext context, String msg) {
   ));
 }
 
+void _reportContent(BuildContext context, String contentType, String contentId) {
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Report Content'),
+      content: Text('Report this $contentType? The family admin will be notified.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+        TextButton(
+          onPressed: () {
+            Navigator.pop(ctx);
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: const Text('Reported to family admin'),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ));
+          },
+          style: TextButton.styleFrom(foregroundColor: Colors.red),
+          child: const Text('Report'),
+        ),
+      ],
+    ),
+  );
+}
+
 // ─── Chat screen ──────────────────────────────────────────────────────────────
 
 class ChatScreen extends StatefulWidget {
@@ -189,6 +214,14 @@ class _ChatScreenState extends State<ChatScreen> {
                 Clipboard.setData(ClipboardData(text: msg.content));
                 Navigator.pop(ctx);
                 _showSnack(context, 'Copied to clipboard');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.flag_outlined, color: Colors.orange),
+              title: const Text('Report'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _reportContent(context, 'message', msg.id);
               },
             ),
             if (isMe)

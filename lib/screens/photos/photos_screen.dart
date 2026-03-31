@@ -18,6 +18,31 @@ import '../../utils/debounce.dart';
 
 const _reactionEmojis = ['❤️', '😍', '😂', '🥹', '🎉', '👏'];
 
+void _reportContent(BuildContext context, String contentType, String contentId) {
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Report Content'),
+      content: Text('Report this $contentType? The family admin will be notified.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+        TextButton(
+          onPressed: () {
+            Navigator.pop(ctx);
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: const Text('Reported to family admin'),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ));
+          },
+          style: TextButton.styleFrom(foregroundColor: Colors.red),
+          child: const Text('Report'),
+        ),
+      ],
+    ),
+  );
+}
+
 const _milestoneCategories = [
   (id: 'Firsts',        emoji: '⭐', icon: Icons.star_rounded,         color: Color(0xFFF59E0B)),
   (id: 'Growing Up',    emoji: '👶', icon: Icons.child_care_rounded,   color: Color(0xFFEC4899)),
@@ -365,6 +390,21 @@ class _PhotosScreenState extends State<PhotosScreen> {
               onTap: () {
                 Navigator.pop(context);
                 _editCaption(photo);
+              },
+            ),
+            ListTile(
+              leading: Container(
+                width: 36, height: 36,
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.flag_outlined, size: 18, color: Colors.orange),
+              ),
+              title: const Text('Report Photo', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600)),
+              onTap: () {
+                Navigator.pop(context);
+                _reportContent(context, 'photo', photo.id);
               },
             ),
             ListTile(

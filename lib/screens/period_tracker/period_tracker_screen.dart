@@ -739,6 +739,26 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
               ],
             ),
 
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline_rounded, size: 14, color: Theme.of(context).textTheme.bodySmall?.color ?? const Color(0xFFA8A29E)),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Predictions are estimates only and should not be used as medical advice. Consult a healthcare provider for medical decisions.',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 11,
+                        color: Theme.of(context).textTheme.bodySmall?.color ?? const Color(0xFFA8A29E),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
             // ── Stats Row ──
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),

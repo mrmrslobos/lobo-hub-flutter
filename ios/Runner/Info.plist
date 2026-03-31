@@ -47,8 +47,6 @@
 	<string>FamilyHub uses your location to share with family members.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>FamilyHub uses Face ID to keep your family data private.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>FamilyHub needs microphone access to record voice messages for family members.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>FamilyHub can read workout-related data from Apple Health when you choose to connect it.</string>
 	<key>NSHealthUpdateUsageDescription</key>
