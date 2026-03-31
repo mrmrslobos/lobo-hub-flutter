@@ -1352,26 +1352,7 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
                           ],
                         ),
                       ),
-                      const SizedBox(height: 6),
-                      GestureDetector(
-                        onTap: () => launchUrl(Uri.parse(AppConfig.termsOfServiceUrl), mode: LaunchMode.externalApplication),
-                        child: const Row(
-                          children: [
-                            Icon(Icons.description_outlined, size: 16, color: AppTheme.primary),
-                            SizedBox(width: 6),
-                            Text(
-                              'Terms of Service',
-                              style: TextStyle(
-                                fontFamily: 'Inter',
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: AppTheme.primary,
-                                decoration: TextDecoration.underline,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                      
                     ],
                   ),
                 ),

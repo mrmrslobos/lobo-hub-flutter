@@ -817,17 +817,6 @@ class _AuthScreenState extends State<AuthScreen> {
                 style: TextStyle(fontSize: 11, fontFamily: 'Inter', color: AppTheme.stone400),
               ),
               GestureDetector(
-                onTap: () => launchUrl(Uri.parse(AppConfig.termsOfServiceUrl), mode: LaunchMode.externalApplication),
-                child: const Text(
-                  'Terms of Service',
-                  style: TextStyle(fontSize: 11, fontFamily: 'Inter', color: AppTheme.primary, decoration: TextDecoration.underline),
-                ),
-              ),
-              const Text(
-                ' and ',
-                style: TextStyle(fontSize: 11, fontFamily: 'Inter', color: AppTheme.stone400),
-              ),
-              GestureDetector(
                 onTap: () => launchUrl(Uri.parse(AppConfig.privacyPolicyUrl), mode: LaunchMode.externalApplication),
                 child: const Text(
                   'Privacy Policy',

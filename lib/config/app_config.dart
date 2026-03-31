@@ -36,8 +36,7 @@ class AppConfig {
   static const String backgroundColorHex = '#fcfcf9';
 
   // Legal
-  static const String privacyPolicyUrl = 'https://lobohub.app/privacy';
-  static const String termsOfServiceUrl = 'https://lobohub.app/terms';
+  static const String privacyPolicyUrl = 'https://lobohub.au/privacy';
 
   // OAuth / deep-link redirects
   static const String oauthRedirectScheme = 'com.lobohub.app://login-callback';
