@@ -209,32 +209,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     await showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.medical_information_rounded, color: Color(0xFFDC2626), size: 24),
-            SizedBox(width: 10),
-            Text('Health Disclaimer'),
-          ],
-        ),
-        content: const Text(
-          'FamilyHub includes health and wellness features such as fitness tracking, meal planning, period tracking, and health records.\n\n'
-          'These features are for informational purposes only and are not a substitute for professional medical advice, diagnosis, or treatment.\n\n'
-          'Always seek the advice of your doctor or qualified healthcare provider with any questions regarding a medical condition. Never disregard professional medical advice because of information provided by this app.',
-          style: TextStyle(fontFamily: 'Inter', fontSize: 13, height: 1.5),
-        ),
-        actions: [
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () async {
-                await prefs.setBool(_disclaimerKey, true);
-                if (ctx.mounted) Navigator.pop(ctx);
-              },
-              child: const Text('I Understand'),
-            ),
-          ),
-        ],
+      builder: (ctx) => _MedicalDisclaimerDialog(
+        onAccepted: () async {
+          await prefs.setBool(_disclaimerKey, true);
+          if (ctx.mounted) Navigator.pop(ctx);
+        },
       ),
     );
   }
@@ -2731,4 +2710,72 @@ Return ONLY the JSON array, no markdown.''',
 
   bool _isSameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
+}
+
+class _MedicalDisclaimerDialog extends StatefulWidget {
+  final VoidCallback onAccepted;
+  const _MedicalDisclaimerDialog({required this.onAccepted});
+
+  @override
+  State<_MedicalDisclaimerDialog> createState() => _MedicalDisclaimerDialogState();
+}
+
+class _MedicalDisclaimerDialogState extends State<_MedicalDisclaimerDialog> {
+  bool _accepted = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.medical_information_rounded, color: Color(0xFFDC2626), size: 24),
+          SizedBox(width: 10),
+          Expanded(child: Text('Health Disclaimer')),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'FamilyHub includes health and wellness features such as fitness tracking, meal planning, period tracking, and health records.\n\n'
+            'These features are for informational purposes only and are not a substitute for professional medical advice, diagnosis, or treatment.\n\n'
+            'Always seek the advice of your doctor or qualified healthcare provider with any questions regarding a medical condition. Never disregard professional medical advice because of information provided by this app.',
+            style: TextStyle(fontFamily: 'Inter', fontSize: 13, height: 1.5),
+          ),
+          const SizedBox(height: 16),
+          GestureDetector(
+            onTap: () => setState(() => _accepted = !_accepted),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: Checkbox(
+                    value: _accepted,
+                    onChanged: (v) => setState(() => _accepted = v ?? false),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'I accept and understand this disclaimer',
+                    style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: _accepted ? widget.onAccepted : null,
+            child: const Text('OK'),
+          ),
+        ),
+      ],
+    );
+  }
 }
