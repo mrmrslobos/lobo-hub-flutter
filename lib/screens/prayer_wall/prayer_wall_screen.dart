@@ -1,5 +1,5 @@
 // lib/screens/prayer_wall/prayer_wall_screen.dart
-// Prayer wall screen for FamilyHub
+// Prayer wall screen for Huddle
 // ignore_for_file: use_build_context_synchronously
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -232,7 +232,7 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
     return Scaffold(
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
-      appBar: const FamilyHubAppBar(),
+      appBar: const HuddleAppBar(),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 32),
         children: [

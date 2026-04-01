@@ -1,5 +1,5 @@
 // lib/screens/chat/chat_screen.dart
-// Family chat screen for FamilyHub
+// Family chat screen for Huddle
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -320,7 +320,7 @@ class _ChatScreenState extends State<ChatScreen> {
         return Scaffold(
           resizeToAvoidBottomInset: true,
           drawer: const AppDrawer(),
-          appBar: FamilyHubAppBar(
+          appBar: HuddleAppBar(
             actions: [
               IconButton(
                 icon: Icon(

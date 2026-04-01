@@ -1,4 +1,4 @@
-# RevenueCat setup (FamilyHub / LoboHub)
+# RevenueCat setup (Huddle / LoboHub)
 
 This app uses [RevenueCat](https://www.revenuecat.com/) via `purchases_flutter` for App Store and Google Play subscriptions. Server-side tier enforcement can stay in Supabase; RevenueCat is the source of truth for **what the user paid for on the stores**.
 

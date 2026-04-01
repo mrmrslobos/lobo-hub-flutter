@@ -201,7 +201,7 @@ Future<void> _persistCompletedWorkout(
     } else if (context.mounted) {
       _showSnack(
         context,
-        'Could not save to Health (install Health Connect on Android or enable HealthKit). Workout saved in FamilyHub.',
+        'Could not save to Health (install Health Connect on Android or enable HealthKit). Workout saved in Huddle.',
       );
     }
   }
@@ -619,7 +619,7 @@ Write 2-4 short paragraphs: (1) what went well or patterns you notice, (2) one c
     return Scaffold(
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
-      appBar: const FamilyHubAppBar(),
+      appBar: const HuddleAppBar(),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 32),
         children: [

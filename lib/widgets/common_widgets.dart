@@ -787,12 +787,12 @@ class OnboardingCard extends StatelessWidget {
   }
 }
 
-// ─── Custom App Bar for FamilyHub ────────────────────────────────────────────
-class FamilyHubAppBar extends StatelessWidget implements PreferredSizeWidget {
+// ─── Custom App Bar for Huddle ────────────────────────────────────────────
+class HuddleAppBar extends StatelessWidget implements PreferredSizeWidget {
   final VoidCallback? onMenuTap;
   final List<Widget>? actions;
 
-  const FamilyHubAppBar({super.key, this.onMenuTap, this.actions});
+  const HuddleAppBar({super.key, this.onMenuTap, this.actions});
 
   void _openJumpTo(BuildContext context) {
     final q = ValueNotifier<String>('');
@@ -931,7 +931,7 @@ class FamilyHubAppBar extends StatelessWidget implements PreferredSizeWidget {
           ),
           const SizedBox(width: 6),
           Text(
-            'FamilyHub',
+            'Huddle',
             style: TextStyle(
               fontFamily: 'Inter',
               fontWeight: FontWeight.w800,

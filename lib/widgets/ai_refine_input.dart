@@ -1,5 +1,5 @@
 // lib/widgets/ai_refine_input.dart
-// Reusable AI prompt input widget for FamilyHub
+// Reusable AI prompt input widget for Huddle
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';

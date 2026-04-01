@@ -1,5 +1,5 @@
 // lib/widgets/subscription_modal.dart
-// Subscription paywall modal for FamilyHub
+// Subscription paywall modal for Huddle
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';

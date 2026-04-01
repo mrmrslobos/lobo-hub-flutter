@@ -1,9 +1,9 @@
-/// Central brand configuration for FamilyHub.
+/// Central brand configuration for Huddle.
 class AppConfig {
-  static const String appName = 'FamilyHub';
-  static const String appShortName = 'FamilyHub';
+  static const String appName = 'Huddle';
+  static const String appShortName = 'Huddle';
   static const String appDescription =
-      'Family management hub for tasks, meals, budget, calendar, and more.';
+      'Family management app for tasks, meals, budget, calendar, and more.';
   static const String appBundleId = 'com.lobohub.app';
 
   // Auth copy
@@ -36,7 +36,8 @@ class AppConfig {
   static const String backgroundColorHex = '#fcfcf9';
 
   // Legal
-  static const String privacyPolicyUrl = 'https://lobohub.au/privacy';
+  static const String privacyPolicyUrl = 'https://huddleapp.com.au/privacy';
+  static const String termsOfServiceUrl = 'https://huddleapp.com.au/terms';
 
   // OAuth / deep-link redirects
   static const String oauthRedirectScheme = 'com.lobohub.app://login-callback';

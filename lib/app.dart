@@ -39,14 +39,14 @@ import 'screens/ai_history/ai_history_screen.dart';
 import 'screens/habits/habits_screen.dart';
 import 'screens/subscription/subscription_screen.dart';
 
-class FamilyHubApp extends StatefulWidget {
-  const FamilyHubApp({super.key});
+class HuddleApp extends StatefulWidget {
+  const HuddleApp({super.key});
 
   @override
-  State<FamilyHubApp> createState() => _FamilyHubAppState();
+  State<HuddleApp> createState() => _HuddleAppState();
 }
 
-class _FamilyHubAppState extends State<FamilyHubApp> with WidgetsBindingObserver {
+class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
   late final GoRouter _router;
   late final AppProvider _provider;
   StreamSubscription<AuthState>? _authSub;

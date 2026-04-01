@@ -1,5 +1,5 @@
 // lib/providers/app_provider.dart
-// FamilyHub - Main application state provider
+// Huddle - Main application state provider
 
 // ignore_for_file: avoid_catches_without_on_clauses
 

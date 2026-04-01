@@ -299,7 +299,7 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
     return Scaffold(
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
-      appBar: const FamilyHubAppBar(),
+      appBar: const HuddleAppBar(),
       body: ListView(
         padding: EdgeInsets.zero,
         children: [

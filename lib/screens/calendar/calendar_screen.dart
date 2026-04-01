@@ -1,5 +1,5 @@
 // lib/screens/calendar/calendar_screen.dart
-// Calendar screen for FamilyHub
+// Calendar screen for Huddle
 // ignore_for_file: use_build_context_synchronously
 
 import 'dart:convert';
@@ -566,7 +566,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
         return Scaffold(
           drawer: const AppDrawer(),
-          appBar: const FamilyHubAppBar(),
+          appBar: const HuddleAppBar(),
           body: ListView(
             padding: EdgeInsets.zero,
             children: [
@@ -2427,7 +2427,7 @@ class _MyCalendarsSheet extends StatelessWidget {
                     const Expanded(child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('FamilyHub Calendar', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.stone900)),
+                        Text('Huddle Calendar', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.stone900)),
                         Text('Local events', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
                       ],
                     )),

@@ -1,5 +1,5 @@
 // lib/screens/dashboard/dashboard_screen.dart
-// Home dashboard screen for FamilyHub — matches Vite app design
+// Home dashboard screen for Huddle — matches Vite app design
 
 // ignore_for_file: avoid_catches_without_on_clauses
 
@@ -841,7 +841,7 @@ Return ONLY the JSON array, no markdown.''',
         return Scaffold(
           drawer: const AppDrawer(),
           // backgroundColor handled by theme
-          appBar: const FamilyHubAppBar(),
+          appBar: const HuddleAppBar(),
           body: RefreshIndicator(
             onRefresh: _onRefresh,
             color: AppTheme.primary,
@@ -944,7 +944,7 @@ Return ONLY the JSON array, no markdown.''',
         title: Row(mainAxisSize: MainAxisSize.min, children: [
           Text(String.fromCharCode(0x2728), style: const TextStyle(fontSize: 18)),
           const SizedBox(width: 6),
-          const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
+          const Text('Huddle', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
         ]),
         centerTitle: false,
         actions: [
@@ -2737,7 +2737,7 @@ class _MedicalDisclaimerDialogState extends State<_MedicalDisclaimerDialog> {
         mainAxisSize: MainAxisSize.min,
         children: [
           const Text(
-            'FamilyHub includes health and wellness features such as fitness tracking, meal planning, period tracking, and health records.\n\n'
+            'Huddle includes health and wellness features such as fitness tracking, meal planning, period tracking, and health records.\n\n'
             'These features are for informational purposes only and are not a substitute for professional medical advice, diagnosis, or treatment.\n\n'
             'Always seek the advice of your doctor or qualified healthcare provider with any questions regarding a medical condition. Never disregard professional medical advice because of information provided by this app.',
             style: TextStyle(fontFamily: 'Inter', fontSize: 13, height: 1.5),

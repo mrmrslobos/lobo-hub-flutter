@@ -1,5 +1,5 @@
 // lib/models/models.dart
-// FamilyHub - Complete data models
+// Huddle - Complete data models
 
 // ignore_for_file: constant_identifier_names
 

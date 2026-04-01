@@ -151,7 +151,7 @@ export async function registerPushNotifications(userId: string, familyId: string
     await PushNotifications.createChannel({
       id: 'default',
       name: 'Family Notifications',
-      description: 'FamilyHub activity alerts',
+      description: 'Huddle activity alerts',
       importance: 4,   // IMPORTANCE_HIGH — shows as heads-up notification
       visibility: 1,   // VISIBILITY_PUBLIC
       sound: 'default',

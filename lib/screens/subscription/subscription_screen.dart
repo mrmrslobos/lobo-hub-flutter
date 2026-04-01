@@ -1,5 +1,5 @@
 // lib/screens/subscription/subscription_screen.dart
-// Subscription plans & pricing screen for FamilyHub
+// Subscription plans & pricing screen for Huddle
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';

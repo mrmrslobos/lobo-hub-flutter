@@ -1,5 +1,5 @@
 // lib/screens/tasks/tasks_screen.dart
-// Task management screen for FamilyHub
+// Task management screen for Huddle
 
 import 'dart:convert';
 
@@ -333,7 +333,7 @@ class _TasksScreenState extends State<TasksScreen> {
 
         return Scaffold(
           drawer: const AppDrawer(),
-          appBar: const FamilyHubAppBar(),
+          appBar: const HuddleAppBar(),
           body: ListView(
             padding: EdgeInsets.zero,
             children: [

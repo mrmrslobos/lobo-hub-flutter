@@ -1,5 +1,5 @@
 // lib/screens/auth/auth_screen.dart
-// Authentication and onboarding flow for FamilyHub
+// Authentication and onboarding flow for Huddle
 
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -591,7 +591,7 @@ class _AuthScreenState extends State<AuthScreen> {
         ),
         const SizedBox(height: 12),
         const Text(
-          'FamilyHub',
+          'Huddle',
           style: TextStyle(
             fontFamily: 'Inter',
             fontSize: 22,
@@ -673,7 +673,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 ),
                 const SizedBox(height: 14),
                 const Text(
-                  'FamilyHub',
+                  'Huddle',
                   style: TextStyle(
                     fontFamily: 'Inter',
                     fontSize: 30,

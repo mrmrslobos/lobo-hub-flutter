@@ -58,7 +58,7 @@ void main() async {
         ChangeNotifierProvider.value(value: appProvider),
         ChangeNotifierProvider(create: (_) => LocaleService()..init()),
       ],
-      child: const FamilyHubApp(),
+      child: const HuddleApp(),
     ),
   );
 }

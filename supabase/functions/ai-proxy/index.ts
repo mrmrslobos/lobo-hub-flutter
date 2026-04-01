@@ -106,7 +106,7 @@ Deno.serve(async (req) => {
 
     if (familyError && familyError.code !== 'PGRST116') {
       // PGRST116 = row not found; allow through (local-only mode)
-      console.warn('[FamilyHub] Could not verify family tier:', familyError.message);
+      console.warn('[Huddle] Could not verify family tier:', familyError.message);
     }
 
     const requiredTier = FEATURE_TIER_MAP[feature];
@@ -172,7 +172,7 @@ Deno.serve(async (req) => {
 
       const errText = await geminiResponse.text();
       lastError = new Error(`Gemini ${model} failed: ${errText}`);
-      console.warn('[FamilyHub]', lastError);
+      console.warn('[Huddle]', lastError);
       geminiResponse = null;
     }
 
@@ -191,7 +191,7 @@ Deno.serve(async (req) => {
     });
 
   } catch (err) {
-    console.error('[FamilyHub] ai-proxy error:', err);
+    console.error('[Huddle] ai-proxy error:', err);
     return new Response(JSON.stringify({ error: String(err) }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

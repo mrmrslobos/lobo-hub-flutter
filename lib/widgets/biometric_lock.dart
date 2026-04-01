@@ -121,7 +121,7 @@ class _BiometricLockScreenState extends State<BiometricLockScreen>
       if (hasBiometrics) {
         // Try biometric-first authentication (fingerprint / face)
         final authenticated = await _localAuth.authenticate(
-          localizedReason: 'Unlock FamilyHub with your fingerprint or face',
+          localizedReason: 'Unlock Huddle with your fingerprint or face',
           options: const AuthenticationOptions(
             biometricOnly: true,
             stickyAuth: true,
@@ -147,7 +147,7 @@ class _BiometricLockScreenState extends State<BiometricLockScreen>
       // No biometrics enrolled → try device credentials (system PIN/pattern)
       if (isDeviceSupported) {
         final authenticated = await _localAuth.authenticate(
-          localizedReason: 'Unlock FamilyHub',
+          localizedReason: 'Unlock Huddle',
           options: const AuthenticationOptions(
             biometricOnly: false,
             stickyAuth: true,
@@ -322,7 +322,7 @@ class _LockScreen extends StatelessWidget {
                 const Text('🏠', style: TextStyle(fontSize: 64)),
                 const SizedBox(height: 16),
                 const Text(
-                  'FamilyHub',
+                  'Huddle',
                   style: TextStyle(
                     fontSize: 36,
                     fontWeight: FontWeight.bold,

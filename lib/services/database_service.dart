@@ -1,5 +1,5 @@
 // lib/services/database_service.dart
-// FamilyHub - Local storage service with Supabase sync
+// Huddle - Local storage service with Supabase sync
 
 // ignore_for_file: avoid_catches_without_on_clauses
 
@@ -102,7 +102,7 @@ class DatabaseService {
   /// Prayer wall columns some older DBs lack (PGRST204).
   static const _prayerWallCloudOmit = {'prayed_by_ids'};
 
-  static const String _dbKey = 'familyhub_db';
+  static const String _dbKey = 'huddle_db';
   static const String _tombstoneKey = 'fh_merge_tombstones';
   static AppDB? _cache;
 

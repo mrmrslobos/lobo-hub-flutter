@@ -1,5 +1,5 @@
 // lib/screens/budget/budget_screen.dart
-// Budget / finance screen for FamilyHub
+// Budget / finance screen for Huddle
 import 'dart:convert';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
@@ -715,7 +715,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
     return Scaffold(
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
-      appBar: const FamilyHubAppBar(),
+      appBar: const HuddleAppBar(),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 32),
         children: [

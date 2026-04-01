@@ -1,5 +1,5 @@
 // lib/services/supabase_service.dart
-// FamilyHub - Supabase integration service
+// Huddle - Supabase integration service
 
 // ignore_for_file: avoid_catches_without_on_clauses
 

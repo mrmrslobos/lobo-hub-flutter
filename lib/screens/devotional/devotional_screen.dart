@@ -1,5 +1,5 @@
 // lib/screens/devotional/devotional_screen.dart
-// Devotional & reading-plan screen for FamilyHub
+// Devotional & reading-plan screen for Huddle
 import 'dart:convert';
 
 import 'package:flutter/material.dart' hide Visibility;
@@ -82,7 +82,7 @@ String _devotionalShareText(DevotionalEntry e) {
     buf.writeln('Prayer: ${e.prayer}');
   }
   buf.writeln();
-  buf.writeln('Shared from FamilyHub');
+  buf.writeln('Shared from Huddle');
   return buf.toString();
 }
 
@@ -436,7 +436,7 @@ class _DevotionalScreenState extends State<DevotionalScreen>
     return Scaffold(
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
-      appBar: const FamilyHubAppBar(),
+      appBar: const HuddleAppBar(),
       body: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
         child: Column(
@@ -2080,7 +2080,7 @@ class _DailyDevotionalCardState extends State<_DailyDevotionalCard> {
     await NotificationService.scheduleDaily(
       id: nid,
       title: 'Daily devotional',
-      body: 'Open FamilyHub for today\'s reading.',
+      body: 'Open Huddle for today\'s reading.',
       time: Time(local.hour, local.minute),
     );
   }

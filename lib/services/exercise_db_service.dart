@@ -15,7 +15,7 @@ class ExerciseDBService {
 
   static const _headers = {
     'Accept': 'application/json',
-    'User-Agent': 'FamilyHub/1.0 (+https://github.com/mrmrslobos/lobo-hub-flutter)',
+    'User-Agent': 'Huddle/1.0 (+https://github.com/mrmrslobos/lobo-hub-flutter)',
   };
 
   /// Public API — always attempt lookups (falls back to wger in caller if needed).

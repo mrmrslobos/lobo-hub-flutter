@@ -326,7 +326,7 @@ async function createVapidJwt(
 
   const enc = new TextEncoder();
   const headerB64 = bytesToBase64url(enc.encode(JSON.stringify({ typ: 'JWT', alg: 'ES256' })));
-  const payloadB64 = bytesToBase64url(enc.encode(JSON.stringify({ aud: audience, exp, sub: 'mailto:push@familyhub.app' })));
+  const payloadB64 = bytesToBase64url(enc.encode(JSON.stringify({ aud: audience, exp, sub: 'mailto:push@huddleapp.com.au' })));
   const signingInput = `${headerB64}.${payloadB64}`;
 
   // Reconstruct JWK from raw keys (crypto.subtle cannot import raw EC private key directly)

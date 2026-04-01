@@ -1,5 +1,5 @@
 // lib/screens/rewards/rewards_screen.dart
-// Rewards & savings goals screen for FamilyHub
+// Rewards & savings goals screen for Huddle
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -375,7 +375,7 @@ class _RewardsScreenState extends State<RewardsScreen>
     return Scaffold(
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
-      appBar: const FamilyHubAppBar(),
+      appBar: const HuddleAppBar(),
       body: Column(
         children: [
           // ── Page Header ──

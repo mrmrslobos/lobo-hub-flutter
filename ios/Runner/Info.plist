@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>FamilyHub</string>
+	<string>Huddle</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -13,7 +13,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>FamilyHub</string>
+	<string>Huddle</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -38,19 +38,19 @@
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>FamilyHub needs camera access to take photos for your family album.</string>
+	<string>Huddle needs camera access to take photos for your family album.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>FamilyHub needs photo library access to share family photos.</string>
+	<string>Huddle needs photo library access to share family photos.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>FamilyHub needs permission to save photos to your library.</string>
+	<string>Huddle needs permission to save photos to your library.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>FamilyHub uses your location to share with family members.</string>
+	<string>Huddle uses your location to share with family members.</string>
 	<key>NSFaceIDUsageDescription</key>
-	<string>FamilyHub uses Face ID to keep your family data private.</string>
+	<string>Huddle uses Face ID to keep your family data private.</string>
 	<key>NSHealthShareUsageDescription</key>
-	<string>FamilyHub can read workout-related data from Apple Health when you choose to connect it.</string>
+	<string>Huddle can read workout-related data from Apple Health when you choose to connect it.</string>
 	<key>NSHealthUpdateUsageDescription</key>
-	<string>FamilyHub saves completed workouts to Apple Health when you enable sync in Fitness.</string>
+	<string>Huddle saves completed workouts to Apple Health when you enable sync in Fitness.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

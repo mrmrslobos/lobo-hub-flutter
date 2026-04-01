@@ -1,5 +1,5 @@
 // lib/screens/meals/meals_screen.dart
-// Meal planning + recipe library screen for FamilyHub
+// Meal planning + recipe library screen for Huddle
 
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -1069,7 +1069,7 @@ Return a JSON array of 7 objects, each with:
     return Scaffold(
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
-      appBar: const FamilyHubAppBar(),
+      appBar: const HuddleAppBar(),
       body: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
         child: Column(

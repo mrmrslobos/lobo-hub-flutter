@@ -1,5 +1,5 @@
 // lib/widgets/app_drawer.dart
-// Side navigation drawer for FamilyHub
+// Side navigation drawer for Huddle
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -504,7 +504,7 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
           style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800),
         ),
         content: const Text(
-          'This signs you out and permanently deletes all FamilyHub data stored on this phone or tablet '
+          'This signs you out and permanently deletes all Huddle data stored on this phone or tablet '
           '(your home, tasks, lists, and other synced copies saved locally). '
           'It does not remove data from our servers for other family members.\n\n'
           'You can sign in again afterward; your account will reload from the cloud if you use the same login.',
@@ -1316,7 +1316,7 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
                       ),
                       const SizedBox(height: 4),
                       const Text(
-                        'FamilyHub',
+                        'Huddle',
                         style: TextStyle(
                           fontFamily: 'Inter',
                           fontWeight: FontWeight.w700,
