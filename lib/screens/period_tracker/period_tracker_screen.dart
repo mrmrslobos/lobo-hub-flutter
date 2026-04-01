@@ -8,6 +8,8 @@ import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../utils/module_disclaimer.dart';
+
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
@@ -177,6 +179,18 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     super.initState();
     final now = DateTime.now();
     _currentMonth = DateTime(now.year, now.month);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      showModuleDisclaimer(
+        context: context,
+        moduleKey: 'period_tracker',
+        title: 'Period Tracker',
+        icon: Icons.spa_rounded,
+        body: 'The Period Tracker provides cycle tracking and fertility predictions based on your logged data.\n\n'
+            'Predictions are estimates only and should not be relied upon for medical decisions, family planning, or contraception.\n\n'
+            'Always consult a healthcare professional for medical advice regarding your reproductive health.',
+      );
+    });
 
     _historySearchCtrl.addListener(() {
       final t = _historySearchCtrl.text;

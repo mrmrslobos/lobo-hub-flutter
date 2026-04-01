@@ -10,6 +10,7 @@ import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../utils/module_disclaimer.dart';
 import '../../services/meal_plan_shopping.dart';
 import '../../services/meal_macros.dart';
 import '../../services/notification_service.dart';
@@ -157,6 +158,17 @@ class _MealsScreenState extends State<MealsScreen>
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(() => setState(() {}));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      showModuleDisclaimer(
+        context: context,
+        moduleKey: 'meals',
+        title: 'Meal Planning',
+        icon: Icons.restaurant_menu_rounded,
+        body: 'Meal suggestions and AI-generated recipes are for informational purposes only.\n\n'
+            'This app does not provide professional nutritional or dietary advice. Always check ingredients for allergens and dietary restrictions.\n\n'
+            'Consult a healthcare professional or registered dietitian for specific dietary needs or medical conditions.',
+      );
+    });
   }
 
   @override

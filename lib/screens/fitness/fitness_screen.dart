@@ -13,6 +13,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../config/theme.dart';
 import '../../models/models.dart';
+import '../../utils/module_disclaimer.dart';
 import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
 import '../../services/exercise_pr_service.dart';
@@ -304,6 +305,17 @@ class _FitnessScreenState extends State<FitnessScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      showModuleDisclaimer(
+        context: context,
+        moduleKey: 'fitness',
+        title: 'Fitness Disclaimer',
+        icon: Icons.fitness_center_rounded,
+        body: 'Fitness features including AI-generated workout plans are for informational purposes only.\n\n'
+            'Consult a healthcare professional before starting any new exercise program, especially if you have pre-existing health conditions.\n\n'
+            'Stop exercising immediately if you feel pain, dizziness, or discomfort. This app does not provide professional fitness or medical advice.',
+      );
+    });
     _logSearchCtrl.addListener(() {
       final t = _logSearchCtrl.text;
       _logSearchDebounce.run(() {
