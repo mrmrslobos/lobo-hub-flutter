@@ -1,4 +1,4 @@
-package com.lobohub.app
+package com.opensolutions.huddle
 
 import android.os.Bundle
 import androidx.activity.enableEdgeToEdge
