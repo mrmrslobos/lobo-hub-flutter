@@ -57,10 +57,10 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>com.lobohub.app</string>
+			<string>com.opensolutions.huddle</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.lobohub.app</string>
+				<string>com.opensolutions.huddle</string>
 			</array>
 		</dict>
 		<!-- Google Sign-In: Replace with your reversed client ID from GoogleService-Info.plist -->

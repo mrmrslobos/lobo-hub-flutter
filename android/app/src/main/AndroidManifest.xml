@@ -85,13 +85,13 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
 
-            <!-- OAuth deep link: com.lobohub.app:// -->
+            <!-- OAuth deep link: com.opensolutions.huddle:// -->
             <intent-filter android:label="Huddle">
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data
-                    android:scheme="com.lobohub.app"
+                    android:scheme="com.opensolutions.huddle"
                     android:host="*"/>
             </intent-filter>
 

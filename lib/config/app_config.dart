@@ -4,7 +4,7 @@ class AppConfig {
   static const String appShortName = 'Huddle';
   static const String appDescription =
       'Family management app for tasks, meals, budget, calendar, and more.';
-  static const String appBundleId = 'com.lobohub.app';
+  static const String appBundleId = 'com.opensolutions.huddle';
 
   // Auth copy
   static const String loginTagline = 'Welcome back.';
@@ -40,7 +40,8 @@ class AppConfig {
   static const String termsOfServiceUrl = 'https://huddleapp.com.au/terms';
 
   // OAuth / deep-link redirects
-  static const String oauthRedirectScheme = 'com.lobohub.app://login-callback';
+  static const String oauthRedirectScheme =
+      'com.opensolutions.huddle://login-callback';
   static const String passwordResetRedirect =
-      'com.lobohub.app://reset-callback';
+      'com.opensolutions.huddle://reset-callback';
 }

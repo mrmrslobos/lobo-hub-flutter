@@ -15,7 +15,7 @@
 -dontwarn kotlin.**
 
 # Keep all model classes
--keep class com.lobohub.app.** { *; }
+-keep class com.opensolutions.huddle.** { *; }
 
 # Gson (if used)
 -keepattributes Signature
