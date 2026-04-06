@@ -1,5 +1,5 @@
 // lib/screens/subscription/subscription_screen.dart
-// Subscription plans & pricing screen for FamilyHub
+// Subscription plans & pricing screen for Huddle
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../config/app_config.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
@@ -189,14 +190,14 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              isTrialExpired ? 'Trial Expired' : 'Free Trial',
+                              isTrialExpired ? 'Trial expired' : 'Free trial',
                               style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 16, color: Colors.white),
                             ),
                             const SizedBox(height: 2),
                             Text(
                               isTrialExpired
-                                  ? 'You now have access to Tasks, Lists & Calendar only. Upgrade to unlock everything!'
-                                  : '$trialDaysLeft day${trialDaysLeft == 1 ? '' : 's'} remaining — enjoy full access!',
+                                  ? AppConfig.planTrialExpiredBlurb
+                                  : '$trialDaysLeft day${trialDaysLeft == 1 ? '' : 's'} left — full access!',
                               style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: Colors.white70),
                             ),
                           ],
@@ -229,8 +230,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               _buildPlanCard(
                 tier: SubscriptionTier.base,
                 currentTier: currentTier,
-                name: 'Base',
-                subtitle: 'Essential family organisation',
+                name: AppConfig.planLabelEssentials,
+                subtitle: AppConfig.planDescEssentials,
                 monthlyPrice: _prices.baseMonthly,
                 yearlyPrice: _prices.baseYearly,
                 color: const Color(0xFF0EA5E9),
@@ -242,7 +243,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                   'Family chat',
                   'Budget tracking',
                   'Meal planning (manual)',
-                  'Prayer wall & devotionals',
+                  'Prayer board & reading',
                   'Fitness logging',
                 ],
               ),
@@ -251,16 +252,16 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               _buildPlanCard(
                 tier: SubscriptionTier.ai,
                 currentTier: currentTier,
-                name: 'AI',
-                subtitle: 'Smart features powered by AI',
+                name: AppConfig.planLabelAi,
+                subtitle: AppConfig.planDescAi,
                 monthlyPrice: _prices.aiMonthly,
                 yearlyPrice: _prices.aiYearly,
                 color: const Color(0xFF8B5CF6),
                 icon: Icons.auto_awesome_rounded,
                 features: [
-                  'Everything in Base, plus:',
+                  'Everything in ${AppConfig.planLabelEssentials}, plus:',
                   'AI meal plan generation',
-                  'AI devotional creation',
+                  'AI reading & reflection',
                   'AI task breakdown & suggestions',
                   'AI monthly family summaries',
                   'AI fitness coaching',
@@ -272,15 +273,15 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               _buildPlanCard(
                 tier: SubscriptionTier.ai_family,
                 currentTier: currentTier,
-                name: 'AI Family',
-                subtitle: 'AI for the whole family',
+                name: AppConfig.planLabelAiFamily,
+                subtitle: AppConfig.planDescAiFamily,
                 monthlyPrice: _prices.aiFamilyMonthly,
                 yearlyPrice: _prices.aiFamilyYearly,
                 color: const Color(0xFF16A34A),
                 icon: Icons.family_restroom_rounded,
                 popular: true,
                 features: [
-                  'Everything in AI, plus:',
+                  'Everything in ${AppConfig.planLabelAi}, plus:',
                   'Designed for up to 2 adult accounts + 4 under-16',
                   'Family member dashboards',
                   'Kids mode with parental controls',
@@ -322,7 +323,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'AI Family household',
+                            'Larger-family AI plan',
                             style: TextStyle(
                               fontFamily: 'Inter',
                               fontWeight: FontWeight.w800,
@@ -349,7 +350,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      'This home: $declaredAdults adult${declaredAdults == 1 ? '' : 's'} declared, $declaredUnder16 under 16 declared (limit 2 + 4).',
+                      'This family: $declaredAdults adult${declaredAdults == 1 ? '' : 's'} declared, $declaredUnder16 under 16 declared (limit 2 + 4).',
                       style: TextStyle(
                         fontFamily: 'Inter',
                         fontWeight: FontWeight.w600,
@@ -360,7 +361,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                     if (householdOverAiFamily) ...[
                       const SizedBox(height: 8),
                       const Text(
-                        'Your declared household is above the AI Family size — add individual AI seats or adjust declarations so billing matches your real household.',
+                        'Your household is above the larger-family AI limit — add individual AI seats or adjust declarations so billing matches your real household.',
                         style: TextStyle(
                           fontFamily: 'Inter',
                           fontSize: 12,

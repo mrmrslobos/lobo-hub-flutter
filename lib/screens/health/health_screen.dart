@@ -5,6 +5,10 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../utils/module_disclaimer.dart';
+
+import '../../config/cloud_sync_scope.dart';
+import '../../config/module_config.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
@@ -158,6 +162,17 @@ class _HealthScreenState extends State<HealthScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      showModuleDisclaimer(
+        context: context,
+        moduleKey: 'health',
+        title: 'Health Records',
+        icon: Icons.medical_information_rounded,
+        body: 'Health Records is designed to help you store and organize medical information for your family.\n\n'
+            'This feature is for personal record-keeping only and is not a substitute for professional medical advice, diagnosis, or treatment.\n\n'
+            'Always consult your doctor or qualified healthcare provider regarding any medical conditions.',
+      );
+    });
     _healthSearchCtrl.addListener(() {
       final t = _healthSearchCtrl.text;
       _healthSearchDebounce.run(() {
@@ -227,7 +242,10 @@ class _HealthScreenState extends State<HealthScreen> {
       notes: updated.notes,
       updatedAt: DateTime.now(),
     );
-    await provider.saveAndSync(db.copyWith(healthRecords: [...filtered, withTimestamp]));
+    await provider.saveAndSync(
+      db.copyWith(healthRecords: [...filtered, withTimestamp]),
+      pushTableScope: {CloudSyncScope.healthRecords},
+    );
   }
 
   void _shareEmergencyCard(HealthRecord record, String name) {
@@ -324,7 +342,7 @@ class _HealthScreenState extends State<HealthScreen> {
     return Scaffold(
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
-      appBar: const FamilyHubAppBar(),
+      appBar: const MainAppBar(),
       body: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
         child: Column(
@@ -332,7 +350,7 @@ class _HealthScreenState extends State<HealthScreen> {
           children: [
             // ─── Header ──────────────────────────────────────────
             PageHeader(
-              title: '\u{1FA7A} Health Records',
+              title: screenTitleForModulePath('/health'),
               subtitle: 'Allergies, medications & emergency info',
               actions: [
                 ActionChipButton(

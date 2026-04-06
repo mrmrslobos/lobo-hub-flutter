@@ -1,5 +1,5 @@
 // lib/screens/meals/meals_screen.dart
-// Meal planning + recipe library screen for FamilyHub
+// Meal planning + recipe library screen for Huddle
 
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -10,6 +10,7 @@ import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../utils/module_disclaimer.dart';
 import '../../services/meal_plan_shopping.dart';
 import '../../services/meal_macros.dart';
 import '../../services/notification_service.dart';
@@ -17,9 +18,13 @@ import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../services/ai_service.dart';
 import '../../services/locale_service.dart';
+import '../../config/app_config.dart';
+import '../../config/cloud_sync_scope.dart';
+import '../../config/module_config.dart';
 import '../../config/theme.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/debounce.dart';
+import '../../utils/cloud_pull.dart';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -157,6 +162,17 @@ class _MealsScreenState extends State<MealsScreen>
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(() => setState(() {}));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      showModuleDisclaimer(
+        context: context,
+        moduleKey: 'meals',
+        title: 'Meal Planning',
+        icon: Icons.restaurant_menu_rounded,
+        body: 'Meal suggestions and AI-generated recipes are for informational purposes only.\n\n'
+            'This app does not provide professional nutritional or dietary advice. Always check ingredients for allergens and dietary restrictions.\n\n'
+            'Consult a healthcare professional or registered dietitian for specific dietary needs or medical conditions.',
+      );
+    });
   }
 
   @override
@@ -254,6 +270,7 @@ class _MealsScreenState extends State<MealsScreen>
       provider.db.copyWith(
         families: provider.db.families.map((x) => x.id == fam.id ? nextFam : x).toList(),
       ),
+      pushTableScope: <String>{},
     );
     if (mounted) _showSnack(context, 'Macro targets saved');
   }
@@ -392,7 +409,10 @@ Return a JSON array of exactly 3 objects, each with these fields:
       createdBy: userId,
     );
 
-    provider.saveAndSync(db.copyWith(recipes: [...db.recipes, newRecipe]));
+    provider.saveAndSync(
+      db.copyWith(recipes: [...db.recipes, newRecipe]),
+      pushTableScope: CloudSyncScope.mealsExtendedBundle,
+    );
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Saved "${newRecipe.title}" to Recipe Box'), behavior: SnackBarBehavior.floating),
     );
@@ -667,14 +687,17 @@ Return a JSON array of 7 objects, each with:
       }
       dbState = dbState.copyWith(tasks: [...dbState.tasks, ...mealTasks]);
 
-      await provider.saveAndSync(dbState);
+      await provider.saveAndSync(
+        dbState,
+        pushTableScope: CloudSyncScope.mealsPlannerBundle,
+      );
       if (provider.activeFamily != null) await provider.syncTasksNow();
 
       try {
         NotificationService.notifyFamilyActivityWithDb(
           provider.db,
           title: 'New meal plan generated 🍽️',
-          body: '${provider.activeUser?.name ?? 'Someone'} generated a meal plan for the week',
+          body: '${provider.activeUser?.name ?? 'Someone'} generated a meal plan for the week in ${AppConfig.appName}.',
           path: '/meals',
           familyId: provider.activeFamily?.id,
           excludeUserId: provider.activeUser?.id,
@@ -866,13 +889,16 @@ Return a JSON array of 7 objects, each with:
         mealPlans: [...db.mealPlans, ...newMealPlans],
       );
 
-      await provider.saveAndSync(db);
+      await provider.saveAndSync(
+        db,
+        pushTableScope: CloudSyncScope.mealsExtendedBundle,
+      );
 
       try {
         NotificationService.notifyFamilyActivityWithDb(
           provider.db,
           title: 'Meal plan updated 🍽️',
-          body: '${provider.activeUser?.name ?? 'Someone'} refined the meal plan',
+          body: '${provider.activeUser?.name ?? 'Someone'} refined the meal plan in ${AppConfig.appName}.',
           path: '/meals',
           familyId: provider.activeFamily?.id,
           excludeUserId: provider.activeUser?.id,
@@ -958,7 +984,10 @@ Return a JSON array of 7 objects, each with:
         createdBy: userId,
       );
 
-      await provider.saveAndSync(db.copyWith(recipes: [...db.recipes, newRecipe]));
+      await provider.saveAndSync(
+        db.copyWith(recipes: [...db.recipes, newRecipe]),
+        pushTableScope: CloudSyncScope.mealsExtendedBundle,
+      );
 
       if (mounted) {
         setState(() { _importLoading = false; _importUrlController.clear(); });
@@ -1024,7 +1053,10 @@ Return a JSON array of 7 objects, each with:
       unit: unitCtrl.text.trim().isEmpty ? null : unitCtrl.text.trim(),
       updatedAt: DateTime.now(),
     );
-    await provider.saveAndSync(db.copyWith(pantryItems: [...db.pantryItems, item]));
+    await provider.saveAndSync(
+      db.copyWith(pantryItems: [...db.pantryItems, item]),
+      pushTableScope: CloudSyncScope.mealsExtendedBundle,
+    );
   }
 
   Future<void> _removePantryItem(PantryItem item) async {
@@ -1032,6 +1064,7 @@ Return a JSON array of 7 objects, each with:
     final db = provider.db;
     await provider.saveAndSync(
       db.copyWith(pantryItems: db.pantryItems.where((p) => p.id != item.id).toList()),
+      pushTableScope: CloudSyncScope.mealsExtendedBundle,
     );
   }
 
@@ -1057,32 +1090,36 @@ Return a JSON array of 7 objects, each with:
     return Scaffold(
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
-      appBar: const FamilyHubAppBar(),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.only(bottom: 32),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ── Page Header ──
-            PageHeader(
-              title: '\u{1F37D}\u{FE0F} Meal Hub',
-              subtitle: 'Plan nutrition and manage family recipes.',
-              actions: [
-                ActionChipButton(
-                  icon: Icons.add_rounded,
-                  label: 'Add Recipe',
-                  onTap: () => showModalBottomSheet(
-                    context: context,
-                    isScrollControlled: true,
-                    shape: const RoundedRectangleBorder(
-                      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      appBar: const MainAppBar(),
+      body: RefreshIndicator(
+        color: AppTheme.primary,
+        onRefresh: () => pullCloudLatestWithHaptic(context),
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.only(bottom: 32),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ── Page Header ──
+              PageHeader(
+                title: screenTitleForModulePath('/meals'),
+                subtitle: 'Plan nutrition and manage family recipes.',
+                actions: [
+                  ActionChipButton(
+                    icon: Icons.add_rounded,
+                    label: 'Add Recipe',
+                    onTap: () => showModalBottomSheet(
+                      context: context,
+                      isScrollControlled: true,
+                      shape: const RoundedRectangleBorder(
+                        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                      ),
+                      builder: (_) => const _AddRecipeSheet(),
                     ),
-                    builder: (_) => const _AddRecipeSheet(),
+                    isPrimary: true,
                   ),
-                  isPrimary: true,
-                ),
-              ],
-            ),
+                ],
+              ),
 
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
@@ -1524,7 +1561,8 @@ Return a JSON array of 7 objects, each with:
               // ── RECIPE BOX section ──
               _RecipesTab(onCookMode: _openCookMode),
             ],
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -1638,7 +1676,10 @@ class _MealPlanTabState extends State<_MealPlanTab> {
       sourceMealPlanId: source.id,
     );
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(mealPlans: [...db.mealPlans, copy]));
+    await provider.saveAndSync(
+      db.copyWith(mealPlans: [...db.mealPlans, copy]),
+      pushTableScope: CloudSyncScope.mealsExtendedBundle,
+    );
     if (context.mounted) _showSnack(context, 'Copied to ${DateFormat('EEE MMM d').format(nextWeek)}');
   }
 
@@ -1676,7 +1717,10 @@ class _MealPlanTabState extends State<_MealPlanTab> {
       leftoverMealPlanId: source.id,
     );
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(mealPlans: [...db.mealPlans, copy]));
+    await provider.saveAndSync(
+      db.copyWith(mealPlans: [...db.mealPlans, copy]),
+      pushTableScope: CloudSyncScope.mealsExtendedBundle,
+    );
     if (context.mounted) {
       _showSnack(context, 'Leftovers scheduled for ${DateFormat('EEE').format(targetDay)} $targetMealType');
     }
@@ -1769,7 +1813,10 @@ class _MealPlanTabState extends State<_MealPlanTab> {
       category: ListCategory.GROCERY,
     );
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(lists: [...db.lists, list]));
+    await provider.saveAndSync(
+      db.copyWith(lists: [...db.lists, list]),
+      pushTableScope: CloudSyncScope.mealsExtendedBundle,
+    );
     if (context.mounted) {
       _showSnack(context, 'Added ${listItems.length} items to Lists');
     }
@@ -2424,7 +2471,10 @@ class _MealSlotCard extends StatelessWidget {
     final provider = context.read<AppProvider>();
     final db = provider.db;
     final updated = db.mealPlans.where((m) => m.id != meal!.id).toList();
-    provider.saveAndSync(db.copyWith(mealPlans: updated));
+    provider.saveAndSync(
+      db.copyWith(mealPlans: updated),
+      pushTableScope: CloudSyncScope.mealsExtendedBundle,
+    );
     if (context.mounted) _showSnack(context, 'Meal removed');
   }
 
@@ -2553,10 +2603,13 @@ The replacement should be similar in style but different. Keep it healthy and fa
         return m;
       }).toList();
 
-      await provider.saveAndSync(db.copyWith(
-        mealPlans: updated,
-        recipes: nextRecipes,
-      ));
+      await provider.saveAndSync(
+        db.copyWith(
+          mealPlans: updated,
+          recipes: nextRecipes,
+        ),
+        pushTableScope: CloudSyncScope.mealsExtendedBundle,
+      );
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2685,7 +2738,10 @@ class _AddMealSheetState extends State<_AddMealSheet> {
       );
       final meals =
           db.mealPlans.map((m) => m.id == updated.id ? updated : m).toList();
-      await provider.saveAndSync(db.copyWith(mealPlans: meals));
+      await provider.saveAndSync(
+        db.copyWith(mealPlans: meals),
+        pushTableScope: CloudSyncScope.mealsExtendedBundle,
+      );
     } else {
       final newMeal = MealPlan(
         id: const Uuid().v4(),
@@ -2698,12 +2754,15 @@ class _AddMealSheetState extends State<_AddMealSheet> {
         notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
       );
       final meals = [...db.mealPlans, newMeal];
-      await provider.saveAndSync(db.copyWith(mealPlans: meals));
+      await provider.saveAndSync(
+        db.copyWith(mealPlans: meals),
+        pushTableScope: CloudSyncScope.mealsExtendedBundle,
+      );
       try {
         NotificationService.notifyFamilyActivityWithDb(
           provider.db,
           title: 'New meal added 🍽️',
-          body: '${provider.activeUser?.name ?? 'Someone'} added a meal to the plan',
+          body: '${provider.activeUser?.name ?? 'Someone'} added a meal to the plan in ${AppConfig.appName}.',
           path: '/meals',
           familyId: provider.activeFamily?.id,
           excludeUserId: provider.activeUser?.id,
@@ -3389,7 +3448,10 @@ class _RecipeDetailSheet extends StatelessWidget {
                           if (confirmed == true && context.mounted) {
                             final db = provider.db;
                             final updated = db.recipes.where((r) => r.id != recipe.id).toList();
-                            provider.saveAndSync(db.copyWith(recipes: updated));
+                            provider.saveAndSync(
+                              db.copyWith(recipes: updated),
+                              pushTableScope: CloudSyncScope.mealsExtendedBundle,
+                            );
                             if (ctx.mounted) Navigator.pop(ctx);
                             if (context.mounted) _showSnack(context, 'Recipe deleted');
                           }
@@ -3785,7 +3847,9 @@ class _ImportUrlDialogState extends State<_ImportUrlDialog> {
       );
 
       await provider.saveAndSync(
-          db.copyWith(recipes: [...db.recipes, newRecipe]));
+        db.copyWith(recipes: [...db.recipes, newRecipe]),
+        pushTableScope: CloudSyncScope.mealsExtendedBundle,
+      );
 
       if (mounted) Navigator.pop(context);
     } catch (e) {
@@ -4049,7 +4113,10 @@ class _AddRecipeSheetState extends State<_AddRecipeSheet> {
       final recipes = db.recipes
           .map((r) => r.id == updated.id ? updated : r)
           .toList();
-      await provider.saveAndSync(db.copyWith(recipes: recipes));
+      await provider.saveAndSync(
+        db.copyWith(recipes: recipes),
+        pushTableScope: CloudSyncScope.mealsExtendedBundle,
+      );
     } else {
       final newRecipe = Recipe(
         id: const Uuid().v4(),
@@ -4067,7 +4134,9 @@ class _AddRecipeSheetState extends State<_AddRecipeSheet> {
         createdBy: userId,
       );
       await provider.saveAndSync(
-          db.copyWith(recipes: [...db.recipes, newRecipe]));
+        db.copyWith(recipes: [...db.recipes, newRecipe]),
+        pushTableScope: CloudSyncScope.mealsExtendedBundle,
+      );
     }
 
     if (mounted) Navigator.pop(context);

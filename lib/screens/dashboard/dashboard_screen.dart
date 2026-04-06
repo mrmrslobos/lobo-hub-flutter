@@ -1,5 +1,5 @@
 // lib/screens/dashboard/dashboard_screen.dart
-// Home dashboard screen for FamilyHub — matches Vite app design
+// Home dashboard screen for Huddle — matches Vite app design
 
 // ignore_for_file: avoid_catches_without_on_clauses
 
@@ -13,15 +13,18 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../config/cloud_sync_scope.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
+import '../../utils/cloud_pull.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/dashboard_ai_suggestions_cache.dart';
-import '../onboarding/walkthrough_screen.dart';
+import '../../config/module_config.dart';
+import '../onboarding/welcome_module_tour_screen.dart';
 
 // ─── AI Suggestion model ─────────────────────────────────────────────────────
 
@@ -128,7 +131,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _suggestionsLoaded = true;
     }
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _showMedicalDisclaimerIfNeeded();
+      if (!mounted) return;
+
       if (_suggestionsLoaded) {
         // Already have suggestions from cache — skip API call
       } else if (AiService.isAIBlocked) {
@@ -146,7 +152,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       } else {
         _loadAISuggestions(forceRefresh: false);
       }
-      _showWalkthroughIfNeeded();
+      await _showWelcomeTourIfPending();
       _loadStartTipDismissed();
     });
   }
@@ -187,15 +193,50 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (mounted) setState(() => _startTipDismissed = true);
   }
 
-  Future<void> _showWalkthroughIfNeeded() async {
-    final completed = await isWalkthroughCompleted();
-    if (!completed && mounted) {
-      Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => WalkthroughScreen(
-          onComplete: () => Navigator.of(context).pop(),
+  bool _welcomeTourCheckScheduled = false;
+
+  /// After first home creation + module setup, [markWelcomeTourPending] is set; we show once here.
+  Future<void> _showWelcomeTourIfPending() async {
+    if (_welcomeTourCheckScheduled) return;
+    _welcomeTourCheckScheduled = true;
+    final prefs = await SharedPreferences.getInstance();
+    if (!(prefs.getBool(kPrefPendingWelcomeTour) ?? false)) return;
+    if (!mounted) return;
+    final raw = prefs.getString(kPrefPendingWelcomeTourPaths) ?? '';
+    final keys = raw.split(',').where((s) => s.trim().isNotEmpty).toList();
+    final modules = modulesInCatalogOrder(keys);
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (ctx) => WelcomeModuleTourScreen(
+          modules: modules,
+          onComplete: () {
+            if (ctx.mounted) Navigator.of(ctx).pop();
+          },
         ),
-      ));
-    }
+      ),
+    );
+  }
+
+  static const _disclaimerKey = 'medical_disclaimer_accepted';
+
+  Future<void> _showMedicalDisclaimerIfNeeded() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool(_disclaimerKey) == true) return;
+    if (!mounted) return;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _MedicalDisclaimerDialog(
+        onAccepted: () async {
+          await prefs.setBool(_disclaimerKey, true);
+          if (ctx.mounted) Navigator.pop(ctx);
+        },
+      ),
+    );
   }
 
   Future<void> _loadDismissedAnnouncement() async {
@@ -213,6 +254,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _onRefresh() async {
+    await pullCloudLatestWithHaptic(context);
     final provider = context.read<AppProvider>();
     await provider.saveAndSync(provider.db);
     await _loadAISuggestions(forceRefresh: true);
@@ -821,7 +863,7 @@ Return ONLY the JSON array, no markdown.''',
         return Scaffold(
           drawer: const AppDrawer(),
           // backgroundColor handled by theme
-          appBar: const FamilyHubAppBar(),
+          appBar: const MainAppBar(),
           body: RefreshIndicator(
             onRefresh: _onRefresh,
             color: AppTheme.primary,
@@ -924,7 +966,7 @@ Return ONLY the JSON array, no markdown.''',
         title: Row(mainAxisSize: MainAxisSize.min, children: [
           Text(String.fromCharCode(0x2728), style: const TextStyle(fontSize: 18)),
           const SizedBox(width: 6),
-          const Text('FamilyHub', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
+          const Text('Huddle', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
         ]),
         centerTitle: false,
         actions: [
@@ -1003,9 +1045,12 @@ Return ONLY the JSON array, no markdown.''',
                               date: today,
                               completedAt: DateTime.now(),
                             );
-                            await provider.saveAndSync(db.copyWith(
-                              choreCompletions: [...db.choreCompletions, completion],
-                            ));
+                            await provider.saveAndSync(
+                              db.copyWith(
+                                choreCompletions: [...db.choreCompletions, completion],
+                              ),
+                              pushTableScope: CloudSyncScope.choreBundle,
+                            );
                           },
                           child: Container(
                             padding: const EdgeInsets.all(12),
@@ -1483,9 +1528,12 @@ Return ONLY the JSON array, no markdown.''',
     );
     provider.updateFamily(updated);
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
-      families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
-    ));
+    await provider.saveAndSync(
+      db.copyWith(
+        families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
+      ),
+      pushTableScope: <String>{},
+    );
     // Clear dismiss state if the announcement changed
     if (result.isNotEmpty) {
       setState(() => _dismissedAnnouncement = null);
@@ -1556,9 +1604,12 @@ Return ONLY the JSON array, no markdown.''',
                       final updated = family.copyWith(welcomeDismissed: true);
                       final db = provider.db;
                       provider.updateFamily(updated);
-                      provider.saveAndSync(db.copyWith(
-                        families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
-                      ));
+                      provider.saveAndSync(
+                        db.copyWith(
+                          families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
+                        ),
+                        pushTableScope: <String>{},
+                      );
                     },
                     splashRadius: 18,
                     padding: EdgeInsets.zero,
@@ -2175,7 +2226,15 @@ Return ONLY the JSON array, no markdown.''',
           ]),
           const SizedBox(height: 8),
           if (devotionals.isEmpty)
-            const Text('No devotionals yet.', style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400))
+            EmptyState(
+              compact: true,
+              emoji: '📖',
+              emojiSize: 36,
+              title: 'No devotionals yet',
+              subtitle: 'Open Devotional to read, save favorites, or get today\'s reading.',
+              actionLabel: 'Open',
+              onAction: () => context.go('/devotional'),
+            )
           else ...[
             Text(DateFormat('MMM d').format(devotionals.first.date).toUpperCase(), style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.5, color: Color(0xFF3B82F6))),
             const SizedBox(height: 4),
@@ -2690,4 +2749,72 @@ Return ONLY the JSON array, no markdown.''',
 
   bool _isSameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
+}
+
+class _MedicalDisclaimerDialog extends StatefulWidget {
+  final VoidCallback onAccepted;
+  const _MedicalDisclaimerDialog({required this.onAccepted});
+
+  @override
+  State<_MedicalDisclaimerDialog> createState() => _MedicalDisclaimerDialogState();
+}
+
+class _MedicalDisclaimerDialogState extends State<_MedicalDisclaimerDialog> {
+  bool _accepted = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.medical_information_rounded, color: Color(0xFFDC2626), size: 24),
+          SizedBox(width: 10),
+          Expanded(child: Text('Health Disclaimer')),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'Huddle includes health and wellness features such as fitness tracking, meal planning, period tracking, and health records.\n\n'
+            'These features are for informational purposes only and are not a substitute for professional medical advice, diagnosis, or treatment.\n\n'
+            'Always seek the advice of your doctor or qualified healthcare provider with any questions regarding a medical condition. Never disregard professional medical advice because of information provided by this app.',
+            style: TextStyle(fontFamily: 'Inter', fontSize: 13, height: 1.5),
+          ),
+          const SizedBox(height: 16),
+          GestureDetector(
+            onTap: () => setState(() => _accepted = !_accepted),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: Checkbox(
+                    value: _accepted,
+                    onChanged: (v) => setState(() => _accepted = v ?? false),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'I accept and understand this disclaimer',
+                    style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: _accepted ? widget.onAccepted : null,
+            child: const Text('OK'),
+          ),
+        ),
+      ],
+    );
+  }
 }

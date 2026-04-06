@@ -439,13 +439,13 @@ async function syncToCloudImpl(db: DB) {
   if (!supabase || !isSupabaseConfigured()) return;
 
   if (!getCachedSession()) {
-    console.warn('[FamilyHub] syncToCloud: skipping — no active auth session');
+    console.warn('[Huddle] syncToCloud: skipping — no active auth session');
     return;
   }
 
   const activeUserId = getCachedSession()?.user?.id;
   if (!activeUserId) {
-    console.warn('[FamilyHub] syncToCloud: skipping — session missing user id');
+    console.warn('[Huddle] syncToCloud: skipping — session missing user id');
     return;
   }
 
@@ -683,7 +683,7 @@ export const resetDB = async () => {
       await supabase.from('families').delete().eq('owner_id', userId);
       await supabase.from('users').delete().eq('id', userId);
 
-      console.info('[FamilyHub] Supabase tables cleared (scoped to current user).');
+      console.info('[Huddle] Supabase tables cleared (scoped to current user).');
     }
   }
 

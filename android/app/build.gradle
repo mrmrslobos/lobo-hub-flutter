@@ -7,6 +7,7 @@ plugins {
 // Only apply Google Services plugin when google-services.json exists
 if (file('google-services.json').exists()) {
     apply plugin: 'com.google.gms.google-services'
+    apply plugin: 'com.google.firebase.crashlytics'
 }
 
 def localProperties = new Properties()
@@ -27,11 +28,11 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace 'com.lobohub.app'
+    namespace 'com.opensolutions.huddle'
     compileSdkVersion 36
 
     defaultConfig {
-        applicationId 'com.lobohub.app'
+        applicationId 'com.opensolutions.huddle'
         // health / Health Connect requires API 26+ (Flutter default is often 24)
         minSdkVersion 26
         targetSdkVersion 36
@@ -70,7 +71,7 @@ android {
         }
         debug {
             // Removed applicationIdSuffix '.debug' — it caused the package name
-            // to become 'com.lobohub.app.debug' which doesn't match the client
+            // to become 'com.opensolutions.huddle.debug' which doesn't match the client
             // in google-services.json, breaking Firebase/FCM in debug builds.
         }
     }

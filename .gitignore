@@ -124,3 +124,6 @@ supabase/keys/
 supabase/.env
 supabase/.env.*
 
+# Supabase CLI local cache (do not commit)
+supabase/.temp/
+

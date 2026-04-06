@@ -5,6 +5,8 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData, HapticFeed
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import '../../config/cloud_sync_scope.dart';
+import '../../config/module_config.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
@@ -24,6 +26,17 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
   final _searchCtrl = TextEditingController();
   final _searchDebounce = Debouncer();
   String _searchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<AppProvider>().scheduleModuleEnterCloudPull({
+        CloudSyncScope.aiHistory,
+      });
+    });
+  }
 
   @override
   void dispose() {
@@ -47,9 +60,10 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
     HapticFeedback.mediumImpact();
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
-      aiHistory: db.aiHistory.where((e) => e.id != id).toList(),
-    ));
+    await provider.saveAndSync(
+      db.copyWith(aiHistory: db.aiHistory.where((e) => e.id != id).toList()),
+      pushTableScope: {CloudSyncScope.aiHistory},
+    );
     if (mounted) _showSnack('Entry deleted');
   }
 
@@ -123,14 +137,14 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
     return Scaffold(
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
-      appBar: const FamilyHubAppBar(),
+      appBar: const MainAppBar(),
       body: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             PageHeader(
-              title: '\u{1F916} AI History',
+              title: screenTitleForModulePath('/ai-history'),
               subtitle: 'Your AI interactions & responses',
               actions: [
                 if (allEntries.isNotEmpty)
@@ -153,9 +167,12 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
                       if (confirm == true && mounted) {
                         final prov = context.read<AppProvider>();
                         final db = prov.db;
-                        await prov.saveAndSync(db.copyWith(
-                          aiHistory: db.aiHistory.where((e) => e.userId != user.id).toList(),
-                        ));
+                        await prov.saveAndSync(
+                          db.copyWith(
+                            aiHistory: db.aiHistory.where((e) => e.userId != user.id).toList(),
+                          ),
+                          pushTableScope: {CloudSyncScope.aiHistory},
+                        );
                         if (mounted) _showSnack('History cleared');
                       }
                     },

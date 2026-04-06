@@ -10,7 +10,9 @@ import 'package:local_auth/local_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../config/app_config.dart';
 import '../config/theme.dart';
+import 'app_brand_mark.dart';
 
 class BiometricLockScreen extends StatefulWidget {
   final Widget child;
@@ -121,7 +123,7 @@ class _BiometricLockScreenState extends State<BiometricLockScreen>
       if (hasBiometrics) {
         // Try biometric-first authentication (fingerprint / face)
         final authenticated = await _localAuth.authenticate(
-          localizedReason: 'Unlock FamilyHub with your fingerprint or face',
+          localizedReason: 'Unlock Huddle with your fingerprint or face',
           options: const AuthenticationOptions(
             biometricOnly: true,
             stickyAuth: true,
@@ -147,7 +149,7 @@ class _BiometricLockScreenState extends State<BiometricLockScreen>
       // No biometrics enrolled → try device credentials (system PIN/pattern)
       if (isDeviceSupported) {
         final authenticated = await _localAuth.authenticate(
-          localizedReason: 'Unlock FamilyHub',
+          localizedReason: 'Unlock ${AppConfig.appName}',
           options: const AuthenticationOptions(
             biometricOnly: false,
             stickyAuth: true,
@@ -319,11 +321,11 @@ class _LockScreen extends StatelessWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Text('🏠', style: TextStyle(fontSize: 64)),
+                AppBrandMark.card(outerSize: 88),
                 const SizedBox(height: 16),
-                const Text(
-                  'FamilyHub',
-                  style: TextStyle(
+                Text(
+                  AppConfig.appName,
+                  style: const TextStyle(
                     fontSize: 36,
                     fontWeight: FontWeight.bold,
                     color: Colors.white,

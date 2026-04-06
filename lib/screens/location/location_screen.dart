@@ -9,6 +9,8 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../config/cloud_sync_scope.dart';
+import '../../config/module_config.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
@@ -185,7 +187,10 @@ class _LocationScreenState extends State<LocationScreen> {
           }
           return l;
         }).toList();
-        await provider.saveAndSync(db.copyWith(locationShares: updated.cast<UserLocation>()));
+        await provider.saveAndSync(
+          db.copyWith(locationShares: updated.cast<UserLocation>()),
+          pushTableScope: CloudSyncScope.locationBundle,
+        );
       }
     } catch (e) {
       debugPrint('Location update error: $e');
@@ -252,7 +257,10 @@ class _LocationScreenState extends State<LocationScreen> {
         isSharing: sharing,
         updatedAt: DateTime.now(),
       );
-      await provider.saveAndSync(db.copyWith(locationShares: [...db.locationShares, newShare]));
+      await provider.saveAndSync(
+        db.copyWith(locationShares: [...db.locationShares, newShare]),
+        pushTableScope: CloudSyncScope.locationBundle,
+      );
     } else {
       final updated = db.locationShares.map((l) {
         if (l.id == current.id) {
@@ -270,7 +278,10 @@ class _LocationScreenState extends State<LocationScreen> {
         }
         return l;
       }).toList();
-      await provider.saveAndSync(db.copyWith(locationShares: updated.cast<UserLocation>()));
+      await provider.saveAndSync(
+        db.copyWith(locationShares: updated.cast<UserLocation>()),
+        pushTableScope: CloudSyncScope.locationBundle,
+      );
     }
 
     if (sharing) {
@@ -326,9 +337,10 @@ class _LocationScreenState extends State<LocationScreen> {
     if (confirmed != true || !mounted) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
-      savedPlaces: db.savedPlaces.where((p) => p.id != place.id).toList(),
-    ));
+    await provider.saveAndSync(
+      db.copyWith(savedPlaces: db.savedPlaces.where((p) => p.id != place.id).toList()),
+      pushTableScope: CloudSyncScope.locationBundle,
+    );
     if (mounted) _showSnack('Place deleted');
   }
 
@@ -489,7 +501,7 @@ class _LocationScreenState extends State<LocationScreen> {
     return Scaffold(
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
-      appBar: const FamilyHubAppBar(),
+      appBar: const MainAppBar(),
       body: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
         child: Column(
@@ -497,7 +509,7 @@ class _LocationScreenState extends State<LocationScreen> {
           children: [
             // ─── Header ──────────────────────────────────────────
             PageHeader(
-              title: '\u{1F4CD} Family Location',
+              title: screenTitleForModulePath('/location'),
               subtitle: 'See where everyone is, safely and privately',
               actions: [
                 ActionChipButton(
@@ -1093,7 +1105,10 @@ class _AddPlaceSheetState extends State<_AddPlaceSheet> {
           createdAt: p.createdAt,
         );
       }).toList();
-      await provider.saveAndSync(db.copyWith(savedPlaces: updated));
+      await provider.saveAndSync(
+        db.copyWith(savedPlaces: updated),
+        pushTableScope: CloudSyncScope.locationBundle,
+      );
     } else {
       final place = SavedPlace(
         id: const Uuid().v4(),
@@ -1106,7 +1121,10 @@ class _AddPlaceSheetState extends State<_AddPlaceSheet> {
         radiusMetres: _radius,
         createdAt: DateTime.now(),
       );
-      await provider.saveAndSync(db.copyWith(savedPlaces: [...db.savedPlaces, place]));
+      await provider.saveAndSync(
+        db.copyWith(savedPlaces: [...db.savedPlaces, place]),
+        pushTableScope: CloudSyncScope.locationBundle,
+      );
     }
 
     if (mounted) {

@@ -1,5 +1,5 @@
 // lib/models/models.dart
-// FamilyHub - Complete data models
+// Huddle - Complete data models
 
 // ignore_for_file: constant_identifier_names
 
@@ -678,7 +678,7 @@ class Task {
     dueTime: j['due_time'] as String?,
     reminderMinutes: (j['reminder_minutes'] as num?)?.toInt() ?? (j['reminderMinutes'] as num?)?.toInt(),
     priority: priorityFromString(j['priority'] as String?),
-    completed: (j['completed'] ?? false) as bool,
+    completed: _coerceBool(j['completed']),
     completedBy: j['completed_by'] as String?,
     updatedBy: j['updated_by'] as String?,
     visibility: visibilityFromString(j['visibility'] as String?),
@@ -1236,7 +1236,7 @@ class ListItem {
     id: j['id'] as String? ?? '',
     text: j['text'] as String? ?? '',
     quantity: j['quantity'] as String?,
-    checked: (j['checked'] ?? false) as bool,
+    checked: _coerceBool(j['checked']),
     notes: j['notes'] as String?,
     aiCategory: j['ai_category'] as String?,
   );
@@ -1446,6 +1446,119 @@ class DevotionalEntry {
             ? DateTime.now()
             : this.updatedAt),
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DevotionalThought — per-user journaling linked to a devotional (synced; family-visible when devotional is shared).
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum DevotionalNoteKind {
+  thought,
+  prayer;
+
+  String get wireValue {
+    switch (this) {
+      case DevotionalNoteKind.thought:
+        return 'thought';
+      case DevotionalNoteKind.prayer:
+        return 'prayer';
+    }
+  }
+
+  static DevotionalNoteKind fromWire(String? raw) {
+    if (raw == 'prayer') return DevotionalNoteKind.prayer;
+    return DevotionalNoteKind.thought;
+  }
+}
+
+class DevotionalThought {
+  final String id;
+  final String devotionalId;
+  final String familyId;
+  final String userId;
+  final DevotionalNoteKind kind;
+  final String body;
+  final DateTime updatedAt;
+
+  DevotionalThought({
+    required this.id,
+    required this.devotionalId,
+    required this.familyId,
+    required this.userId,
+    this.kind = DevotionalNoteKind.thought,
+    this.body = '',
+    DateTime? updatedAt,
+  }) : updatedAt = updatedAt ?? DateTime.now();
+
+  /// Canonical id so all devices agree (matches DB upsert conflict key).
+  static String stableId(String devotionalId, String userId, DevotionalNoteKind kind) {
+    switch (kind) {
+      case DevotionalNoteKind.thought:
+        return 'dt_${devotionalId}_$userId';
+      case DevotionalNoteKind.prayer:
+        return 'dp_${devotionalId}_$userId';
+    }
+  }
+
+  String get mergeKey => '$devotionalId|$userId|${kind.wireValue}';
+
+  factory DevotionalThought.fromJson(Map<String, dynamic> j) {
+    final id = j['id'] as String? ?? '';
+    final did = j['devotional_id'] as String? ?? '';
+    final uid = j['user_id'] as String? ?? '';
+    var kind = DevotionalNoteKind.fromWire(j['note_kind'] as String?);
+    if (kind == DevotionalNoteKind.thought &&
+        id.startsWith('dp_') &&
+        did.isNotEmpty &&
+        uid.isNotEmpty) {
+      kind = DevotionalNoteKind.prayer;
+    }
+    return DevotionalThought(
+      id: id,
+      devotionalId: did,
+      familyId: j['family_id'] as String? ?? '',
+      userId: uid,
+      kind: kind,
+      body: j['body'] as String? ?? '',
+      updatedAt: _parseDateOpt(j['updated_at']) ?? DateTime.fromMillisecondsSinceEpoch(0),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'devotional_id': devotionalId,
+    'family_id': familyId,
+    'user_id': userId,
+    'note_kind': kind.wireValue,
+    'body': body,
+    'updated_at': updatedAt.toIso8601String(),
+  };
+
+  DevotionalThought copyWith({
+    String? id,
+    String? devotionalId,
+    String? familyId,
+    String? userId,
+    DevotionalNoteKind? kind,
+    String? body,
+    DateTime? updatedAt,
+  }) {
+    final any = id != null ||
+        devotionalId != null ||
+        familyId != null ||
+        userId != null ||
+        kind != null ||
+        body != null;
+    return DevotionalThought(
+      id: id ?? this.id,
+      devotionalId: devotionalId ?? this.devotionalId,
+      familyId: familyId ?? this.familyId,
+      userId: userId ?? this.userId,
+      kind: kind ?? this.kind,
+      body: body ?? this.body,
+      updatedAt: updatedAt ?? (any ? DateTime.now() : this.updatedAt),
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1769,7 +1882,7 @@ class WorkoutSet {
       setNumber: ((j['set_number'] as num?) ?? 0).toInt(),
       reps: FieldEncryption.decryptField(j['reps'] as String?, fid) ?? '',
       weight: FieldEncryption.decryptField(j['weight'] as String?, fid),
-      completed: (j['completed'] as bool?) ?? false,
+      completed: _coerceBool(j['completed']),
       notes: FieldEncryption.decryptField(j['notes'] as String?, fid),
       createdAt: _parseDate(j['created_at']),
     );
@@ -4166,6 +4279,7 @@ class AppDB {
   final List<MealPlanEntry> mealPlans;
   final List<ShoppingList> lists;
   final List<DevotionalEntry> devotionals;
+  final List<DevotionalThought> devotionalThoughts;
   final List<FitnessMetric> fitness;
   final List<FitnessLog> fitnessLogs;
   final List<dynamic> fitnessPlans;
@@ -4214,6 +4328,7 @@ class AppDB {
     this.mealPlans = const [],
     this.lists = const [],
     this.devotionals = const [],
+    this.devotionalThoughts = const [],
     this.fitness = const [],
     this.fitnessLogs = const [],
     this.fitnessPlans = const [],
@@ -4265,6 +4380,10 @@ class AppDB {
     mealPlans: _parseList(j['mealPlans'] ?? j['meal_plans'], MealPlanEntry.fromJson),
     lists: _parseList(j['lists'], ShoppingList.fromJson),
     devotionals: _parseList(j['devotionals'], DevotionalEntry.fromJson),
+    devotionalThoughts: _parseList(
+      j['devotionalThoughts'] ?? j['devotional_thoughts'],
+      DevotionalThought.fromJson,
+    ),
     fitness: _parseList(j['fitness'], FitnessMetric.fromJson),
     fitnessLogs: _parseList(j['fitnessLogs'] ?? j['fitness_logs'], FitnessLog.fromJson),
     fitnessPlans: (j['fitnessPlans'] ?? j['fitness_plans']) is List
@@ -4317,6 +4436,10 @@ class AppDB {
     mealPlans: _parseList(cloud['meal_plans'], MealPlanEntry.fromJson),
     lists: _parseList(cloud['lists'], ShoppingList.fromJson),
     devotionals: _parseList(cloud['devotionals'], DevotionalEntry.fromJson),
+    devotionalThoughts: _parseList(
+      cloud['devotional_thoughts'],
+      DevotionalThought.fromJson,
+    ),
     fitness: _parseList(cloud['fitness_metrics'], FitnessMetric.fromJson),
     fitnessLogs: _parseList(cloud['fitness_logs'], FitnessLog.fromJson),
     fitnessPlans: cloud['fitness_plans'] is List ? cloud['fitness_plans'] as List : [],
@@ -4366,6 +4489,7 @@ class AppDB {
     'mealPlans': mealPlans.map((e) => e.toJson()).toList(),
     'lists': lists.map((e) => e.toJson()).toList(),
     'devotionals': devotionals.map((e) => e.toJson()).toList(),
+    'devotionalThoughts': devotionalThoughts.map((e) => e.toJson()).toList(),
     'fitness': fitness.map((e) => e.toJson()).toList(),
     'fitnessLogs': fitnessLogs.map((e) => e.toJson()).toList(),
     'fitnessPlans': fitnessPlans,
@@ -4415,6 +4539,7 @@ class AppDB {
     List<MealPlanEntry>? mealPlans,
     List<ShoppingList>? lists,
     List<DevotionalEntry>? devotionals,
+    List<DevotionalThought>? devotionalThoughts,
     List<FitnessMetric>? fitness,
     List<FitnessLog>? fitnessLogs,
     List<dynamic>? fitnessPlans,
@@ -4471,6 +4596,7 @@ class AppDB {
     mealPlans: mealPlans ?? this.mealPlans,
     lists: shoppingLists ?? lists ?? this.lists,
     devotionals: devotionalEntries ?? devotionals ?? this.devotionals,
+    devotionalThoughts: devotionalThoughts ?? this.devotionalThoughts,
     fitness: fitness ?? this.fitness,
     fitnessLogs: fitnessLogs ?? this.fitnessLogs,
     fitnessPlans: fitnessPlans ?? this.fitnessPlans,
@@ -4761,13 +4887,26 @@ class AppDB {
 // Private helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+bool _coerceBool(dynamic v) {
+  if (v == null) return false;
+  if (v is bool) return v;
+  if (v is num) return v != 0;
+  final s = v.toString().toLowerCase();
+  return s == 'true' || s == '1' || s == 'yes';
+}
+
 List<T> _parseList<T>(dynamic raw, T Function(Map<String, dynamic>) fromJson) {
   if (raw == null) return [];
   if (raw is! List) return [];
-  return raw
-      .whereType<Map<String, dynamic>>()
-      .map(fromJson)
-      .toList();
+  final out = <T>[];
+  for (final item in raw) {
+    if (item is Map) {
+      try {
+        out.add(fromJson(Map<String, dynamic>.from(item)));
+      } catch (_) {}
+    }
+  }
+  return out;
 }
 
 List<String> _strList(dynamic raw) {

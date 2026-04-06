@@ -4,7 +4,7 @@
 
 ### Project overview
 
-FamilyHub (LoboHub) is a Flutter mobile/web app for family management (tasks, meals, budget, calendar, 18+ modules). Backend is Supabase (PostgreSQL, Auth, Edge Functions). See `README.md` for web deployment details.
+Huddle (LoboHub) is a Flutter mobile/web app for family management (tasks, meals, budget, calendar, 18+ modules). Backend is Supabase (PostgreSQL, Auth, Edge Functions). Customer-facing name and UI vocabulary: `docs/brand.md`. See `README.md` for web deployment details.
 
 ### Flutter SDK
 

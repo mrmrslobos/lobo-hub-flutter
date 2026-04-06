@@ -1,5 +1,5 @@
 // lib/services/calendar_sync_service.dart
-// FamilyHub - Google Calendar & ICS URL sync service
+// Huddle - Google Calendar & ICS URL sync service
 
 // ignore_for_file: avoid_catches_without_on_clauses
 

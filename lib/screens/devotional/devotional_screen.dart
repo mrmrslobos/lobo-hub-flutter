@@ -1,5 +1,6 @@
 // lib/screens/devotional/devotional_screen.dart
-// Devotional & reading-plan screen for FamilyHub
+// Devotional & reading-plan screen for Huddle
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart' hide Visibility;
@@ -11,6 +12,9 @@ import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../config/app_config.dart';
+import '../../config/cloud_sync_scope.dart';
+import '../../config/module_config.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
@@ -82,7 +86,7 @@ String _devotionalShareText(DevotionalEntry e) {
     buf.writeln('Prayer: ${e.prayer}');
   }
   buf.writeln();
-  buf.writeln('Shared from FamilyHub');
+  buf.writeln('Shared from ${AppConfig.appName}');
   return buf.toString();
 }
 
@@ -198,6 +202,41 @@ String _devotionalVarietyBlock(AppDB db, String familyId) {
   return buf.toString();
 }
 
+/// Per-user prayer lives in [DevotionalThought] with kind [DevotionalNoteKind.prayer]; legacy [DevotionalEntry.userPrayer] is still honored until cleared.
+bool _entryHasPersonalPrayer(
+  DevotionalEntry e,
+  String? uid,
+  List<DevotionalThought> thoughts,
+) {
+  if (uid != null) {
+    final row = thoughts.firstWhereOrNull(
+      (t) =>
+          t.devotionalId == e.id &&
+          t.userId == uid &&
+          t.kind == DevotionalNoteKind.prayer,
+    );
+    if (row != null && row.body.trim().isNotEmpty) return true;
+  }
+  return e.userPrayer != null && e.userPrayer!.trim().isNotEmpty;
+}
+
+String? _myPrayerBody(
+  DevotionalEntry e,
+  String? uid,
+  List<DevotionalThought> thoughts,
+) {
+  if (uid != null) {
+    final row = thoughts.firstWhereOrNull(
+      (t) =>
+          t.devotionalId == e.id &&
+          t.userId == uid &&
+          t.kind == DevotionalNoteKind.prayer,
+    );
+    if (row != null && row.body.trim().isNotEmpty) return row.body;
+  }
+  return e.userPrayer;
+}
+
 // ─── Main Screen ─────────────────────────────────────────────────────────────
 
 class DevotionalScreen extends StatefulWidget {
@@ -299,22 +338,30 @@ class _DevotionalScreenState extends State<DevotionalScreen>
 
       // 2) Mark as dismissed in the DB so the edge function sees it
       //    and won't regenerate.
-      await provider.saveAndSync(db.copyWith(
-        devotionalEntries: db.devotionalEntries.map((e) {
-          if (e.id == id) {
-            final newTags = e.tags
-                .where((t) => t != 'daily-auto')
-                .toList()
-              ..add('daily-auto-dismissed');
-            return e.copyWith(tags: newTags);
-          }
-          return e;
-        }).toList(),
-      ));
+      await provider.saveAndSync(
+        db.copyWith(
+          devotionalEntries: db.devotionalEntries.map((e) {
+            if (e.id == id) {
+              final newTags = e.tags
+                  .where((t) => t != 'daily-auto')
+                  .toList()
+                ..add('daily-auto-dismissed');
+              return e.copyWith(tags: newTags);
+            }
+            return e;
+          }).toList(),
+        ),
+        pushTableScope: CloudSyncScope.devotionalBundle,
+      );
     } else {
-      await provider.saveAndSync(db.copyWith(
-        devotionalEntries: db.devotionalEntries.where((e) => e.id != id).toList(),
-      ));
+      await provider.saveAndSync(
+        db.copyWith(
+          devotionalEntries: db.devotionalEntries.where((e) => e.id != id).toList(),
+          devotionalThoughts:
+              db.devotionalThoughts.where((t) => t.devotionalId != id).toList(),
+        ),
+        pushTableScope: CloudSyncScope.devotionalBundle,
+      );
     }
     if (_selectedEntry?.id == id) setState(() => _selectedEntry = null);
   }
@@ -380,22 +427,71 @@ class _DevotionalScreenState extends State<DevotionalScreen>
           entry: _selectedEntry!,
           onBack: () => setState(() { _selectedEntry = null; _dismissedAutoOpen = true; }),
           onDelete: () => _deleteEntry(_selectedEntry!.id),
+          onUpsertThought: (thought) async {
+            final provider = context.read<AppProvider>();
+            final db = provider.db;
+            final rest =
+                db.devotionalThoughts.where((t) => t.id != thought.id).toList();
+            await provider.saveAndSync(
+              db.copyWith(devotionalThoughts: [...rest, thought]),
+              pushTableScope: CloudSyncScope.devotionalBundle,
+            );
+          },
           onUpdatePrayer: (prayer) async {
             final provider = context.read<AppProvider>();
             final db = provider.db;
-            final updated = _selectedEntry!.copyWith(userPrayer: prayer);
-            await provider.saveAndSync(db.copyWith(
-              devotionalEntries: db.devotionalEntries.map((e) => e.id == updated.id ? updated : e).toList(),
-            ));
-            setState(() => _selectedEntry = updated);
+            final uid = provider.activeUser?.id;
+            if (uid == null) return;
+            final entry = _selectedEntry!;
+            final sid = DevotionalThought.stableId(
+              entry.id,
+              uid,
+              DevotionalNoteKind.prayer,
+            );
+            final trimmed = prayer.trim();
+            List<DevotionalThought> nextThoughts;
+            if (trimmed.isEmpty) {
+              nextThoughts =
+                  db.devotionalThoughts.where((t) => t.id != sid).toList();
+            } else {
+              final rest =
+                  db.devotionalThoughts.where((t) => t.id != sid).toList();
+              nextThoughts = [
+                ...rest,
+                DevotionalThought(
+                  id: sid,
+                  devotionalId: entry.id,
+                  familyId: entry.familyId,
+                  userId: uid,
+                  kind: DevotionalNoteKind.prayer,
+                  body: trimmed,
+                ),
+              ];
+            }
+            final cleared = entry.copyWith(userPrayer: null);
+            await provider.saveAndSync(
+              db.copyWith(
+                devotionalThoughts: nextThoughts,
+                devotionalEntries: db.devotionalEntries
+                    .map((e) => e.id == cleared.id ? cleared : e)
+                    .toList(),
+              ),
+              pushTableScope: CloudSyncScope.devotionalBundle,
+            );
+            setState(() => _selectedEntry = cleared);
           },
           onToggleFavorite: () async {
             final provider = context.read<AppProvider>();
             final db = provider.db;
             final updated = _selectedEntry!.copyWith(isFavorited: !_selectedEntry!.isFavorited);
-            await provider.saveAndSync(db.copyWith(
-              devotionalEntries: db.devotionalEntries.map((e) => e.id == updated.id ? updated : e).toList(),
-            ));
+            await provider.saveAndSync(
+              db.copyWith(
+                devotionalEntries: db.devotionalEntries
+                    .map((e) => e.id == updated.id ? updated : e)
+                    .toList(),
+              ),
+              pushTableScope: {CloudSyncScope.devotionals},
+            );
             setState(() => _selectedEntry = updated);
           },
           onShare: () => Share.share(_devotionalShareText(_selectedEntry!)),
@@ -403,9 +499,14 @@ class _DevotionalScreenState extends State<DevotionalScreen>
             final provider = context.read<AppProvider>();
             final db = provider.db;
             final updated = _selectedEntry!.copyWith(visibility: Visibility.FAMILY);
-            await provider.saveAndSync(db.copyWith(
-              devotionalEntries: db.devotionalEntries.map((e) => e.id == updated.id ? updated : e).toList(),
-            ));
+            await provider.saveAndSync(
+              db.copyWith(
+                devotionalEntries: db.devotionalEntries
+                    .map((e) => e.id == updated.id ? updated : e)
+                    .toList(),
+              ),
+              pushTableScope: {CloudSyncScope.devotionals},
+            );
             setState(() => _selectedEntry = updated);
             if (context.mounted) {
               _showSnack(context, 'Shared with family');
@@ -425,6 +526,8 @@ class _DevotionalScreenState extends State<DevotionalScreen>
         child: _ReadingPlanDetailView(
           plan: _selectedPlan!,
           entries: entries,
+          thoughts: provider.db.devotionalThoughts,
+          activeUserId: provider.activeUser?.id,
           onBack: () => setState(() => _selectedPlan = null),
         ),
       );
@@ -436,7 +539,7 @@ class _DevotionalScreenState extends State<DevotionalScreen>
     return Scaffold(
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
-      appBar: const FamilyHubAppBar(),
+      appBar: const MainAppBar(),
       body: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
         child: Column(
@@ -444,7 +547,7 @@ class _DevotionalScreenState extends State<DevotionalScreen>
           children: [
             // ── Page Header ──
             PageHeader(
-              title: 'Spiritual Growth',
+              title: screenTitleForModulePath('/devotional'),
               subtitle: 'Reflect, pray, and grow as a family.',
             ),
 
@@ -688,9 +791,12 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
             tags: ['daily-auto'],
           );
           final db = provider.db;
-          await provider.saveAndSync(db.copyWith(
-            devotionalEntries: [...db.devotionalEntries, entry],
-          ));
+          await provider.saveAndSync(
+            db.copyWith(
+              devotionalEntries: [...db.devotionalEntries, entry],
+            ),
+            pushTableScope: {CloudSyncScope.devotionals},
+          );
           if (mounted) widget.onSelectEntry(entry);
         } catch (_) {
           final entry = DevotionalEntry(
@@ -704,9 +810,12 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
             tags: ['daily-auto'],
           );
           final db = provider.db;
-          await provider.saveAndSync(db.copyWith(
-            devotionalEntries: [...db.devotionalEntries, entry],
-          ));
+          await provider.saveAndSync(
+            db.copyWith(
+              devotionalEntries: [...db.devotionalEntries, entry],
+            ),
+            pushTableScope: {CloudSyncScope.devotionals},
+          );
           if (mounted) widget.onSelectEntry(entry);
         }
       }
@@ -769,9 +878,12 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
             visibility: _isShared ? Visibility.FAMILY : Visibility.PRIVATE,
           );
           final db = provider.db;
-          await provider.saveAndSync(db.copyWith(
-            devotionalEntries: [...db.devotionalEntries, entry],
-          ));
+          await provider.saveAndSync(
+            db.copyWith(
+              devotionalEntries: [...db.devotionalEntries, entry],
+            ),
+            pushTableScope: {CloudSyncScope.devotionals},
+          );
           _topicCtrl.clear();
           if (mounted) widget.onSelectEntry(entry);
         } catch (_) {
@@ -786,9 +898,12 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
             visibility: _isShared ? Visibility.FAMILY : Visibility.PRIVATE,
           );
           final db = provider.db;
-          await provider.saveAndSync(db.copyWith(
-            devotionalEntries: [...db.devotionalEntries, entry],
-          ));
+          await provider.saveAndSync(
+            db.copyWith(
+              devotionalEntries: [...db.devotionalEntries, entry],
+            ),
+            pushTableScope: {CloudSyncScope.devotionals},
+          );
           if (mounted) widget.onSelectEntry(entry);
         }
       }
@@ -1237,10 +1352,16 @@ For each entry's "discussion" field, provide one substantive personal reflection
         );
 
         final db = provider.db;
-        await provider.saveAndSync(db.copyWith(
-          devotionalEntries: [...db.devotionalEntries, ...newEntries],
-          readingPlans: [...db.readingPlans, plan],
-        ));
+        await provider.saveAndSync(
+          db.copyWith(
+            devotionalEntries: [...db.devotionalEntries, ...newEntries],
+            readingPlans: [...db.readingPlans, plan],
+          ),
+          pushTableScope: {
+            CloudSyncScope.devotionals,
+            CloudSyncScope.readingPlans,
+          },
+        );
 
         _customTopicCtrl.clear();
         if (mounted) {
@@ -1258,6 +1379,9 @@ For each entry's "discussion" field, provide one substantive personal reflection
 
   @override
   Widget build(BuildContext context) {
+    final app = context.watch<AppProvider>();
+    final thoughts = app.db.devotionalThoughts;
+    final uid = app.activeUser?.id;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1349,12 +1473,12 @@ For each entry's "discussion" field, provide one substantive personal reflection
           const SizedBox(height: 4),
           ...widget.plans.map((plan) {
             final totalDays = plan.entryIds.length;
-            // Count completed days (entries that have userPrayer or are marked in some way)
             final completedDays = plan.entryIds.where((id) {
               final entry = widget.entries.cast<DevotionalEntry?>().firstWhere(
                 (e) => e?.id == id, orElse: () => null,
               );
-              return entry?.userPrayer != null && entry!.userPrayer!.isNotEmpty;
+              if (entry == null) return false;
+              return _entryHasPersonalPrayer(entry, uid, thoughts);
             }).length;
             final progress = totalDays > 0 ? completedDays / totalDays : 0.0;
 
@@ -1413,6 +1537,7 @@ class _EntryDetailView extends StatelessWidget {
   final DevotionalEntry entry;
   final VoidCallback onBack;
   final VoidCallback onDelete;
+  final Future<void> Function(DevotionalThought thought) onUpsertThought;
   final Future<void> Function(String) onUpdatePrayer;
   final VoidCallback onToggleFavorite;
   final VoidCallback onShare;
@@ -1422,6 +1547,7 @@ class _EntryDetailView extends StatelessWidget {
     required this.entry,
     required this.onBack,
     required this.onDelete,
+    required this.onUpsertThought,
     required this.onUpdatePrayer,
     required this.onToggleFavorite,
     required this.onShare,
@@ -1430,6 +1556,11 @@ class _EntryDetailView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final app = context.watch<AppProvider>();
+    final thoughtsForEntry =
+        app.db.devotionalThoughts.where((t) => t.devotionalId == entry.id).toList();
+    final myPrayer =
+        _myPrayerBody(entry, app.activeUser?.id, app.db.devotionalThoughts);
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(
@@ -1569,6 +1700,16 @@ class _EntryDetailView extends StatelessWidget {
               const SizedBox(height: 20),
             ],
 
+            _DevotionalThoughtsSection(
+              key: ValueKey(entry.id),
+              entry: entry,
+              activeUserId: app.activeUser?.id,
+              users: app.db.users,
+              thoughts: thoughtsForEntry,
+              onUpsertThought: onUpsertThought,
+            ),
+            const SizedBox(height: 20),
+
             // Prayer
             if (entry.prayer != null) ...[
               Container(
@@ -1609,7 +1750,7 @@ class _EntryDetailView extends StatelessWidget {
                         )),
                         const Spacer(),
                         GestureDetector(
-                          onTap: () => _showAddPrayerDialog(context),
+                          onTap: () => _showAddPrayerDialog(context, myPrayer),
                           child: const Text('Add Prayer', style: TextStyle(
                             fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12,
                             color: Color(0xFFF59E0B),
@@ -1619,13 +1760,13 @@ class _EntryDetailView extends StatelessWidget {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      entry.userPrayer?.isNotEmpty == true
-                          ? entry.userPrayer!
+                      myPrayer?.isNotEmpty == true
+                          ? myPrayer!
                           : 'No personal prayer yet. Tap "Add Prayer" to write one.',
                       style: TextStyle(
                         fontFamily: 'Inter', fontSize: 12,
-                        color: entry.userPrayer?.isNotEmpty == true ? AppTheme.stone600 : AppTheme.stone400,
-                        fontStyle: entry.userPrayer?.isNotEmpty == true ? FontStyle.normal : FontStyle.italic,
+                        color: myPrayer?.isNotEmpty == true ? AppTheme.stone600 : AppTheme.stone400,
+                        fontStyle: myPrayer?.isNotEmpty == true ? FontStyle.normal : FontStyle.italic,
                       ),
                     ),
                   ],
@@ -1717,8 +1858,8 @@ class _EntryDetailView extends StatelessWidget {
     );
   }
 
-  void _showAddPrayerDialog(BuildContext context) {
-    final controller = TextEditingController(text: entry.userPrayer ?? '');
+  void _showAddPrayerDialog(BuildContext context, String? initialPrayer) {
+    final controller = TextEditingController(text: initialPrayer ?? '');
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1747,16 +1888,232 @@ class _EntryDetailView extends StatelessWidget {
   }
 }
 
+class _DevotionalThoughtsSection extends StatefulWidget {
+  final DevotionalEntry entry;
+  final String? activeUserId;
+  final List<User> users;
+  final List<DevotionalThought> thoughts;
+  final Future<void> Function(DevotionalThought thought) onUpsertThought;
+
+  const _DevotionalThoughtsSection({
+    super.key,
+    required this.entry,
+    required this.activeUserId,
+    required this.users,
+    required this.thoughts,
+    required this.onUpsertThought,
+  });
+
+  @override
+  State<_DevotionalThoughtsSection> createState() =>
+      _DevotionalThoughtsSectionState();
+}
+
+class _DevotionalThoughtsSectionState extends State<_DevotionalThoughtsSection> {
+  late TextEditingController _controller;
+  final _debounce = Debouncer(duration: const Duration(milliseconds: 650));
+
+  DevotionalThought? _myThought() {
+    final uid = widget.activeUserId;
+    if (uid == null) return null;
+    return widget.thoughts.firstWhereOrNull(
+      (t) => t.userId == uid && t.kind == DevotionalNoteKind.thought,
+    );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    final mine = _myThought();
+    _controller = TextEditingController(text: mine?.body ?? '');
+  }
+
+  @override
+  void dispose() {
+    _debounce.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveFromController() async {
+    final uid = widget.activeUserId;
+    if (uid == null || !mounted) return;
+    final body = _controller.text;
+    var thought = _myThought();
+    thought ??= DevotionalThought(
+      id: DevotionalThought.stableId(
+        widget.entry.id,
+        uid,
+        DevotionalNoteKind.thought,
+      ),
+      devotionalId: widget.entry.id,
+      familyId: widget.entry.familyId,
+      userId: uid,
+      kind: DevotionalNoteKind.thought,
+      body: '',
+    );
+    final next = thought.copyWith(body: body);
+    await widget.onUpsertThought(next);
+  }
+
+  String _displayName(String userId) {
+    final u = widget.users.firstWhereOrNull((x) => x.id == userId);
+    if (u == null || u.name.trim().isEmpty) return 'Family member';
+    return u.name.trim();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final uid = widget.activeUserId;
+    if (uid == null) return const SizedBox.shrink();
+
+    final shared = widget.entry.visibility == Visibility.FAMILY;
+    final others = widget.thoughts
+        .where((t) =>
+            t.userId != uid &&
+            t.kind == DevotionalNoteKind.thought &&
+            t.body.trim().isNotEmpty)
+        .toList()
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEEF2FF),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFFC7D2FE).withValues(alpha: 0.6),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.edit_note_rounded, size: 18, color: AppTheme.primary),
+              const SizedBox(width: 6),
+              const Text(
+                'MY THOUGHTS',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontWeight: FontWeight.w800,
+                  fontSize: 11,
+                  color: AppTheme.primary,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            shared
+                ? 'Saved with this devotional. When it is shared with your home, everyone can read the reflections below.'
+                : 'Only you can see this devotional and your notes.',
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 12,
+              color: AppTheme.stone500,
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _controller,
+            minLines: 3,
+            maxLines: 8,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: InputDecoration(
+              hintText:
+                  'What stood out? Questions? How will you live this out?',
+              filled: true,
+              fillColor: Colors.white,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              contentPadding: const EdgeInsets.all(12),
+            ),
+            onChanged: (_) {
+              _debounce.run(() => unawaited(_saveFromController()));
+            },
+          ),
+          if (shared && others.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Icon(Icons.groups_rounded, size: 16, color: AppTheme.stone500),
+                const SizedBox(width: 6),
+                const Text(
+                  'FROM THE FAMILY',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontWeight: FontWeight.w800,
+                    fontSize: 11,
+                    color: AppTheme.stone500,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            ...others.map(
+              (t) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppTheme.stone200),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _displayName(t.userId),
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                          color: AppTheme.stone700,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        t.body,
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 13,
+                          color: AppTheme.stone600,
+                          height: 1.45,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 // ─── Reading Plan Detail View ────────────────────────────────────────────────
 
 class _ReadingPlanDetailView extends StatefulWidget {
   final ReadingPlan plan;
   final List<DevotionalEntry> entries;
+  final List<DevotionalThought> thoughts;
+  final String? activeUserId;
   final VoidCallback onBack;
 
   const _ReadingPlanDetailView({
     required this.plan,
     required this.entries,
+    required this.thoughts,
+    required this.activeUserId,
     required this.onBack,
   });
 
@@ -1778,10 +2135,11 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
   @override
   void initState() {
     super.initState();
-    // Start at first incomplete day
     final entries = _planEntries;
+    final uid = widget.activeUserId;
+    final thoughts = widget.thoughts;
     for (int i = 0; i < entries.length; i++) {
-      if (entries[i].userPrayer == null || entries[i].userPrayer!.isEmpty) {
+      if (!_entryHasPersonalPrayer(entries[i], uid, thoughts)) {
         _currentDay = i;
         break;
       }
@@ -1793,7 +2151,11 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
     final entries = _planEntries;
     final totalDays = entries.length;
     final currentEntry = _currentDay < entries.length ? entries[_currentDay] : null;
-    final completedCount = entries.where((e) => e.userPrayer != null && e.userPrayer!.isNotEmpty).length;
+    final uid = widget.activeUserId;
+    final thoughts = widget.thoughts;
+    final completedCount = entries
+        .where((e) => _entryHasPersonalPrayer(e, uid, thoughts))
+        .length;
 
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
@@ -1854,8 +2216,8 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
               ],
             ),
             const SizedBox(height: 6),
-            if (widget.plan.description != null)
-              Text(widget.plan.description!, style: const TextStyle(
+            if (widget.plan.description.isNotEmpty)
+              Text(widget.plan.description, style: const TextStyle(
                 fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone500, height: 1.4,
               )),
             const SizedBox(height: 20),
@@ -1866,7 +2228,7 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
               child: Row(
                 children: List.generate(totalDays, (i) {
                   final isComplete = i < entries.length &&
-                      entries[i].userPrayer != null && entries[i].userPrayer!.isNotEmpty;
+                      _entryHasPersonalPrayer(entries[i], uid, thoughts);
                   final isCurrent = i == _currentDay;
                   return GestureDetector(
                     onTap: () => setState(() => _currentDay = i),
@@ -1986,19 +2348,46 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
                     child: ElevatedButton.icon(
                       onPressed: () {
                         HapticFeedback.lightImpact();
-                        // Mark as complete (save a userPrayer marker)
                         final provider = context.read<AppProvider>();
                         final db = provider.db;
-                        final updated = currentEntry.copyWith(
-                          userPrayer: currentEntry.userPrayer?.isNotEmpty == true
-                              ? currentEntry.userPrayer
-                              : 'completed',
+                        final userId = widget.activeUserId;
+                        if (userId == null) return;
+                        final sid = DevotionalThought.stableId(
+                          currentEntry.id,
+                          userId,
+                          DevotionalNoteKind.prayer,
                         );
-                        provider.saveAndSync(db.copyWith(
-                          devotionalEntries: db.devotionalEntries.map(
-                            (e) => e.id == updated.id ? updated : e,
-                          ).toList(),
-                        ));
+                        final existing = db.devotionalThoughts.firstWhereOrNull(
+                          (t) =>
+                              t.devotionalId == currentEntry.id &&
+                              t.userId == userId &&
+                              t.kind == DevotionalNoteKind.prayer,
+                        );
+                        final body = existing?.body.trim().isNotEmpty == true
+                            ? existing!.body
+                            : (currentEntry.userPrayer?.trim().isNotEmpty == true
+                                ? currentEntry.userPrayer!
+                                : 'completed');
+                        final prayerThought = DevotionalThought(
+                          id: sid,
+                          devotionalId: currentEntry.id,
+                          familyId: currentEntry.familyId,
+                          userId: userId,
+                          kind: DevotionalNoteKind.prayer,
+                          body: body,
+                        );
+                        final without =
+                            db.devotionalThoughts.where((t) => t.id != sid).toList();
+                        final cleared = currentEntry.copyWith(userPrayer: null);
+                        provider.saveAndSync(
+                          db.copyWith(
+                            devotionalThoughts: [...without, prayerThought],
+                            devotionalEntries: db.devotionalEntries
+                                .map((e) => e.id == cleared.id ? cleared : e)
+                                .toList(),
+                          ),
+                          pushTableScope: CloudSyncScope.devotionalBundle,
+                        );
                         setState(() {});
                         _showSnack(context, 'Day ${_currentDay + 1} complete!');
                       },
@@ -2080,7 +2469,7 @@ class _DailyDevotionalCardState extends State<_DailyDevotionalCard> {
     await NotificationService.scheduleDaily(
       id: nid,
       title: 'Daily devotional',
-      body: 'Open FamilyHub for today\'s reading.',
+      body: 'Open ${AppConfig.appName} for today\'s reading.',
       time: Time(local.hour, local.minute),
     );
   }

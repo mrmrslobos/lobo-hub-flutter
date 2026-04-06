@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app.dart';
 import 'providers/app_provider.dart';
 import 'services/locale_service.dart';
+import 'services/crash_reporting_service.dart';
 import 'services/notification_service.dart';
 import 'services/purchase_service.dart';
 
@@ -44,6 +45,9 @@ void main() async {
   // Initialize notification service
   await NotificationService.init();
 
+  // Crashlytics after Firebase may have been initialized by notifications (FCM).
+  await CrashReportingService.init();
+
   // Initialize purchase service if keys are provided
   const iosKey = String.fromEnvironment('RC_IOS_KEY', defaultValue: '');
   const androidKey = String.fromEnvironment('RC_ANDROID_KEY', defaultValue: '');
@@ -58,7 +62,7 @@ void main() async {
         ChangeNotifierProvider.value(value: appProvider),
         ChangeNotifierProvider(create: (_) => LocaleService()..init()),
       ],
-      child: const FamilyHubApp(),
+      child: const HuddleApp(),
     ),
   );
 }

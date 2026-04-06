@@ -44,6 +44,9 @@ const TIER_RANK: Record<string, number> = { free: 0, core: 1, ai: 2 };
 
 const TRIAL_MS = 14 * 24 * 60 * 60 * 1000;
 
+/** Reject absurdly large prompts to protect Gemini quota and function wall time. */
+const MAX_PROMPT_CHARS = 180_000;
+
 /** Matches Flutter [Family.hasAIAccess] / [Family.effectiveTrialStart]. */
 function effectiveAiRank(
   subscriptionTier: string | undefined,
@@ -92,6 +95,19 @@ Deno.serve(async (req) => {
       });
     }
 
+    if (typeof prompt !== 'string' || prompt.length > MAX_PROMPT_CHARS) {
+      return new Response(
+        JSON.stringify({
+          error: 'prompt_too_large',
+          maxChars: MAX_PROMPT_CHARS,
+        }),
+        {
+          status: 413,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        },
+      );
+    }
+
     // ── Verify subscription tier ──────────────────────────────────────────
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
@@ -106,7 +122,7 @@ Deno.serve(async (req) => {
 
     if (familyError && familyError.code !== 'PGRST116') {
       // PGRST116 = row not found; allow through (local-only mode)
-      console.warn('[FamilyHub] Could not verify family tier:', familyError.message);
+      console.warn('[Huddle] Could not verify family tier:', familyError.message);
     }
 
     const requiredTier = FEATURE_TIER_MAP[feature];
@@ -172,7 +188,7 @@ Deno.serve(async (req) => {
 
       const errText = await geminiResponse.text();
       lastError = new Error(`Gemini ${model} failed: ${errText}`);
-      console.warn('[FamilyHub]', lastError);
+      console.warn('[Huddle]', lastError);
       geminiResponse = null;
     }
 
@@ -191,7 +207,7 @@ Deno.serve(async (req) => {
     });
 
   } catch (err) {
-    console.error('[FamilyHub] ai-proxy error:', err);
+    console.error('[Huddle] ai-proxy error:', err);
     return new Response(JSON.stringify({ error: String(err) }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

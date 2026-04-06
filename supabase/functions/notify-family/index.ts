@@ -558,6 +558,16 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    const maxBytes = Number(Deno.env.get('NOTIFY_FAMILY_MAX_BODY_BYTES') ?? '262144');
+    const cap = Number.isFinite(maxBytes) && maxBytes > 0 ? Math.floor(maxBytes) : 262144;
+    const cl = req.headers.get('content-length');
+    if (cl != null && Number(cl) > cap) {
+      return new Response(JSON.stringify({ error: 'payload_too_large', maxBytes: cap }), {
+        status: 413,
+        headers: { ...CORS, 'Content-Type': 'application/json' },
+      });
+    }
+
     const body = await req.json();
 
     // Service-role Supabase client for reading device_tokens + users

@@ -1,11 +1,14 @@
 // lib/screens/prayer_wall/prayer_wall_screen.dart
-// Prayer wall screen for FamilyHub
+// Prayer wall screen for Huddle
 // ignore_for_file: use_build_context_synchronously
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../config/app_config.dart';
+import '../../config/cloud_sync_scope.dart';
+import '../../config/module_config.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
@@ -108,11 +111,14 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
     final newPrayed = request.prayedByIds.contains(userId)
         ? request.prayedByIds.where((id) => id != userId).toList()
         : [...request.prayedByIds, userId];
-    await provider.saveAndSync(db.copyWith(
-      prayerRequests: db.prayerRequests
-          .map((r) => r.id == request.id ? r.copyWith(prayedByIds: newPrayed) : r)
-          .toList(),
-    ));
+    await provider.saveAndSync(
+      db.copyWith(
+        prayerRequests: db.prayerRequests
+            .map((r) => r.id == request.id ? r.copyWith(prayedByIds: newPrayed) : r)
+            .toList(),
+      ),
+      pushTableScope: {CloudSyncScope.prayerWall},
+    );
   }
 
   Future<void> _toggleReaction(PrayerRequest request, String emoji, String userId) async {
@@ -123,22 +129,28 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
     final newReactions = hasReacted
         ? request.reactions.where((r) => !(r.userId == userId && r.emoji == emoji)).toList()
         : [...request.reactions, Reaction(userId: userId, emoji: emoji)];
-    await provider.saveAndSync(db.copyWith(
-      prayerRequests: db.prayerRequests
-          .map((r) => r.id == request.id ? r.copyWith(reactions: newReactions) : r)
-          .toList(),
-    ));
+    await provider.saveAndSync(
+      db.copyWith(
+        prayerRequests: db.prayerRequests
+            .map((r) => r.id == request.id ? r.copyWith(reactions: newReactions) : r)
+            .toList(),
+      ),
+      pushTableScope: {CloudSyncScope.prayerWall},
+    );
   }
 
   Future<void> _markAnswered(PrayerRequest request) async {
     HapticFeedback.mediumImpact();
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
-      prayerRequests: db.prayerRequests
-          .map((r) => r.id == request.id ? r.copyWith(answeredAt: DateTime.now()) : r)
-          .toList(),
-    ));
+    await provider.saveAndSync(
+      db.copyWith(
+        prayerRequests: db.prayerRequests
+            .map((r) => r.id == request.id ? r.copyWith(answeredAt: DateTime.now()) : r)
+            .toList(),
+      ),
+      pushTableScope: {CloudSyncScope.prayerWall},
+    );
     if (mounted) {
       _showSnack(context, 'Praise God! Marked as answered');
     }
@@ -147,9 +159,10 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
   Future<void> _deleteRequest(String id) async {
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
-      prayerRequests: db.prayerRequests.where((r) => r.id != id).toList(),
-    ));
+    await provider.saveAndSync(
+      db.copyWith(prayerRequests: db.prayerRequests.where((r) => r.id != id).toList()),
+      pushTableScope: {CloudSyncScope.prayerWall},
+    );
     if (mounted) _showSnack(context, 'Prayer removed');
   }
 
@@ -166,13 +179,15 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
           final provider = context.read<AppProvider>();
           final db = provider.db;
           await provider.saveAndSync(
-              db.copyWith(prayerRequests: [...db.prayerRequests, request]));
+            db.copyWith(prayerRequests: [...db.prayerRequests, request]),
+            pushTableScope: {CloudSyncScope.prayerWall},
+          );
           try {
             final isGratitude = request.type == PrayerWallType.GRATITUDE;
             NotificationService.notifyFamilyActivityWithDb(
               provider.db,
               title: isGratitude ? 'New gratitude shared 🙏' : 'New prayer request 🙏',
-              body: '${provider.activeUser?.name ?? 'Someone'} ${isGratitude ? 'shared a gratitude' : 'added a prayer request'}',
+              body: '${provider.activeUser?.name ?? 'Someone'} ${isGratitude ? 'shared a gratitude' : 'added a prayer request'} in ${AppConfig.appName}.',
               path: '/prayer-wall',
               familyId: provider.activeFamily?.id,
               excludeUserId: provider.activeUser?.id,
@@ -232,13 +247,13 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
     return Scaffold(
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
-      appBar: const FamilyHubAppBar(),
+      appBar: const MainAppBar(),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 32),
         children: [
           // ── Page Header ──
           PageHeader(
-            title: 'Prayer Wall',
+            title: screenTitleForModulePath('/prayer-wall'),
             subtitle: 'Share gratitude, lift up prayers, and celebrate answered ones.',
             actions: [
               ActionChipButton(

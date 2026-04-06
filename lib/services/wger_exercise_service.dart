@@ -14,7 +14,7 @@ class WgerExerciseImageService {
   static final _mem = <String, String?>{};
 
   static const _headers = {
-    'User-Agent': 'FamilyHub/1.0 (+https://github.com/mrmrslobos/lobo-hub-flutter)',
+    'User-Agent': 'Huddle/1.0 (+https://github.com/mrmrslobos/lobo-hub-flutter)',
     'Accept': 'application/json',
   };
 

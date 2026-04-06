@@ -2,7 +2,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "FamilyHub (Dev)",
+      "name": "Huddle (Dev)",
       "request": "launch",
       "type": "dart",
       "program": "lib/main.dart",
@@ -11,7 +11,7 @@
       ]
     },
     {
-      "name": "FamilyHub (Dev - no Supabase)",
+      "name": "Huddle (Dev - no Supabase)",
       "request": "launch",
       "type": "dart",
       "program": "lib/main.dart"

@@ -4,6 +4,9 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../config/app_config.dart';
+import '../../config/cloud_sync_scope.dart';
+import '../../config/module_config.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
@@ -157,9 +160,10 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
     if (confirmed != true) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
-      occasions: db.occasions.where((o) => o.id != id).toList(),
-    ));
+    await provider.saveAndSync(
+      db.copyWith(occasions: db.occasions.where((o) => o.id != id).toList()),
+      pushTableScope: CloudSyncScope.occasionBundle,
+    );
   }
 
   void _showAddSheet({Occasion? editOccasion}) {
@@ -173,15 +177,21 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
           final provider = context.read<AppProvider>();
           final db = provider.db;
           if (editOccasion != null) {
-            await provider.saveAndSync(db.copyWith(
-              occasions: db.occasions.map((o) => o.id == editOccasion.id ? occasion : o).toList(),
-            ));
+            await provider.saveAndSync(
+              db.copyWith(
+                occasions: db.occasions.map((o) => o.id == editOccasion.id ? occasion : o).toList(),
+              ),
+              pushTableScope: CloudSyncScope.occasionBundle,
+            );
           } else {
-            await provider.saveAndSync(db.copyWith(occasions: [...db.occasions, occasion]));
+            await provider.saveAndSync(
+              db.copyWith(occasions: [...db.occasions, occasion]),
+              pushTableScope: CloudSyncScope.occasionBundle,
+            );
             NotificationService.notifyFamilyActivityWithDb(
               provider.db,
-              title: 'New Occasion Added',
-              body: '${provider.activeUser?.name ?? "Someone"} added: ${occasion.title}',
+              title: 'New occasion',
+              body: '${provider.activeUser?.name ?? "Someone"} added ${occasion.title} in ${AppConfig.appName}.',
               path: '/birthdays',
               familyId: provider.activeFamily?.id,
               excludeUserId: provider.activeUser?.id,
@@ -299,13 +309,13 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
     return Scaffold(
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
-      appBar: const FamilyHubAppBar(),
+      appBar: const MainAppBar(),
       body: ListView(
         padding: EdgeInsets.zero,
         children: [
           // ── Page Header ──
           PageHeader(
-            title: 'Occasions',
+            title: screenTitleForModulePath('/birthdays'),
             subtitle: 'Birthdays, anniversaries & special dates.',
             actions: [
               ActionChipButton(
@@ -473,40 +483,15 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: AppTheme.stone100),
                 ),
-                child: Column(
-                  children: [
-                    Container(
-                      width: 56,
-                      height: 56,
-                      decoration: const BoxDecoration(
-                        color: AppTheme.stone50,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.celebration_outlined, size: 28, color: AppTheme.stone300),
-                    ),
-                    const SizedBox(height: 12),
-                    const Text('No occasions yet', style: TextStyle(
-                      fontFamily: 'Inter', fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.stone500,
-                    )),
-                    const SizedBox(height: 4),
-                    const Text('Add birthdays, anniversaries, and more', style: TextStyle(
-                      fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400,
-                    )),
-                    const SizedBox(height: 16),
-                    GestureDetector(
-                      onTap: () => _showAddSheet(),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: AppTheme.primary,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Text('+ Add Occasion', style: TextStyle(
-                          fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white,
-                        )),
-                      ),
-                    ),
-                  ],
+                child: EmptyState(
+                  compact: true,
+                  emoji: '🎂',
+                  emojiSize: 44,
+                  title: 'No occasions yet',
+                  subtitle:
+                      'Birthdays, anniversaries, and milestones show up on the calendar and stay visible for the whole family.',
+                  actionLabel: 'Add occasion',
+                  onAction: () => _showAddSheet(),
                 ),
               ),
             )

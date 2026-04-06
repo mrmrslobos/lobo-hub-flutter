@@ -257,7 +257,7 @@ async function createVapidJwt(
 
   const enc = new TextEncoder();
   const headerB64 = bytesToBase64url(enc.encode(JSON.stringify({ typ: 'JWT', alg: 'ES256' })));
-  const payloadB64 = bytesToBase64url(enc.encode(JSON.stringify({ aud: audience, exp, sub: 'mailto:push@familyhub.app' })));
+  const payloadB64 = bytesToBase64url(enc.encode(JSON.stringify({ aud: audience, exp, sub: 'mailto:push@huddleapp.com.au' })));
   const signingInput = `${headerB64}.${payloadB64}`;
 
   const pubBytes = base64urlToBytes(vapidPublicKeyB64);
@@ -603,6 +603,20 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    // Cap work per cron tick so the function stays under CPU/time limits when
+    // many families share the same UTC window.
+    const maxPerRun = Number(Deno.env.get('DAILY_DEVOTIONAL_MAX_PER_RUN') ?? '10');
+    const cap = Number.isFinite(maxPerRun) && maxPerRun > 0 ? Math.floor(maxPerRun) : 10;
+    let runCandidates = candidates;
+    let truncated = 0;
+    if (candidates.length > cap) {
+      truncated = candidates.length - cap;
+      runCandidates = candidates.slice(0, cap);
+      console.warn(
+        `[daily-devotional] Truncating ${truncated} candidate(s); max per run=${cap}. Raise DAILY_DEVOTIONAL_MAX_PER_RUN or narrow the cron window if needed.`,
+      );
+    }
+
     // -----------------------------------------------------------------------
     // Check for today's date to avoid duplicate generation
     // -----------------------------------------------------------------------
@@ -618,9 +632,9 @@ Deno.serve(async (req: Request) => {
     let totalSent = 0;
     let totalPruned = 0;
 
-    const uniqueFamilyIds = [...new Set(candidates.map((c) => c.familyId))];
+    const uniqueFamilyIds = [...new Set(runCandidates.map((c) => c.familyId))];
 
-    for (const cand of candidates) {
+    for (const cand of runCandidates) {
       const { data: existingRows } = await supabase
         .from('devotionals')
         .select('id, tags, creator_id')
@@ -786,7 +800,9 @@ Deno.serve(async (req: Request) => {
     return new Response(
       JSON.stringify({
         families: uniqueFamilyIds.length,
-        members: candidates.length,
+        members: runCandidates.length,
+        candidatesTotal: candidates.length,
+        truncated,
         generated: totalGenerated,
         sent: totalSent,
         pruned: totalPruned,

@@ -1,5 +1,5 @@
 // lib/screens/calendar/calendar_screen.dart
-// Calendar screen for FamilyHub
+// Calendar screen for Huddle
 // ignore_for_file: use_build_context_synchronously
 
 import 'dart:convert';
@@ -12,6 +12,9 @@ import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../config/app_config.dart';
+import '../../config/cloud_sync_scope.dart';
+import '../../config/module_config.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
@@ -22,6 +25,7 @@ import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/debounce.dart';
+import '../../utils/cloud_pull.dart';
 
 enum _EventRsvpChoice { yes, no, maybe, clear }
 
@@ -112,9 +116,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
       );
 
       final db = provider.db;
-      await provider.saveAndSync(db.copyWith(
-        events: [...db.events, event],
-      ));
+      await provider.saveAndSync(
+        db.copyWith(events: [...db.events, event]),
+        pushTableScope: {CloudSyncScope.events},
+      );
 
       _aiController.clear();
       if (mounted) {
@@ -254,7 +259,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
         db = db.copyWith(events: [...existingEvents, ...events]);
       }
 
-      await provider.saveAndSync(db);
+      await provider.saveAndSync(
+        db,
+        pushTableScope: CloudSyncScope.calendarBundle,
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Synced ${selected.length} calendar(s) from Google')),
@@ -310,10 +318,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
           .map((c) => c.id == cal.id ? updatedCal : c)
           .toList();
 
-      await provider.saveAndSync(db.copyWith(
-        events: [...otherEvents, ...newEvents],
-        externalCalendars: updatedCalendars,
-      ));
+      await provider.saveAndSync(
+        db.copyWith(
+          events: [...otherEvents, ...newEvents],
+          externalCalendars: updatedCalendars,
+        ),
+        pushTableScope: CloudSyncScope.calendarBundle,
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -350,10 +361,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
-      externalCalendars: db.externalCalendars.where((c) => c.id != cal.id).toList(),
-      events: db.events.where((e) => e.externalCalendarId != cal.id).toList(),
-    ));
+    await provider.saveAndSync(
+      db.copyWith(
+        externalCalendars: db.externalCalendars.where((c) => c.id != cal.id).toList(),
+        events: db.events.where((e) => e.externalCalendarId != cal.id).toList(),
+      ),
+      pushTableScope: CloudSyncScope.calendarBundle,
+    );
   }
 
   // ── ICS URL Import ───────────────────────────────────────────────────────
@@ -396,10 +410,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
       );
 
       final db = provider.db;
-      await provider.saveAndSync(db.copyWith(
-        externalCalendars: [...db.externalCalendars, extCal],
-        events: [...db.events, ...events],
-      ));
+      await provider.saveAndSync(
+        db.copyWith(
+          externalCalendars: [...db.externalCalendars, extCal],
+          events: [...db.events, ...events],
+        ),
+        pushTableScope: CloudSyncScope.calendarBundle,
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -503,7 +520,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
   Future<void> _deleteEvent(AppProvider provider, CalendarEvent event) async {
     final db = provider.db;
     final events = db.events.where((e) => e.id != event.id).toList();
-    await provider.saveAndSync(db.copyWith(events: events));
+    await provider.saveAndSync(
+      db.copyWith(events: events),
+      pushTableScope: {CloudSyncScope.events},
+    );
   }
 
   Future<void> _saveEventRsvp(CalendarEvent event, String userId, _EventRsvpChoice choice) async {
@@ -536,7 +556,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
       updatedAt: DateTime.now(),
     );
     final events = db.events.map((e) => e.id == event.id ? updated : e).toList();
-    await provider.saveAndSync(db.copyWith(events: events));
+    await provider.saveAndSync(
+      db.copyWith(events: events),
+      pushTableScope: {CloudSyncScope.events},
+    );
     if (mounted) setState(() {});
   }
 
@@ -566,13 +589,17 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
         return Scaffold(
           drawer: const AppDrawer(),
-          appBar: const FamilyHubAppBar(),
-          body: ListView(
-            padding: EdgeInsets.zero,
-            children: [
+          appBar: const MainAppBar(),
+          body: RefreshIndicator(
+            color: AppTheme.primary,
+            onRefresh: () => pullCloudLatestWithHaptic(context),
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: EdgeInsets.zero,
+              children: [
               // Page Header
               PageHeader(
-                title: 'Calendar',
+                title: screenTitleForModulePath('/calendar'),
                 subtitle: 'Stay in sync with your family.',
                 actions: [
                   ActionChipButton(
@@ -1328,6 +1355,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
               const SizedBox(height: 100),
             ],
+            ),
           ),
         );
       },
@@ -1890,12 +1918,15 @@ class _EventFormSheetState extends State<_EventFormSheet> {
       } else {
         events = [...db.events, event];
       }
-      await provider.saveAndSync(db.copyWith(events: events));
+      await provider.saveAndSync(
+        db.copyWith(events: events),
+        pushTableScope: {CloudSyncScope.events},
+      );
       if (widget.editEvent == null) {
         NotificationService.notifyFamilyActivityWithDb(
           provider.db,
-          title: 'New Calendar Event',
-          body: '${provider.activeUser?.name ?? "Someone"} added: ${event.title}',
+          title: 'New calendar event',
+          body: '${provider.activeUser?.name ?? "Someone"} added ${event.title} in ${AppConfig.appName}.',
           path: '/calendar',
           familyId: provider.activeFamily?.id,
           excludeUserId: provider.activeUser?.id,
@@ -2427,7 +2458,7 @@ class _MyCalendarsSheet extends StatelessWidget {
                     const Expanded(child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('FamilyHub Calendar', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.stone900)),
+                        Text('Huddle Calendar', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.stone900)),
                         Text('Local events', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
                       ],
                     )),
@@ -2747,11 +2778,14 @@ class _EventPlannerWizardState extends State<_EventPlannerWizard> {
       }).toList();
 
       final db = provider.db;
-      await provider.saveAndSync(db.copyWith(
-        events: [...db.events, event],
-        tasks: [...db.tasks, ...newTasks],
-        lists: [...db.lists, ...newLists],
-      ));
+      await provider.saveAndSync(
+        db.copyWith(
+          events: [...db.events, event],
+          tasks: [...db.tasks, ...newTasks],
+          lists: [...db.lists, ...newLists],
+        ),
+        pushTableScope: CloudSyncScope.eventPlannerAiBundle,
+      );
 
       setState(() {
         _planResult = result;

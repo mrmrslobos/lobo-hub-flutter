@@ -11,8 +11,11 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../config/cloud_sync_scope.dart';
+import '../../config/module_config.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
+import '../../utils/module_disclaimer.dart';
 import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
 import '../../services/exercise_pr_service.dart';
@@ -200,7 +203,7 @@ Future<void> _persistCompletedWorkout(
     } else if (context.mounted) {
       _showSnack(
         context,
-        'Could not save to Health (install Health Connect on Android or enable HealthKit). Workout saved in FamilyHub.',
+        'Could not save to Health (install Health Connect on Android or enable HealthKit). Workout saved in Huddle.',
       );
     }
   }
@@ -210,7 +213,10 @@ Future<void> _persistCompletedWorkout(
     workoutExercises: [...next.workoutExercises, ...exercises],
     workoutSets: [...next.workoutSets, ...sets],
   );
-  await provider.saveAndSync(next);
+  await provider.saveAndSync(
+    next,
+    pushTableScope: CloudSyncScope.fitnessFullBundle,
+  );
 }
 
 String? _exerciseImageUrl(Map exercise) {
@@ -304,6 +310,21 @@ class _FitnessScreenState extends State<FitnessScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context
+          .read<AppProvider>()
+          .scheduleModuleEnterCloudPull(CloudSyncScope.fitnessFullBundle);
+      showModuleDisclaimer(
+        context: context,
+        moduleKey: 'fitness',
+        title: 'Fitness Disclaimer',
+        icon: Icons.fitness_center_rounded,
+        body: 'Fitness features including AI-generated workout plans are for informational purposes only.\n\n'
+            'Consult a healthcare professional before starting any new exercise program, especially if you have pre-existing health conditions.\n\n'
+            'Stop exercising immediately if you feel pain, dizziness, or discomfort. This app does not provide professional fitness or medical advice.',
+      );
+    });
     _logSearchCtrl.addListener(() {
       final t = _logSearchCtrl.text;
       _logSearchDebounce.run(() {
@@ -443,7 +464,10 @@ Write 2-4 short paragraphs: (1) what went well or patterns you notice, (2) one c
         onSave: (metric) async {
           final provider = context.read<AppProvider>();
           final db = provider.db;
-          await provider.saveAndSync(db.copyWith(fitness: [...db.fitness, metric]));
+          await provider.saveAndSync(
+            db.copyWith(fitness: [...db.fitness, metric]),
+            pushTableScope: {CloudSyncScope.fitness},
+          );
         },
       ),
     );
@@ -466,6 +490,7 @@ Write 2-4 short paragraphs: (1) what went well or patterns you notice, (2) one c
       db.copyWith(
         users: db.users.map((u) => u.id == user.id ? updatedUser : u).toList(),
       ),
+      pushTableScope: <String>{},
     );
     if (mounted) {
       _showSnack(
@@ -496,7 +521,10 @@ Write 2-4 short paragraphs: (1) what went well or patterns you notice, (2) one c
             'family_id': family.id,
             'created_at': DateTime.now().toIso8601String(),
           });
-          await provider.saveAndSync(db.copyWith(fitnessPlans: plans));
+          await provider.saveAndSync(
+            db.copyWith(fitnessPlans: plans),
+            pushTableScope: {CloudSyncScope.fitnessPlans},
+          );
           if (mounted) setState(() => _selectedPlanIndex = 0);
         },
       ),
@@ -517,11 +545,14 @@ Write 2-4 short paragraphs: (1) what went well or patterns you notice, (2) one c
     final sessionsToKeep =
         db.workoutSessions.where((s) => s.id != sessionId).toList();
 
-    await provider.saveAndSync(db.copyWith(
-      workoutSessions: sessionsToKeep,
-      workoutExercises: exercisesToKeep,
-      workoutSets: setsToKeep,
-    ));
+    await provider.saveAndSync(
+      db.copyWith(
+        workoutSessions: sessionsToKeep,
+        workoutExercises: exercisesToKeep,
+        workoutSets: setsToKeep,
+      ),
+      pushTableScope: CloudSyncScope.workoutSessionBundle,
+    );
   }
 
   @override
@@ -607,13 +638,13 @@ Write 2-4 short paragraphs: (1) what went well or patterns you notice, (2) one c
     return Scaffold(
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
-      appBar: const FamilyHubAppBar(),
+      appBar: const MainAppBar(),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 32),
         children: [
           // ── Page Header ──
           PageHeader(
-            title: '💪 Fitness',
+            title: screenTitleForModulePath('/fitness'),
             subtitle: 'Track workouts, weight & stay active together.',
             actions: [
               ActionChipButton(
@@ -1340,12 +1371,21 @@ class _StoredPlanViewState extends State<_StoredPlanView> {
         final idx = plans.indexWhere((p) => p is Map && fitnessPlanStableId(p) == sid);
         if (idx >= 0) {
           plans[idx] = planMap;
-          await provider.saveAndSync(db.copyWith(fitnessPlans: plans));
+          await provider.saveAndSync(
+            db.copyWith(fitnessPlans: plans),
+            pushTableScope: {CloudSyncScope.fitnessPlans},
+          );
         } else {
-          await provider.saveAndSync(db);
+          await provider.saveAndSync(
+            db,
+            pushTableScope: CloudSyncScope.fitnessFullBundle,
+          );
         }
       } else {
-        await provider.saveAndSync(db);
+        await provider.saveAndSync(
+          db,
+          pushTableScope: CloudSyncScope.fitnessFullBundle,
+        );
       }
       if (mounted) {
         setState(() {});
@@ -1562,7 +1602,10 @@ Apply the requested change while keeping everything else sensible.
           'family_id': familyId,
           'created_at': DateTime.now().toIso8601String(),
         });
-        await provider.saveAndSync(db.copyWith(fitnessPlans: plans));
+        await provider.saveAndSync(
+          db.copyWith(fitnessPlans: plans),
+          pushTableScope: {CloudSyncScope.fitnessPlans},
+        );
 
         if (mounted) {
           _refineController.clear();

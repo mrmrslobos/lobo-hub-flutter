@@ -1,15 +1,19 @@
 // lib/screens/habits/habits_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../config/cloud_sync_scope.dart';
+import '../../config/module_config.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../utils/debounce.dart';
+import '../../utils/cloud_pull.dart';
 
 const _uuid = Uuid();
 
@@ -62,6 +66,17 @@ class _HabitsScreenState extends State<HabitsScreen> {
   String _searchQuery = '';
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context
+          .read<AppProvider>()
+          .scheduleModuleEnterCloudPull(CloudSyncScope.habitBundle);
+    });
+  }
+
+  @override
   void dispose() {
     _searchDebounce.dispose();
     _searchCtrl.dispose();
@@ -110,15 +125,19 @@ class _HabitsScreenState extends State<HabitsScreen> {
     return Scaffold(
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
-      appBar: const FamilyHubAppBar(),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.only(bottom: 32),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      appBar: const MainAppBar(),
+      body: RefreshIndicator(
+        color: AppTheme.primary,
+        onRefresh: () => pullCloudLatestWithHaptic(context),
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.only(bottom: 32),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
             // ─── Header ──────────────────────────────────────────
             PageHeader(
-              title: '\u{1F3AF} Daily Habits',
+              title: screenTitleForModulePath('/habits'),
               subtitle: DateFormat('EEEE, MMMM d').format(today),
               actions: [
                 ActionChipButton(
@@ -267,7 +286,13 @@ class _HabitsScreenState extends State<HabitsScreen> {
                         onDismissed: (_) async {
                           final updatedHabits = db.dailyHabits.where((h) => h.id != habit.id).toList();
                           final updatedCompletions = db.habitCompletions.where((c) => c.habitId != habit.id).toList();
-                          await provider.saveAndSync(db.copyWith(dailyHabits: updatedHabits, habitCompletions: updatedCompletions));
+                          await provider.saveAndSync(
+                            db.copyWith(
+                                dailyHabits: updatedHabits,
+                                habitCompletions: updatedCompletions,
+                              ),
+                            pushTableScope: CloudSyncScope.habitBundle,
+                          );
                           if (context.mounted) _showSnack(context, 'Habit deleted');
                         },
                         background: Container(
@@ -302,7 +327,8 @@ class _HabitsScreenState extends State<HabitsScreen> {
                   ],
                 ),
               ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -315,6 +341,7 @@ class _HabitsScreenState extends State<HabitsScreen> {
     DailyHabit habit, bool isDone, User user,
     List<DailyHabitCompletion> todayCompletions,
   ) async {
+    HapticFeedback.lightImpact();
     List<DailyHabitCompletion> updated;
     if (isDone) {
       updated = db.habitCompletions
@@ -330,7 +357,8 @@ class _HabitsScreenState extends State<HabitsScreen> {
       );
       updated = [...db.habitCompletions, completion];
     }
-    await provider.saveAndSync(db.copyWith(habitCompletions: updated));
+    await provider.saveAndSync(db.copyWith(habitCompletions: updated),
+        pushTableScope: CloudSyncScope.habitBundle);
   }
 
   // ─── Habit options (edit / delete) ──────────────────────────────────────────
@@ -436,7 +464,13 @@ class _HabitsScreenState extends State<HabitsScreen> {
                 if (confirmed != true) return;
                 final updated = db.dailyHabits.where((h) => h.id != habit.id).toList();
                 final updatedCompletions = db.habitCompletions.where((c) => c.habitId != habit.id).toList();
-                await provider.saveAndSync(db.copyWith(dailyHabits: updated, habitCompletions: updatedCompletions));
+                await provider.saveAndSync(
+                    db.copyWith(
+                        dailyHabits: updated,
+                        habitCompletions: updatedCompletions,
+                      ),
+                    pushTableScope: CloudSyncScope.habitBundle,
+                  );
                 if (context.mounted) _showSnack(context, 'Habit deleted');
               },
             ),
@@ -468,7 +502,8 @@ class _HabitsScreenState extends State<HabitsScreen> {
           } else {
             updatedHabits = [...db.dailyHabits, habit];
           }
-          await provider.saveAndSync(db.copyWith(dailyHabits: updatedHabits));
+          await provider.saveAndSync(db.copyWith(dailyHabits: updatedHabits),
+              pushTableScope: CloudSyncScope.habitBundle);
         },
         userId: user.id,
         familyId: family.id,

@@ -12,7 +12,7 @@
 1. Go to **APIs & Services > Credentials**
 2. Create an **OAuth 2.0 Client ID** for Android:
    - Application type: Android
-   - Package name: `com.lobohub.app`
+   - Package name: `com.opensolutions.huddle`
    - SHA-1 fingerprint: Run `cd android && ./gradlew signingReport`
 3. Download `google-services.json` from your Firebase project (or create one)
 4. Place it at `android/app/google-services.json`
@@ -23,7 +23,7 @@
 
 1. Create an **OAuth 2.0 Client ID** for iOS:
    - Application type: iOS
-   - Bundle ID: `com.lobohub.app`
+   - Bundle ID: `com.opensolutions.huddle`
 2. Download the `GoogleService-Info.plist`
 3. Place it at `ios/Runner/GoogleService-Info.plist`
 4. In `ios/Runner/Info.plist`, replace the two placeholder values:

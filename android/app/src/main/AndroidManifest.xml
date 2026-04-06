@@ -40,10 +40,10 @@
     <uses-permission android:name="android.permission.USE_FINGERPRINT"/>
 
     <application
-        android:label="FamilyHub"
+        android:label="Huddle"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
-        android:roundIcon="@mipmap/ic_launcher_round"
+        android:roundIcon="@mipmap/ic_launcher"
         android:allowBackup="false"
         android:supportsRtl="true"
         android:usesCleartextTraffic="false">
@@ -85,18 +85,18 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
 
-            <!-- OAuth deep link: com.lobohub.app:// -->
-            <intent-filter android:label="FamilyHub">
+            <!-- OAuth deep link: com.opensolutions.huddle:// -->
+            <intent-filter android:label="Huddle">
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data
-                    android:scheme="com.lobohub.app"
+                    android:scheme="com.opensolutions.huddle"
                     android:host="*"/>
             </intent-filter>
 
             <!-- App Links: https://lobohub.app -->
-            <intent-filter android:autoVerify="true" android:label="FamilyHub">
+            <intent-filter android:autoVerify="true" android:label="Huddle">
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>

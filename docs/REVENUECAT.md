@@ -1,17 +1,17 @@
-# RevenueCat setup (FamilyHub / LoboHub)
+# RevenueCat setup (Huddle / LoboHub)
 
 This app uses [RevenueCat](https://www.revenuecat.com/) via `purchases_flutter` for App Store and Google Play subscriptions. Server-side tier enforcement can stay in Supabase; RevenueCat is the source of truth for **what the user paid for on the stores**.
 
 ## 1. Create a RevenueCat project
 
 1. Sign up at [app.revenuecat.com](https://app.revenuecat.com) and create a project.
-2. Add **iOS** and **Android** apps with the same bundle / application id as this Flutter app (`com.lobohub.app` unless you change it in Xcode / Gradle).
+2. Add **iOS** and **Android** apps with the same bundle / application id as this Flutter app (`com.opensolutions.huddle` unless you change it in Xcode / Gradle).
 3. Copy the **public API keys** (iOS and Android) for use at build time (see below).
 
 ## 2. App Store Connect (iOS)
 
 1. In [App Store Connect](https://appstoreconnect.apple.com/), create **subscription group(s)** and subscription products (monthly / annual) for Base, AI, and AI Family (or your chosen lineup).
-2. Note each **product identifier** (e.g. `com.lobohub.app.base.monthly`).
+2. Note each **product identifier** (e.g. `com.opensolutions.huddle.base.monthly`).
 3. In RevenueCat → **Products**, add those App Store product IDs and link them to an **Entitlement**.
 
 ## 3. Google Play Console (Android)
