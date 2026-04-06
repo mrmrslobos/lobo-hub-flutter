@@ -72,7 +72,7 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && _provider.isAuthenticated) {
-      _provider.refreshFromCloud();
+      _provider.onAppResumed();
       unawaited(_provider.refreshStoreSubscription());
       _consumePendingRoute();
     }

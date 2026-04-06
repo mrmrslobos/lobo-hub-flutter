@@ -7,6 +7,8 @@ import 'package:uuid/uuid.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
+import '../../config/cloud_sync_scope.dart';
+import '../../config/module_config.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
@@ -147,7 +149,10 @@ class _PhotosScreenState extends State<PhotosScreen> {
       tags: [],
       createdAt: DateTime.now(),
     );
-    await provider.saveAndSync(db.copyWith(photos: [...db.photos, photo]));
+    await provider.saveAndSync(
+      db.copyWith(photos: [...db.photos, photo]),
+      pushTableScope: CloudSyncScope.photoMilestoneBundle,
+    );
 
     try {
       NotificationService.notifyFamilyActivityWithDb(
@@ -202,7 +207,10 @@ class _PhotosScreenState extends State<PhotosScreen> {
     if (confirmed != true || !mounted) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(photos: db.photos.where((p) => p.id != id).toList()));
+    await provider.saveAndSync(
+      db.copyWith(photos: db.photos.where((p) => p.id != id).toList()),
+      pushTableScope: CloudSyncScope.photoMilestoneBundle,
+    );
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -242,7 +250,10 @@ class _PhotosScreenState extends State<PhotosScreen> {
         visibility: p.visibility,
       );
     }).toList();
-    await provider.saveAndSync(db.copyWith(photos: updatedPhotos));
+    await provider.saveAndSync(
+      db.copyWith(photos: updatedPhotos),
+      pushTableScope: CloudSyncScope.photoMilestoneBundle,
+    );
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -283,7 +294,10 @@ class _PhotosScreenState extends State<PhotosScreen> {
       );
     }).toList();
 
-    await provider.saveAndSync(db.copyWith(photos: updatedPhotos));
+    await provider.saveAndSync(
+      db.copyWith(photos: updatedPhotos),
+      pushTableScope: CloudSyncScope.photoMilestoneBundle,
+    );
   }
 
   Future<void> _deleteMilestone(Milestone ms) async {
@@ -320,9 +334,10 @@ class _PhotosScreenState extends State<PhotosScreen> {
 
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
-      milestones: db.milestones.where((m) => m.id != ms.id).toList(),
-    ));
+    await provider.saveAndSync(
+      db.copyWith(milestones: db.milestones.where((m) => m.id != ms.id).toList()),
+      pushTableScope: CloudSyncScope.photoMilestoneBundle,
+    );
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -540,7 +555,7 @@ class _PhotosScreenState extends State<PhotosScreen> {
     return Scaffold(
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
-      appBar: const HuddleAppBar(),
+      appBar: const MainAppBar(),
       body: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
         child: Column(
@@ -548,7 +563,7 @@ class _PhotosScreenState extends State<PhotosScreen> {
           children: [
             // ─── Header ───────────────────────────────────────────
             PageHeader(
-              title: '\u{1F4F8} Family Photos',
+              title: screenTitleForModulePath('/photos'),
               subtitle: 'Your private family album & milestone moments',
               actions: [
                 ActionChipButton(
@@ -1343,7 +1358,10 @@ class _AddMilestoneSheetState extends State<_AddMilestoneSheet> {
           createdAt: m.createdAt,
         );
       }).toList();
-      await provider.saveAndSync(db.copyWith(milestones: updatedMilestones));
+      await provider.saveAndSync(
+        db.copyWith(milestones: updatedMilestones),
+        pushTableScope: CloudSyncScope.photoMilestoneBundle,
+      );
     } else {
       final milestone = Milestone(
         id: const Uuid().v4(),
@@ -1357,7 +1375,10 @@ class _AddMilestoneSheetState extends State<_AddMilestoneSheet> {
         ageLabel: _ageLabelCtrl.text.trim().isEmpty ? null : _ageLabelCtrl.text.trim(),
         createdAt: DateTime.now(),
       );
-      await provider.saveAndSync(db.copyWith(milestones: [...db.milestones, milestone]));
+      await provider.saveAndSync(
+        db.copyWith(milestones: [...db.milestones, milestone]),
+        pushTableScope: CloudSyncScope.photoMilestoneBundle,
+      );
     }
 
     if (mounted) {

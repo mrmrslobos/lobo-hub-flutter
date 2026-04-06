@@ -1,47 +1,56 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Huddle (LoboHub)
 
-# Run and deploy your AI Studio app
+Flutter mobile app for family life — tasks, calendar, meals, budget, chat, and many more modules. Cloud sync and auth use **Supabase** (PostgreSQL, Row Level Security, Edge Functions).
 
-This contains everything you need to run your app locally.
+## Prerequisites
 
-View your app in AI Studio: https://ai.studio/apps/drive/15p7AfHNwBt9GtTlvVAhRnIfTcMPJ34Sm
+- **Flutter ≥ 3.35** (Dart ≥ 3.9) — see `pubspec.yaml` and [`AGENTS.md`](AGENTS.md) for SDK notes.
+- For **web**: generate the platform folder once (it may be gitignored):
 
-## Run Locally
+  ```bash
+  flutter create --platforms web .
+  ```
 
-**Prerequisites:**  Node.js
+## Run locally
 
+```bash
+flutter pub get
+flutter run
+```
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+Run **without Supabase** (local-only / `SharedPreferences`): use your editor’s “Dev - no Supabase” launch config or omit `--dart-define` flags.
 
+Run **with Supabase** (example):
 
-## Vercel + Supabase setup
+```bash
+flutter run \
+  --dart-define=SUPABASE_URL=https://your-project.supabase.co \
+  --dart-define=SUPABASE_ANON_KEY=your-anon-key
+```
 
-To make cloud sync use Supabase in a Vercel deployment, set these **Environment Variables** in Vercel project settings:
+More detail: [`AGENTS.md`](AGENTS.md) (web port, RevenueCat `--dart-define`, Android/iOS build commands).
 
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_ANON_KEY`
-- `VITE_GEMINI_API_KEY` (or keep your existing Gemini key mapping strategy)
+## Repository layout
 
-Then redeploy.
+| Path | Purpose |
+|------|---------|
+| `lib/` | Flutter app |
+| `supabase/migrations/` | Postgres schema + RLS (apply in order) |
+| `supabase/functions/` | Edge Functions (TypeScript / Deno) |
+| `docs/migration_rollout.md` | Deployment order and client compatibility |
+| `docs/rls_access_matrix.md` | High-level RLS expectations |
 
-> Note: In Vite apps, only variables prefixed with `VITE_` are exposed to browser code at build time.
+This repo does **not** use `npm run dev` or Vite; ignore any leftover references to an AI Studio / npm template in older snippets.
 
-### Troubleshooting production env vars
+## Database / production checks
 
-If Gemini calls fail in production, verify at least one of these is set in Vercel:
+- Apply migrations in numeric order in the Supabase SQL editor or CLI.
+- After production deploys, optional sanity checks: [`supabase/scripts/verify_prod_rls_assumptions.sql`](supabase/scripts/verify_prod_rls_assumptions.sql).
 
-- `VITE_GEMINI_API_KEY` (recommended)
-- `GEMINI_API_KEY`
-- `API_KEY`
+## Lint
 
-If Supabase sync does not write to the database:
+```bash
+flutter analyze
+```
 
-1. Ensure `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are set (recommended for this Vite app).
-2. Run [supabase/schema.sql](supabase/schema.sql) in the Supabase SQL editor so tables + policies exist.
-3. Confirm table names in Supabase match the app sync map (`users`, `families`, `tasks`, etc.).
+Pre-existing info-level warnings are expected unless you are tightening lint policy on purpose.

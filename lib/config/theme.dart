@@ -20,6 +20,21 @@ class AppTheme {
   static const Color success = Color(0xFF16A34A);
   static const Color warning = Color(0xFFD97706);
 
+  /// Spacing scale for consistent padding/gaps across screens.
+  static const double space2 = 4;
+  static const double space3 = 8;
+  static const double space4 = 12;
+  static const double space5 = 16;
+  static const double space6 = 20;
+  static const double space8 = 24;
+  static const double space10 = 32;
+
+  /// Corner radii aligned with Material cards and bottom sheets.
+  static const double radiusSm = 12;
+  static const double radiusMd = 16;
+  static const double radiusLg = 20;
+  static const double radiusXl = 24;
+
   static ThemeData get lightTheme {
     return ThemeData(
       useMaterial3: true,

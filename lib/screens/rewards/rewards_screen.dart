@@ -6,6 +6,8 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../config/cloud_sync_scope.dart';
+import '../../config/module_config.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
@@ -57,8 +59,10 @@ class _RewardsScreenState extends State<RewardsScreen>
         onSave: (goal) async {
           final provider = context.read<AppProvider>();
           final db = provider.db;
-          await provider
-              .saveAndSync(db.copyWith(savingsGoals: [...db.savingsGoals, goal]));
+          await provider.saveAndSync(
+            db.copyWith(savingsGoals: [...db.savingsGoals, goal]),
+            pushTableScope: CloudSyncScope.rewardFullBundle,
+          );
         },
       ),
     );
@@ -79,7 +83,10 @@ class _RewardsScreenState extends State<RewardsScreen>
       }
       return g;
     }).toList();
-    await provider.saveAndSync(db.copyWith(savingsGoals: updated));
+    await provider.saveAndSync(
+      db.copyWith(savingsGoals: updated),
+      pushTableScope: CloudSyncScope.rewardFullBundle,
+    );
   }
 
   Future<void> _deleteGoal(String goalId) async {
@@ -104,9 +111,10 @@ class _RewardsScreenState extends State<RewardsScreen>
     HapticFeedback.lightImpact();
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
-      savingsGoals: db.savingsGoals.where((g) => g.id != goalId).toList(),
-    ));
+    await provider.saveAndSync(
+      db.copyWith(savingsGoals: db.savingsGoals.where((g) => g.id != goalId).toList()),
+      pushTableScope: CloudSyncScope.rewardFullBundle,
+    );
     if (mounted) _showSnack(context, 'Goal removed');
   }
 
@@ -161,9 +169,10 @@ class _RewardsScreenState extends State<RewardsScreen>
       status: RedemptionStatus.PENDING,
       requestedAt: DateTime.now(),
     );
-    await provider.saveAndSync(db.copyWith(
-      rewardRedemptions: [...db.rewardRedemptions, redemption],
-    ));
+    await provider.saveAndSync(
+      db.copyWith(rewardRedemptions: [...db.rewardRedemptions, redemption]),
+      pushTableScope: CloudSyncScope.rewardFullBundle,
+    );
     if (mounted) _showSnack(context, 'Request sent! Waiting for approval.');
   }
 
@@ -207,7 +216,10 @@ class _RewardsScreenState extends State<RewardsScreen>
       }
     }
 
-    await provider.saveAndSync(newDb);
+    await provider.saveAndSync(
+      newDb,
+      pushTableScope: CloudSyncScope.rewardFullBundle,
+    );
     if (mounted) {
       _showSnack(
         context,
@@ -312,9 +324,10 @@ class _RewardsScreenState extends State<RewardsScreen>
     HapticFeedback.lightImpact();
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
-      rewards: db.rewards.where((r) => r.id != rewardId).toList(),
-    ));
+    await provider.saveAndSync(
+      db.copyWith(rewards: db.rewards.where((r) => r.id != rewardId).toList()),
+      pushTableScope: CloudSyncScope.rewardFullBundle,
+    );
     if (mounted) _showSnack(context, 'Reward removed');
   }
 
@@ -329,13 +342,17 @@ class _RewardsScreenState extends State<RewardsScreen>
           final provider = context.read<AppProvider>();
           final db = provider.db;
           if (editReward != null) {
-            await provider.saveAndSync(db.copyWith(
-              rewards:
-                  db.rewards.map((r) => r.id == reward.id ? reward : r).toList(),
-            ));
+            await provider.saveAndSync(
+              db.copyWith(
+                rewards: db.rewards.map((r) => r.id == reward.id ? reward : r).toList(),
+              ),
+              pushTableScope: CloudSyncScope.rewardFullBundle,
+            );
           } else {
-            await provider
-                .saveAndSync(db.copyWith(rewards: [...db.rewards, reward]));
+            await provider.saveAndSync(
+              db.copyWith(rewards: [...db.rewards, reward]),
+              pushTableScope: CloudSyncScope.rewardFullBundle,
+            );
           }
         },
       ),
@@ -375,12 +392,12 @@ class _RewardsScreenState extends State<RewardsScreen>
     return Scaffold(
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
-      appBar: const HuddleAppBar(),
+      appBar: const MainAppBar(),
       body: Column(
         children: [
           // ── Page Header ──
           PageHeader(
-            title: 'Reward Store',
+            title: screenTitleForModulePath('/rewards'),
             subtitle: 'Earn points from chores, request rewards, track savings.',
             actions: isOwner
                 ? [
@@ -891,34 +908,12 @@ class _RequestsTab extends StatelessWidget {
     final allHistory = resolvedRequests;
 
     if (pendingRequests.isEmpty && resolvedRequests.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text('📋', style: TextStyle(fontSize: 48)),
-            const SizedBox(height: 12),
-            const Text(
-              'No requests yet',
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: AppTheme.stone400,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              isOwner
-                  ? 'Requests from family members will appear here.'
-                  : 'Request a reward from the Store tab!',
-              style: const TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 13,
-                color: AppTheme.stone400,
-              ),
-            ),
-          ],
-        ),
+      return EmptyState(
+        emoji: '📋',
+        title: 'No requests yet',
+        subtitle: isOwner
+            ? 'When someone redeems a reward, you can approve or deny it here.'
+            : 'Pick something from the Store tab to send a request to a parent.',
       );
     }
 
@@ -1301,47 +1296,13 @@ class _GoalsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (savingsGoals.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Text('🎯', style: TextStyle(fontSize: 48)),
-              const SizedBox(height: 12),
-              const Text(
-                'No savings goals yet',
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.stone400,
-                ),
-              ),
-              const SizedBox(height: 4),
-              const Text(
-                'Set a target and save up for something special!',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 13,
-                  color: AppTheme.stone400,
-                ),
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton.icon(
-                onPressed: onAddGoal,
-                icon: const Icon(Icons.add_rounded, size: 18),
-                label: const Text('New Goal'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.primary,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
-            ],
-          ),
-        ),
+      return EmptyState(
+        emoji: '🎯',
+        title: 'No savings goals yet',
+        subtitle:
+            'Set a target and add funds over time — perfect for trips, gadgets, or a shared family treat.',
+        actionLabel: 'New goal',
+        onAction: onAddGoal,
       );
     }
 

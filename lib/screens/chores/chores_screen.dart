@@ -1,9 +1,12 @@
 // lib/screens/chores/chores_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../config/cloud_sync_scope.dart';
+import '../../config/module_config.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
@@ -93,14 +96,19 @@ class _ChoresScreenState extends State<ChoresScreen> {
   }
 
   Future<void> _toggleCompletion(Chore chore, String userId, DateTime day) async {
+    HapticFeedback.lightImpact();
     final provider = context.read<AppProvider>();
     final db = provider.db;
     final existing = _completionsForChore(chore.id, userId, day, db.choreCompletions);
     if (existing.isNotEmpty) {
       final ids = existing.map((e) => e.id).toSet();
-      await provider.saveAndSync(db.copyWith(
-        choreCompletions: db.choreCompletions.where((c) => !ids.contains(c.id)).toList(),
-      ));
+      await provider.saveAndSync(
+        db.copyWith(
+          choreCompletions:
+              db.choreCompletions.where((c) => !ids.contains(c.id)).toList(),
+        ),
+        pushTableScope: CloudSyncScope.choreBundle,
+      );
     } else {
       final completion = ChoreCompletion(
         id: const Uuid().v4(),
@@ -126,7 +134,8 @@ class _ChoresScreenState extends State<ChoresScreen> {
               .toList(),
         );
       }
-      await provider.saveAndSync(nextDb);
+      await provider.saveAndSync(nextDb,
+          pushTableScope: CloudSyncScope.choreBundle);
       if (mounted && !chore.requiresApproval) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('${chore.title} done! +${chore.points} pts'),
@@ -154,10 +163,14 @@ class _ChoresScreenState extends State<ChoresScreen> {
     if (confirmed != true) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
-      chores: db.chores.where((c) => c.id != choreId).toList(),
-      choreCompletions: db.choreCompletions.where((c) => c.choreId != choreId).toList(),
-    ));
+    await provider.saveAndSync(
+      db.copyWith(
+        chores: db.chores.where((c) => c.id != choreId).toList(),
+        choreCompletions:
+            db.choreCompletions.where((c) => c.choreId != choreId).toList(),
+      ),
+      pushTableScope: CloudSyncScope.choreBundle,
+    );
   }
 
   Future<void> _approveCompletion(String completionId, {bool approve = true}) async {
@@ -192,7 +205,8 @@ class _ChoresScreenState extends State<ChoresScreen> {
         );
       }
     }
-    await provider.saveAndSync(nextDb);
+    await provider.saveAndSync(nextDb,
+        pushTableScope: CloudSyncScope.choreBundle);
     if (mounted) {
       final chore = db.chores.where((c) => c.id == db.choreCompletions.firstWhere((cc) => cc.id == completionId).choreId).firstOrNull;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -216,11 +230,18 @@ class _ChoresScreenState extends State<ChoresScreen> {
           final provider = context.read<AppProvider>();
           final db = provider.db;
           if (editChore != null) {
-            await provider.saveAndSync(db.copyWith(
-              chores: db.chores.map((c) => c.id == editChore.id ? chore : c).toList(),
-            ));
+            await provider.saveAndSync(
+              db.copyWith(
+                chores:
+                    db.chores.map((c) => c.id == editChore.id ? chore : c).toList(),
+              ),
+              pushTableScope: CloudSyncScope.choreBundle,
+            );
           } else {
-            await provider.saveAndSync(db.copyWith(chores: [...db.chores, chore]));
+            await provider.saveAndSync(
+              db.copyWith(chores: [...db.chores, chore]),
+              pushTableScope: CloudSyncScope.choreBundle,
+            );
             NotificationService.notifyFamilyActivityWithDb(
               provider.db,
               title: 'New Chore Added',
@@ -506,13 +527,13 @@ class _ChoresScreenState extends State<ChoresScreen> {
     return Scaffold(
       drawer: const AppDrawer(),
       // backgroundColor handled by theme
-      appBar: const HuddleAppBar(),
+      appBar: const MainAppBar(),
       body: ListView(
         padding: EdgeInsets.zero,
         children: [
           // ── Page Header ──────────────────────────────────────────
           PageHeader(
-            title: 'Chore Chart',
+            title: screenTitleForModulePath('/chores'),
             subtitle: 'Keep the pack accountable.',
             actions: [
               ActionChipButton(

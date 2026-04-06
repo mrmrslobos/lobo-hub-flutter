@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
+import '../config/cloud_sync_scope.dart';
 import '../config/theme.dart';
 import '../models/models.dart';
 import '../providers/app_provider.dart';
@@ -96,7 +97,10 @@ class _AiRefineInputState extends State<AiRefineInput> {
           final updatedDb = provider.db.copyWith(
             aiHistory: [...provider.db.aiHistory, entry],
           );
-          await provider.saveAndSync(updatedDb);
+          await provider.saveAndSync(
+            updatedDb,
+            pushTableScope: {CloudSyncScope.aiHistory},
+          );
         }
       }
 

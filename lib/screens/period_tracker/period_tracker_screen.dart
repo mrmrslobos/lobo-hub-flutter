@@ -10,6 +10,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../utils/module_disclaimer.dart';
 
+import '../../config/cloud_sync_scope.dart';
+import '../../config/module_config.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
@@ -181,6 +183,10 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     _currentMonth = DateTime(now.year, now.month);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context
+          .read<AppProvider>()
+          .scheduleModuleEnterCloudPull(CloudSyncScope.periodBundle);
       showModuleDisclaimer(
         context: context,
         moduleKey: 'period_tracker',
@@ -439,7 +445,10 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
           } else {
             updated = [...db.periodEntries, entry];
           }
-          await provider.saveAndSync(db.copyWith(periodEntries: updated));
+          await provider.saveAndSync(
+            db.copyWith(periodEntries: updated),
+            pushTableScope: CloudSyncScope.periodBundle,
+          );
         },
       ),
     );
@@ -477,9 +486,10 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
         onSave: (log) async {
           final provider = context.read<AppProvider>();
           final db = provider.db;
-          await provider.saveAndSync(db.copyWith(
-            periodSymptoms: [...db.periodSymptoms, log],
-          ));
+          await provider.saveAndSync(
+            db.copyWith(periodSymptoms: [...db.periodSymptoms, log]),
+            pushTableScope: CloudSyncScope.periodBundle,
+          );
         },
       ),
     );
@@ -511,9 +521,12 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
           notes: log.notes,
           createdAt: log.createdAt,
         );
-        await provider.saveAndSync(db.copyWith(
-          periodSymptoms: db.periodSymptoms.map((s) => s.id == log.id ? updatedLog : s).toList(),
-        ));
+        await provider.saveAndSync(
+          db.copyWith(
+            periodSymptoms: db.periodSymptoms.map((s) => s.id == log.id ? updatedLog : s).toList(),
+          ),
+          pushTableScope: CloudSyncScope.periodBundle,
+        );
       }
     } else {
       final log = PeriodSymptomLog(
@@ -524,9 +537,10 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
         symptoms: const ['Intimate 💕'],
         createdAt: DateTime.now(),
       );
-      await provider.saveAndSync(db.copyWith(
-        periodSymptoms: [...db.periodSymptoms, log],
-      ));
+      await provider.saveAndSync(
+        db.copyWith(periodSymptoms: [...db.periodSymptoms, log]),
+        pushTableScope: CloudSyncScope.periodBundle,
+      );
     }
 
     if (mounted) {
@@ -603,9 +617,10 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
                   }
 
                   if (newEntries.isNotEmpty) {
-                    await provider.saveAndSync(db.copyWith(
-                      periodEntries: [...db.periodEntries, ...newEntries],
-                    ));
+                    await provider.saveAndSync(
+                      db.copyWith(periodEntries: [...db.periodEntries, ...newEntries]),
+                      pushTableScope: CloudSyncScope.periodBundle,
+                    );
                   }
 
                   if (ctx.mounted) Navigator.pop(ctx);
@@ -633,9 +648,10 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     if (!ok) return;
     final provider = this.context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
-      periodEntries: db.periodEntries.where((e) => e.id != id).toList(),
-    ));
+    await provider.saveAndSync(
+      db.copyWith(periodEntries: db.periodEntries.where((e) => e.id != id).toList()),
+      pushTableScope: CloudSyncScope.periodBundle,
+    );
   }
 
   int? _cycleLengthDays(List<PeriodEntry> entries) {
@@ -704,7 +720,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     return Scaffold(
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
-      appBar: const HuddleAppBar(),
+      appBar: const MainAppBar(),
       body: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
         child: Column(
@@ -712,7 +728,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
           children: [
             // ── Page Header ──
             PageHeader(
-              title: '🌸 Period Tracker',
+              title: screenTitleForModulePath('/period-tracker'),
               subtitle: 'Track your cycle, symptoms & fertility.',
               actions: [
                 ActionChipButton(

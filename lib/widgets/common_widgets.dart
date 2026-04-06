@@ -1,9 +1,16 @@
 import 'package:flutter/material.dart' hide Visibility;
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 
+import '../config/app_config.dart';
 import '../config/module_config.dart';
 import '../config/theme.dart';
+import 'app_brand_mark.dart';
 import '../models/models.dart';
+import '../providers/app_provider.dart';
+import '../services/supabase_service.dart';
+import '../utils/sync_format.dart';
 
 // ─── Rounded Section Card ───────────────────────────────────────────────────
 class SectionCard extends StatelessWidget {
@@ -26,10 +33,10 @@ class SectionCard extends StatelessWidget {
     final card = Container(
       decoration: BoxDecoration(
         color: color ?? Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(AppTheme.radiusLg),
         border: Border.all(color: outline),
       ),
-      padding: padding ?? const EdgeInsets.all(16),
+      padding: padding ?? const EdgeInsets.all(AppTheme.space5),
       child: child,
     );
 
@@ -51,6 +58,9 @@ class EmptyState extends StatelessWidget {
   final String subtitle;
   final String? actionLabel;
   final VoidCallback? onAction;
+  /// Tighter padding and type scale for nested / card layouts.
+  final bool compact;
+  final double emojiSize;
 
   const EmptyState({
     super.key,
@@ -59,38 +69,55 @@ class EmptyState extends StatelessWidget {
     required this.subtitle,
     this.actionLabel,
     this.onAction,
+    this.compact = false,
+    this.emojiSize = 56,
   });
 
   @override
   Widget build(BuildContext context) {
+    final pad = compact ? 20.0 : 32.0;
+    final titleStyle = compact
+        ? Theme.of(context).textTheme.titleSmall
+        : Theme.of(context).textTheme.titleMedium;
+    final bodyStyle = compact
+        ? Theme.of(context).textTheme.bodySmall
+        : Theme.of(context).textTheme.bodyMedium;
+    final gapAfterEmoji = compact ? 12.0 : 16.0;
+    final gapTitleBody = compact ? 6.0 : 8.0;
+
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(emoji, style: const TextStyle(fontSize: 56)),
-            const SizedBox(height: 16),
-            Text(
-              title,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.8),
+        padding: EdgeInsets.all(pad),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 400),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(emoji, style: TextStyle(fontSize: emojiSize)),
+              SizedBox(height: gapAfterEmoji),
+              Text(
+                title,
+                style: titleStyle?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.82),
+                ),
+                textAlign: TextAlign.center,
               ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              subtitle,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+              SizedBox(height: gapTitleBody),
+              Text(
+                subtitle,
+                style: bodyStyle?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.52),
+                  height: 1.35,
+                ),
+                textAlign: TextAlign.center,
               ),
-              textAlign: TextAlign.center,
-            ),
-            if (actionLabel != null && onAction != null) ...[
-              const SizedBox(height: 20),
-              ElevatedButton(onPressed: onAction, child: Text(actionLabel!)),
+              if (actionLabel != null && onAction != null) ...[
+                SizedBox(height: compact ? 16 : 20),
+                ElevatedButton(onPressed: onAction, child: Text(actionLabel!)),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -787,12 +814,12 @@ class OnboardingCard extends StatelessWidget {
   }
 }
 
-// ─── Custom App Bar for Huddle ────────────────────────────────────────────
-class HuddleAppBar extends StatelessWidget implements PreferredSizeWidget {
+// ─── Primary shell app bar (title uses [AppConfig.appName]) ─────────────────
+class MainAppBar extends StatelessWidget implements PreferredSizeWidget {
   final VoidCallback? onMenuTap;
   final List<Widget>? actions;
 
-  const HuddleAppBar({super.key, this.onMenuTap, this.actions});
+  const MainAppBar({super.key, this.onMenuTap, this.actions});
 
   void _openJumpTo(BuildContext context) {
     final q = ValueNotifier<String>('');
@@ -846,21 +873,15 @@ class HuddleAppBar extends StatelessWidget implements PreferredSizeWidget {
                       valueListenable: q,
                       builder: (_, query, __) {
                         final qq = query.trim().toLowerCase();
-                        final extra = [
-                          (path: '/subscription', name: 'Subscription', emoji: '👑', group: 'Account'),
-                          (path: '/ai-history', name: 'AI History', emoji: '🤖', group: 'Account'),
-                          (path: '/habits', name: 'Habits', emoji: '🎯', group: 'Lifestyle'),
-                          (path: '/period-tracker', name: 'Period Tracker', emoji: '🌸', group: 'Lifestyle'),
-                          (path: '/health', name: 'Health', emoji: '❤️', group: 'Family'),
-                          (path: '/location', name: 'Location', emoji: '📍', group: 'Family'),
-                        ];
                         final items = <({String path, String name, String emoji, String group})>[];
                         for (final g in moduleGroups) {
                           for (final m in g.modules) {
                             items.add((path: m.path, name: m.name, emoji: m.emoji, group: g.label));
                           }
                         }
-                        items.addAll(extra);
+                        for (final m in accountJumpModules) {
+                          items.add((path: m.path, name: m.name, emoji: m.emoji, group: 'Account'));
+                        }
                         final filtered = qq.isEmpty
                             ? items
                             : items
@@ -905,7 +926,48 @@ class HuddleAppBar extends StatelessWidget implements PreferredSizeWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final onSurf = cs.onSurface;
+    final provider = context.watch<AppProvider>();
+    final showSync = SupabaseService.isConfigured && provider.isAuthenticated;
+
+    String syncTooltip() {
+      if (provider.isSyncing) return 'Syncing…';
+      final err = provider.lastSyncError;
+      if (err != null && err.isNotEmpty) {
+        return 'Sync failed — tap to retry';
+      }
+      final at = provider.lastSuccessfulSyncAt;
+      if (at != null) return formatRelativeSyncTime(at);
+      return 'Pull latest from cloud';
+    }
+
     final mergedActions = <Widget>[
+      if (showSync)
+        IconButton(
+          tooltip: syncTooltip(),
+          onPressed: provider.isSyncing
+              ? null
+              : () {
+                  HapticFeedback.lightImpact();
+                  provider.refreshFromCloud();
+                },
+          icon: provider.isSyncing
+              ? SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: cs.primary,
+                  ),
+                )
+              : Icon(
+                  provider.lastSyncError != null && provider.lastSyncError!.isNotEmpty
+                      ? Icons.cloud_off_outlined
+                      : Icons.sync_rounded,
+                  color: provider.lastSyncError != null && provider.lastSyncError!.isNotEmpty
+                      ? AppTheme.error.withValues(alpha: 0.9)
+                      : onSurf.withValues(alpha: 0.85),
+                ),
+        ),
       IconButton(
         tooltip: 'Jump to',
         icon: Icon(Icons.search_rounded, color: onSurf.withValues(alpha: 0.85)),
@@ -925,13 +987,17 @@ class HuddleAppBar extends StatelessWidget implements PreferredSizeWidget {
       title: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            String.fromCharCode(0x2728), // sparkle
-            style: TextStyle(fontSize: 18, color: onSurf.withValues(alpha: 0.9)),
+          SizedBox(
+            width: 26,
+            height: 26,
+            child: AppBrandMark(
+              size: 26,
+              borderRadius: BorderRadius.circular(7),
+            ),
           ),
-          const SizedBox(width: 6),
+          const SizedBox(width: 8),
           Text(
-            'Huddle',
+            AppConfig.appName,
             style: TextStyle(
               fontFamily: 'Inter',
               fontWeight: FontWeight.w800,

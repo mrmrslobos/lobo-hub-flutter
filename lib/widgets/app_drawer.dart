@@ -12,6 +12,8 @@ import 'package:uuid/uuid.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../config/app_config.dart';
+import '../config/cloud_sync_scope.dart';
+import '../config/module_config.dart';
 import '../config/theme.dart';
 import '../models/models.dart';
 import '../providers/app_provider.dart';
@@ -19,33 +21,8 @@ import '../services/calendar_sync_service.dart';
 import '../services/family_activity_service.dart';
 import '../services/locale_service.dart';
 import '../services/supabase_service.dart';
-import '../utils/ai_family_household.dart';
 import 'biometric_lock.dart';
-
-// ─────────────────────────────────────────────
-// Data model for nav items
-// ─────────────────────────────────────────────
-
-class _NavItem {
-  final IconData icon;
-  final String label;
-  final String route;
-  final int unreadCount;
-
-  const _NavItem({
-    required this.icon,
-    required this.label,
-    required this.route,
-    this.unreadCount = 0,
-  });
-}
-
-class _NavSection {
-  final String title;
-  final List<_NavItem> items;
-
-  const _NavSection({required this.title, required this.items});
-}
+import 'common_widgets.dart';
 
 // ─────────────────────────────────────────────
 // AppDrawer widget
@@ -53,33 +30,6 @@ class _NavSection {
 
 class AppDrawer extends StatefulWidget {
   const AppDrawer({super.key});
-
-  static const List<_NavSection> _sections = [
-    _NavSection(title: 'Family', items: [
-      _NavItem(icon: Icons.chat_bubble_outline_rounded, label: 'Chat', route: '/chat'),
-      _NavItem(icon: Icons.check_circle_outline_rounded, label: 'Tasks', route: '/tasks'),
-      _NavItem(icon: Icons.calendar_month_rounded, label: 'Calendar', route: '/calendar'),
-      _NavItem(icon: Icons.assignment_turned_in_outlined, label: 'Chores', route: '/chores'),
-      _NavItem(icon: Icons.checklist_rounded, label: 'Lists', route: '/lists'),
-      _NavItem(icon: Icons.how_to_vote_outlined, label: 'Polls', route: '/polls'),
-      _NavItem(icon: Icons.cake_outlined, label: 'Occasions', route: '/birthdays'),
-      _NavItem(icon: Icons.photo_library_outlined, label: 'Photos', route: '/photos'),
-      _NavItem(icon: Icons.location_on_outlined, label: 'Location', route: '/location'),
-      _NavItem(icon: Icons.favorite_outline_rounded, label: 'Health', route: '/health'),
-    ]),
-    _NavSection(title: 'Lifestyle', items: [
-      _NavItem(icon: Icons.track_changes_rounded, label: 'Habits', route: '/habits'),
-      _NavItem(icon: Icons.restaurant_menu_rounded, label: 'Meals', route: '/meals'),
-      _NavItem(icon: Icons.fitness_center_rounded, label: 'Fitness', route: '/fitness'),
-      _NavItem(icon: Icons.spa_outlined, label: 'Period Tracker', route: '/period-tracker'),
-      _NavItem(icon: Icons.menu_book_rounded, label: 'Devotional', route: '/devotional'),
-      _NavItem(icon: Icons.volunteer_activism_outlined, label: 'Prayer Wall', route: '/prayer-wall'),
-    ]),
-    _NavSection(title: 'Money', items: [
-      _NavItem(icon: Icons.account_balance_wallet_outlined, label: 'Budget', route: '/budget'),
-      _NavItem(icon: Icons.card_giftcard_rounded, label: 'Rewards', route: '/rewards'),
-    ]),
-  ];
 
   @override
   State<AppDrawer> createState() => _AppDrawerState();
@@ -165,9 +115,9 @@ class _AppDrawerState extends State<AppDrawer> {
                   ),
                   const SizedBox(height: 4),
 
-                  // Sections — collapsible, hide inaccessible modules
-                  for (final section in AppDrawer._sections) ...[
-                    if (section.items.any((item) => provider.canAccess(item.route))) ...[
+                  // Sections — collapsible, hide inaccessible modules ([drawerNavSectionSpecs])
+                  for (final section in drawerNavSectionSpecs) ...[
+                    if (section.entries.any((e) => provider.canAccess(e.path))) ...[
                       _CollapsibleSectionHeader(
                         title: section.title,
                         isCollapsed: _collapsedSections.contains(section.title),
@@ -183,15 +133,14 @@ class _AppDrawerState extends State<AppDrawer> {
                         },
                       ),
                       if (!_collapsedSections.contains(section.title))
-                        for (final item in section.items)
-                          if (provider.canAccess(item.route))
+                        for (final e in section.entries)
+                          if (provider.canAccess(e.path))
                             _NavTile(
-                              icon: item.icon,
-                              label: item.label,
-                              route: item.route,
-                              isActive: currentRoute == item.route,
+                              icon: e.icon,
+                              label: getModuleByPath(e.path)?.name ?? e.path,
+                              route: e.path,
+                              isActive: currentRoute == e.path,
                               canAccess: true,
-                              unreadCount: item.unreadCount,
                             ),
                       const SizedBox(height: 4),
                     ],
@@ -202,7 +151,7 @@ class _AppDrawerState extends State<AppDrawer> {
                   const SizedBox(height: 4),
                   _NavTile(
                     icon: Icons.psychology_outlined,
-                    label: 'AI History',
+                    label: screenTitleForModulePath('/ai-history'),
                     route: '/ai-history',
                     isActive: currentRoute == '/ai-history',
                     canAccess: true,
@@ -221,16 +170,16 @@ class _AppDrawerState extends State<AppDrawer> {
                         child: InkWell(
                           borderRadius: BorderRadius.circular(12),
                           onTap: () => _showManageMembersSheet(context),
-                          child: const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                             child: Row(
                               children: [
-                                Icon(Icons.group_outlined, size: 20, color: AppTheme.stone600),
-                                SizedBox(width: 12),
+                                const Icon(Icons.group_outlined, size: 20, color: AppTheme.stone600),
+                                const SizedBox(width: 12),
                                 Expanded(
                                   child: Text(
-                                    'Manage Members',
-                                    style: TextStyle(
+                                    AppConfig.manageFamilyMembersLabel,
+                                    style: const TextStyle(
                                       fontFamily: 'Inter',
                                       fontWeight: FontWeight.w500,
                                       fontSize: 14,
@@ -253,16 +202,16 @@ class _AppDrawerState extends State<AppDrawer> {
                         child: InkWell(
                           borderRadius: BorderRadius.circular(12),
                           onTap: () => _showActivityLogSheet(context),
-                          child: const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                             child: Row(
                               children: [
-                                Icon(Icons.history_rounded, size: 20, color: AppTheme.stone600),
-                                SizedBox(width: 12),
+                                const Icon(Icons.history_rounded, size: 20, color: AppTheme.stone600),
+                                const SizedBox(width: 12),
                                 Expanded(
                                   child: Text(
-                                    'Activity log',
-                                    style: TextStyle(
+                                    AppConfig.activityLogLabel,
+                                    style: const TextStyle(
                                       fontFamily: 'Inter',
                                       fontWeight: FontWeight.w500,
                                       fontSize: 14,
@@ -284,16 +233,16 @@ class _AppDrawerState extends State<AppDrawer> {
                       child: InkWell(
                         borderRadius: BorderRadius.circular(12),
                         onTap: () => _showWellnessSheet(context),
-                        child: const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                           child: Row(
                             children: [
-                              Icon(Icons.favorite_outline_rounded, size: 20, color: AppTheme.stone600),
-                              SizedBox(width: 12),
+                              const Icon(Icons.favorite_outline_rounded, size: 20, color: AppTheme.stone600),
+                              const SizedBox(width: 12),
                               Expanded(
                                 child: Text(
-                                  'Family pulse',
-                                  style: TextStyle(
+                                  AppConfig.familyPulseLabel,
+                                  style: const TextStyle(
                                     fontFamily: 'Inter',
                                     fontWeight: FontWeight.w500,
                                     fontSize: 14,
@@ -484,9 +433,10 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
       return;
     }
 
-    await provider.saveAndSync(provider.db.copyWith(
-      tasks: [...provider.db.tasks, ...newTasks],
-    ));
+    await provider.saveAndSync(
+      provider.db.copyWith(tasks: [...provider.db.tasks, ...newTasks]),
+      pushTableScope: {CloudSyncScope.tasks},
+    );
 
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -503,12 +453,12 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
           'Reset data on this device?',
           style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800),
         ),
-        content: const Text(
-          'This signs you out and permanently deletes all Huddle data stored on this phone or tablet '
-          '(your home, tasks, lists, and other synced copies saved locally). '
-          'It does not remove data from our servers for other family members.\n\n'
-          'You can sign in again afterward; your account will reload from the cloud if you use the same login.',
-          style: TextStyle(fontFamily: 'Inter', fontSize: 14, height: 1.45),
+        content: Text(
+          'This signs you out and permanently deletes all ${AppConfig.appName} data stored on this phone or tablet '
+          '(your family, tasks, lists, and other information saved only on this device). '
+          'Other family members still have their data on our servers.\n\n'
+          'You can sign in again; the same account will download a fresh copy from your online backup.',
+          style: const TextStyle(fontFamily: 'Inter', fontSize: 14, height: 1.45),
         ),
         actions: [
           TextButton(
@@ -552,7 +502,7 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
     if (!SupabaseService.isConfigured) {
       ScaffoldMessenger.of(sheetContext).showSnackBar(
         const SnackBar(
-          content: Text('Cloud delete requires an online account (Supabase). Use “Reset data” to clear this device only.'),
+          content: Text('Deleting shared data requires a signed-in account. Use “Reset data” to clear only this device.'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -561,7 +511,7 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
     if (fam.ownerId != uid) {
       ScaffoldMessenger.of(sheetContext).showSnackBar(
         const SnackBar(
-          content: Text('Only the home owner can delete data for everyone in the cloud.'),
+          content: Text('Only the family owner can delete everyone’s shared online data.'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -573,13 +523,13 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         title: const Text(
-          'Delete your home from the cloud?',
+          'Delete your family’s online data?',
           style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800),
         ),
         content: Text(
-          'This will permanently remove “${fam.name}” and all related data from our servers for every family member '
+          'This will permanently remove “${fam.name}” and related data from our servers for every family member '
           '(tasks, lists, calendar, photos, chat, and more). This cannot be undone.\n\n'
-          'Your login account will remain — you can create a new home after.\n\n'
+          'Your login stays—you can start a new family later.\n\n'
           'Continue only if everyone agrees.',
           style: const TextStyle(fontFamily: 'Inter', fontSize: 14, height: 1.45),
         ),
@@ -616,7 +566,7 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
         ScaffoldMessenger.of(sheetContext).showSnackBar(
           SnackBar(
             content: Text(
-              'Could not delete cloud data. Apply Supabase migration 26_delete_family_cloud_data.sql or try again. ($e)',
+              'Could not delete online data. Try again in a moment or contact support. ($e)',
             ),
             behavior: SnackBarBehavior.floating,
           ),
@@ -685,7 +635,10 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
     // Update the family in the DB
     final db = provider.db;
     final families = db.families.map((f) => f.id == updated.id ? updated : f).toList();
-    await provider.saveAndSync(db.copyWith(families: families));
+    await provider.saveAndSync(
+      db.copyWith(families: families),
+      pushTableScope: <String>{},
+    );
   }
 
   @override
@@ -1107,30 +1060,30 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
                   String planDesc;
                   switch (tier) {
                     case SubscriptionTier.base:
-                      planLabel = 'Base';
+                      planLabel = AppConfig.planLabelEssentials;
                       planColor = const Color(0xFF0EA5E9);
-                      planDesc = 'Essential family organisation';
+                      planDesc = AppConfig.planDescEssentials;
                     case SubscriptionTier.ai:
-                      planLabel = 'AI';
+                      planLabel = AppConfig.planLabelAi;
                       planColor = const Color(0xFF8B5CF6);
-                      planDesc = 'Smart AI-powered features';
+                      planDesc = AppConfig.planDescAi;
                     case SubscriptionTier.ai_family:
-                      planLabel = 'AI Family';
+                      planLabel = AppConfig.planLabelAiFamily;
                       planColor = const Color(0xFF16A34A);
-                      planDesc = '2 adults + 4 children covered';
+                      planDesc = AppConfig.planDescAiFamily;
                     case SubscriptionTier.trial:
-                      planLabel = trialExpired ? 'Trial Expired' : 'Free Trial';
+                      planLabel = trialExpired ? 'Trial expired' : 'Free trial';
                       planColor = trialExpired ? const Color(0xFFDC2626) : const Color(0xFF6366F1);
                       planDesc = trialExpired
-                          ? 'Limited to Tasks, Lists & Calendar'
-                          : '$trialDays day${trialDays == 1 ? '' : 's'} remaining';
+                          ? AppConfig.planTrialExpiredBlurb
+                          : '$trialDays day${trialDays == 1 ? '' : 's'} left';
                   }
 
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'SUBSCRIPTION',
+                        'YOUR PLAN',
                         style: TextStyle(
                           fontFamily: 'Inter',
                           fontWeight: FontWeight.w700,
@@ -1187,7 +1140,7 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
 
                 const SizedBox(height: 8),
                 const Text(
-                  'DATA ON THIS DEVICE',
+                  'THIS DEVICE',
                   style: TextStyle(
                     fontFamily: 'Inter',
                     fontWeight: FontWeight.w700,
@@ -1216,7 +1169,7 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
                       ),
                     ),
                     subtitle: const Text(
-                      'Sign out and erase local data (tasks, lists, family cache on this device)',
+                      'Sign out and remove this device’s saved copy (tasks, lists, and cached family data)',
                       style: TextStyle(
                         fontFamily: 'Inter',
                         fontSize: 12,
@@ -1260,7 +1213,7 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
                             size: _deletingCloudData ? 18 : 22,
                           ),
                           title: const Text(
-                            'Delete all data (cloud + device)',
+                            'Delete online data & sign out',
                             style: TextStyle(
                               fontFamily: 'Inter',
                               fontWeight: FontWeight.w700,
@@ -1269,7 +1222,7 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
                             ),
                           ),
                           subtitle: const Text(
-                            'Permanently remove this home from the server for all members, then sign out',
+                            'Permanently remove this family from our servers for everyone, then sign out (owner only)',
                             style: TextStyle(
                               fontFamily: 'Inter',
                               fontSize: 12,
@@ -1315,9 +1268,9 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
                         ),
                       ),
                       const SizedBox(height: 4),
-                      const Text(
-                        'Huddle',
-                        style: TextStyle(
+                      Text(
+                        AppConfig.appName,
+                        style: const TextStyle(
                           fontFamily: 'Inter',
                           fontWeight: FontWeight.w700,
                           fontSize: 16,
@@ -1333,6 +1286,29 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
                         ),
                       ),
                       const SizedBox(height: 10),
+                      GestureDetector(
+                        onTap: () => launchUrl(
+                          Uri.parse('mailto:${AppConfig.supportEmail}?subject=${Uri.encodeComponent('${AppConfig.appName} support')}'),
+                          mode: LaunchMode.externalApplication,
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(Icons.help_outline_rounded, size: 16, color: AppTheme.primary),
+                            SizedBox(width: 6),
+                            Text(
+                              'Help & contact',
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: AppTheme.primary,
+                                decoration: TextDecoration.underline,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
                       GestureDetector(
                         onTap: () => launchUrl(Uri.parse(AppConfig.privacyPolicyUrl), mode: LaunchMode.externalApplication),
                         child: const Row(
@@ -1352,7 +1328,26 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
                           ],
                         ),
                       ),
-                      
+                      const SizedBox(height: 8),
+                      GestureDetector(
+                        onTap: () => launchUrl(Uri.parse(AppConfig.termsOfServiceUrl), mode: LaunchMode.externalApplication),
+                        child: const Row(
+                          children: [
+                            Icon(Icons.article_outlined, size: 16, color: AppTheme.primary),
+                            SizedBox(width: 6),
+                            Text(
+                              'Terms of Service',
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: AppTheme.primary,
+                                decoration: TextDecoration.underline,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -1480,7 +1475,7 @@ class _DeleteCloudDataDialogState extends State<_DeleteCloudDataDialog> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'This permanently deletes your home in the cloud for everyone.',
+            'This permanently deletes your family’s shared online data for everyone.',
             style: TextStyle(fontFamily: 'Inter', fontSize: 14, height: 1.45),
           ),
           const SizedBox(height: 12),
@@ -1550,7 +1545,7 @@ class _DrawerHeaderState extends State<_DrawerHeader> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      widget.user?.name ?? 'Family Member',
+                      widget.user?.name ?? AppConfig.defaultUserName,
                       style: const TextStyle(
                         fontFamily: 'Inter',
                         fontWeight: FontWeight.w700,
@@ -2117,7 +2112,10 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
         }
       }
 
-      await provider.saveAndSync(nextDb);
+      await provider.saveAndSync(
+        nextDb,
+        pushTableScope: {CloudSyncScope.familyActivityLogs},
+      );
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context)
@@ -2183,7 +2181,10 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
         relatedUserId: removedUserId,
       );
     }
-    await provider.saveAndSync(nextDb);
+    await provider.saveAndSync(
+      nextDb,
+      pushTableScope: {CloudSyncScope.familyActivityLogs},
+    );
 
     // Delete from cloud so the member doesn't return on next sync
     if (SupabaseService.isConfigured) {
@@ -2232,10 +2233,10 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Row(
               children: [
-                const Expanded(
+                Expanded(
                   child: Text(
-                    'Manage Members',
-                    style: TextStyle(
+                    AppConfig.manageFamilyMembersTitle,
+                    style: const TextStyle(
                       fontFamily: 'Inter',
                       fontWeight: FontWeight.w700,
                       fontSize: 20,
@@ -2706,14 +2707,13 @@ class _ActivityLogSheet extends StatelessWidget {
               const SizedBox(height: 12),
               Flexible(
                 child: logs.isEmpty
-                    ? const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(32),
-                          child: Text(
-                            'No entries yet.',
-                            style: TextStyle(fontFamily: 'Inter', color: AppTheme.stone400),
-                          ),
-                        ),
+                    ? const EmptyState(
+                        compact: true,
+                        emoji: '📋',
+                        emojiSize: 40,
+                        title: 'No activity yet',
+                        subtitle:
+                            'Member and security-related events will appear here as your family uses the app.',
                       )
                     : ListView.separated(
                         shrinkWrap: true,
@@ -2793,7 +2793,10 @@ class _WellnessPulseSheetState extends State<_WellnessPulseSheet> {
       createdAt: DateTime.now(),
     );
     final db = p.db;
-    await p.saveAndSync(db.copyWith(wellnessCheckIns: [...db.wellnessCheckIns, entry]));
+    await p.saveAndSync(
+      db.copyWith(wellnessCheckIns: [...db.wellnessCheckIns, entry]),
+      pushTableScope: {CloudSyncScope.wellnessCheckIns},
+    );
     if (mounted) {
       setState(() => _saving = false);
       _note.clear();
@@ -2906,7 +2909,13 @@ class _WellnessPulseSheetState extends State<_WellnessPulseSheet> {
                 ),
                 const SizedBox(height: 8),
                 if (last7.isEmpty)
-                  const Text('No check-ins yet.', style: TextStyle(fontFamily: 'Inter', color: AppTheme.stone400))
+                  const EmptyState(
+                    compact: true,
+                    emoji: '💬',
+                    emojiSize: 36,
+                    title: 'No check-ins yet',
+                    subtitle: 'Save a mood and optional note to start a simple family wellness log.',
+                  )
                 else
                   ...last7.map((w) {
                     final name = p.displayNameForUserId(w.userId);

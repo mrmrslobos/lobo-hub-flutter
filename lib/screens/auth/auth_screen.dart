@@ -21,7 +21,8 @@ import '../../services/database_service.dart';
 import '../../services/supabase_service.dart';
 import '../../services/field_encryption_service.dart';
 import '../../utils/error_messages.dart';
-import '../onboarding/walkthrough_screen.dart';
+import '../onboarding/welcome_module_tour_screen.dart';
+import '../../widgets/app_brand_mark.dart';
 
 // ─── Auth view enum ───────────────────────────────────────────────────────────
 
@@ -394,7 +395,7 @@ class _AuthScreenState extends State<AuthScreen> {
       }
 
       if (family == null) {
-        _setError('No home found with that code. Check and try again.');
+        _setError(AppConfig.authInvalidInviteCodeFamily);
         return;
       }
       final joinedFamily = family!;
@@ -443,6 +444,7 @@ class _AuthScreenState extends State<AuthScreen> {
       provider.setDb(db);
       provider.authenticate(user, joinedFamily);
       await DatabaseService.saveAndSync(db, joinedFamily.id);
+      await markWelcomeTourPending(List<String>.from(joinedFamily.enabledModules));
 
       if (mounted) context.go('/');
     } catch (e) {
@@ -479,6 +481,7 @@ class _AuthScreenState extends State<AuthScreen> {
       provider.setDb(db);
       provider.authenticate(user, family);
       await DatabaseService.saveAndSync(db, family.id);
+      await markWelcomeTourPending(List<String>.from(_selectedModules));
 
       if (mounted) context.go('/');
     } catch (e) {
@@ -569,40 +572,6 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
-  Widget _buildLogo() {
-    return Column(
-      children: [
-        Container(
-          width: 68,
-          height: 68,
-          decoration: BoxDecoration(
-            color: AppTheme.primary,
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: AppTheme.primary.withValues(alpha: 0.4),
-                blurRadius: 20,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: const Icon(Icons.auto_awesome,
-              color: Colors.white, size: 34),
-        ),
-        const SizedBox(height: 12),
-        const Text(
-          'Huddle',
-          style: TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 22,
-            fontWeight: FontWeight.w900,
-            color: AppTheme.stone900,
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _buildCard() {
     return Container(
       width: double.infinity,
@@ -662,19 +631,11 @@ class _AuthScreenState extends State<AuthScreen> {
           Center(
             child: Column(
               children: [
-                Container(
-                  width: 72,
-                  height: 72,
-                  decoration: BoxDecoration(
-                    color: AppTheme.primary,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Icon(Icons.auto_awesome, color: Colors.white, size: 36),
-                ),
+                AppBrandMark.card(outerSize: 72),
                 const SizedBox(height: 14),
-                const Text(
-                  'Huddle',
-                  style: TextStyle(
+                Text(
+                  AppConfig.appName,
+                  style: const TextStyle(
                     fontFamily: 'Inter',
                     fontSize: 30,
                     fontWeight: FontWeight.w900,
@@ -683,7 +644,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'Welcome back.',
+                  AppConfig.loginTagline,
                   style: TextStyle(
                     fontFamily: 'Inter',
                     fontSize: 14,
@@ -774,9 +735,9 @@ class _AuthScreenState extends State<AuthScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _sectionTitle('Create your account.'),
+          _sectionTitle(AppConfig.signupTagline),
           const SizedBox(height: 6),
-          _subtitle('Join your family hub today'),
+          _subtitle('Then create or join your family in ${AppConfig.appName}'),
           const SizedBox(height: 24),
           TextFormField(
             controller: _nameCtrl,
@@ -1033,9 +994,9 @@ class _AuthScreenState extends State<AuthScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _sectionTitle('Set up your home.'),
+        _sectionTitle(AppConfig.onboardingTagline),
         const SizedBox(height: 6),
-        _subtitle('Create or join a family space'),
+        _subtitle(AppConfig.authOnboardingSubtitle),
         const SizedBox(height: 28),
         _onboardingOptionCard(
           icon: Icons.home_outlined,
@@ -1124,18 +1085,18 @@ class _AuthScreenState extends State<AuthScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _backButton(() => _setView(_AuthView.onboarding)),
-          _sectionTitle('Name your home'),
+          _sectionTitle(AppConfig.authNameYourFamilyTitle),
           const SizedBox(height: 6),
-          _subtitle('Give your family space a friendly name'),
+          _subtitle(AppConfig.authNameYourFamilySubtitle),
           const SizedBox(height: 24),
           TextFormField(
             controller: _familyNameCtrl,
             validator: _requiredValidator,
             textCapitalization: TextCapitalization.words,
             decoration: InputDecoration(
-              labelText: 'Home name',
+              labelText: AppConfig.authFamilyNameFieldLabel,
               hintText: AppConfig.familyNamePlaceholder,
-              prefixIcon: const Icon(Icons.home_outlined),
+              prefixIcon: const Icon(Icons.groups_outlined),
             ),
           ),
           if (_error != null) ...[
@@ -1145,7 +1106,7 @@ class _AuthScreenState extends State<AuthScreen> {
           const SizedBox(height: 24),
           ElevatedButton(
             onPressed: _createFamily,
-            child: const Text('Create Home'),
+            child: const Text(AppConfig.authCreateFamilyCta),
           ),
         ],
       ),
@@ -1161,9 +1122,9 @@ class _AuthScreenState extends State<AuthScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _backButton(() => _setView(_AuthView.onboarding)),
-          _sectionTitle('Join a home'),
+          _sectionTitle(AppConfig.authJoinFamilyTitle),
           const SizedBox(height: 6),
-          _subtitle('Enter the 6-character invite code'),
+          _subtitle('Enter the 6-character invite code from your family'),
           const SizedBox(height: 24),
           TextFormField(
             controller: _joinCodeCtrl,
@@ -1198,7 +1159,7 @@ class _AuthScreenState extends State<AuthScreen> {
           const SizedBox(height: 24),
           ElevatedButton(
             onPressed: _joinFamily,
-            child: const Text('Join Home'),
+            child: const Text(AppConfig.authJoinFamilyCta),
           ),
         ],
       ),

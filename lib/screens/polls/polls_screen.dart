@@ -4,6 +4,8 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../config/cloud_sync_scope.dart';
+import '../../config/module_config.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
@@ -65,7 +67,10 @@ class _PollsScreenState extends State<PollsScreen> {
 
     final updatedPoll = poll.copyWith(options: updatedOptions);
     final updatedPolls = db.polls.map((p) => p.id == poll.id ? updatedPoll : p).toList();
-    await provider.saveAndSync(db.copyWith(polls: updatedPolls));
+    await provider.saveAndSync(
+      db.copyWith(polls: updatedPolls),
+      pushTableScope: CloudSyncScope.pollBundle,
+    );
   }
 
   Future<void> _closePoll(Poll poll) async {
@@ -93,9 +98,10 @@ class _PollsScreenState extends State<PollsScreen> {
     final provider = context.read<AppProvider>();
     final db = provider.db;
     final updatedPoll = poll.copyWith(status: PollStatus.closed);
-    await provider.saveAndSync(db.copyWith(
-      polls: db.polls.map((p) => p.id == poll.id ? updatedPoll : p).toList(),
-    ));
+    await provider.saveAndSync(
+      db.copyWith(polls: db.polls.map((p) => p.id == poll.id ? updatedPoll : p).toList()),
+      pushTableScope: CloudSyncScope.pollBundle,
+    );
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: const Text('Poll closed'),
@@ -121,7 +127,10 @@ class _PollsScreenState extends State<PollsScreen> {
     if (confirmed != true) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(polls: db.polls.where((p) => p.id != pollId).toList()));
+    await provider.saveAndSync(
+      db.copyWith(polls: db.polls.where((p) => p.id != pollId).toList()),
+      pushTableScope: CloudSyncScope.pollBundle,
+    );
   }
 
   void _showCreatePollSheet({Poll? editPoll}) {
@@ -135,11 +144,15 @@ class _PollsScreenState extends State<PollsScreen> {
           final provider = context.read<AppProvider>();
           final db = provider.db;
           if (editPoll != null) {
-            await provider.saveAndSync(db.copyWith(
-              polls: db.polls.map((p) => p.id == editPoll.id ? poll : p).toList(),
-            ));
+            await provider.saveAndSync(
+              db.copyWith(polls: db.polls.map((p) => p.id == editPoll.id ? poll : p).toList()),
+              pushTableScope: CloudSyncScope.pollBundle,
+            );
           } else {
-            await provider.saveAndSync(db.copyWith(polls: [...db.polls, poll]));
+            await provider.saveAndSync(
+              db.copyWith(polls: [...db.polls, poll]),
+              pushTableScope: CloudSyncScope.pollBundle,
+            );
             NotificationService.notifyFamilyActivityWithDb(
               provider.db,
               title: 'New Poll',
@@ -182,7 +195,10 @@ class _PollsScreenState extends State<PollsScreen> {
           }
           return p;
         }).toList();
-        await provider.saveAndSync(db.copyWith(polls: updatedPolls));
+        await provider.saveAndSync(
+          db.copyWith(polls: updatedPolls),
+          pushTableScope: CloudSyncScope.pollBundle,
+        );
         _closingExpired = false;
       });
     }
@@ -206,13 +222,13 @@ class _PollsScreenState extends State<PollsScreen> {
     return Scaffold(
       drawer: const AppDrawer(),
       // backgroundColor handled by theme
-      appBar: const HuddleAppBar(),
+      appBar: const MainAppBar(),
       body: ListView(
         padding: EdgeInsets.zero,
         children: [
           // ── Page Header ──
           PageHeader(
-            title: 'Family Polls',
+            title: screenTitleForModulePath('/polls'),
             subtitle: 'Decide things together.',
             actions: [
               ActionChipButton(

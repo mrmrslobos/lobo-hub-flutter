@@ -9,6 +9,8 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../config/cloud_sync_scope.dart';
+import '../../config/module_config.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
@@ -87,9 +89,10 @@ class _BudgetScreenState extends State<BudgetScreen> {
     HapticFeedback.lightImpact();
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
-      budgetEntries: db.budgetEntries.where((e) => e.id != id).toList(),
-    ));
+    await provider.saveAndSync(
+      db.copyWith(budgetEntries: db.budgetEntries.where((e) => e.id != id).toList()),
+      pushTableScope: CloudSyncScope.budgetBundle,
+    );
   }
 
   void _showAddSheet() {
@@ -102,7 +105,9 @@ class _BudgetScreenState extends State<BudgetScreen> {
           final provider = context.read<AppProvider>();
           final db = provider.db;
           await provider.saveAndSync(
-              db.copyWith(budgetEntries: [...db.budgetEntries, entry]));
+            db.copyWith(budgetEntries: [...db.budgetEntries, entry]),
+            pushTableScope: CloudSyncScope.budgetBundle,
+          );
         },
       ),
     );
@@ -118,7 +123,9 @@ class _BudgetScreenState extends State<BudgetScreen> {
           final provider = context.read<AppProvider>();
           final db = provider.db;
           await provider.saveAndSync(
-              db.copyWith(savingsGoals: [...db.savingsGoals, goal]));
+            db.copyWith(savingsGoals: [...db.savingsGoals, goal]),
+            pushTableScope: CloudSyncScope.budgetBundle,
+          );
         },
       ),
     );
@@ -139,9 +146,10 @@ class _BudgetScreenState extends State<BudgetScreen> {
     if (confirmed != true) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
-      savingsGoals: db.savingsGoals.where((g) => g.id != id).toList(),
-    ));
+    await provider.saveAndSync(
+      db.copyWith(savingsGoals: db.savingsGoals.where((g) => g.id != id).toList()),
+      pushTableScope: CloudSyncScope.budgetBundle,
+    );
   }
 
   void _showAddFundsDialog(BuildContext context, SavingsGoal goal) {
@@ -185,7 +193,10 @@ class _BudgetScreenState extends State<BudgetScreen> {
               final goals = db.savingsGoals
                   .map((g) => g.id == goal.id ? updated : g)
                   .toList();
-              await provider.saveAndSync(db.copyWith(savingsGoals: goals));
+              await provider.saveAndSync(
+                db.copyWith(savingsGoals: goals),
+                pushTableScope: CloudSyncScope.budgetBundle,
+              );
             },
             child: const Text('Add'),
           ),
@@ -243,9 +254,12 @@ class _BudgetScreenState extends State<BudgetScreen> {
                 nextSettings['foodBudgetMonthly'] = v;
               }
               final next = family.copyWith(settings: nextSettings);
-              await provider.saveAndSync(db.copyWith(
-                families: db.families.map((f) => f.id == family.id ? next : f).toList(),
-              ));
+              await provider.saveAndSync(
+                db.copyWith(
+                  families: db.families.map((f) => f.id == family.id ? next : f).toList(),
+                ),
+                pushTableScope: <String>{},
+              );
               if (ctx.mounted) Navigator.pop(ctx);
             },
             child: const Text('Save'),
@@ -265,9 +279,12 @@ class _BudgetScreenState extends State<BudgetScreen> {
         onSave: (updated) async {
           final provider = context.read<AppProvider>();
           final db = provider.db;
-          await provider.saveAndSync(db.copyWith(
-            budgetEntries: db.budgetEntries.map((e) => e.id == updated.id ? updated : e).toList(),
-          ));
+          await provider.saveAndSync(
+            db.copyWith(
+              budgetEntries: db.budgetEntries.map((e) => e.id == updated.id ? updated : e).toList(),
+            ),
+            pushTableScope: CloudSyncScope.budgetBundle,
+          );
         },
       ),
     );
@@ -715,13 +732,13 @@ class _BudgetScreenState extends State<BudgetScreen> {
     return Scaffold(
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
-      appBar: const HuddleAppBar(),
+      appBar: const MainAppBar(),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 32),
         children: [
           // ─── Page Header ───────────────────────────────────────────────
           PageHeader(
-            title: 'Family Finance',
+            title: screenTitleForModulePath('/budget'),
             subtitle: 'Track spending, save together, stay balanced.',
             actions: [
               ActionChipButton(
@@ -2331,9 +2348,10 @@ $text
       );
     }).toList();
 
-    await provider.saveAndSync(db.copyWith(
-      budgetEntries: [...db.budgetEntries, ...newEntries],
-    ));
+    await provider.saveAndSync(
+      db.copyWith(budgetEntries: [...db.budgetEntries, ...newEntries]),
+      pushTableScope: CloudSyncScope.budgetBundle,
+    );
 
     if (mounted) {
       Navigator.pop(context);
@@ -2601,6 +2619,7 @@ class _DebtTrackerSheetState extends State<_DebtTrackerSheet> {
       db.copyWith(
         families: db.families.map((f) => f.id == family.id ? next : f).toList(),
       ),
+      pushTableScope: <String>{},
     );
   }
 
@@ -2776,9 +2795,10 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
       rolloverEnabled: _rolloverEnabled,
       limitPeriod: _limitPeriod,
     );
-    await provider.saveAndSync(db.copyWith(
-      budgetCategories: [...db.budgetCategories, cat],
-    ));
+    await provider.saveAndSync(
+      db.copyWith(budgetCategories: [...db.budgetCategories, cat]),
+      pushTableScope: CloudSyncScope.budgetBundle,
+    );
     _nameCtrl.clear();
     _limitCtrl.clear();
     if (mounted) setState(() => _isSaving = false);
@@ -2803,9 +2823,12 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
       rolloverEnabled: _rolloverEnabled,
       limitPeriod: _limitPeriod,
     );
-    await provider.saveAndSync(db.copyWith(
-      budgetCategories: db.budgetCategories.map((c) => c.id == cat.id ? updated : c).toList(),
-    ));
+    await provider.saveAndSync(
+      db.copyWith(
+        budgetCategories: db.budgetCategories.map((c) => c.id == cat.id ? updated : c).toList(),
+      ),
+      pushTableScope: CloudSyncScope.budgetBundle,
+    );
     _nameCtrl.clear();
     _limitCtrl.clear();
     if (mounted) setState(() { _editingId = null; _isSaving = false; });
@@ -2829,9 +2852,10 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
     );
     if (confirmed != true) return;
 
-    await provider.saveAndSync(db.copyWith(
-      budgetCategories: db.budgetCategories.where((c) => c.id != cat.id).toList(),
-    ));
+    await provider.saveAndSync(
+      db.copyWith(budgetCategories: db.budgetCategories.where((c) => c.id != cat.id).toList()),
+      pushTableScope: CloudSyncScope.budgetBundle,
+    );
   }
 
   void _startEdit(BudgetCategoryRecord cat) {
@@ -3004,7 +3028,14 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
                 const Text('CURRENT CATEGORIES', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.0, color: AppTheme.stone400)),
                 const SizedBox(height: 8),
                 if (categories.isEmpty)
-                  const Center(child: Text('No categories yet.', style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400)))
+                  const EmptyState(
+                    compact: true,
+                    emoji: '💰',
+                    emojiSize: 40,
+                    title: 'No categories yet',
+                    subtitle:
+                        'Add a category to set spending targets, weekly buckets, and optional rollover for envelopes.',
+                  )
                 else
                   ...categories.map((cat) {
                     final color = _colorForName(cat.color ?? cat.name);

@@ -8,6 +8,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../config/cloud_sync_scope.dart';
 import '../models/models.dart' hide User;
 
 class SupabaseService {
@@ -144,6 +145,7 @@ class SupabaseService {
       'meal_plans',
       'lists',
       'devotionals',
+      'devotional_thoughts',
       'budget_categories',
       'budget_entries',
       'transactions',
@@ -242,6 +244,134 @@ class SupabaseService {
       result['users'] = [];
       for (final table in userScopedTables) {
         result[table] = [];
+      }
+    }
+
+    final phase2 = await Future.wait(allFutures);
+    for (var i = 0; i < allTables.length; i++) {
+      result[allTables[i]] = phase2[i];
+    }
+
+    return result;
+  }
+
+  /// Fetches only [tables] (Supabase relation names, e.g. `meal_plans`).
+  ///
+  /// Always includes `families` and `family_members` so merges and tombstone
+  /// pruning stay consistent with a full pull. Pass an empty set to delegate
+  /// to [fetchAllTables].
+  static Future<Map<String, dynamic>> fetchTablesForFamily(
+    String familyId,
+    Set<String> tables,
+  ) async {
+    if (tables.isEmpty) return fetchAllTables(familyId);
+
+    const familyScopedTables = [
+      'tasks',
+      'events',
+      'recipes',
+      'meal_plans',
+      'lists',
+      'devotionals',
+      'devotional_thoughts',
+      'budget_categories',
+      'budget_entries',
+      'transactions',
+      'chores',
+      'polls',
+      'reward_items',
+      'savings_goals',
+      'prayer_wall',
+      'special_dates',
+      'family_photos',
+      'milestones',
+      'saved_places',
+      'messages',
+      'health_records',
+      'external_calendars',
+      'rewards',
+      'reading_plans',
+      'pantry_items',
+      'family_activity_logs',
+      'wellness_check_ins',
+      'workout_sessions',
+      'workout_exercises',
+      'workout_sets',
+      'exercise_prs',
+    ];
+
+    const familyIdTables = [
+      'family_members',
+      'chore_completions',
+      'poll_votes',
+      'reward_redemptions',
+      'period_cycles',
+      'period_symptoms',
+    ];
+
+    const userScopedTables = [
+      'fitness',
+      'fitness_plans',
+      'fitness_logs',
+      'ai_history',
+      'daily_habits',
+      'daily_habit_completions',
+      'user_locations',
+    ];
+
+    final want = tables
+        .union({
+          CloudSyncScope.families,
+          CloudSyncScope.familyMembers,
+        })
+        .toSet();
+
+    final result = <String, dynamic>{};
+
+    Future<List> fetch(String table, String column, dynamic value) async {
+      try {
+        if (value is List) {
+          return await client.from(table).select().inFilter(column, value);
+        }
+        return await client.from(table).select().eq(column, value);
+      } catch (_) {
+        return [];
+      }
+    }
+
+    final phase1 = await Future.wait([
+      fetch('families', 'id', familyId),
+      fetch('family_members', 'family_id', familyId),
+    ]);
+    result['families'] = phase1[0];
+    result['family_members'] = phase1[1];
+
+    final userIds = (phase1[1] as List)
+        .map((m) => (m as Map)['user_id'] as String)
+        .toList();
+
+    final allTables = <String>[];
+    final allFutures = <Future<List>>[];
+
+    for (final table in familyScopedTables) {
+      if (!want.contains(table)) continue;
+      allTables.add(table);
+      allFutures.add(fetch(table, 'family_id', familyId));
+    }
+    for (final table in familyIdTables) {
+      if (table == 'family_members' || !want.contains(table)) continue;
+      allTables.add(table);
+      allFutures.add(fetch(table, 'family_id', familyId));
+    }
+
+    final userScopedWanted =
+        userScopedTables.where(want.contains).toSet();
+    if (userIds.isNotEmpty && userScopedWanted.isNotEmpty) {
+      allTables.add('users');
+      allFutures.add(fetch('users', 'id', userIds));
+      for (final table in userScopedWanted) {
+        allTables.add(table);
+        allFutures.add(fetch(table, 'user_id', userIds));
       }
     }
 

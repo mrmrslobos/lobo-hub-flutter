@@ -7,6 +7,8 @@ import 'package:uuid/uuid.dart';
 
 import '../../utils/module_disclaimer.dart';
 
+import '../../config/cloud_sync_scope.dart';
+import '../../config/module_config.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
@@ -240,7 +242,10 @@ class _HealthScreenState extends State<HealthScreen> {
       notes: updated.notes,
       updatedAt: DateTime.now(),
     );
-    await provider.saveAndSync(db.copyWith(healthRecords: [...filtered, withTimestamp]));
+    await provider.saveAndSync(
+      db.copyWith(healthRecords: [...filtered, withTimestamp]),
+      pushTableScope: {CloudSyncScope.healthRecords},
+    );
   }
 
   void _shareEmergencyCard(HealthRecord record, String name) {
@@ -337,7 +342,7 @@ class _HealthScreenState extends State<HealthScreen> {
     return Scaffold(
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
-      appBar: const HuddleAppBar(),
+      appBar: const MainAppBar(),
       body: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
         child: Column(
@@ -345,7 +350,7 @@ class _HealthScreenState extends State<HealthScreen> {
           children: [
             // ─── Header ──────────────────────────────────────────
             PageHeader(
-              title: '\u{1FA7A} Health Records',
+              title: screenTitleForModulePath('/health'),
               subtitle: 'Allergies, medications & emergency info',
               actions: [
                 ActionChipButton(

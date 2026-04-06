@@ -44,6 +44,9 @@ const TIER_RANK: Record<string, number> = { free: 0, core: 1, ai: 2 };
 
 const TRIAL_MS = 14 * 24 * 60 * 60 * 1000;
 
+/** Reject absurdly large prompts to protect Gemini quota and function wall time. */
+const MAX_PROMPT_CHARS = 180_000;
+
 /** Matches Flutter [Family.hasAIAccess] / [Family.effectiveTrialStart]. */
 function effectiveAiRank(
   subscriptionTier: string | undefined,
@@ -90,6 +93,19 @@ Deno.serve(async (req) => {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
+    }
+
+    if (typeof prompt !== 'string' || prompt.length > MAX_PROMPT_CHARS) {
+      return new Response(
+        JSON.stringify({
+          error: 'prompt_too_large',
+          maxChars: MAX_PROMPT_CHARS,
+        }),
+        {
+          status: 413,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        },
+      );
     }
 
     // ── Verify subscription tier ──────────────────────────────────────────

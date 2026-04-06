@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
+import '../config/app_config.dart';
 import '../models/models.dart' hide Priority;
 
 /// Simple time-of-day container (replaces the removed flutter_local_notifications Time class).
@@ -135,15 +136,15 @@ class NotificationService {
   }) async {
     if (!_initialized) await init();
 
-    const androidDetails = AndroidNotificationDetails(
+    final androidDetails = AndroidNotificationDetails(
       'lobohub_general',
       'General Notifications',
-      channelDescription: 'General app notifications for LoboHub',
+      channelDescription: 'General app notifications for ${AppConfig.appName}',
       importance: Importance.high,
       priority: Priority.high,
     );
     const iosDetails = DarwinNotificationDetails();
-    const details = NotificationDetails(
+    final details = NotificationDetails(
       android: androidDetails,
       iOS: iosDetails,
     );
@@ -173,15 +174,15 @@ class NotificationService {
       scheduledDate = scheduledDate.add(const Duration(days: 1));
     }
 
-    const androidDetails = AndroidNotificationDetails(
+    final androidDetails = AndroidNotificationDetails(
       'lobohub_daily',
       'Daily Reminders',
-      channelDescription: 'Daily scheduled reminders for LoboHub',
+      channelDescription: 'Daily scheduled reminders for ${AppConfig.appName}',
       importance: Importance.high,
       priority: Priority.high,
     );
     const iosDetails = DarwinNotificationDetails();
-    const details = NotificationDetails(
+    final details = NotificationDetails(
       android: androidDetails,
       iOS: iosDetails,
     );

@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:intl/intl.dart';
 
+import '../../config/cloud_sync_scope.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
@@ -124,7 +125,10 @@ class _ChatScreenState extends State<ChatScreen> {
       );
 
       final db = provider.db;
-      await provider.saveAndSync(db.copyWith(messages: [...db.messages, msg]));
+      await provider.saveAndSync(
+        db.copyWith(messages: [...db.messages, msg]),
+        pushTableScope: {CloudSyncScope.messages},
+      );
 
       _textCtrl.clear();
       setState(() => _replyTo = null);
@@ -154,7 +158,10 @@ class _ChatScreenState extends State<ChatScreen> {
     final db = provider.db;
     final messages =
         db.messages.map((m) => m.id == msg.id ? updated : m).toList();
-    await provider.saveAndSync(db.copyWith(messages: messages));
+    await provider.saveAndSync(
+      db.copyWith(messages: messages),
+      pushTableScope: {CloudSyncScope.messages},
+    );
   }
 
   Future<void> _deleteMessage(AppProvider provider, ChatMessage msg) async {
@@ -171,9 +178,12 @@ class _ChatScreenState extends State<ChatScreen> {
     );
     if (confirmed != true) return;
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
-      messages: db.messages.where((m) => m.id != msg.id).toList(),
-    ));
+    await provider.saveAndSync(
+      db.copyWith(
+        messages: db.messages.where((m) => m.id != msg.id).toList(),
+      ),
+      pushTableScope: {CloudSyncScope.messages},
+    );
   }
 
   void _showMessageActions(AppProvider provider, ChatMessage msg) {
@@ -320,7 +330,7 @@ class _ChatScreenState extends State<ChatScreen> {
         return Scaffold(
           resizeToAvoidBottomInset: true,
           drawer: const AppDrawer(),
-          appBar: HuddleAppBar(
+          appBar: MainAppBar(
             actions: [
               IconButton(
                 icon: Icon(

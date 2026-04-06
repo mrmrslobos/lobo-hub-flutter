@@ -244,12 +244,21 @@ Deno.serve(async (req: Request) => {
       weekly_digest_hour: number | null;
     };
 
-    const families = ((allFamilies ?? []) as FamilyRow[]).filter((f) => {
+    let families = ((allFamilies ?? []) as FamilyRow[]).filter((f) => {
       if (f.weekly_digest === false) return false;
       const schedDay = f.weekly_digest_day ?? 0;    // default: Sunday
       const schedHour = f.weekly_digest_hour ?? 8;  // default: 08:00 UTC
       return schedDay === currentUtcDay && schedHour === currentUtcHour;
     });
+
+    const maxFamilies = Number(Deno.env.get('WEEKLY_DIGEST_MAX_FAMILIES_PER_RUN') ?? '40');
+    const famCap = Number.isFinite(maxFamilies) && maxFamilies > 0 ? Math.floor(maxFamilies) : 40;
+    if (families.length > famCap) {
+      console.warn(
+        `[weekly-digest] ${families.length} families match this hour; processing first ${famCap}. Raise WEEKLY_DIGEST_MAX_FAMILIES_PER_RUN or stagger schedules.`,
+      );
+      families = families.slice(0, famCap);
+    }
 
     // -----------------------------------------------------------------------
     // Date window strings (text comparisons work for ISO / YYYY-MM-DD fields)

@@ -10,10 +10,13 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../config/cloud_sync_scope.dart';
+import '../../config/module_config.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
+import '../../utils/cloud_pull.dart';
 import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
@@ -93,7 +96,10 @@ class _TasksScreenState extends State<TasksScreen> {
 
       final next = fam.withTaskCustomFolders(names);
       provider.updateFamily(next);
-      await provider.saveAndSync(provider.db);
+      await provider.saveAndSync(
+        provider.db,
+        pushTableScope: <String>{},
+      );
       await prefs.remove(key);
     } catch (_) {}
   }
@@ -140,7 +146,10 @@ class _TasksScreenState extends State<TasksScreen> {
     }
     final next = fam.withTaskCustomFolders([...fam.taskCustomFolderNames, name]);
     provider.updateFamily(next);
-    await provider.saveAndSync(provider.db);
+    await provider.saveAndSync(
+      provider.db,
+      pushTableScope: <String>{},
+    );
   }
 
   @override
@@ -247,7 +256,8 @@ class _TasksScreenState extends State<TasksScreen> {
       }
     }
 
-    await provider.saveAndSync(db.copyWith(tasks: tasks));
+    await provider.saveAndSync(db.copyWith(tasks: tasks),
+          pushTableScope: {CloudSyncScope.tasks});
     if (provider.activeFamily != null) await provider.syncTasksNow();
     if (updated.completed) {
       NotificationService.cancelTaskReminder(task.id);
@@ -270,7 +280,8 @@ class _TasksScreenState extends State<TasksScreen> {
   Future<void> _deleteTask(AppProvider provider, Task task) async {
     final db = provider.db;
     final tasks = db.tasks.where((t) => t.id != task.id).toList();
-    await provider.saveAndSync(db.copyWith(tasks: tasks));
+    await provider.saveAndSync(db.copyWith(tasks: tasks),
+          pushTableScope: {CloudSyncScope.tasks});
     if (provider.activeFamily != null) await provider.syncTasksNow();
     NotificationService.cancelTaskReminder(task.id);
   }
@@ -333,13 +344,17 @@ class _TasksScreenState extends State<TasksScreen> {
 
         return Scaffold(
           drawer: const AppDrawer(),
-          appBar: const HuddleAppBar(),
-          body: ListView(
-            padding: EdgeInsets.zero,
-            children: [
+          appBar: const MainAppBar(),
+          body: RefreshIndicator(
+            color: AppTheme.primary,
+            onRefresh: () => pullCloudLatestWithHaptic(context),
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: EdgeInsets.zero,
+              children: [
               // Page Header
               PageHeader(
-                title: 'Tasks',
+                title: screenTitleForModulePath('/tasks'),
                 subtitle: 'Stay on top of what matters.',
               ),
 
@@ -700,6 +715,7 @@ class _TasksScreenState extends State<TasksScreen> {
 
               const SizedBox(height: 100),
             ],
+            ),
           ),
         );
       },
@@ -1008,7 +1024,8 @@ class _AiBreakdownSheetState extends State<_AiBreakdownSheet> {
           )).toList();
 
       final updatedTasks = [...db.tasks, ...newTasks];
-      await provider.saveAndSync(db.copyWith(tasks: updatedTasks));
+      await provider.saveAndSync(db.copyWith(tasks: updatedTasks),
+          pushTableScope: {CloudSyncScope.tasks});
       if (provider.activeFamily != null) await provider.syncTasksNow();
 
       if (mounted) {
@@ -1640,7 +1657,8 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
           updatedAt: DateTime.now(),
         );
         final tasks = db.tasks.map((t) => t.id == savedTask.id ? savedTask : t).toList();
-        await provider.saveAndSync(db.copyWith(tasks: tasks));
+        await provider.saveAndSync(db.copyWith(tasks: tasks),
+          pushTableScope: {CloudSyncScope.tasks});
         if (provider.activeFamily != null) await provider.syncTasksNow();
       } else {
         savedTask = Task(
@@ -1659,7 +1677,8 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
           creatorId: userId,
         );
         final tasks = [...db.tasks, savedTask];
-        await provider.saveAndSync(db.copyWith(tasks: tasks));
+        await provider.saveAndSync(db.copyWith(tasks: tasks),
+          pushTableScope: {CloudSyncScope.tasks});
         if (provider.activeFamily != null) await provider.syncTasksNow();
 
         // Notify family about new shared task

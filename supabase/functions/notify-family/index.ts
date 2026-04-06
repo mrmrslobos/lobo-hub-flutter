@@ -326,7 +326,7 @@ async function createVapidJwt(
 
   const enc = new TextEncoder();
   const headerB64 = bytesToBase64url(enc.encode(JSON.stringify({ typ: 'JWT', alg: 'ES256' })));
-  const payloadB64 = bytesToBase64url(enc.encode(JSON.stringify({ aud: audience, exp, sub: 'mailto:push@huddleapp.com.au' })));
+  const payloadB64 = bytesToBase64url(enc.encode(JSON.stringify({ aud: audience, exp, sub: 'mailto:push@familyhub.app' })));
   const signingInput = `${headerB64}.${payloadB64}`;
 
   // Reconstruct JWK from raw keys (crypto.subtle cannot import raw EC private key directly)
@@ -558,6 +558,16 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    const maxBytes = Number(Deno.env.get('NOTIFY_FAMILY_MAX_BODY_BYTES') ?? '262144');
+    const cap = Number.isFinite(maxBytes) && maxBytes > 0 ? Math.floor(maxBytes) : 262144;
+    const cl = req.headers.get('content-length');
+    if (cl != null && Number(cl) > cap) {
+      return new Response(JSON.stringify({ error: 'payload_too_large', maxBytes: cap }), {
+        status: 413,
+        headers: { ...CORS, 'Content-Type': 'application/json' },
+      });
+    }
+
     const body = await req.json();
 
     // Service-role Supabase client for reading device_tokens + users

@@ -13,15 +13,18 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../config/cloud_sync_scope.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
+import '../../utils/cloud_pull.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/dashboard_ai_suggestions_cache.dart';
-import '../onboarding/walkthrough_screen.dart';
+import '../../config/module_config.dart';
+import '../onboarding/welcome_module_tour_screen.dart';
 
 // ─── AI Suggestion model ─────────────────────────────────────────────────────
 
@@ -128,8 +131,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _suggestionsLoaded = true;
     }
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _showMedicalDisclaimerIfNeeded();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _showMedicalDisclaimerIfNeeded();
+      if (!mounted) return;
+
       if (_suggestionsLoaded) {
         // Already have suggestions from cache — skip API call
       } else if (AiService.isAIBlocked) {
@@ -147,7 +152,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       } else {
         _loadAISuggestions(forceRefresh: false);
       }
-      _showWalkthroughIfNeeded();
+      await _showWelcomeTourIfPending();
       _loadStartTipDismissed();
     });
   }
@@ -188,15 +193,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (mounted) setState(() => _startTipDismissed = true);
   }
 
-  Future<void> _showWalkthroughIfNeeded() async {
-    final completed = await isWalkthroughCompleted();
-    if (!completed && mounted) {
-      Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => WalkthroughScreen(
-          onComplete: () => Navigator.of(context).pop(),
+  bool _welcomeTourCheckScheduled = false;
+
+  /// After first home creation + module setup, [markWelcomeTourPending] is set; we show once here.
+  Future<void> _showWelcomeTourIfPending() async {
+    if (_welcomeTourCheckScheduled) return;
+    _welcomeTourCheckScheduled = true;
+    final prefs = await SharedPreferences.getInstance();
+    if (!(prefs.getBool(kPrefPendingWelcomeTour) ?? false)) return;
+    if (!mounted) return;
+    final raw = prefs.getString(kPrefPendingWelcomeTourPaths) ?? '';
+    final keys = raw.split(',').where((s) => s.trim().isNotEmpty).toList();
+    final modules = modulesInCatalogOrder(keys);
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (ctx) => WelcomeModuleTourScreen(
+          modules: modules,
+          onComplete: () {
+            if (ctx.mounted) Navigator.of(ctx).pop();
+          },
         ),
-      ));
-    }
+      ),
+    );
   }
 
   static const _disclaimerKey = 'medical_disclaimer_accepted';
@@ -233,6 +254,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _onRefresh() async {
+    await pullCloudLatestWithHaptic(context);
     final provider = context.read<AppProvider>();
     await provider.saveAndSync(provider.db);
     await _loadAISuggestions(forceRefresh: true);
@@ -841,7 +863,7 @@ Return ONLY the JSON array, no markdown.''',
         return Scaffold(
           drawer: const AppDrawer(),
           // backgroundColor handled by theme
-          appBar: const HuddleAppBar(),
+          appBar: const MainAppBar(),
           body: RefreshIndicator(
             onRefresh: _onRefresh,
             color: AppTheme.primary,
@@ -1023,9 +1045,12 @@ Return ONLY the JSON array, no markdown.''',
                               date: today,
                               completedAt: DateTime.now(),
                             );
-                            await provider.saveAndSync(db.copyWith(
-                              choreCompletions: [...db.choreCompletions, completion],
-                            ));
+                            await provider.saveAndSync(
+                              db.copyWith(
+                                choreCompletions: [...db.choreCompletions, completion],
+                              ),
+                              pushTableScope: CloudSyncScope.choreBundle,
+                            );
                           },
                           child: Container(
                             padding: const EdgeInsets.all(12),
@@ -1503,9 +1528,12 @@ Return ONLY the JSON array, no markdown.''',
     );
     provider.updateFamily(updated);
     final db = provider.db;
-    await provider.saveAndSync(db.copyWith(
-      families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
-    ));
+    await provider.saveAndSync(
+      db.copyWith(
+        families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
+      ),
+      pushTableScope: <String>{},
+    );
     // Clear dismiss state if the announcement changed
     if (result.isNotEmpty) {
       setState(() => _dismissedAnnouncement = null);
@@ -1576,9 +1604,12 @@ Return ONLY the JSON array, no markdown.''',
                       final updated = family.copyWith(welcomeDismissed: true);
                       final db = provider.db;
                       provider.updateFamily(updated);
-                      provider.saveAndSync(db.copyWith(
-                        families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
-                      ));
+                      provider.saveAndSync(
+                        db.copyWith(
+                          families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
+                        ),
+                        pushTableScope: <String>{},
+                      );
                     },
                     splashRadius: 18,
                     padding: EdgeInsets.zero,
@@ -2195,7 +2226,15 @@ Return ONLY the JSON array, no markdown.''',
           ]),
           const SizedBox(height: 8),
           if (devotionals.isEmpty)
-            const Text('No devotionals yet.', style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400))
+            EmptyState(
+              compact: true,
+              emoji: '📖',
+              emojiSize: 36,
+              title: 'No devotionals yet',
+              subtitle: 'Open Devotional to read, save favorites, or get today\'s reading.',
+              actionLabel: 'Open',
+              onAction: () => context.go('/devotional'),
+            )
           else ...[
             Text(DateFormat('MMM d').format(devotionals.first.date).toUpperCase(), style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.5, color: Color(0xFF3B82F6))),
             const SizedBox(height: 4),
