@@ -104,6 +104,8 @@ class DatabaseService {
   static const _prayerWallCloudOmit = {'prayed_by_ids'};
 
   static const String _dbKey = 'huddle_db';
+  /// Pre-rebrand local DB key; [loadLocal] migrates into [_dbKey] once.
+  static const String _legacyDbKey = 'familyhub_db';
   static const String _tombstoneKey = 'fh_merge_tombstones';
   static AppDB? _cache;
 
@@ -141,8 +143,16 @@ class DatabaseService {
   static Future<AppDB> loadLocal() async {
     await _loadTombstones();
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_dbKey);
-    if (raw == null) {
+    var raw = prefs.getString(_dbKey);
+    if (raw == null || raw.isEmpty) {
+      final legacy = prefs.getString(_legacyDbKey);
+      if (legacy != null && legacy.isNotEmpty) {
+        raw = legacy;
+        await prefs.setString(_dbKey, legacy);
+        await prefs.remove(_legacyDbKey);
+      }
+    }
+    if (raw == null || raw.isEmpty) {
       _cache = AppDB.empty();
       return _cache!;
     }
@@ -176,6 +186,7 @@ class DatabaseService {
     _deletedKeys.clear();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_dbKey);
+    await prefs.remove(_legacyDbKey);
     await prefs.remove(_tombstoneKey);
   }
 

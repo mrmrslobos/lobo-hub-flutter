@@ -1605,7 +1605,7 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet> {
   }
 
   Future<void> _fetchAnalysis() async {
-    if (SubscriptionModal.guardAI(context)) return;
+    if (SubscriptionModal.guardAI(context, kind: AiPaywallKind.budget)) return;
     try {
       final familyId = context.read<AppProvider>().activeFamily?.id;
       if (familyId == null) {
@@ -2244,7 +2244,7 @@ class _AiBankStatementImportSheetState extends State<_AiBankStatementImportSheet
   }
 
   Future<void> _parseStatement() async {
-    if (SubscriptionModal.guardAI(context)) return;
+    if (SubscriptionModal.guardAI(context, kind: AiPaywallKind.budget)) return;
     final text = _textController.text.trim();
     if (text.isEmpty) {
       _showSnack(context, 'Please paste your bank statement text');

@@ -22,6 +22,7 @@ import '../../utils/cloud_pull.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/subscription_modal.dart';
+import '../../utils/module_disclaimer.dart';
 import '../../utils/dashboard_ai_suggestions_cache.dart';
 import '../../config/module_config.dart';
 import '../onboarding/welcome_module_tour_screen.dart';
@@ -220,11 +221,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  static const _disclaimerKey = 'medical_disclaimer_accepted';
-
   Future<void> _showMedicalDisclaimerIfNeeded() async {
+    final userId = context.read<AppProvider>().activeUser?.id;
+    if (userId == null || userId.isEmpty) return;
     final prefs = await SharedPreferences.getInstance();
-    if (prefs.getBool(_disclaimerKey) == true) return;
+    if (await isMedicalDisclaimerAcceptedForUser(prefs, userId)) return;
     if (!mounted) return;
 
     await showDialog(
@@ -232,7 +233,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       barrierDismissible: false,
       builder: (ctx) => _MedicalDisclaimerDialog(
         onAccepted: () async {
-          await prefs.setBool(_disclaimerKey, true);
+          await setMedicalDisclaimerAcceptedForUser(prefs, userId);
           if (ctx.mounted) Navigator.pop(ctx);
         },
       ),
@@ -265,7 +266,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (AiService.isAIBlocked) {
       await SubscriptionModal.show(
         context,
-        feature: 'AI monthly recap',
+        kind: AiPaywallKind.monthlyRecap,
       );
       return;
     }
@@ -447,7 +448,7 @@ Return a JSON object:
       if (showPaywallWhenLocked && mounted) {
         await SubscriptionModal.show(
           context,
-          feature: 'AI suggestions',
+          kind: AiPaywallKind.homeSuggestions,
         );
       }
       return;
@@ -1639,7 +1640,7 @@ Return ONLY the JSON array, no markdown.''',
                       if (AiService.isAIBlocked) {
                         SubscriptionModal.show(
                           context,
-                          feature: 'AI-powered features',
+                          kind: AiPaywallKind.explore,
                         );
                       } else {
                         context.push(f.route);

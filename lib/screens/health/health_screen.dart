@@ -163,8 +163,12 @@ class _HealthScreenState extends State<HealthScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final uid = context.read<AppProvider>().activeUser?.id;
+      if (uid == null) return;
       showModuleDisclaimer(
         context: context,
+        userId: uid,
         moduleKey: 'health',
         title: 'Health Records',
         icon: Icons.medical_information_rounded,

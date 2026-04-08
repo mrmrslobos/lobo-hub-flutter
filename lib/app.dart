@@ -290,32 +290,79 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
           ],
         ),
       ],
-      errorBuilder: (context, state) => Scaffold(
-        appBar: AppBar(title: const Text('Page Not Found')),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.error_outline, size: 64, color: AppTheme.stone400),
-              const SizedBox(height: 16),
-              Text(
-                'Page not found',
-                style: Theme.of(context).textTheme.headlineSmall,
+      errorBuilder: (context, state) {
+        final cs = Theme.of(context).colorScheme;
+        return Scaffold(
+          backgroundColor: cs.surface,
+          body: SafeArea(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 28),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 400),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text('🧭', style: TextStyle(fontSize: 56, color: cs.onSurface.withValues(alpha: 0.35))),
+                      const SizedBox(height: 20),
+                      Semantics(
+                        header: true,
+                        child: Text(
+                          'We couldn’t open that screen',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontWeight: FontWeight.w800,
+                            fontSize: 22,
+                            height: 1.2,
+                            color: cs.onSurface,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        '${AppConfig.appName} may have been updated, or the link is out of date. Nothing was deleted.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 15,
+                          height: 1.4,
+                          color: cs.onSurface.withValues(alpha: 0.56),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Semantics(
+                        label: 'Broken route path',
+                        child: Text(
+                          state.matchedLocation,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                            color: cs.onSurface.withValues(alpha: 0.38),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+                      FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: () => context.go('/'),
+                        icon: const Icon(Icons.home_rounded, size: 20),
+                        label: const Text('Back to home', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700)),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-              const SizedBox(height: 8),
-              Text(
-                state.matchedLocation,
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: () => context.go('/'),
-                child: const Text('Go Home'),
-              ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 

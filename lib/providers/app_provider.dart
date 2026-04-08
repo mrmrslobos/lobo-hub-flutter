@@ -51,6 +51,7 @@ class AppProvider extends ChangeNotifier {
   static const Duration resumeSyncStaleAfter = Duration(minutes: 3);
   DateTime? _lastSuccessfulSyncAt;
   String? _lastSyncError;
+  DateTime? _lastLocalPersistAt;
   ThemeMode _themeMode = ThemeMode.light;
 
   // ── Getters ───────────────────────────────────────────────────────────────
@@ -64,6 +65,8 @@ class AppProvider extends ChangeNotifier {
   bool get isSyncing => _isSyncing;
   DateTime? get lastSuccessfulSyncAt => _lastSuccessfulSyncAt;
   String? get lastSyncError => _lastSyncError;
+  /// Bumped after local [DatabaseService.saveLocal] from [updateDb] / [saveAndSync].
+  DateTime? get lastLocalPersistAt => _lastLocalPersistAt;
   ThemeMode get themeMode => _themeMode;
   Set<String> get unreadModules => _unreadModules;
 
@@ -88,9 +91,11 @@ class AppProvider extends ChangeNotifier {
       if (SupabaseService.isConfigured) {
         final session = SupabaseService.currentSession;
         if (session != null) {
+          final meta = session.user.userMetadata?['name'];
           await _resolveUserFromSession(
             session.user.id,
             session.user.email ?? '',
+            meta is String ? meta : null,
           );
         }
       }
@@ -102,7 +107,11 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> _resolveUserFromSession(String userId, String email) async {
+  Future<void> _resolveUserFromSession(
+    String userId,
+    String email,
+    String? displayName,
+  ) async {
     await SupabaseService.claimOwnedFamilies();
 
     var user = _db.users.firstWhereOrNull((u) => u.id == userId);
@@ -118,6 +127,35 @@ class AppProvider extends ChangeNotifier {
       knownFamilyId = membership?.familyId;
     }
 
+    // Cloud membership (always when Supabase is on) — empty local DB after an
+    // update/reinstall still has a session; we need rows before reconcile/RLS pull.
+    List<Map<String, dynamic>> cloudMemberRows = [];
+    if (SupabaseService.isConfigured) {
+      try {
+        final memberships = await SupabaseService.client
+            .from('family_members')
+            .select()
+            .eq('user_id', userId);
+        cloudMemberRows = SupabaseService.rowsFromSelect(memberships);
+        if (knownFamilyId == null && cloudMemberRows.isNotEmpty) {
+          knownFamilyId = cloudMemberRows.first['family_id'] as String?;
+        }
+      } catch (e) {
+        debugPrint('[AppProvider] Error fetching cloud membership: $e');
+      }
+    }
+
+    if (knownFamilyId != null) {
+      await _bootstrapSessionFamilyIfNeeded(
+        userId: userId,
+        email: email,
+        displayName: displayName,
+        familyId: knownFamilyId,
+        membershipRowsForUser: cloudMemberRows,
+      );
+      user = _db.users.firstWhereOrNull((u) => u.id == userId);
+    }
+
     // Authenticate immediately from local data for fast startup
     if (user != null) {
       _setActiveUserFamily(user, knownFamilyId);
@@ -128,70 +166,127 @@ class AppProvider extends ChangeNotifier {
       }
     }
 
-    // If user not found locally, look up membership from cloud
-    if (knownFamilyId == null && SupabaseService.isConfigured) {
+    // Join code for field encryption, then one full pull (awaited so the first
+    // dashboard frame is not stuck on an empty local DB while pull races).
+    if (knownFamilyId != null && SupabaseService.isConfigured) {
+      try {
+        final famRow = await SupabaseService.client
+            .from('families')
+            .select('join_code')
+            .eq('id', knownFamilyId)
+            .maybeSingle();
+        final jc =
+            famRow != null ? famRow['join_code'] as String? : null;
+        if (jc != null && jc.isNotEmpty) {
+          await FieldEncryption.init(knownFamilyId, jc);
+        }
+      } catch (e) {
+        debugPrint('[AppProvider] join_code fetch: $e');
+      }
+
+      await refreshFromCloud(familyIdOverride: knownFamilyId);
+
+      if (DatabaseService.lastError != null) {
+        _lastSyncError = DatabaseService.lastError;
+        debugPrint('[AppProvider] refreshFromCloud: ${DatabaseService.lastError}');
+      } else {
+        user = _db.users.firstWhereOrNull((u) => u.id == userId);
+        if (user != null) {
+          _setActiveUserFamily(user, knownFamilyId);
+          if (FieldEncryption.isReady(knownFamilyId)) {
+            _db = _db.applySensitiveDecryption(knownFamilyId);
+            await DatabaseService.saveLocal(_db);
+          }
+        }
+      }
+    }
+  }
+
+  /// After an empty/corrupt local DB, ensure [users], [families], and
+  /// [family_members] exist so [_setActiveUserFamily] and [reconcileCloud] work.
+  Future<void> _bootstrapSessionFamilyIfNeeded({
+    required String userId,
+    required String email,
+    required String? displayName,
+    required String familyId,
+    required List<Map<String, dynamic>> membershipRowsForUser,
+  }) async {
+    if (familyId.isEmpty) return;
+
+    var rowsForFamily = membershipRowsForUser
+        .where((r) => r['family_id']?.toString() == familyId)
+        .toList();
+    if (rowsForFamily.isEmpty && SupabaseService.isConfigured) {
       try {
         final memberships = await SupabaseService.client
             .from('family_members')
             .select()
-            .eq('user_id', userId);
-        final rows = SupabaseService.rowsFromSelect(memberships);
-        if (rows.isNotEmpty) {
-          knownFamilyId = rows.first['family_id'] as String?;
-        }
+            .eq('user_id', userId)
+            .eq('family_id', familyId);
+        rowsForFamily = SupabaseService.rowsFromSelect(memberships);
       } catch (e) {
-        debugPrint('[AppProvider] Error fetching cloud membership: $e');
+        debugPrint('[AppProvider] bootstrap family_members fetch: $e');
       }
     }
+    if (rowsForFamily.isEmpty) return;
 
-    // Reconcile with cloud. We must pull family + membership whenever the local
-    // DB is incomplete — not only when `user == null`. Otherwise a stale user
-    // row without `family_members` / `families` (reinstall, migration, cache
-    // glitch) leaves `knownFamilyId` from the cloud unused and the app shows
-    // "create home" even though the account already belongs to a family.
-    if (knownFamilyId != null && SupabaseService.isConfigured) {
-      final mem = _db.familyMembers.firstWhereOrNull((m) => m.userId == userId);
-      final fam = _db.families.firstWhereOrNull((f) => f.id == knownFamilyId);
-      final needsReconcile = user == null ||
-          mem == null ||
-          fam == null ||
-          mem.familyId != knownFamilyId;
+    final hasFam = _db.families.any((f) => f.id == familyId);
+    final hasMem = _db.familyMembers
+        .any((m) => m.userId == userId && m.familyId == familyId);
+    final hasUser = _db.users.any((u) => u.id == userId);
+    if (hasFam && hasMem && hasUser) return;
 
-      if (needsReconcile) {
-        try {
-          final famRow = await SupabaseService.client
-              .from('families')
-              .select('join_code')
-              .eq('id', knownFamilyId)
-              .maybeSingle();
-          final jc = famRow != null
-              ? famRow['join_code'] as String?
-              : null;
-          if (jc != null && jc.isNotEmpty) {
-            await FieldEncryption.init(knownFamilyId, jc);
-          }
-          _db = await DatabaseService.reconcileCloud(_db, knownFamilyId);
-          user = _db.users.firstWhereOrNull((u) => u.id == userId);
-          if (user != null) {
-            _setActiveUserFamily(user, knownFamilyId);
-            if (FieldEncryption.isReady(knownFamilyId)) {
-              _db = _db.applySensitiveDecryption(knownFamilyId);
-              await DatabaseService.saveLocal(_db);
-            }
-          }
-        } catch (e) {
-          debugPrint('[AppProvider] Cloud reconciliation failed: $e');
+    try {
+      Family? family;
+      if (!hasFam) {
+        final row = await SupabaseService.client
+            .from('families')
+            .select()
+            .eq('id', familyId)
+            .maybeSingle();
+        if (row != null) {
+          family = Family.fromJson(Map<String, dynamic>.from(row));
         }
       }
-      // Background pull for any remaining updates
-      unawaited(refreshFromCloud());
+
+      User? newUser;
+      if (!hasUser) {
+        final name = (displayName != null && displayName.trim().isNotEmpty)
+            ? displayName.trim()
+            : (email.isNotEmpty ? email.split('@').first : 'Member');
+        newUser = User(id: userId, name: name, email: email);
+      }
+
+      final newMembers = rowsForFamily
+          .map((r) => FamilyMember.fromJson(Map<String, dynamic>.from(r)))
+          .toList();
+      final mergedMembers = DatabaseService.dedupeFamilyMembers([
+        ..._db.familyMembers,
+        ...newMembers,
+      ]);
+
+      var next = _db;
+      if (family != null) {
+        next = next.copyWith(families: [...next.families, family]);
+      }
+      if (newUser != null) {
+        next = next.copyWith(users: [...next.users, newUser]);
+      }
+      next = next.copyWith(familyMembers: mergedMembers);
+      _db = next;
+      await DatabaseService.saveLocal(_db);
+    } catch (e, st) {
+      debugPrint('[AppProvider] _bootstrapSessionFamilyIfNeeded: $e\n$st');
     }
   }
 
   void _setActiveUserFamily(User user, String? knownFamilyId) {
-    final membership = _db.familyMembers.firstWhereOrNull(
-      (m) => m.userId == user.id,
-    );
+    final membership = knownFamilyId != null
+        ? _db.familyMembers.firstWhereOrNull(
+            (m) => m.userId == user.id && m.familyId == knownFamilyId,
+          ) ??
+            _db.familyMembers.firstWhereOrNull((m) => m.userId == user.id)
+        : _db.familyMembers.firstWhereOrNull((m) => m.userId == user.id);
     if (membership != null) {
       final family = _db.families.firstWhereOrNull(
         (f) => f.id == membership.familyId,
@@ -518,9 +613,12 @@ class AppProvider extends ChangeNotifier {
   }
 
   /// Pull latest data from cloud and merge into local state (immediate).
-  Future<void> _pullFromCloudNow() async {
-    final familyId = _activeFamily?.id;
-    if (familyId == null || !SupabaseService.isConfigured) return;
+  ///
+  /// [familyId] overrides [_activeFamily] (e.g. session restore before the
+  /// home row exists locally — otherwise refresh would no-op).
+  Future<void> _pullFromCloudNow({String? familyId}) async {
+    final fid = familyId ?? _activeFamily?.id;
+    if (fid == null || !SupabaseService.isConfigured) return;
     if (_outboundCloudSyncActive || _isSyncing) {
       _deferredCloudPull = true;
       return;
@@ -528,8 +626,14 @@ class AppProvider extends ChangeNotifier {
     _isSyncing = true;
     notifyListeners();
     try {
-      final merged = await DatabaseService.reconcileCloud(_db, familyId);
+      final merged = await DatabaseService.reconcileCloud(_db, fid);
+      final err = DatabaseService.lastError;
+      if (err != null && err.isNotEmpty) {
+        _lastSyncError = err;
+        return;
+      }
       _db = merged;
+      await DatabaseService.saveLocal(_db);
       await _repairOwnerMembershipIfNeeded();
       _lastSuccessfulSyncAt = DateTime.now();
       _lastSyncError = null;
@@ -563,7 +667,13 @@ class AppProvider extends ChangeNotifier {
         familyId,
         pullTables: tables,
       );
+      final err = DatabaseService.lastError;
+      if (err != null && err.isNotEmpty) {
+        _lastSyncError = err;
+        return;
+      }
       _db = merged;
+      await DatabaseService.saveLocal(_db);
       await _repairOwnerMembershipIfNeeded();
       _lastSuccessfulSyncAt = DateTime.now();
       _lastSyncError = null;
@@ -597,22 +707,21 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
-  /// Cancel pending debounced pulls and run a full reconcile (waits briefly if a push is in flight).
-  Future<void> refreshFromCloud() async {
+  /// Cancel pending debounced pulls and run a full reconcile (defers if a push/pull is active).
+  ///
+  /// [familyIdOverride] is used when restoring a session before [_activeFamily]
+  /// is set (e.g. local DB missing the `families` row until the first pull).
+  Future<void> refreshFromCloud({String? familyIdOverride}) async {
     _pullDebounceTimer?.cancel();
     _pullDebounceTimer = null;
-    if (_activeFamily == null || !SupabaseService.isConfigured) return;
-    var waited = 0;
-    while ((_outboundCloudSyncActive || _isSyncing) && waited < 120) {
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      waited++;
-    }
+    final fid = familyIdOverride ?? _activeFamily?.id;
+    if (fid == null || !SupabaseService.isConfigured) return;
     if (_outboundCloudSyncActive || _isSyncing) {
       _deferredCloudPull = true;
       scheduleDebouncedPullFromCloud(Duration.zero);
       return;
     }
-    await _pullFromCloudNow();
+    await _pullFromCloudNow(familyId: fid);
   }
 
   @override
@@ -719,6 +828,7 @@ class AppProvider extends ChangeNotifier {
   void updateDb(AppDB newDb) {
     _db = newDb;
     DatabaseService.saveLocal(newDb);
+    _lastLocalPersistAt = DateTime.now();
     notifyListeners();
   }
 
@@ -769,10 +879,11 @@ class AppProvider extends ChangeNotifier {
   Future<void> saveAndSync(AppDB newDb, {Set<String>? pushTableScope}) async {
     _db = newDb;
     notifyListeners();
+    await DatabaseService.saveLocal(newDb);
+    _lastLocalPersistAt = DateTime.now();
+    notifyListeners();
     if (_activeFamily != null) {
-      // Save locally (fast) then fire-and-forget the cloud sync so the
-      // UI never blocks on network I/O.
-      await DatabaseService.saveLocal(newDb);
+      // Fire-and-forget the cloud sync so the UI never blocks on network I/O.
       // Broadcast immediately so other devices know to pull — don't wait
       // for the full cloud sync to finish.
       _broadcastChange();
@@ -795,8 +906,6 @@ class AppProvider extends ChangeNotifier {
         notifyListeners();
         _flushDeferredCloudPullIfNeeded();
       });
-    } else {
-      await DatabaseService.saveLocal(newDb);
     }
   }
 

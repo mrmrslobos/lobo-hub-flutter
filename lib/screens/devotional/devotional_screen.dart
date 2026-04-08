@@ -1,7 +1,6 @@
 // lib/screens/devotional/devotional_screen.dart
 // Devotional & reading-plan screen for Huddle
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart' hide Visibility;
 
@@ -770,8 +769,8 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
         final vis = _userDailyPrivateDefault(provider.activeUser)
             ? Visibility.PRIVATE
             : Visibility.FAMILY;
-        try {
-          final data = jsonDecode(raw) as Map<String, dynamic>;
+        final data = AiService.tryParseJsonObject(raw);
+        if (data != null) {
           final scriptureRef = data['scriptureRef'] as String?;
           final scriptureText = data['scripture'] as String?;
           final scripture = scriptureText != null && scriptureRef != null
@@ -798,7 +797,7 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
             pushTableScope: {CloudSyncScope.devotionals},
           );
           if (mounted) widget.onSelectEntry(entry);
-        } catch (_) {
+        } else {
           final entry = DevotionalEntry(
             id: const Uuid().v4(),
             familyId: familyId,
@@ -827,7 +826,7 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
   }
 
   Future<void> _generate() async {
-    if (SubscriptionModal.guardAI(context)) return;
+    if (SubscriptionModal.guardAI(context, kind: AiPaywallKind.devotional)) return;
     setState(() => _isGenerating = true);
     try {
       final topic = _topicCtrl.text.trim().isEmpty ? 'a random Bible verse' : _topicCtrl.text.trim();
@@ -858,8 +857,8 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
 
       if (raw != null && mounted) {
         provider.saveAiHistory(module: 'devotional', prompt: 'Generate devotional on: $topic', response: raw);
-        try {
-          final data = jsonDecode(raw) as Map<String, dynamic>;
+        final data = AiService.tryParseJsonObject(raw);
+        if (data != null) {
           final scriptureRef = data['scriptureRef'] as String?;
           final scriptureText = data['scripture'] as String?;
           final scripture = scriptureText != null && scriptureRef != null
@@ -886,7 +885,7 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
           );
           _topicCtrl.clear();
           if (mounted) widget.onSelectEntry(entry);
-        } catch (_) {
+        } else {
           // Fallback: treat raw as plain text
           final entry = DevotionalEntry(
             id: const Uuid().v4(),
@@ -1275,7 +1274,7 @@ class _ReadingPlansTabState extends State<_ReadingPlansTab> {
   }
 
   Future<void> _generatePlan() async {
-    if (SubscriptionModal.guardAI(context)) return;
+    if (SubscriptionModal.guardAI(context, kind: AiPaywallKind.devotional)) return;
     final topic = _customTopicCtrl.text.trim().isNotEmpty
         ? _customTopicCtrl.text.trim()
         : _selectedTopic;
@@ -1304,7 +1303,13 @@ For each entry's "discussion" field, provide one substantive personal reflection
 
       if (raw != null && mounted) {
         provider.saveAiHistory(module: 'devotional', prompt: 'Generate $_duration-day Bible reading plan on "$topic"', response: raw);
-        final data = jsonDecode(raw) as Map<String, dynamic>;
+        final data = AiService.tryParseJsonObject(raw);
+        if (data == null) {
+          if (mounted) {
+            _showSnack(context, 'Could not parse the reading plan. Try generating again.');
+          }
+          return;
+        }
         final entriesData = (data['entries'] as List?) ?? [];
         final planId = const Uuid().v4();
 
@@ -1562,6 +1567,7 @@ class _EntryDetailView extends StatelessWidget {
     final myPrayer =
         _myPrayerBody(entry, app.activeUser?.id, app.db.devotionalThoughts);
     final cs = Theme.of(context).colorScheme;
+    final onSurf = cs.onSurface;
     return Scaffold(
       appBar: AppBar(
         backgroundColor: cs.surface,
@@ -1574,7 +1580,7 @@ class _EntryDetailView extends StatelessWidget {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.share_rounded, color: AppTheme.stone500),
+            icon: Icon(Icons.share_rounded, color: onSurf.withValues(alpha: 0.55)),
             tooltip: 'Share',
             onPressed: onShare,
           ),
@@ -1606,17 +1612,17 @@ class _EntryDetailView extends StatelessWidget {
             if (entry.scripture != null) ...[
               Text(
                 'SCRIPTURE ROOT — ${_extractRef(entry.scripture!).toUpperCase()}',
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700,
-                  color: AppTheme.stone400, letterSpacing: 0.5,
+                  color: onSurf.withValues(alpha: 0.45), letterSpacing: 0.5,
                 ),
               ),
               const SizedBox(height: 12),
             ],
 
             // Title
-            Text(entry.title, style: const TextStyle(
-              fontFamily: 'Inter', fontWeight: FontWeight.w900, fontSize: 26, color: AppTheme.stone900,
+            Text(entry.title, style: TextStyle(
+              fontFamily: 'Inter', fontWeight: FontWeight.w900, fontSize: 26, color: onSurf,
               height: 1.2,
             )),
             const SizedBox(height: 12),
@@ -1630,11 +1636,12 @@ class _EntryDetailView extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: const Color(0xFFFDBA74)),
                 ),
-                child: Text(
+                child: SelectableText(
                   '"${entry.scripture}"',
                   style: const TextStyle(
                     fontFamily: 'Inter', fontSize: 15, fontWeight: FontWeight.w600,
                     color: Color(0xFFEA580C), fontStyle: FontStyle.italic,
+                    height: 1.45,
                   ),
                 ),
               ),
@@ -1643,9 +1650,20 @@ class _EntryDetailView extends StatelessWidget {
 
             // Content
             if (entry.content != null) ...[
-              Text(entry.content!, style: const TextStyle(
-                fontFamily: 'Inter', fontSize: 15, color: AppTheme.stone700, height: 1.6,
-              )),
+              Text(
+                'READING',
+                style: TextStyle(
+                  fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700,
+                  color: onSurf.withValues(alpha: 0.45), letterSpacing: 0.5,
+                ),
+              ),
+              const SizedBox(height: 8),
+              SelectableText(
+                entry.content!,
+                style: TextStyle(
+                  fontFamily: 'Inter', fontSize: 16, color: onSurf.withValues(alpha: 0.88), height: 1.65,
+                ),
+              ),
               const SizedBox(height: 24),
             ],
 

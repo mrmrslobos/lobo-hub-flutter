@@ -187,8 +187,11 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
       context
           .read<AppProvider>()
           .scheduleModuleEnterCloudPull(CloudSyncScope.periodBundle);
+      final uid = context.read<AppProvider>().activeUser?.id;
+      if (uid == null) return;
       showModuleDisclaimer(
         context: context,
+        userId: uid,
         moduleKey: 'period_tracker',
         title: 'Period Tracker',
         icon: Icons.spa_rounded,

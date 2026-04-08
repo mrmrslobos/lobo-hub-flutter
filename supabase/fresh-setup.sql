@@ -89,14 +89,21 @@ $$;
 -- returns empty even for a valid code. Running as SECURITY DEFINER (postgres)
 -- bypasses RLS for this single, safe operation.
 -- ---------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION find_family_by_join_code(code text)
-RETURNS SETOF families
+CREATE OR REPLACE FUNCTION public.find_family_by_join_code(code text)
+RETURNS SETOF public.families
 LANGUAGE sql
 SECURITY DEFINER
+SET search_path = public
 STABLE
 AS $$
-  SELECT * FROM families WHERE join_code = code LIMIT 1;
+  SELECT *
+  FROM public.families
+  WHERE upper(trim(both from join_code)) = upper(trim(both from code))
+  LIMIT 1;
 $$;
+
+GRANT EXECUTE ON FUNCTION public.find_family_by_join_code(text) TO anon;
+GRANT EXECUTE ON FUNCTION public.find_family_by_join_code(text) TO authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Recovery: migrate all Supabase rows from a legacy random-ID profile to the
@@ -1162,6 +1169,9 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT SELECT ON TABLES TO anon;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT USAGE ON SEQUENCES TO authenticated, anon;
+
+-- RPCs used at sign-in / join (table GRANTs do not cover functions)
+GRANT EXECUTE ON FUNCTION public.claim_owned_families() TO authenticated;
 
 
 -- =============================================================================

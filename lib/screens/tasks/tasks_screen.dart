@@ -960,7 +960,7 @@ class _AiBreakdownSheetState extends State<_AiBreakdownSheet> {
   }
 
   Future<void> _breakdown() async {
-    if (SubscriptionModal.guardAI(context)) return;
+    if (SubscriptionModal.guardAI(context, kind: AiPaywallKind.tasks)) return;
     final goal = _goalCtrl.text.trim();
     if (goal.isEmpty) return;
     setState(() {

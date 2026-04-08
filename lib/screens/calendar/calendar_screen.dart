@@ -26,6 +26,7 @@ import '../../widgets/common_widgets.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/debounce.dart';
 import '../../utils/cloud_pull.dart';
+import '../../utils/user_facing_errors.dart';
 
 enum _EventRsvpChoice { yes, no, maybe, clear }
 
@@ -63,7 +64,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }
 
   Future<void> _handleAiQuickPlan() async {
-    if (SubscriptionModal.guardAI(context)) return;
+    if (SubscriptionModal.guardAI(context, kind: AiPaywallKind.calendar)) return;
     final input = _aiController.text.trim();
     if (input.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -426,7 +427,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Import failed: $e')),
+          SnackBar(
+            content: Text(humanizeForSnackBar('Import failed: $e')),
+          ),
         );
       }
     } finally {
@@ -1270,34 +1273,20 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     if (selectedEvents.isEmpty)
                       Container(
                         width: double.infinity,
-                        padding: const EdgeInsets.symmetric(vertical: 32),
                         decoration: BoxDecoration(
-                          color: Colors.white,
+                          color: Theme.of(context).colorScheme.surface,
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(color: AppTheme.stone100),
                         ),
-                        child: Column(
-                          children: [
-                            Container(
-                              width: 52,
-                              height: 52,
-                              decoration: BoxDecoration(
-                                color: AppTheme.stone50,
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(Icons.event_available_rounded, size: 24, color: AppTheme.stone300),
-                            ),
-                            const SizedBox(height: 12),
-                            const Text(
-                              'Nothing scheduled',
-                              style: TextStyle(fontFamily: 'Inter', fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.stone500),
-                            ),
-                            const SizedBox(height: 4),
-                            const Text(
-                              'Tap "New Event" to plan something',
-                              style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400),
-                            ),
-                          ],
+                        child: EmptyState(
+                          emoji: '📅',
+                          title: 'Nothing scheduled',
+                          subtitle:
+                              'Add an event for this day, or connect a calendar above.',
+                          compact: true,
+                          emojiSize: 40,
+                          actionLabel: 'New event',
+                          onAction: () => _showAddEventSheet(context),
                         ),
                       )
                     else
@@ -2679,7 +2668,7 @@ class _EventPlannerWizardState extends State<_EventPlannerWizard> {
   }
 
   Future<void> _generatePlan() async {
-    if (SubscriptionModal.guardAI(context)) return;
+    if (SubscriptionModal.guardAI(context, kind: AiPaywallKind.calendar)) return;
     if (_nameCtrl.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter an event name'), behavior: SnackBarBehavior.floating),

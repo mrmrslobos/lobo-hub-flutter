@@ -136,6 +136,26 @@ class SupabaseService {
 
   // ── Data ──────────────────────────────────────────────────────────────────
 
+  /// Member user ids from [family_members] plus the signed-in user (if any).
+  /// Including auth uid avoids empty `users` when `family_members` is temporarily
+  /// empty or RLS returns no rows before membership is visible.
+  static List<String> _memberUserIdsPlusCurrentAuth(dynamic familyMemberRows) {
+    final ids = <String>[];
+    final seen = <String>{};
+    void add(String? id) {
+      if (id == null || id.isEmpty) return;
+      if (seen.add(id)) ids.add(id);
+    }
+
+    if (familyMemberRows is List) {
+      for (final m in familyMemberRows) {
+        if (m is Map) add(m['user_id'] as String?);
+      }
+    }
+    add(currentUser?.id);
+    return ids;
+  }
+
   /// Fetch all relevant tables for a family from Supabase (full DB sync).
   static Future<Map<String, dynamic>> fetchAllTables(String familyId) async {
     const familyScopedTables = [
@@ -194,34 +214,38 @@ class SupabaseService {
 
     final result = <String, dynamic>{};
 
-    /// Safely fetch a single table, returning [] on error.
-    Future<List> fetch(String table, String column, dynamic value) async {
+    Future<List<dynamic>> fetch(String table, String column, dynamic value) async {
+      if (value is List) {
+        return await client.from(table).select().inFilter(column, value);
+      }
+      return await client.from(table).select().eq(column, value);
+    }
+
+    Future<List<dynamic>> fetchOrEmpty(String label, Future<List<dynamic>> f) async {
       try {
-        if (value is List) {
-          return await client.from(table).select().inFilter(column, value);
-        }
-        return await client.from(table).select().eq(column, value);
-      } catch (_) {
+        return await f;
+      } catch (e) {
+        debugPrint('[SupabaseService] fetch $label failed (using empty): $e');
         return [];
       }
     }
 
-    // ── Phase 1: fetch family + family_members in parallel ───────────────
+    // ── Phase 1: fetch family + family_members (never fail the whole pull) ─
     // We need member userIds before we can query user-scoped tables.
-    final phase1 = await Future.wait([
-      fetch('families', 'id', familyId),
+    final familiesRows =
+        await fetchOrEmpty('families', fetch('families', 'id', familyId));
+    final familyMembersRows = await fetchOrEmpty(
+      'family_members',
       fetch('family_members', 'family_id', familyId),
-    ]);
-    result['families'] = phase1[0];
-    result['family_members'] = phase1[1];
+    );
+    result['families'] = familiesRows;
+    result['family_members'] = familyMembersRows;
 
-    final userIds = (phase1[1] as List)
-        .map((m) => (m as Map)['user_id'] as String)
-        .toList();
+    final userIds = _memberUserIdsPlusCurrentAuth(familyMembersRows);
 
-    // ── Phase 2: everything else in parallel ─────────────────────────────
+    // ── Phase 2: everything else in parallel (per-table errors → empty list) ─
     final allTables = <String>[];
-    final allFutures = <Future<List>>[];
+    final allFutures = <Future<List<dynamic>>>[];
 
     for (final table in familyScopedTables) {
       allTables.add(table);
@@ -247,9 +271,8 @@ class SupabaseService {
       }
     }
 
-    final phase2 = await Future.wait(allFutures);
-    for (var i = 0; i < allTables.length; i++) {
-      result[allTables[i]] = phase2[i];
+    for (var i = 0; i < allFutures.length; i++) {
+      result[allTables[i]] = await fetchOrEmpty(allTables[i], allFutures[i]);
     }
 
     return result;
@@ -328,30 +351,35 @@ class SupabaseService {
 
     final result = <String, dynamic>{};
 
-    Future<List> fetch(String table, String column, dynamic value) async {
+    Future<List<dynamic>> fetch(String table, String column, dynamic value) async {
+      if (value is List) {
+        return await client.from(table).select().inFilter(column, value);
+      }
+      return await client.from(table).select().eq(column, value);
+    }
+
+    Future<List<dynamic>> fetchOrEmpty(String label, Future<List<dynamic>> f) async {
       try {
-        if (value is List) {
-          return await client.from(table).select().inFilter(column, value);
-        }
-        return await client.from(table).select().eq(column, value);
-      } catch (_) {
+        return await f;
+      } catch (e) {
+        debugPrint('[SupabaseService] fetch $label failed (using empty): $e');
         return [];
       }
     }
 
-    final phase1 = await Future.wait([
-      fetch('families', 'id', familyId),
+    final familiesRows =
+        await fetchOrEmpty('families', fetch('families', 'id', familyId));
+    final familyMembersRows = await fetchOrEmpty(
+      'family_members',
       fetch('family_members', 'family_id', familyId),
-    ]);
-    result['families'] = phase1[0];
-    result['family_members'] = phase1[1];
+    );
+    result['families'] = familiesRows;
+    result['family_members'] = familyMembersRows;
 
-    final userIds = (phase1[1] as List)
-        .map((m) => (m as Map)['user_id'] as String)
-        .toList();
+    final userIds = _memberUserIdsPlusCurrentAuth(familyMembersRows);
 
     final allTables = <String>[];
-    final allFutures = <Future<List>>[];
+    final allFutures = <Future<List<dynamic>>>[];
 
     for (final table in familyScopedTables) {
       if (!want.contains(table)) continue;
@@ -375,9 +403,8 @@ class SupabaseService {
       }
     }
 
-    final phase2 = await Future.wait(allFutures);
-    for (var i = 0; i < allTables.length; i++) {
-      result[allTables[i]] = phase2[i];
+    for (var i = 0; i < allFutures.length; i++) {
+      result[allTables[i]] = await fetchOrEmpty(allTables[i], allFutures[i]);
     }
 
     return result;
