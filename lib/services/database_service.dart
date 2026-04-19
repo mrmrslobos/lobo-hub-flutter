@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/models.dart';
+import 'local_sembast_store.dart';
 import '../utils/app_db_isolate_codec.dart';
 import '../utils/app_log.dart';
 import '../utils/fitness_plan_storage.dart';
@@ -121,9 +122,8 @@ class DatabaseService {
 
   // ── Local persistence ─────────────────────────────────────────────────────
 
-  static Future<void> _loadTombstones() async {
+  static Future<void> _hydrateTombstonesFromPrefs(SharedPreferences prefs) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
       final list = prefs.getStringList(_tombstoneKey);
       if (list != null && list.isNotEmpty) {
         _deletedKeys
@@ -135,21 +135,37 @@ class DatabaseService {
         }
       }
     } on Object catch (e, st) {
-      _debugCatch('tombstones load', e, st);
+      _debugCatch('tombstones load (prefs)', e, st);
+    }
+  }
+
+  static Future<void> _hydrateTombstonesFromSembast() async {
+    try {
+      await LocalSembastStore.readTombstonesInto(_deletedKeys);
+      if (_deletedKeys.length > 800) {
+        _deletedKeys.clear();
+        await LocalSembastStore.writeTombstones(_deletedKeys);
+      }
+    } on Object catch (e, st) {
+      _debugCatch('tombstones load (sembast)', e, st);
     }
   }
 
   static Future<void> _persistTombstones() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setStringList(_tombstoneKey, _deletedKeys.toList());
+      await LocalSembastStore.writeTombstones(_deletedKeys);
     } on Object catch (e, st) {
       _debugCatch('tombstones persist', e, st);
     }
   }
 
   static Future<AppDB> loadLocal() async {
-    await _loadTombstones();
+    if (await LocalSembastStore.hasStoredAppDb()) {
+      await _hydrateTombstonesFromSembast();
+      _cache = await LocalSembastStore.readAppDb();
+      return _cache!;
+    }
+
     final prefs = await SharedPreferences.getInstance();
     var raw = prefs.getString(_dbKey);
     if (raw == null || raw.isEmpty) {
@@ -160,11 +176,20 @@ class DatabaseService {
         await prefs.remove(_legacyDbKey);
       }
     }
-    if (raw == null || raw.isEmpty) {
-      _cache = AppDB.empty();
+
+    await _hydrateTombstonesFromPrefs(prefs);
+
+    if (raw != null && raw.isNotEmpty) {
+      _cache = await loadAppDbFromPrefsJson(raw);
+      await LocalSembastStore.writeAppDb(_cache!);
+      await LocalSembastStore.writeTombstones(_deletedKeys);
+      await prefs.remove(_dbKey);
+      await prefs.remove(_legacyDbKey);
+      await prefs.remove(_tombstoneKey);
       return _cache!;
     }
-    _cache = await loadAppDbFromPrefsJson(raw);
+
+    _cache = AppDB.empty();
     return _cache!;
   }
 
@@ -178,14 +203,14 @@ class DatabaseService {
       _deletedKeys.addAll(oldKeys.difference(newKeys));
     }
     _cache = db;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_dbKey, await encodeAppDbForPrefs(db));
+    await LocalSembastStore.writeAppDb(db);
     await _persistTombstones();
   }
 
   static Future<void> clearLocal() async {
     _cache = AppDB.empty();
     _deletedKeys.clear();
+    await LocalSembastStore.clearAppRecords();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_dbKey);
     await prefs.remove(_legacyDbKey);
@@ -198,6 +223,7 @@ class DatabaseService {
   static Future<void> wipeAllLocalStorage() async {
     _cache = AppDB.empty();
     _deletedKeys.clear();
+    await LocalSembastStore.deletePhysicalDatabase();
     final prefs = await SharedPreferences.getInstance();
     final keys = prefs.getKeys().toList();
     for (final k in keys) {
@@ -1169,17 +1195,28 @@ class DatabaseService {
   /// - Tie → prefer cloud so the other family member's latest push applies.
   /// - Only in cloud: add (unless [_deletedKeys]).
   /// - Only in local: keep (offline-created).
+  /// Prefer [mergeKey] when the model defines it (composite keys); otherwise [id].
+  ///
+  /// Uses dynamic dispatch and catches any failure — [User], [Family], and several
+  /// other types have no `mergeKey`; only `TypeError` was caught before, so
+  /// `NoSuchMethodError` escaped and broke cloud merge.
   static String _mergeKeyOf(dynamic item) {
+    if (item == null) return '';
     try {
-      return item.mergeKey as String;
-    } on TypeError {
-      try {
-        return item.id as String;
-      } on TypeError catch (e, st) {
-        _debugCatch('_mergeKeyOf fallback', e, st);
-        return '';
+      final mk = (item as dynamic).mergeKey;
+      if (mk != null && mk.toString().isNotEmpty) {
+        return mk as String;
       }
+    } on Object {
+      // No mergeKey getter or invalid value — fall through to id.
     }
+    try {
+      final id = (item as dynamic).id;
+      if (id != null) return id.toString();
+    } on Object catch (e, st) {
+      _debugCatch('_mergeKeyOf id fallback', e, st);
+    }
+    return '';
   }
 
   static List<T> _mergeById<T>(List<T> local, List<T> cloud) {

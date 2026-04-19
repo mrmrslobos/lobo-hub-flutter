@@ -11,7 +11,6 @@ import '../services/ai_service.dart';
 import '../services/field_encryption_service.dart';
 import '../services/supabase_service.dart';
 import '../services/purchase_service.dart';
-import '../utils/list_extensions.dart';
 import 'data_provider.dart';
 
 class AuthProvider extends ChangeNotifier {

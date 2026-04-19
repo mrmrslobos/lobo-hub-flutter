@@ -5,7 +5,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/models.dart';
 import '../services/database_service.dart';
-import '../utils/list_extensions.dart';
 
 class DataProvider extends ChangeNotifier {
   static const _notificationPrefsKey = 'lobohub_notification_prefs_v1';
