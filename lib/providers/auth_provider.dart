@@ -1,8 +1,9 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' hide User;
+import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:uuid/uuid.dart';
 
+import '../config/cloud_sync_scope.dart';
 import '../models/models.dart';
 import '../services/database_service.dart';
 import '../services/notification_service.dart';
@@ -10,9 +11,8 @@ import '../services/ai_service.dart';
 import '../services/field_encryption_service.dart';
 import '../services/supabase_service.dart';
 import '../services/purchase_service.dart';
-import '../services/family_activity_service.dart';
+import '../utils/list_extensions.dart';
 import 'data_provider.dart';
-import 'sync_provider.dart';
 
 class AuthProvider extends ChangeNotifier {
   User? _activeUser;
@@ -22,6 +22,9 @@ class AuthProvider extends ChangeNotifier {
   Set<String> _unreadModules = {};
   
   final DataProvider dataProvider;
+
+  /// Set by [SyncProvider] so subscription tier changes can trigger a cloud pull.
+  Future<void> Function({String? familyIdOverride})? onRefreshFromCloud;
   
   AuthProvider(this.dataProvider);
 
@@ -43,6 +46,7 @@ class AuthProvider extends ChangeNotifier {
 
     try {
       if (SupabaseService.isConfigured) {
+        await SupabaseService.claimOwnedFamilies();
         final session = SupabaseService.currentSession;
         if (session != null) {
           final meta = session.user.userMetadata?['name'];
@@ -64,11 +68,15 @@ class AuthProvider extends ChangeNotifier {
   Future<void> _resolveUserFromSession(String id, String email, String? metaName) async {
     final db = dataProvider.db;
     User? u = db.users.firstWhereOrNull((u) => u.id == id);
-    if (u == null) {
-      if (SupabaseService.isConfigured) {
-        final cloudU = await SupabaseService.fetchRow('users', {'id': id});
-        if (cloudU != null) u = User.fromJson(cloudU);
-      }
+    if (u == null && SupabaseService.isConfigured) {
+      try {
+        final row = await SupabaseService.client
+            .from('users')
+            .select()
+            .eq('id', id)
+            .maybeSingle();
+        if (row != null) u = User.fromJson(Map<String, dynamic>.from(row));
+      } catch (_) {}
     }
     if (u != null) {
       _activeUser = u;
@@ -83,33 +91,44 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> refreshStoreSubscription() async {
-    if (!isAuthenticated) return;
+    final fam = currentFamily;
+    if (fam == null || !PurchaseService.isConfigured) return;
     try {
-      final isActive = await PurchaseService.hasActiveSubscription();
-      final hasFamily = await PurchaseService.hasFamilyAIAccess();
-      if (_activeFamily?.hasAIAccess != isActive || _activeFamily?.hasAIFamilyAccess != hasFamily) {
-        if (SupabaseService.isConfigured) {
-          await SupabaseService.updateRow(
-            'families',
-            {'id': _activeFamily!.id},
-            {'has_ai_access': isActive, 'has_ai_family_access': hasFamily},
-          );
-        }
-        _activeFamily = _activeFamily!.copyWith(
-          hasAIAccess: isActive,
-          hasAIFamilyAccess: hasFamily,
-        );
-        dataProvider.updateDb(dataProvider.db.copyWith(
-          families: dataProvider.db.families.map((f) => f.id == _activeFamily!.id ? _activeFamily! : f).toList(),
-        ));
+      final info = await Purchases.getCustomerInfo();
+      final tier = PurchaseService.subscriptionTierFromCustomerInfo(info);
+      if (tier == null || tier == fam.subscriptionTier) {
         _syncAIFlag();
-        notifyListeners();
+        return;
       }
-    } catch (_) {}
+      final updated = fam.copyWith(
+        subscriptionTier: tier,
+        updatedAt: DateTime.now(),
+      );
+      _activeFamily = updated;
+      dataProvider.updateDb(
+        dataProvider.db.copyWith(
+          families: dataProvider.db.families
+              .map((f) => f.id == updated.id ? updated : f)
+              .toList(),
+        ),
+      );
+      _syncAIFlag();
+      notifyListeners();
+      if (SupabaseService.isConfigured) {
+        await SupabaseService.syncFamilySubscriptionTier(
+          familyId: updated.id,
+          tier: tier,
+        );
+        await onRefreshFromCloud?.call(familyIdOverride: updated.id);
+      }
+    } catch (e) {
+      debugPrint('[AuthProvider] refreshStoreSubscription error: $e');
+      _syncAIFlag();
+    }
   }
 
   void _syncAIFlag() {
-    AiService.setAIBlocked(_activeFamily != null && !_activeFamily!.hasAIAccess && _activeFamily!.isTrialExpired);
+    AiService.setAIBlocked(!(currentFamily?.hasAIAccess ?? false));
   }
 
   Future<void> authenticate(User user, Family family, {bool isSignup = false}) async {
@@ -329,14 +348,5 @@ class AuthProvider extends ChangeNotifier {
     if (SupabaseService.isConfigured) {
       await DatabaseService.syncToCloud(dataProvider.db, family.id, tableScope: {CloudSyncScope.aiHistory});
     }
-  }
-}
-
-extension ListWhereOrNull<T> on List<T> {
-  T? firstWhereOrNull(bool Function(T element) test) {
-    for (final element in this) {
-      if (test(element)) return element;
-    }
-    return null;
   }
 }

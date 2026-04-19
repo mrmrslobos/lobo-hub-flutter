@@ -2,10 +2,11 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 
+import '../config/cloud_sync_scope.dart';
 import '../models/models.dart';
 import '../services/database_service.dart';
+import '../services/family_activity_service.dart';
 import '../services/supabase_service.dart';
-import '../utils/app_log.dart';
 import 'auth_provider.dart';
 import 'data_provider.dart';
 
@@ -16,6 +17,9 @@ class SyncProvider extends ChangeNotifier {
   SyncProvider({required this.authProvider, required this.dataProvider}) {
     dataProvider.onSaveAndSync = saveAndSync;
     dataProvider.onLogFamilyActivity = logFamilyActivity;
+    authProvider.onRefreshFromCloud =
+        ({String? familyIdOverride}) =>
+            refreshFromCloud(familyIdOverride: familyIdOverride);
   }
 
   RealtimeChannel? _realtimeChannel;
