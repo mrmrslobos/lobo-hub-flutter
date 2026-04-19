@@ -26,6 +26,12 @@ class DataProvider extends ChangeNotifier {
   /// Same as [updateDb] (compat with call sites that merged DB from cloud).
   void setDb(AppDB db) => updateDb(db);
 
+  /// In-memory update only (no disk write). Used mid–auth-flow before persist.
+  void setDbMemory(AppDB db) {
+    _db = db;
+    notifyListeners();
+  }
+
   Future<void> initialize() async {
     _db = await DatabaseService.loadLocal();
     await _loadNotificationPrefsIntoDb();

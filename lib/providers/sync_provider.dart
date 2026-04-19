@@ -17,9 +17,18 @@ class SyncProvider extends ChangeNotifier {
   SyncProvider({required this.authProvider, required this.dataProvider}) {
     dataProvider.onSaveAndSync = saveAndSync;
     dataProvider.onLogFamilyActivity = logFamilyActivity;
-    authProvider.onRefreshFromCloud =
-        ({String? familyIdOverride}) =>
-            refreshFromCloud(familyIdOverride: familyIdOverride);
+    authProvider.registerSyncBridge(
+      refreshFromCloud: ({String? familyIdOverride}) =>
+          refreshFromCloud(familyIdOverride: familyIdOverride),
+      startRealtimeListener: startRealtimeListener,
+      stop: stop,
+    );
+  }
+
+  @override
+  void dispose() {
+    stop();
+    super.dispose();
   }
 
   RealtimeChannel? _realtimeChannel;
@@ -223,6 +232,10 @@ class SyncProvider extends ChangeNotifier {
         return;
       }
       dataProvider.updateDb(merged);
+      await authProvider.repairOwnerMembershipIfNeeded();
+      await authProvider.backfillMissingUsersIfNeeded(
+        authProvider.activeFamily?.id ?? fid,
+      );
       _lastSuccessfulSyncAt = DateTime.now();
       _lastSyncError = null;
     } catch (e) {
@@ -260,6 +273,8 @@ class SyncProvider extends ChangeNotifier {
         return;
       }
       dataProvider.updateDb(merged);
+      await authProvider.repairOwnerMembershipIfNeeded();
+      await authProvider.backfillMissingUsersIfNeeded(familyId);
       _lastSuccessfulSyncAt = DateTime.now();
       _lastSyncError = null;
     } catch (e) {
@@ -327,6 +342,9 @@ class SyncProvider extends ChangeNotifier {
       );
     } catch (_) {}
   }
+
+  /// After a focused table push (tasks / lists) so other devices pull.
+  void sendLocalChangeBroadcast() => _broadcastChange();
 
   Future<void> logFamilyActivity({
     required String action,

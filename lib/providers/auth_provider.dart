@@ -20,13 +20,28 @@ class AuthProvider extends ChangeNotifier {
   bool _isInitializing = true;
   bool _isLocked = false;
   Set<String> _unreadModules = {};
-  
+
   final DataProvider dataProvider;
 
-  /// Set by [SyncProvider] so subscription tier changes can trigger a cloud pull.
   Future<void> Function({String? familyIdOverride})? onRefreshFromCloud;
-  
+
+  Future<void> Function({String? familyIdOverride})? _syncRefreshFromCloud;
+  void Function()? _syncStartRealtime;
+  void Function()? _syncStop;
+
   AuthProvider(this.dataProvider);
+
+  /// Wired by [SyncProvider] after construction (avoids circular imports).
+  void registerSyncBridge({
+    required Future<void> Function({String? familyIdOverride}) refreshFromCloud,
+    required void Function() startRealtimeListener,
+    required void Function() stop,
+  }) {
+    _syncRefreshFromCloud = refreshFromCloud;
+    _syncStartRealtime = startRealtimeListener;
+    _syncStop = stop;
+    onRefreshFromCloud = refreshFromCloud;
+  }
 
   User? get activeUser => _activeUser;
   Family? get activeFamily => _activeFamily;
@@ -37,7 +52,8 @@ class AuthProvider extends ChangeNotifier {
 
   Family? get currentFamily {
     if (_activeFamily == null) return null;
-    return dataProvider.db.families.firstWhereOrNull((f) => f.id == _activeFamily!.id) ?? _activeFamily;
+    return dataProvider.db.families.firstWhereOrNull((f) => f.id == _activeFamily!.id) ??
+        _activeFamily;
   }
 
   Future<void> initialize() async {
@@ -46,7 +62,6 @@ class AuthProvider extends ChangeNotifier {
 
     try {
       if (SupabaseService.isConfigured) {
-        await SupabaseService.claimOwnedFamilies();
         final session = SupabaseService.currentSession;
         if (session != null) {
           final meta = session.user.userMetadata?['name'];
@@ -58,35 +73,242 @@ class AuthProvider extends ChangeNotifier {
         }
       }
     } catch (e) {
-      debugPrint('[AuthProvider] init error: $e');
+      debugPrint('[AuthProvider] initialize error: $e');
     } finally {
       _isInitializing = false;
       notifyListeners();
     }
   }
 
-  Future<void> _resolveUserFromSession(String id, String email, String? metaName) async {
-    final db = dataProvider.db;
-    User? u = db.users.firstWhereOrNull((u) => u.id == id);
-    if (u == null && SupabaseService.isConfigured) {
-      try {
-        final row = await SupabaseService.client
-            .from('users')
-            .select()
-            .eq('id', id)
-            .maybeSingle();
-        if (row != null) u = User.fromJson(Map<String, dynamic>.from(row));
-      } catch (_) {}
+  Future<void> _resolveUserFromSession(
+    String userId,
+    String email,
+    String? displayName,
+  ) async {
+    await SupabaseService.claimOwnedFamilies();
+
+    var user = dataProvider.db.users.firstWhereOrNull((u) => u.id == userId);
+
+    var knownFamilyId = _activeFamily?.id;
+
+    if (knownFamilyId == null && user != null) {
+      final membership = dataProvider.db.familyMembers.firstWhereOrNull(
+        (m) => m.userId == userId,
+      );
+      knownFamilyId = membership?.familyId;
     }
-    if (u != null) {
-      _activeUser = u;
-      _activeFamily = userFamilies.firstOrNull;
-      if (_activeFamily != null) {
-        FieldEncryption.init(_activeFamily!.id, _activeFamily!.joinCode);
-        _syncAIFlag();
-        dataProvider.updateDb(db.applySensitiveDecryption(_activeFamily!.id));
-        NotificationService.registerDeviceToken(_activeFamily!.id, u.id);
+
+    List<Map<String, dynamic>> cloudMemberRows = [];
+    if (SupabaseService.isConfigured) {
+      try {
+        final memberships = await SupabaseService.client
+            .from('family_members')
+            .select()
+            .eq('user_id', userId);
+        cloudMemberRows = SupabaseService.rowsFromSelect(memberships);
+        if (knownFamilyId == null && cloudMemberRows.isNotEmpty) {
+          knownFamilyId = cloudMemberRows.first['family_id'] as String?;
+        }
+      } catch (e) {
+        debugPrint('[AuthProvider] Error fetching cloud membership: $e');
       }
+    }
+
+    if (knownFamilyId != null) {
+      await _bootstrapSessionFamilyIfNeeded(
+        userId: userId,
+        email: email,
+        displayName: displayName,
+        familyId: knownFamilyId,
+        membershipRowsForUser: cloudMemberRows,
+      );
+      user = dataProvider.db.users.firstWhereOrNull((u) => u.id == userId);
+    }
+
+    if (user != null) {
+      _setActiveUserFamily(user, knownFamilyId);
+      if (knownFamilyId != null && FieldEncryption.isReady(knownFamilyId)) {
+        dataProvider.updateDb(dataProvider.db.applySensitiveDecryption(knownFamilyId));
+      }
+    }
+
+    if (knownFamilyId != null && SupabaseService.isConfigured) {
+      try {
+        final famRow = await SupabaseService.client
+            .from('families')
+            .select('join_code')
+            .eq('id', knownFamilyId)
+            .maybeSingle();
+        final jc = famRow != null ? famRow['join_code'] as String? : null;
+        if (jc != null && jc.isNotEmpty) {
+          await FieldEncryption.init(knownFamilyId, jc);
+        }
+      } catch (e) {
+        debugPrint('[AuthProvider] join_code fetch: $e');
+      }
+
+      if (_syncRefreshFromCloud != null) {
+        await _syncRefreshFromCloud!(familyIdOverride: knownFamilyId);
+      }
+
+      if (DatabaseService.lastError != null) {
+        debugPrint('[AuthProvider] refreshFromCloud: ${DatabaseService.lastError}');
+      } else {
+        user = dataProvider.db.users.firstWhereOrNull((u) => u.id == userId);
+        if (user != null) {
+          _setActiveUserFamily(user, knownFamilyId);
+          if (FieldEncryption.isReady(knownFamilyId)) {
+            dataProvider.updateDb(dataProvider.db.applySensitiveDecryption(knownFamilyId));
+          }
+        }
+      }
+    }
+  }
+
+  Future<void> _bootstrapSessionFamilyIfNeeded({
+    required String userId,
+    required String email,
+    required String? displayName,
+    required String familyId,
+    required List<Map<String, dynamic>> membershipRowsForUser,
+  }) async {
+    if (familyId.isEmpty) return;
+
+    var rowsForFamily =
+        membershipRowsForUser.where((r) => r['family_id']?.toString() == familyId).toList();
+    if (rowsForFamily.isEmpty && SupabaseService.isConfigured) {
+      try {
+        final memberships = await SupabaseService.client
+            .from('family_members')
+            .select()
+            .eq('user_id', userId)
+            .eq('family_id', familyId);
+        rowsForFamily = SupabaseService.rowsFromSelect(memberships);
+      } catch (e) {
+        debugPrint('[AuthProvider] bootstrap family_members fetch: $e');
+      }
+    }
+    if (rowsForFamily.isEmpty) return;
+
+    final db = dataProvider.db;
+    final hasFam = db.families.any((f) => f.id == familyId);
+    final hasMem =
+        db.familyMembers.any((m) => m.userId == userId && m.familyId == familyId);
+    final hasUser = db.users.any((u) => u.id == userId);
+    if (hasFam && hasMem && hasUser) return;
+
+    try {
+      Family? family;
+      if (!hasFam) {
+        final row = await SupabaseService.client
+            .from('families')
+            .select()
+            .eq('id', familyId)
+            .maybeSingle();
+        if (row != null) {
+          family = Family.fromJson(Map<String, dynamic>.from(row));
+        }
+      }
+
+      User? newUser;
+      if (!hasUser) {
+        final name = (displayName != null && displayName.trim().isNotEmpty)
+            ? displayName.trim()
+            : (email.isNotEmpty ? email.split('@').first : 'Member');
+        newUser = User(id: userId, name: name, email: email);
+      }
+
+      final newMembers =
+          rowsForFamily.map((r) => FamilyMember.fromJson(Map<String, dynamic>.from(r))).toList();
+      final mergedMembers = DatabaseService.dedupeFamilyMembers([
+        ...db.familyMembers,
+        ...newMembers,
+      ]);
+
+      var next = db;
+      if (family != null) {
+        next = next.copyWith(families: [...next.families, family]);
+      }
+      if (newUser != null) {
+        next = next.copyWith(users: [...next.users, newUser]);
+      }
+      next = next.copyWith(familyMembers: mergedMembers);
+      dataProvider.updateDb(next);
+    } catch (e, st) {
+      debugPrint('[AuthProvider] _bootstrapSessionFamilyIfNeeded: $e\n$st');
+    }
+  }
+
+  void _setActiveUserFamily(User user, String? knownFamilyId) {
+    final db = dataProvider.db;
+    final membership = knownFamilyId != null
+        ? db.familyMembers.firstWhereOrNull(
+            (m) => m.userId == user.id && m.familyId == knownFamilyId,
+          ) ??
+            db.familyMembers.firstWhereOrNull((m) => m.userId == user.id)
+        : db.familyMembers.firstWhereOrNull((m) => m.userId == user.id);
+    if (membership != null) {
+      final family = db.families.firstWhereOrNull(
+        (f) => f.id == membership.familyId,
+      );
+      if (family != null) {
+        _activeUser = user;
+        _activeFamily = family;
+        FieldEncryption.init(family.id, family.joinCode);
+        _syncAIFlag();
+        _syncStartRealtime?.call();
+        NotificationService.registerDeviceToken(family.id, user.id);
+        unawaited(repairOwnerMembershipIfNeeded());
+        unawaited(PurchaseService.syncIdentity(user.id));
+        unawaited(refreshStoreSubscription());
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> repairOwnerMembershipIfNeeded() async {
+    final user = _activeUser;
+    final fam = _activeFamily;
+    if (user == null || fam == null) return;
+
+    var members = DatabaseService.dedupeFamilyMembers(
+      List<FamilyMember>.from(dataProvider.db.familyMembers),
+    );
+    final idx = members.indexWhere(
+      (m) => m.userId == user.id && m.familyId == fam.id,
+    );
+    if (idx < 0) return;
+
+    var changed = members.length != dataProvider.db.familyMembers.length;
+    if (fam.ownerId == user.id && members[idx].role != Role.OWNER) {
+      members[idx] = members[idx].copyWith(role: Role.OWNER);
+      changed = true;
+    }
+    if (!changed) return;
+
+    dataProvider.updateDb(dataProvider.db.copyWith(familyMembers: members));
+    if (SupabaseService.isConfigured) {
+      try {
+        await DatabaseService.syncToCloud(dataProvider.db, fam.id);
+      } catch (e) {
+        debugPrint('[AuthProvider] Owner membership repair sync failed: $e');
+      }
+    }
+    notifyListeners();
+  }
+
+  Future<void> backfillMissingUsersIfNeeded(String familyId) async {
+    final db = dataProvider.db;
+    final needs = db.familyMembers
+        .where((m) => m.familyId == familyId)
+        .any((m) => !db.users.any((u) => u.id == m.userId));
+    if (!needs) return;
+    try {
+      final updated = await DatabaseService.backfillMissingUsersForFamily(db, familyId);
+      dataProvider.updateDb(updated);
+      notifyListeners();
+    } catch (e) {
+      debugPrint('[AuthProvider] backfillMissingUsersIfNeeded: $e');
     }
   }
 
@@ -132,25 +354,38 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> authenticate(User user, Family family, {bool isSignup = false}) async {
+    _syncStop?.call();
+
     _activeUser = user;
     _activeFamily = family;
     FieldEncryption.init(family.id, family.joinCode);
     _syncAIFlag();
-    
+
     var db = dataProvider.db;
+    if (db.families.isEmpty) {
+      db = DatabaseService.db;
+    }
     if (!db.users.any((u) => u.id == user.id)) {
       db = db.copyWith(users: [...db.users, user]);
     }
     if (!db.families.any((f) => f.id == family.id)) {
       db = db.copyWith(families: [...db.families, family]);
     }
-    
+
     dataProvider.updateDb(db.applySensitiveDecryption(family.id));
     NotificationService.registerDeviceToken(family.id, user.id);
     notifyListeners();
+
+    _syncStartRealtime?.call();
+    unawaited(repairOwnerMembershipIfNeeded());
+    unawaited(backfillMissingUsersIfNeeded(family.id));
+    unawaited(PurchaseService.syncIdentity(user.id));
+    unawaited(refreshStoreSubscription());
   }
 
   Future<void> logout() async {
+    _syncStop?.call();
+
     if (SupabaseService.isConfigured) {
       try {
         await SupabaseService.signOut();
@@ -164,7 +399,7 @@ class AuthProvider extends ChangeNotifier {
     _unreadModules = {};
     FieldEncryption.clear();
     AiService.setAIBlocked(false);
-    
+
     await dataProvider.wipeData();
     notifyListeners();
   }
@@ -173,10 +408,13 @@ class AuthProvider extends ChangeNotifier {
     final userId = _activeUser?.id;
     final familyId = _activeFamily?.id;
 
+    _syncStop?.call();
+
     if (SupabaseService.isConfigured && userId != null) {
       try {
         if (familyId != null) {
-          await SupabaseService.deleteRows('family_members', {'user_id': userId, 'family_id': familyId});
+          await SupabaseService.deleteRows(
+              'family_members', {'user_id': userId, 'family_id': familyId});
         }
         await SupabaseService.deleteRows('users', {'id': userId});
       } catch (_) {}
@@ -193,8 +431,13 @@ class AuthProvider extends ChangeNotifier {
     _unreadModules = {};
     FieldEncryption.clear();
     AiService.setAIBlocked(false);
-    
+
     await dataProvider.wipeData();
+    notifyListeners();
+  }
+
+  void switchActiveUser(User user) {
+    _activeUser = user;
     notifyListeners();
   }
 
@@ -222,7 +465,7 @@ class AuthProvider extends ChangeNotifier {
 
     final normalized = path.startsWith('/') ? path.substring(1) : path;
     final family = currentFamily;
-    
+
     if (family != null && family.isTrialExpired) {
       if (!Family.freeModules.contains(normalized)) return false;
     }
@@ -255,6 +498,7 @@ class AuthProvider extends ChangeNotifier {
   void switchFamily(String familyId) {
     final family = dataProvider.db.families.firstWhereOrNull((f) => f.id == familyId);
     if (family != null) {
+      _syncStop?.call();
       _activeFamily = family;
       FieldEncryption.init(family.id, family.joinCode);
       _syncAIFlag();
@@ -262,6 +506,7 @@ class AuthProvider extends ChangeNotifier {
       if (_activeUser != null) {
         NotificationService.registerDeviceToken(family.id, _activeUser!.id);
       }
+      _syncStartRealtime?.call();
       notifyListeners();
     }
   }
@@ -290,8 +535,7 @@ class AuthProvider extends ChangeNotifier {
   List<FamilyMember> get familyMembers =>
       dataProvider.db.familyMembers.where((m) => m.familyId == activeFamily?.id).toList();
 
-  User? userById(String id) =>
-      dataProvider.db.users.firstWhereOrNull((u) => u.id == id);
+  User? userById(String id) => dataProvider.db.users.firstWhereOrNull((u) => u.id == id);
 
   String displayNameForUserId(String userId, {String fallback = 'Member'}) {
     final fid = activeFamily?.id;
@@ -323,7 +567,8 @@ class AuthProvider extends ChangeNotifier {
     ));
     notifyListeners();
     if (SupabaseService.isConfigured && _activeFamily != null) {
-      await DatabaseService.syncToCloud(dataProvider.db, _activeFamily!.id, tableScope: {CloudSyncScope.users});
+      await DatabaseService.syncToCloud(dataProvider.db, _activeFamily!.id,
+          tableScope: {CloudSyncScope.users});
     }
   }
 
@@ -346,7 +591,17 @@ class AuthProvider extends ChangeNotifier {
     );
     dataProvider.updateDb(dataProvider.db.copyWith(aiHistory: [...dataProvider.db.aiHistory, entry]));
     if (SupabaseService.isConfigured) {
-      await DatabaseService.syncToCloud(dataProvider.db, family.id, tableScope: {CloudSyncScope.aiHistory});
+      await DatabaseService.syncToCloud(dataProvider.db, family.id,
+          tableScope: {CloudSyncScope.aiHistory});
     }
+  }
+
+  /// Clears auth/session fields after a destructive local wipe (reset path).
+  void forceClearSession() {
+    _activeUser = null;
+    _activeFamily = null;
+    _isLocked = false;
+    _unreadModules = {};
+    notifyListeners();
   }
 }
