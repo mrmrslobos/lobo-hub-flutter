@@ -1,16 +1,14 @@
 // lib/services/database_service.dart
 // Huddle - Local storage service with Supabase sync
 
-// ignore_for_file: avoid_catches_without_on_clauses
-
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/models.dart';
+import '../utils/app_db_isolate_codec.dart';
 import '../utils/app_log.dart';
 import '../utils/fitness_plan_storage.dart';
 import 'exercise_plan_media_service.dart';
@@ -115,6 +113,12 @@ class DatabaseService {
 
   static AppDB get db => _cache ?? AppDB.empty();
 
+  static void _debugCatch(String context, Object e, StackTrace st) {
+    if (kDebugMode) {
+      debugPrint('[DatabaseService] $context: $e\n$st');
+    }
+  }
+
   // ── Local persistence ─────────────────────────────────────────────────────
 
   static Future<void> _loadTombstones() async {
@@ -130,14 +134,18 @@ class DatabaseService {
           await prefs.remove(_tombstoneKey);
         }
       }
-    } catch (_) {}
+    } on Object catch (e, st) {
+      _debugCatch('tombstones load', e, st);
+    }
   }
 
   static Future<void> _persistTombstones() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setStringList(_tombstoneKey, _deletedKeys.toList());
-    } catch (_) {}
+    } on Object catch (e, st) {
+      _debugCatch('tombstones persist', e, st);
+    }
   }
 
   static Future<AppDB> loadLocal() async {
@@ -156,14 +164,8 @@ class DatabaseService {
       _cache = AppDB.empty();
       return _cache!;
     }
-    try {
-      final json = jsonDecode(raw) as Map<String, dynamic>;
-      _cache = AppDB.fromJson(json);
-      return _cache!;
-    } catch (_) {
-      _cache = AppDB.empty();
-      return _cache!;
-    }
+    _cache = await loadAppDbFromPrefsJson(raw);
+    return _cache!;
   }
 
   static Future<void> saveLocal(AppDB db, {AppDB? tombstoneBase}) async {
@@ -177,7 +179,7 @@ class DatabaseService {
     }
     _cache = db;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_dbKey, jsonEncode(db.toJson()));
+    await prefs.setString(_dbKey, await encodeAppDbForPrefs(db));
     await _persistTombstones();
   }
 
@@ -296,7 +298,9 @@ class DatabaseService {
     final completer = Completer<void>();
     _syncTailByFamily[familyId] = completer.future;
     try {
-      await previous.catchError((_) {});
+      await previous.catchError((Object e, StackTrace st) {
+        _debugCatch('queued cloud write (previous tail)', e, st);
+      });
       await work();
     } finally {
       completer.complete();
@@ -322,8 +326,8 @@ class DatabaseService {
           'lists',
           sanitizeRowsForCloudUpsert(rows, 'lists'),
         );
-      } catch (e) {
-        debugPrint('[DatabaseService] lists upsert failed: $e');
+      } on Object catch (e, st) {
+        debugPrint('[DatabaseService] lists upsert failed: $e\n$st');
       }
       await _deleteRemovedRows('lists', localIds, familyId);
     });
@@ -355,16 +359,16 @@ class DatabaseService {
             'tasks',
             sanitizeRowsForCloudUpsert(rows, 'tasks'),
           );
-        } catch (e) {
-          debugPrint('[DatabaseService] tasks chunk upsert failed, retry per row: $e');
+        } on Object catch (e, st) {
+          debugPrint('[DatabaseService] tasks chunk upsert failed, retry per row: $e\n$st');
           for (final t in slice) {
             try {
               await SupabaseService.upsertTable(
                 'tasks',
                 sanitizeRowsForCloudUpsert([_taskRowForCloud(t)], 'tasks'),
               );
-            } catch (e2) {
-              debugPrint('[DatabaseService] task ${t.id} sync failed: $e2');
+            } on Object catch (e2, st2) {
+              debugPrint('[DatabaseService] task ${t.id} sync failed: $e2\n$st2');
             }
           }
         }
@@ -385,8 +389,8 @@ class DatabaseService {
     await _enqueueFamilyCloudWrite(familyId, () async {
       try {
         await _syncToCloud(db, familyId, tableScope: tableScope);
-      } catch (e) {
-        AppLog.sync('DatabaseService: Cloud sync failed: $e');
+      } on Object catch (e, st) {
+        AppLog.sync('DatabaseService: Cloud sync failed: $e\n$st');
       }
     });
   }
@@ -413,12 +417,12 @@ class DatabaseService {
         try {
           await SupabaseService.upsertTable(
               table, sanitizeRowsForCloudUpsert(rows, table), onConflict: onConflict);
-        } catch (e) {
+        } on Object catch (e, st) {
           final msg = e.toString();
           if (msg.contains('PGRST205') || msg.contains('Could not find the table')) {
             return; // table not in schema — skip quietly
           }
-          AppLog.sync('DatabaseService: Failed to sync $table: $e');
+          AppLog.sync('DatabaseService: Failed to sync $table: $e\n$st');
         }
       }
     }
@@ -522,12 +526,12 @@ class DatabaseService {
                 sanitizeRowsForCloudUpsert(thoughtRows, 'devotional_thoughts'),
                 onConflict: 'devotional_id,user_id,note_kind',
               );
-            } catch (e) {
+            } on Object catch (e, st) {
               final msg = e.toString();
               if (!msg.contains('PGRST205') &&
                   !msg.contains('Could not find the table')) {
                 debugPrint(
-                    '[DatabaseService] Failed to sync devotional_thoughts: $e');
+                    '[DatabaseService] Failed to sync devotional_thoughts: $e\n$st');
               }
             }
           }
@@ -858,8 +862,8 @@ class DatabaseService {
           members.map((m) => m.toJson()).toList(),
           onConflict: 'user_id,family_id',
         );
-      } catch (e) {
-        debugPrint('[DatabaseService] Failed to sync family_members: $e');
+      } on Object catch (e, st) {
+        debugPrint('[DatabaseService] Failed to sync family_members: $e\n$st');
       }
     }
     // Delete members removed locally
@@ -887,8 +891,8 @@ class DatabaseService {
           });
         }
       }
-    } catch (e) {
-      debugPrint('[DatabaseService] Failed to delete removed family_members: $e');
+    } on Object catch (e, st) {
+      debugPrint('[DatabaseService] Failed to delete removed family_members: $e\n$st');
     }
   }
 
@@ -914,12 +918,12 @@ class DatabaseService {
       for (final id in removed) {
         await SupabaseService.deleteRows(table, {'id': id});
       }
-    } catch (e) {
+    } on Object catch (e, st) {
       final msg = e.toString();
       if (msg.contains('PGRST205') || msg.contains('Could not find the table')) {
         return; // table not in this project's schema — skip quietly
       }
-      debugPrint('[DatabaseService] Failed to delete removed $table rows: $e');
+      debugPrint('[DatabaseService] Failed to delete removed $table rows: $e\n$st');
     }
   }
 
@@ -945,12 +949,12 @@ class DatabaseService {
       for (final id in removed) {
         await SupabaseService.deleteRows(table, {'id': id});
       }
-    } catch (e) {
+    } on Object catch (e, st) {
       final msg = e.toString();
       if (msg.contains('PGRST205') || msg.contains('Could not find the table')) {
         return; // table not in this project's schema — skip quietly
       }
-      debugPrint('[DatabaseService] Failed to delete removed $table rows: $e');
+      debugPrint('[DatabaseService] Failed to delete removed $table rows: $e\n$st');
     }
   }
 
@@ -1004,11 +1008,13 @@ class DatabaseService {
             if (u.id.isEmpty || have.contains(u.id)) continue;
             users.add(u);
             have.add(u.id);
-          } catch (_) {}
+          } on Object catch (e, st) {
+            _debugCatch('backfill User.fromJson', e, st);
+          }
         }
       }
-    } catch (e) {
-      debugPrint('[DatabaseService] backfillMissingUsersForFamily fetch: $e');
+    } on Object catch (e, st) {
+      debugPrint('[DatabaseService] backfillMissingUsersForFamily fetch: $e\n$st');
     }
 
     for (final id in missing) {
@@ -1047,7 +1053,7 @@ class DatabaseService {
       merged = await backfillMissingUsersForFamily(merged, familyId);
       await saveLocal(merged, tombstoneBase: local);
       return merged;
-    } catch (e, st) {
+    } on Object catch (e, st) {
       lastError = '$e\n$st';
       return local;
     }
@@ -1133,19 +1139,27 @@ class DatabaseService {
     try {
       final u = (o as dynamic).updatedAt;
       if (u is DateTime && u.millisecondsSinceEpoch > 0) return u;
-    } catch (_) {}
+    } on TypeError {
+      // Model has no usable updatedAt.
+    }
     try {
       final c = (o as dynamic).createdAt;
       if (c is DateTime) return c;
-    } catch (_) {}
+    } on TypeError {
+      // Model has no createdAt.
+    }
     try {
       final d = (o as dynamic).date;
       if (d is DateTime) return d;
-    } catch (_) {}
+    } on TypeError {
+      // Model has no date.
+    }
     try {
       final d = (o as dynamic).start;
       if (d is DateTime) return d;
-    } catch (_) {}
+    } on TypeError {
+      // Model has no start.
+    }
     return _epoch;
   }
 
@@ -1156,15 +1170,27 @@ class DatabaseService {
   /// - Only in cloud: add (unless [_deletedKeys]).
   /// - Only in local: keep (offline-created).
   static String _mergeKeyOf(dynamic item) {
-    try { return item.mergeKey as String; } catch (_) {}
-    return item.id as String;
+    try {
+      return item.mergeKey as String;
+    } on TypeError {
+      try {
+        return item.id as String;
+      } on TypeError catch (e, st) {
+        _debugCatch('_mergeKeyOf fallback', e, st);
+        return '';
+      }
+    }
   }
 
   static List<T> _mergeById<T>(List<T> local, List<T> cloud) {
     if (cloud.isEmpty) return local;
     final localMap = <String, T>{};
     for (final item in local) {
-      try { localMap[_mergeKeyOf(item)] = item; } catch (_) {}
+      try {
+        localMap[_mergeKeyOf(item)] = item;
+      } on TypeError catch (e, st) {
+        _debugCatch('_mergeById localMap', e, st);
+      }
     }
     if (local.isEmpty && _deletedKeys.isEmpty) return cloud;
     final map = <String, T>{...localMap};
@@ -1186,7 +1212,9 @@ class DatabaseService {
         } else {
           map[key] = item;
         }
-      } catch (_) {}
+      } on Object catch (e, st) {
+        _debugCatch('_mergeById cloud item', e, st);
+      }
     }
     return map.values.toList();
   }
@@ -1243,7 +1271,9 @@ class DatabaseService {
         } else {
           map[c.id] = rc > rl ? c : loc;
         }
-      } catch (_) {}
+      } on Object catch (e, st) {
+        _debugCatch('_mergeReadingPlans item', e, st);
+      }
     }
     return map.values.toList();
   }
@@ -1253,7 +1283,11 @@ class DatabaseService {
     final keys = <String>{};
     void addAll(List items) {
       for (final item in items) {
-        try { keys.add(_mergeKeyOf(item)); } catch (_) {}
+        try {
+          keys.add(_mergeKeyOf(item));
+        } on TypeError catch (e, st) {
+          _debugCatch('_collectKeys mergeKey', e, st);
+        }
       }
     }
     addAll(db.users); addAll(db.families); addAll(db.familyMembers);
@@ -1520,8 +1554,10 @@ class DatabaseService {
       if (item is Map) {
         try {
           results.add(fromJson(Map<String, dynamic>.from(item)));
-        } catch (e) {
-          lastError = (lastError ?? '') + 'Parse error in ${T.toString()}: $e\n';
+        } on Object catch (e, st) {
+          final prev = lastError ?? '';
+          lastError =
+              '${prev}Parse error in ${T.toString()}: $e\n$st\n';
         }
       }
     }

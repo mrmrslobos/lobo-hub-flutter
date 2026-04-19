@@ -1,8 +1,6 @@
 // lib/services/supabase_service.dart
 // Huddle - Supabase integration service
 
-// ignore_for_file: avoid_catches_without_on_clauses
-
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -12,6 +10,12 @@ import '../config/cloud_sync_scope.dart';
 import '../models/models.dart' hide User;
 
 class SupabaseService {
+  static void _debugCatch(String context, Object e, StackTrace st) {
+    if (kDebugMode) {
+      debugPrint('[SupabaseService] $context: $e\n$st');
+    }
+  }
+
   static SupabaseClient get client => Supabase.instance.client;
   static GoTrueClient get auth => Supabase.instance.client.auth;
 
@@ -19,7 +23,7 @@ class SupabaseService {
     try {
       Supabase.instance.client; // throws if not initialized
       return true;
-    } catch (_) {
+    } on Object {
       return false;
     }
   }
@@ -68,8 +72,8 @@ class SupabaseService {
     if (!isConfigured) return;
     try {
       await client.rpc('claim_owned_families');
-    } catch (e) {
-      debugPrint('[SupabaseService] claim_owned_families failed: $e');
+    } on Object catch (e, st) {
+      debugPrint('[SupabaseService] claim_owned_families failed: $e\n$st');
     }
   }
 
@@ -88,8 +92,8 @@ class SupabaseService {
           'p_tier': tier.name,
         },
       );
-    } catch (e) {
-      debugPrint('[SupabaseService] sync_family_subscription_tier failed: $e');
+    } on Object catch (e, st) {
+      debugPrint('[SupabaseService] sync_family_subscription_tier failed: $e\n$st');
     }
   }
 
@@ -224,8 +228,8 @@ class SupabaseService {
     Future<List<dynamic>> fetchOrEmpty(String label, Future<List<dynamic>> f) async {
       try {
         return await f;
-      } catch (e) {
-        debugPrint('[SupabaseService] fetch $label failed (using empty): $e');
+      } on Object catch (e, st) {
+        debugPrint('[SupabaseService] fetch $label failed (using empty): $e\n$st');
         return [];
       }
     }
@@ -361,8 +365,8 @@ class SupabaseService {
     Future<List<dynamic>> fetchOrEmpty(String label, Future<List<dynamic>> f) async {
       try {
         return await f;
-      } catch (e) {
-        debugPrint('[SupabaseService] fetch $label failed (using empty): $e');
+      } on Object catch (e, st) {
+        debugPrint('[SupabaseService] fetch $label failed (using empty): $e\n$st');
         return [];
       }
     }
@@ -440,7 +444,9 @@ class SupabaseService {
       if (result != null && (result as List).isNotEmpty) {
         return result[0] as Map<String, dynamic>;
       }
-    } catch (_) {}
+    } on Object catch (e, st) {
+      _debugCatch('find_family_by_join_code', e, st);
+    }
     return null;
   }
 
@@ -496,8 +502,8 @@ class SupabaseService {
           .upload(storagePath, file, fileOptions: const FileOptions(upsert: true));
 
       return client.storage.from('family-photos').getPublicUrl(storagePath);
-    } catch (e) {
-      debugPrint('[SupabaseService] photo upload failed: $e');
+    } on Object catch (e, st) {
+      debugPrint('[SupabaseService] photo upload failed: $e\n$st');
       return filePath; // fallback to local path
     }
   }
