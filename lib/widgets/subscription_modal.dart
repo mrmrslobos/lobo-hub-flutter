@@ -11,31 +11,158 @@ import '../providers/app_provider.dart';
 import '../services/ai_service.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
+// AI paywall context — drives subtitle + benefit bullets per module
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum AiPaywallKind {
+  /// Default copy when the screen doesn’t specify a module.
+  general,
+  homeSuggestions,
+  monthlyRecap,
+  explore,
+  tasks,
+  meals,
+  budget,
+  calendar,
+  fitness,
+  devotional,
+  lists,
+}
+
+class _PaywallCopy {
+  final String subtitle;
+  final List<String> bullets;
+
+  const _PaywallCopy({required this.subtitle, required this.bullets});
+}
+
+const _paywallCopy = <AiPaywallKind, _PaywallCopy>{
+  AiPaywallKind.general: _PaywallCopy(
+    subtitle: 'AI that fits your real family rhythm — tasks, meals, faith, and more.',
+    bullets: [
+      'Smarter task breakdowns and weekly planning',
+      'Meal ideas and shopping lists tuned to your tastes',
+      'Faith content, devotionals, and reflections',
+      'Budget and calendar help when you need a nudge',
+    ],
+  ),
+  AiPaywallKind.homeSuggestions: _PaywallCopy(
+    subtitle: 'Turn today’s chaos into a short, doable plan from your dashboard.',
+    bullets: [
+      'Personalized suggestions based on your family data',
+      'Tap through to tasks, meals, or calendar in one flow',
+      'Refresh anytime for a fresh take on priorities',
+      'Everything stays private to your family',
+    ],
+  ),
+  AiPaywallKind.monthlyRecap: _PaywallCopy(
+    subtitle: 'See your month at a glance — wins, patterns, and gentle next steps.',
+    bullets: [
+      'Narrative summary you can share with your partner',
+      'Highlights across tasks, meals, and routines',
+      'Encouragement without the spreadsheet grind',
+      'Unlocked on AI plans',
+    ],
+  ),
+  AiPaywallKind.explore: _PaywallCopy(
+    subtitle: 'Try AI in every module — one upgrade unlocks the full assistant.',
+    bullets: [
+      'Same account works across tasks, meals, budget, and more',
+      'Cancel anytime from your store settings',
+      'Kids’ data stays under your family’s control',
+      'Optional AI Family plan for larger households',
+    ],
+  ),
+  AiPaywallKind.tasks: _PaywallCopy(
+    subtitle: 'Break big goals into steps your family can actually finish.',
+    bullets: [
+      'AI-suggested subtasks and wording tweaks',
+      'Faster capture when you’re juggling errands',
+      'Works with your existing lists and chores',
+      'Part of AI & AI Family plans',
+    ],
+  ),
+  AiPaywallKind.meals: _PaywallCopy(
+    subtitle: 'Meal ideas and plans that respect how your week really goes.',
+    bullets: [
+      'Generate plans from what you already cook',
+      'Adjust for picky eaters or busy nights',
+      'Tie into shopping lists when you’re ready',
+      'Wellness info is informational only — not medical advice',
+    ],
+  ),
+  AiPaywallKind.budget: _PaywallCopy(
+    subtitle: 'Surface patterns and prompts — you stay in control of every dollar.',
+    bullets: [
+      'Plain-language summaries of spending trends',
+      'Ideas for categories and goals',
+      'No bank passwords stored in the assistant',
+      'Not financial advice; use your own judgment',
+    ],
+  ),
+  AiPaywallKind.calendar: _PaywallCopy(
+    subtitle: 'Let AI help you draft events, agendas, and reminders faster.',
+    bullets: [
+      'Turn rough notes into structured events',
+      'Shorter setup for recurring family routines',
+      'Respects your existing calendars and layers',
+      'You review everything before it’s shared',
+    ],
+  ),
+  AiPaywallKind.fitness: _PaywallCopy(
+    subtitle: 'Coaching-style prompts and structure — not a replacement for a pro.',
+    bullets: [
+      'Workout ideas scaled to what you log',
+      'Motivation when you’re rebuilding a habit',
+      'General wellness only — not medical advice',
+      'Unlocked on AI plans',
+    ],
+  ),
+  AiPaywallKind.devotional: _PaywallCopy(
+    subtitle: 'Scripture-centered devotionals and reading helps for busy adults.',
+    bullets: [
+      'Daily devotionals and reflection prompts',
+      'Reading plans you can walk through as a family',
+      'Honest tone — not generic kid-lesson fluff',
+      'You choose what share or keep private',
+    ],
+  ),
+  AiPaywallKind.lists: _PaywallCopy(
+    subtitle: 'Smarter shopping and packing lists without retyping the same items.',
+    bullets: [
+      'Suggest items from context or past trips',
+      'Reorder and group ideas in seconds',
+      'Stays synced with your family’s shared lists',
+      'Part of AI & AI Family plans',
+    ],
+  ),
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SubscriptionModal — bottom sheet paywall
 // ─────────────────────────────────────────────────────────────────────────────
 
 class SubscriptionModal extends StatelessWidget {
-  final String feature;
+  final AiPaywallKind kind;
   final VoidCallback? onUpgrade;
 
   const SubscriptionModal({
     super.key,
-    required this.feature,
+    this.kind = AiPaywallKind.general,
     this.onUpgrade,
   });
 
   /// Returns true (and shows upgrade modal) if AI is blocked on the current plan.
-  /// Screens should call this before attempting AI and abort if it returns true.
-  static bool guardAI(BuildContext context) {
+  static bool guardAI(BuildContext context, {AiPaywallKind kind = AiPaywallKind.general}) {
     if (!AiService.isAIBlocked) return false;
-    show(context, feature: 'AI-powered features');
+    show(context, kind: kind);
     return true;
   }
 
   /// Show as a modal bottom sheet
   static Future<void> show(
     BuildContext context, {
-    required String feature,
+    AiPaywallKind kind = AiPaywallKind.general,
     VoidCallback? onUpgrade,
   }) async {
     await showModalBottomSheet<void>(
@@ -43,7 +170,7 @@ class SubscriptionModal extends StatelessWidget {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => SubscriptionModal(
-        feature: feature,
+        kind: kind,
         onUpgrade: onUpgrade,
       ),
     );
@@ -51,6 +178,8 @@ class SubscriptionModal extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final copy = _paywallCopy[kind] ?? _paywallCopy[AiPaywallKind.general]!;
+
     return Container(
       decoration: const BoxDecoration(
         color: AppTheme.surface,
@@ -65,7 +194,6 @@ class SubscriptionModal extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Handle bar
           Center(
             child: Container(
               width: 36,
@@ -78,13 +206,11 @@ class SubscriptionModal extends StatelessWidget {
           ),
           const SizedBox(height: 24),
 
-          // Crown icon
           const Text('👑', style: TextStyle(fontSize: 48)),
           const SizedBox(height: 16),
 
-          // Title
           const Text(
-            'Upgrade to Premium',
+            'Upgrade for AI',
             style: TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.bold,
@@ -94,22 +220,20 @@ class SubscriptionModal extends StatelessWidget {
           ),
           const SizedBox(height: 8),
 
-          // Subtitle
           Text(
-            'Unlock $feature and more',
+            copy.subtitle,
             style: const TextStyle(
-              fontSize: 16,
-              color: AppTheme.stone500,
+              fontSize: 15,
+              height: 1.35,
+              color: AppTheme.stone600,
             ),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 28),
 
-          // Feature list
-          _FeatureList(),
+          _FeatureList(bullets: copy.bullets),
           const SizedBox(height: 28),
 
-          // Primary CTA
           Consumer<AppProvider>(
             builder: (ctx, app, _) {
               final family = app.activeFamily;
@@ -149,7 +273,6 @@ class SubscriptionModal extends StatelessWidget {
           ),
           const SizedBox(height: 10),
 
-          // Secondary CTA
           SizedBox(
             width: double.infinity,
             child: TextButton(
@@ -165,7 +288,6 @@ class SubscriptionModal extends StatelessWidget {
           ),
           const SizedBox(height: 4),
 
-          // Fine print
           Text(
             'Cancel anytime. No commitment.',
             style: TextStyle(fontSize: 12, color: AppTheme.stone400),
@@ -179,12 +301,9 @@ class SubscriptionModal extends StatelessWidget {
 }
 
 class _FeatureList extends StatelessWidget {
-  final List<String> _features = const [
-    'AI-powered suggestions across all modules',
-    'Unlimited recipes & meal planning',
-    'Advanced budget analytics',
-    'Priority support',
-  ];
+  final List<String> bullets;
+
+  const _FeatureList({required this.bullets});
 
   @override
   Widget build(BuildContext context) {
@@ -195,13 +314,13 @@ class _FeatureList extends StatelessWidget {
       ),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Column(
-        children: _features
+        children: bullets
             .map((f) => Padding(
                   padding: const EdgeInsets.symmetric(vertical: 6),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('✅', style: TextStyle(fontSize: 16)),
+                      Icon(Icons.check_circle_rounded, size: 18, color: AppTheme.primary.withValues(alpha: 0.85)),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
@@ -228,8 +347,13 @@ class _FeatureList extends StatelessWidget {
 
 class UpgradePrompt extends StatelessWidget {
   final String feature;
+  final AiPaywallKind kind;
 
-  const UpgradePrompt({super.key, required this.feature});
+  const UpgradePrompt({
+    super.key,
+    required this.feature,
+    this.kind = AiPaywallKind.general,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -250,7 +374,7 @@ class UpgradePrompt extends StatelessWidget {
               shape: BoxShape.circle,
             ),
             child: const Icon(
-              Icons.lock_outline_rounded,
+              Icons.auto_awesome_rounded,
               color: AppTheme.primary,
               size: 22,
             ),
@@ -261,7 +385,7 @@ class UpgradePrompt extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Premium Feature',
+                  'AI feature',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -281,8 +405,7 @@ class UpgradePrompt extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           TextButton(
-            onPressed: () =>
-                SubscriptionModal.show(context, feature: feature),
+            onPressed: () => SubscriptionModal.show(context, kind: kind),
             style: TextButton.styleFrom(
               backgroundColor: AppTheme.primary,
               foregroundColor: Colors.white,

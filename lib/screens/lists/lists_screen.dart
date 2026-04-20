@@ -31,11 +31,10 @@ class _ListsScreenState extends State<ListsScreen> {
 
   // ── Data helpers ───────────────────────────────────────────────────────────
 
-  /// Persist lists and push to Supabase immediately so pulls do not resurrect stale checked state.
+  /// Persist lists and push to Supabase ([saveAndSync] enqueues list scope).
   Future<void> _saveShoppingLists(AppProvider provider, AppDB nextDb) async {
     await provider.saveAndSync(nextDb,
         pushTableScope: {CloudSyncScope.lists});
-    if (provider.activeFamily != null) await provider.syncListsNow();
   }
 
   Future<void> _createList(String name, {Visibility visibility = Visibility.FAMILY, List<String> sharedWith = const []}) async {
@@ -849,7 +848,7 @@ class _AiCategorizationSheetState extends State<_AiCategorizationSheet> {
   }
 
   Future<void> _categorize() async {
-    if (SubscriptionModal.guardAI(context)) return;
+    if (SubscriptionModal.guardAI(context, kind: AiPaywallKind.lists)) return;
     try {
       final familyId = context.read<AppProvider>().activeFamily?.id;
       if (familyId == null) {
@@ -1618,7 +1617,7 @@ class _AiTextToChecklistSheetState extends State<_AiTextToChecklistSheet> {
   }
 
   Future<void> _convert() async {
-    if (SubscriptionModal.guardAI(context)) return;
+    if (SubscriptionModal.guardAI(context, kind: AiPaywallKind.lists)) return;
     final text = _textController.text.trim();
     if (text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(

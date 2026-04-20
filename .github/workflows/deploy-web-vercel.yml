@@ -1,0 +1,77 @@
+# Build Flutter web in CI and deploy static output to Vercel (Option B).
+# Android / iOS are unchanged; this workflow only publishes `build/web`.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   VERCEL_TOKEN          — https://vercel.com/account/tokens
+#   VERCEL_ORG_ID         — Project Settings → General (or `team_…` from .vercel/project.json)
+#   VERCEL_PROJECT_ID     — Project Settings → General (`prj_…`)
+#   SUPABASE_URL          — optional; omit builds without cloud (same as local no-Supabase)
+#   SUPABASE_ANON_KEY     — optional; pair with SUPABASE_URL
+
+name: Deploy web to Vercel
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: vercel-web-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    # Fork PRs cannot use repo secrets; skip deploy to avoid failing checks.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+
+    permissions:
+      contents: read
+
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Build web (release)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          set -e
+          if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_ANON_KEY" ]; then
+            flutter build web --release \
+              --dart-define=SUPABASE_URL="$SUPABASE_URL" \
+              --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"
+          else
+            flutter build web --release
+          fi
+
+      - name: Ensure Vercel config in output
+        run: cp web/vercel.json build/web/vercel.json
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      - name: Deploy preview (PR)
+        if: github.event_name == 'pull_request'
+        run: vercel deploy build/web --yes --token="$VERCEL_TOKEN"
+
+      - name: Deploy production (main / manual)
+        if: github.event_name != 'pull_request'
+        run: vercel deploy build/web --prod --yes --token="$VERCEL_TOKEN"

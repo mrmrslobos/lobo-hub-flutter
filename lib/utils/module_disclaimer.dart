@@ -4,17 +4,50 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Shows a one-time disclaimer dialog for a module. Once accepted,
-/// it is stored in SharedPreferences and never shown again.
+/// Legacy global key (pre–per-user); removed when a user accepts the new scoped key.
+String _legacyModuleDisclaimerKey(String moduleKey) =>
+    'disclaimer_accepted_$moduleKey';
+
+/// Per signed-in user so a new account on the same device sees disclaimers again.
+String moduleDisclaimerPrefsKey(String moduleKey, String userId) =>
+    'disclaimer_accepted_${moduleKey}_$userId';
+
+// ── Dashboard medical disclaimer (same scoping story) ───────────────────────
+
+/// Legacy: single `medical_disclaimer_accepted` flag for the whole device.
+const legacyMedicalDisclaimerKey = 'medical_disclaimer_accepted';
+
+String medicalDisclaimerPrefsKey(String userId) =>
+    '${legacyMedicalDisclaimerKey}_$userId';
+
+Future<bool> isMedicalDisclaimerAcceptedForUser(
+  SharedPreferences prefs,
+  String userId,
+) async {
+  return prefs.getBool(medicalDisclaimerPrefsKey(userId)) == true;
+}
+
+Future<void> setMedicalDisclaimerAcceptedForUser(
+  SharedPreferences prefs,
+  String userId,
+) async {
+  await prefs.setBool(medicalDisclaimerPrefsKey(userId), true);
+  await prefs.remove(legacyMedicalDisclaimerKey);
+}
+
+/// Shows a one-time disclaimer dialog for a module ([userId] = current auth user).
+/// Acceptance is stored per user so switching accounts does not skip the dialog.
 Future<void> showModuleDisclaimer({
   required BuildContext context,
+  required String userId,
   required String moduleKey,
   required String title,
   required IconData icon,
   required String body,
 }) async {
-  final prefsKey = 'disclaimer_accepted_$moduleKey';
+  if (userId.isEmpty) return;
   final prefs = await SharedPreferences.getInstance();
+  final prefsKey = moduleDisclaimerPrefsKey(moduleKey, userId);
   if (prefs.getBool(prefsKey) == true) return;
   if (!context.mounted) return;
 
@@ -27,6 +60,7 @@ Future<void> showModuleDisclaimer({
       body: body,
       onAccepted: () async {
         await prefs.setBool(prefsKey, true);
+        await prefs.remove(_legacyModuleDisclaimerKey(moduleKey));
         if (ctx.mounted) Navigator.pop(ctx);
       },
     ),

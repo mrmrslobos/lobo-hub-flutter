@@ -373,24 +373,49 @@ class _AuthScreenState extends State<AuthScreen> {
       // If not found locally, try cloud lookup
       if (family == null && _supabaseConfigured) {
         try {
+          await SupabaseService.claimOwnedFamilies();
           final result =
               await Supabase.instance.client.rpc(
             'find_family_by_join_code',
             params: {'code': code},
           );
-          if (result != null && (result as List).isNotEmpty) {
-            final data = result[0] as Map<String, dynamic>;
-            final familyId = data['id'] as String;
+
+          // RPC returns the family row (SECURITY DEFINER). Parse it here — do not
+          // rely on reconcileCloud to include `families`: RLS only allows members
+          // to SELECT families, so pre-join reconcile often omits the row and
+          // join incorrectly showed "No family found".
+          Map<String, dynamic>? row;
+          if (result is List && result.isNotEmpty) {
+            row = Map<String, dynamic>.from(result.first as Map);
+          } else if (result is Map) {
+            row = Map<String, dynamic>.from(result);
+          }
+
+          if (row != null) {
+            final fromRpc = Family.fromJson(row);
+            final familyId = fromRpc.id;
+            if (familyId.isEmpty) {
+              _setError(AppConfig.authInvalidInviteCodeFamily);
+              return;
+            }
             await FieldEncryption.init(familyId, code);
-            final db =
-                await DatabaseService.reconcileCloud(provider.db, familyId);
+
+            // Do not reconcile here: RLS only returns family data after
+            // `family_members` includes this user. A pre-membership pull merges
+            // empty cloud → empty tasks/members until the next full pull.
+            var db = provider.db;
+            final hasFamilyRow = db.families.any((f) => f.id == familyId);
+            if (!hasFamilyRow) {
+              db = db.copyWith(families: [...db.families, fromRpc]);
+            }
             provider.setDb(db);
-            family = db.families
-                .cast<Family?>()
-                .firstWhere((f) => f?.id == familyId, orElse: () => null);
+            family = db.families.firstWhereOrNull((f) => f.id == familyId) ??
+                fromRpc;
           }
         } catch (e) {
           debugPrint('[Auth] Cloud join code lookup failed: $e');
+          _setError(friendlyErrorMessage(e));
+          return;
         }
       }
 
@@ -444,6 +469,18 @@ class _AuthScreenState extends State<AuthScreen> {
       provider.setDb(db);
       provider.authenticate(user, joinedFamily);
       await DatabaseService.saveAndSync(db, joinedFamily.id);
+      // Membership is now on the server — pull full family data (tasks, members, …).
+      if (_supabaseConfigured) {
+        try {
+          final merged = await DatabaseService.reconcileCloud(
+            provider.db,
+            joinedFamily.id,
+          );
+          provider.setDb(merged);
+        } catch (e, st) {
+          debugPrint('[Auth] Post-join reconcile failed: $e\n$st');
+        }
+      }
       await markWelcomeTourPending(List<String>.from(joinedFamily.enabledModules));
 
       if (mounted) context.go('/');

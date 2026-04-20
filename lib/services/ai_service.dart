@@ -10,6 +10,46 @@ class AINotAvailableException implements Exception {
 }
 
 class AiService {
+  /// Strips common ```json … ``` wrappers from LLM output.
+  static String _stripLlmJsonWrappers(String s) {
+    var t = s.trim();
+    if (t.startsWith('```')) {
+      final firstLineEnd = t.indexOf('\n');
+      if (firstLineEnd != -1) {
+        t = t.substring(firstLineEnd + 1);
+      } else {
+        t = t.substring(3);
+      }
+      final close = t.indexOf('```');
+      if (close >= 0) t = t.substring(0, close);
+      t = t.trim();
+    }
+    return t;
+  }
+
+  /// Parses a JSON object from LLM text that may include markdown fences
+  /// or short preamble/epilogue. Returns null on failure.
+  static Map<String, dynamic>? tryParseJsonObject(String raw) {
+    var s = raw.trim();
+    if (s.isEmpty) return null;
+    s = _stripLlmJsonWrappers(s);
+    try {
+      final decoded = jsonDecode(s);
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } catch (_) {}
+    final start = s.indexOf('{');
+    final end = s.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      try {
+        final decoded = jsonDecode(s.substring(start, end + 1));
+        if (decoded is Map<String, dynamic>) return decoded;
+        if (decoded is Map) return Map<String, dynamic>.from(decoded);
+      } catch (_) {}
+    }
+    return null;
+  }
+
   /// Whether AI is currently blocked. Set by the provider so the service
   /// can check without needing a BuildContext.
   static bool _aiBlocked = false;
@@ -87,9 +127,7 @@ class AiService {
         responseMimeType: 'application/json',
       );
       if (raw == null) return null;
-      final decoded = jsonDecode(raw);
-      if (decoded is Map<String, dynamic>) return decoded;
-      return null;
+      return tryParseJsonObject(raw);
     } catch (e, st) {
       debugPrint('[AiService] askJson() decode error: $e\n$st');
       return null;

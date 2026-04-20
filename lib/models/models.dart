@@ -5,6 +5,8 @@
 
 import '../services/field_encryption_service.dart';
 
+export '../utils/list_extensions.dart';
+
 typedef PrayerRequest = PrayerWallEntry;
 typedef AIHistoryEntry = AIHistory;
 typedef PeriodEntry = PeriodCycle;

@@ -2,16 +2,16 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Huddle (Dev)",
+      "name": "Huddle (Dev, from .env)",
       "request": "launch",
       "type": "dart",
       "program": "lib/main.dart",
       "args": [
-        "--dart-define-from-file=.env"
+        "--dart-define-from-file=${workspaceFolder}/.env"
       ]
     },
     {
-      "name": "Huddle (Dev - no Supabase)",
+      "name": "Huddle (Dev, no Supabase)",
       "request": "launch",
       "type": "dart",
       "program": "lib/main.dart"

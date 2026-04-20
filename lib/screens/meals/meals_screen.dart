@@ -163,8 +163,12 @@ class _MealsScreenState extends State<MealsScreen>
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(() => setState(() {}));
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final uid = context.read<AppProvider>().activeUser?.id;
+      if (uid == null) return;
       showModuleDisclaimer(
         context: context,
+        userId: uid,
         moduleKey: 'meals',
         title: 'Meal Planning',
         icon: Icons.restaurant_menu_rounded,
@@ -289,7 +293,7 @@ class _MealsScreenState extends State<MealsScreen>
 
   // ── AI Chef Suggestion ──
   Future<void> _generateChefSuggestion() async {
-    if (SubscriptionModal.guardAI(context)) return;
+    if (SubscriptionModal.guardAI(context, kind: AiPaywallKind.meals)) return;
     final prefs = _chefController.text.trim();
     if (prefs.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -420,7 +424,7 @@ Return a JSON array of exactly 3 objects, each with these fields:
 
   // ── AI Week Planner ──
   Future<void> _generateWeekPlan() async {
-    if (SubscriptionModal.guardAI(context)) return;
+    if (SubscriptionModal.guardAI(context, kind: AiPaywallKind.meals)) return;
     final prefs = _weekPlannerController.text.trim();
     if (prefs.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -726,7 +730,7 @@ Return a JSON array of 7 objects, each with:
 
   // ── Refine Meal Plan ──
   Future<void> _refineMealPlan() async {
-    if (SubscriptionModal.guardAI(context)) return;
+    if (SubscriptionModal.guardAI(context, kind: AiPaywallKind.meals)) return;
     final request = _refineController.text.trim();
     if (request.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -921,7 +925,7 @@ Return a JSON array of 7 objects, each with:
 
   // ── Import from URL (inline) ──
   Future<void> _importFromUrl() async {
-    if (SubscriptionModal.guardAI(context)) return;
+    if (SubscriptionModal.guardAI(context, kind: AiPaywallKind.meals)) return;
     final url = _importUrlController.text.trim();
     if (url.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2479,7 +2483,7 @@ class _MealSlotCard extends StatelessWidget {
   }
 
   Future<void> _aiSwapMeal(BuildContext context) async {
-    if (SubscriptionModal.guardAI(context)) return;
+    if (SubscriptionModal.guardAI(context, kind: AiPaywallKind.meals)) return;
     final currentMealName = meal!.title;
     final label = _mealTypeLabels[mealType] ?? mealType;
 
@@ -3775,7 +3779,7 @@ class _ImportUrlDialogState extends State<_ImportUrlDialog> {
   }
 
   Future<void> _import() async {
-    if (SubscriptionModal.guardAI(context)) return;
+    if (SubscriptionModal.guardAI(context, kind: AiPaywallKind.meals)) return;
     final url = _urlController.text.trim();
     if (url.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(

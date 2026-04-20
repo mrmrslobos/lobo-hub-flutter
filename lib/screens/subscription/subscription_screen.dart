@@ -13,6 +13,7 @@ import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../services/purchase_service.dart';
 import '../../utils/ai_family_household.dart';
+import '../../utils/user_facing_errors.dart';
 
 // ─── Currency pricing data ──────────────────────────────────────────────────
 
@@ -633,7 +634,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result.message ?? 'Restore failed.')),
+        SnackBar(
+          content: Text(
+            humanizeForSnackBar(result.message ?? 'Restore failed.'),
+          ),
+        ),
       );
     }
   }
@@ -703,7 +708,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     if (outcome.userCancelled) return;
     if (!outcome.success) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(outcome.message ?? 'Purchase failed.')),
+        SnackBar(
+          content: Text(
+            humanizeForSnackBar(outcome.message ?? 'Purchase failed.'),
+          ),
+        ),
       );
       return;
     }

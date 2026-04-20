@@ -12,7 +12,7 @@ This project requires **Flutter >= 3.19.0** with **Dart >= 3.3.0** (see `pubspec
 
 ### Running the app (web)
 
-The project has no `web/` directory on `main`; generate it with `flutter create --platforms web .` before running. The app works in **local-only mode** (SharedPreferences) without Supabase credentials — no external services are required for basic development.
+The `web/` platform folder is in the repository. If it is missing locally, run `flutter create --platforms web .`. The app works in **local-only mode** without Supabase credentials — no external services are required for basic development. **Production web** builds are deployed from GitHub Actions to Vercel (see `README.md`).
 
 To run with the Supabase backend (credentials from `launch.json`):
 
@@ -85,5 +85,5 @@ The app uses `purchases_flutter` (RevenueCat SDK). Integration is in `lib/servic
 ### Key gotchas
 
 - The `README.md` references `npm install` / `npm run dev`, but there is **no `package.json`** in the repository. Those instructions apply to a separate web variant that is not included. The actual app is Flutter.
-- The `web/` directory is `.gitignore`d but must exist to run `flutter run -d web-server`. Regenerate it with `flutter create --platforms web .` if missing.
+- If `web/` is missing, regenerate with `flutter create --platforms web .` before `flutter run -d chrome` or `flutter run -d web-server`.
 - `flutter pub get` may downgrade a few transitive dependencies to match the SDK — this is expected and harmless.

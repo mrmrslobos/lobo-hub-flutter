@@ -1,8 +1,6 @@
 // lib/services/supabase_service.dart
 // Huddle - Supabase integration service
 
-// ignore_for_file: avoid_catches_without_on_clauses
-
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -12,6 +10,12 @@ import '../config/cloud_sync_scope.dart';
 import '../models/models.dart' hide User;
 
 class SupabaseService {
+  static void _debugCatch(String context, Object e, StackTrace st) {
+    if (kDebugMode) {
+      debugPrint('[SupabaseService] $context: $e\n$st');
+    }
+  }
+
   static SupabaseClient get client => Supabase.instance.client;
   static GoTrueClient get auth => Supabase.instance.client.auth;
 
@@ -19,7 +23,7 @@ class SupabaseService {
     try {
       Supabase.instance.client; // throws if not initialized
       return true;
-    } catch (_) {
+    } on Object {
       return false;
     }
   }
@@ -68,8 +72,8 @@ class SupabaseService {
     if (!isConfigured) return;
     try {
       await client.rpc('claim_owned_families');
-    } catch (e) {
-      debugPrint('[SupabaseService] claim_owned_families failed: $e');
+    } on Object catch (e, st) {
+      debugPrint('[SupabaseService] claim_owned_families failed: $e\n$st');
     }
   }
 
@@ -88,8 +92,8 @@ class SupabaseService {
           'p_tier': tier.name,
         },
       );
-    } catch (e) {
-      debugPrint('[SupabaseService] sync_family_subscription_tier failed: $e');
+    } on Object catch (e, st) {
+      debugPrint('[SupabaseService] sync_family_subscription_tier failed: $e\n$st');
     }
   }
 
@@ -135,6 +139,26 @@ class SupabaseService {
   }
 
   // ── Data ──────────────────────────────────────────────────────────────────
+
+  /// Member user ids from [family_members] plus the signed-in user (if any).
+  /// Including auth uid avoids empty `users` when `family_members` is temporarily
+  /// empty or RLS returns no rows before membership is visible.
+  static List<String> _memberUserIdsPlusCurrentAuth(dynamic familyMemberRows) {
+    final ids = <String>[];
+    final seen = <String>{};
+    void add(String? id) {
+      if (id == null || id.isEmpty) return;
+      if (seen.add(id)) ids.add(id);
+    }
+
+    if (familyMemberRows is List) {
+      for (final m in familyMemberRows) {
+        if (m is Map) add(m['user_id'] as String?);
+      }
+    }
+    add(currentUser?.id);
+    return ids;
+  }
 
   /// Fetch all relevant tables for a family from Supabase (full DB sync).
   static Future<Map<String, dynamic>> fetchAllTables(String familyId) async {
@@ -194,34 +218,38 @@ class SupabaseService {
 
     final result = <String, dynamic>{};
 
-    /// Safely fetch a single table, returning [] on error.
-    Future<List> fetch(String table, String column, dynamic value) async {
+    Future<List<dynamic>> fetch(String table, String column, dynamic value) async {
+      if (value is List) {
+        return await client.from(table).select().inFilter(column, value);
+      }
+      return await client.from(table).select().eq(column, value);
+    }
+
+    Future<List<dynamic>> fetchOrEmpty(String label, Future<List<dynamic>> f) async {
       try {
-        if (value is List) {
-          return await client.from(table).select().inFilter(column, value);
-        }
-        return await client.from(table).select().eq(column, value);
-      } catch (_) {
+        return await f;
+      } on Object catch (e, st) {
+        debugPrint('[SupabaseService] fetch $label failed (using empty): $e\n$st');
         return [];
       }
     }
 
-    // ── Phase 1: fetch family + family_members in parallel ───────────────
+    // ── Phase 1: fetch family + family_members (never fail the whole pull) ─
     // We need member userIds before we can query user-scoped tables.
-    final phase1 = await Future.wait([
-      fetch('families', 'id', familyId),
+    final familiesRows =
+        await fetchOrEmpty('families', fetch('families', 'id', familyId));
+    final familyMembersRows = await fetchOrEmpty(
+      'family_members',
       fetch('family_members', 'family_id', familyId),
-    ]);
-    result['families'] = phase1[0];
-    result['family_members'] = phase1[1];
+    );
+    result['families'] = familiesRows;
+    result['family_members'] = familyMembersRows;
 
-    final userIds = (phase1[1] as List)
-        .map((m) => (m as Map)['user_id'] as String)
-        .toList();
+    final userIds = _memberUserIdsPlusCurrentAuth(familyMembersRows);
 
-    // ── Phase 2: everything else in parallel ─────────────────────────────
+    // ── Phase 2: everything else in parallel (per-table errors → empty list) ─
     final allTables = <String>[];
-    final allFutures = <Future<List>>[];
+    final allFutures = <Future<List<dynamic>>>[];
 
     for (final table in familyScopedTables) {
       allTables.add(table);
@@ -247,9 +275,8 @@ class SupabaseService {
       }
     }
 
-    final phase2 = await Future.wait(allFutures);
-    for (var i = 0; i < allTables.length; i++) {
-      result[allTables[i]] = phase2[i];
+    for (var i = 0; i < allFutures.length; i++) {
+      result[allTables[i]] = await fetchOrEmpty(allTables[i], allFutures[i]);
     }
 
     return result;
@@ -328,30 +355,35 @@ class SupabaseService {
 
     final result = <String, dynamic>{};
 
-    Future<List> fetch(String table, String column, dynamic value) async {
+    Future<List<dynamic>> fetch(String table, String column, dynamic value) async {
+      if (value is List) {
+        return await client.from(table).select().inFilter(column, value);
+      }
+      return await client.from(table).select().eq(column, value);
+    }
+
+    Future<List<dynamic>> fetchOrEmpty(String label, Future<List<dynamic>> f) async {
       try {
-        if (value is List) {
-          return await client.from(table).select().inFilter(column, value);
-        }
-        return await client.from(table).select().eq(column, value);
-      } catch (_) {
+        return await f;
+      } on Object catch (e, st) {
+        debugPrint('[SupabaseService] fetch $label failed (using empty): $e\n$st');
         return [];
       }
     }
 
-    final phase1 = await Future.wait([
-      fetch('families', 'id', familyId),
+    final familiesRows =
+        await fetchOrEmpty('families', fetch('families', 'id', familyId));
+    final familyMembersRows = await fetchOrEmpty(
+      'family_members',
       fetch('family_members', 'family_id', familyId),
-    ]);
-    result['families'] = phase1[0];
-    result['family_members'] = phase1[1];
+    );
+    result['families'] = familiesRows;
+    result['family_members'] = familyMembersRows;
 
-    final userIds = (phase1[1] as List)
-        .map((m) => (m as Map)['user_id'] as String)
-        .toList();
+    final userIds = _memberUserIdsPlusCurrentAuth(familyMembersRows);
 
     final allTables = <String>[];
-    final allFutures = <Future<List>>[];
+    final allFutures = <Future<List<dynamic>>>[];
 
     for (final table in familyScopedTables) {
       if (!want.contains(table)) continue;
@@ -375,9 +407,8 @@ class SupabaseService {
       }
     }
 
-    final phase2 = await Future.wait(allFutures);
-    for (var i = 0; i < allTables.length; i++) {
-      result[allTables[i]] = phase2[i];
+    for (var i = 0; i < allFutures.length; i++) {
+      result[allTables[i]] = await fetchOrEmpty(allTables[i], allFutures[i]);
     }
 
     return result;
@@ -413,7 +444,9 @@ class SupabaseService {
       if (result != null && (result as List).isNotEmpty) {
         return result[0] as Map<String, dynamic>;
       }
-    } catch (_) {}
+    } on Object catch (e, st) {
+      _debugCatch('find_family_by_join_code', e, st);
+    }
     return null;
   }
 
@@ -469,8 +502,8 @@ class SupabaseService {
           .upload(storagePath, file, fileOptions: const FileOptions(upsert: true));
 
       return client.storage.from('family-photos').getPublicUrl(storagePath);
-    } catch (e) {
-      debugPrint('[SupabaseService] photo upload failed: $e');
+    } on Object catch (e, st) {
+      debugPrint('[SupabaseService] photo upload failed: $e\n$st');
       return filePath; // fallback to local path
     }
   }
