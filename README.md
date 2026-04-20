@@ -5,11 +5,7 @@ Flutter mobile app for family life — tasks, calendar, meals, budget, chat, and
 ## Prerequisites
 
 - **Flutter ≥ 3.35** (Dart ≥ 3.9) — see `pubspec.yaml` and [`AGENTS.md`](AGENTS.md) for SDK notes.
-- For **web**: generate the platform folder once (it may be gitignored):
-
-  ```bash
-  flutter create --platforms web .
-  ```
+- For **web**: the `web/` folder is in the repo; if it is missing, run `flutter create --platforms web .`
 
 ## Run locally
 
@@ -30,10 +26,32 @@ flutter run \
 
 More detail: [`AGENTS.md`](AGENTS.md) (web port, RevenueCat `--dart-define`, Android/iOS build commands).
 
+## Deploy web to Vercel (GitHub Actions)
+
+Production and PR **preview** builds run in CI and upload the static **`build/web`** output to Vercel — Android and iOS builds are unchanged.
+
+1. Create a [Vercel](https://vercel.com) project (empty or linked to this repo; the Action pushes artifacts via the CLI).
+2. In the GitHub repo, add **Actions** secrets:
+
+   | Secret | Where to get it |
+   |--------|------------------|
+   | `VERCEL_TOKEN` | Vercel → Account → **Tokens** |
+   | `VERCEL_ORG_ID` | Project → **Settings** → General → *Team / Personal ID* (`team_…`) |
+   | `VERCEL_PROJECT_ID` | Same page → *Project ID* (`prj_…`) |
+   | `SUPABASE_URL` | Optional; same value as `--dart-define` for production web |
+   | `SUPABASE_ANON_KEY` | Optional; pair with `SUPABASE_URL` |
+
+   If `SUPABASE_URL` / `SUPABASE_ANON_KEY` are omitted, the web bundle is built **without** Supabase (local-only mode), same as a local run without defines.
+
+3. Push to **`main`** for a **production** deploy, or open a **pull request** against `main` for a **preview** URL (fork PRs skip deploy because secrets are unavailable).
+
+Workflow file: [`.github/workflows/deploy-web-vercel.yml`](.github/workflows/deploy-web-vercel.yml). SPA routing uses [`web/vercel.json`](web/vercel.json) (copied into `build/web` after each build).
+
 ## Repository layout
 
 | Path | Purpose |
 |------|---------|
+| `.github/workflows/deploy-web-vercel.yml` | CI: `flutter build web` → Vercel |
 | `lib/` | Flutter app |
 | `supabase/migrations/` | Postgres schema + RLS (apply in order) |
 | `supabase/functions/` | Edge Functions (TypeScript / Deno) |
