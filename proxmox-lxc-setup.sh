@@ -112,7 +112,7 @@ pct create "$CTID" "${TEMPLATE_STORAGE}:vztmpl/${TEMPLATE}" \
     --net0      "name=eth0,bridge=${BRIDGE},firewall=1,${IP_CONFIG}" \
     --ostype    debian \
     --features  nesting=1,keyctl=1 \
-    --privileged 1 \
+    --unprivileged 0 \
     --onboot    1
 
 info "Starting container..."
