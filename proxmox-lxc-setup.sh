@@ -28,8 +28,8 @@ DISK_SIZE=10                    # GB
 STORAGE="local-lvm"             # Proxmox storage pool for the rootfs
 BRIDGE="vmbr0"                  # Proxmox network bridge
 
-# Network — "dhcp" or a static spec: "ip=192.168.1.100/24,gw=192.168.1.1"
-IP_CONFIG="dhcp"
+# Network — "ip=dhcp" or a static spec: "ip=192.168.1.100/24,gw=192.168.1.1"
+IP_CONFIG="ip=dhcp"
 
 # Host port the web app is served on
 APP_PORT=80
