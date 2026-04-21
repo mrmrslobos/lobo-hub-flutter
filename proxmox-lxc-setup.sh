@@ -8,11 +8,12 @@
 # What it does:
 #   1. Downloads a Debian 12 LXC template (if not cached)
 #   2. Creates a privileged LXC container with Docker support
-#   3. Installs Docker + Docker Compose inside the container
-#   4. Authenticates with GitHub Container Registry (ghcr.io)
-#   5. Pulls and starts the LoboHub web image + Watchtower
-#      (Watchtower auto-redeploys when a new image is pushed to ghcr.io)
-#   6. Registers a systemd service so the app survives reboots
+#   3. Installs Docker, Docker Compose, and Git inside the container
+#   4. Clones the GitHub repo to /opt/lobohub
+#   5. Creates a .env file with your Supabase credentials
+#   6. Builds the Docker image locally and starts the app
+#   7. Creates /opt/lobohub/update.sh — run it to pull + rebuild
+#   8. Registers a systemd service so the app survives reboots
 # =============================================================================
 set -euo pipefail
 
@@ -20,29 +21,26 @@ set -euo pipefail
 
 CTID=200                        # Proxmox container ID (must be free)
 HOSTNAME="lobohub"
-MEMORY=2048                     # MB
-SWAP=512                        # MB
+MEMORY=4096                     # MB — Flutter build needs headroom
+SWAP=1024                       # MB
 CORES=2
 DISK_SIZE=20                    # GB
 STORAGE="local-lvm"             # Proxmox storage pool for the rootfs
 BRIDGE="vmbr0"                  # Proxmox network bridge
 
-# Network — use "dhcp" or a static spec like "ip=192.168.1.100/24,gw=192.168.1.1"
+# Network — "dhcp" or a static spec: "ip=192.168.1.100/24,gw=192.168.1.1"
 IP_CONFIG="dhcp"
 
-# Host port the web app is exposed on (access via http://<LXC-IP>:${APP_PORT})
+# Host port the web app is served on
 APP_PORT=80
 
-# GitHub Container Registry
-GHCR_IMAGE="ghcr.io/mrmrslobos/lobo-hub-flutter:latest"
-GHCR_USER="mrmrslobos"
+# GitHub repo (HTTPS URL — no auth required for public repos)
+REPO_URL="https://github.com/mrmrslobos/lobo-hub-flutter.git"
+REPO_BRANCH="main"
 
-# Create a GitHub Personal Access Token with scope: read:packages
-# https://github.com/settings/tokens/new?scopes=read:packages
-GHCR_TOKEN=""
-
-# Watchtower poll interval in seconds (300 = 5 minutes)
-WATCHTOWER_INTERVAL=300
+# Supabase credentials — stored in /opt/lobohub/.env on the server (never in git)
+SUPABASE_URL=""
+SUPABASE_ANON_KEY=""
 
 # ── Template ──────────────────────────────────────────────────────────────────
 
@@ -52,7 +50,7 @@ TEMPLATE_PATH="/var/lib/vz/template/cache/${TEMPLATE}"
 
 # =============================================================================
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
 info()  { echo -e "${GREEN}>>>${NC} $*"; }
 warn()  { echo -e "${YELLOW}[!]${NC} $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
@@ -66,20 +64,21 @@ echo ""
 # ── Pre-flight checks ─────────────────────────────────────────────────────────
 
 [ "$(id -u)" -eq 0 ] || error "Run this script as root on the Proxmox host."
+command -v pct &>/dev/null    || error "'pct' not found — are you on the Proxmox host?"
 
-command -v pct  &>/dev/null || error "'pct' not found — are you on the Proxmox host?"
-command -v pvesm &>/dev/null || error "'pvesm' not found — are you on the Proxmox host?"
-
-if [ -z "$GHCR_TOKEN" ]; then
-    echo ""
-    warn "GHCR_TOKEN is not set."
-    warn "Create a GitHub PAT with scope 'read:packages':"
-    warn "  https://github.com/settings/tokens/new?scopes=read:packages"
-    echo ""
-    read -r -s -p "Paste your GitHub PAT and press Enter: " GHCR_TOKEN
-    echo ""
-    [ -n "$GHCR_TOKEN" ] || error "No token provided — aborting."
+# Prompt for any missing credentials
+if [ -z "$SUPABASE_URL" ]; then
+    read -r -p "Enter your SUPABASE_URL: " SUPABASE_URL
+    [ -n "$SUPABASE_URL" ] || error "SUPABASE_URL is required."
 fi
+
+if [ -z "$SUPABASE_ANON_KEY" ]; then
+    read -r -s -p "Enter your SUPABASE_ANON_KEY: " SUPABASE_ANON_KEY
+    echo ""
+    [ -n "$SUPABASE_ANON_KEY" ] || error "SUPABASE_ANON_KEY is required."
+fi
+
+# ── Destroy existing container if present ─────────────────────────────────────
 
 if pct status "$CTID" &>/dev/null; then
     warn "Container $CTID already exists."
@@ -97,7 +96,7 @@ if [ ! -f "$TEMPLATE_PATH" ]; then
     pveam update
     pveam download "$TEMPLATE_STORAGE" "$TEMPLATE"
 else
-    info "Template already cached: $TEMPLATE_PATH"
+    info "Template already cached."
 fi
 
 # ── Create the LXC container ──────────────────────────────────────────────────
@@ -118,17 +117,16 @@ pct create "$CTID" "${TEMPLATE_STORAGE}:vztmpl/${TEMPLATE}" \
 
 info "Starting container..."
 pct start "$CTID"
-sleep 8   # allow networking to initialise
+sleep 8
 
-# ── Install Docker ────────────────────────────────────────────────────────────
+# ── Install Docker and Git ────────────────────────────────────────────────────
 
-info "Installing Docker inside the container..."
+info "Installing Docker and Git..."
 
 pct exec "$CTID" -- bash -c '
 set -euo pipefail
-
 apt-get update -qq
-apt-get install -y -qq ca-certificates curl gnupg lsb-release
+apt-get install -y -qq ca-certificates curl gnupg lsb-release git
 
 install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/debian/gpg \
@@ -149,49 +147,51 @@ systemctl start docker
 docker --version
 '
 
-# ── Authenticate with GitHub Container Registry ───────────────────────────────
+# ── Clone the repository ──────────────────────────────────────────────────────
 
-info "Authenticating with ghcr.io..."
+info "Cloning repository..."
 
 pct exec "$CTID" -- bash -c "
-    echo '${GHCR_TOKEN}' | docker login ghcr.io -u '${GHCR_USER}' --password-stdin
+    rm -rf /opt/lobohub
+    git clone --branch '${REPO_BRANCH}' '${REPO_URL}' /opt/lobohub
 "
 
-# ── Write docker-compose.yml ──────────────────────────────────────────────────
+# ── Write the .env file (stays on server, never in git) ──────────────────────
 
-info "Writing /opt/lobohub/docker-compose.yml..."
+info "Writing /opt/lobohub/.env..."
 
-pct exec "$CTID" -- bash -c "mkdir -p /opt/lobohub"
-
-pct exec "$CTID" -- bash -c "cat > /opt/lobohub/docker-compose.yml << 'COMPOSE_EOF'
-services:
-  lobohub:
-    image: ${GHCR_IMAGE}
-    pull_policy: always
-    ports:
-      - '${APP_PORT}:80'
-    restart: unless-stopped
-
-  watchtower:
-    image: containrrr/watchtower:latest
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /root/.docker/config.json:/config.json:ro
-    # Monitor only the lobohub container; --cleanup removes old images
-    command: --interval ${WATCHTOWER_INTERVAL} --cleanup lobohub
-    restart: unless-stopped
-COMPOSE_EOF
+pct exec "$CTID" -- bash -c "cat > /opt/lobohub/.env << 'ENV_EOF'
+SUPABASE_URL=${SUPABASE_URL}
+SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+ENV_EOF
+chmod 600 /opt/lobohub/.env
 "
 
-# ── Pull image and start services ─────────────────────────────────────────────
+# ── Create the update script ──────────────────────────────────────────────────
 
-info "Pulling image and starting services..."
+info "Creating /opt/lobohub/update.sh..."
+
+pct exec "$CTID" -- bash -c "cat > /opt/lobohub/update.sh << 'UPDATE_EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+cd /opt/lobohub
+echo '>>> Pulling latest code from GitHub...'
+git pull origin ${REPO_BRANCH}
+echo '>>> Rebuilding and restarting...'
+docker compose up --build -d
+echo '>>> Done!'
+docker compose ps
+UPDATE_EOF
+chmod +x /opt/lobohub/update.sh
+"
+
+# ── Build and start the app ───────────────────────────────────────────────────
+
+info "Building Docker image and starting the app (this takes a few minutes)..."
 
 pct exec "$CTID" -- bash -c "
     cd /opt/lobohub
-    docker compose pull
-    docker compose up -d
-    docker compose ps
+    docker compose up --build -d
 "
 
 # ── Systemd unit for auto-start on LXC reboot ────────────────────────────────
@@ -210,7 +210,7 @@ RemainAfterExit=yes
 WorkingDirectory=/opt/lobohub
 ExecStart=/usr/bin/docker compose up -d
 ExecStop=/usr/bin/docker compose down
-TimeoutStartSec=120
+TimeoutStartSec=300
 
 [Install]
 WantedBy=multi-user.target
@@ -229,24 +229,23 @@ echo "=============================================="
 echo -e "  ${GREEN}LoboHub is live!${NC}"
 echo "=============================================="
 echo ""
-echo "  Web app : http://${LXC_IP}:${APP_PORT}"
-echo "  LXC ID  : $CTID"
+echo "  Web app  :  http://${LXC_IP}:${APP_PORT}"
+echo "  LXC ID   :  $CTID"
+echo "  App dir  :  /opt/lobohub  (inside the LXC)"
 echo ""
-echo "  Watchtower polls ghcr.io every $((WATCHTOWER_INTERVAL/60)) minutes."
-echo "  Push to the 'main' branch → GitHub Actions builds"
-echo "  a new image → Watchtower auto-redeploys."
+echo "  To update after pushing new code to GitHub:"
 echo ""
-echo "  Next steps:"
-echo "  ① Add these secrets to your GitHub repo"
-echo "    (Settings → Secrets and variables → Actions):"
-echo "      SUPABASE_URL"
-echo "      SUPABASE_ANON_KEY"
-echo "  ② Merge or push to 'main' to trigger the first build."
-echo "  ③ Optionally point a DNS name / reverse proxy at"
-echo "      ${LXC_IP}:${APP_PORT} for HTTPS."
+echo "    pct exec $CTID -- bash /opt/lobohub/update.sh"
 echo ""
-echo "  Useful commands (run on Proxmox host):"
-echo "    pct enter $CTID                       # shell into LXC"
+echo "  Or shell into the LXC and run it directly:"
+echo ""
+echo "    pct enter $CTID"
+echo "    bash /opt/lobohub/update.sh"
+echo ""
+echo "  To edit Supabase credentials:"
+echo "    pct exec $CTID -- nano /opt/lobohub/.env"
+echo "    pct exec $CTID -- bash /opt/lobohub/update.sh"
+echo ""
+echo "  View logs:"
 echo "    pct exec $CTID -- docker compose -f /opt/lobohub/docker-compose.yml logs -f"
-echo "    pct exec $CTID -- docker compose -f /opt/lobohub/docker-compose.yml pull && docker compose up -d"
 echo "=============================================="
