@@ -34,9 +34,14 @@ IP_CONFIG="ip=dhcp"
 # Host port the web app is served on
 APP_PORT=80
 
-# GitHub repo (HTTPS URL — no auth required for public repos)
-REPO_URL="https://github.com/mrmrslobos/lobo-hub-flutter.git"
+# GitHub repo
+REPO_OWNER="mrmrslobos"
+REPO_NAME="lobo-hub-flutter"
 REPO_BRANCH="main"
+
+# GitHub Personal Access Token — needed for private repos
+# Create one at: https://github.com/settings/tokens/new?scopes=repo
+GITHUB_TOKEN=""
 
 # Supabase credentials — stored in /opt/lobohub/.env on the server (never in git)
 SUPABASE_URL=""
@@ -67,6 +72,12 @@ echo ""
 command -v pct &>/dev/null    || error "'pct' not found — are you on the Proxmox host?"
 
 # Prompt for any missing credentials
+if [ -z "$GITHUB_TOKEN" ]; then
+    read -r -s -p "Enter your GitHub Personal Access Token (repo scope): " GITHUB_TOKEN
+    echo ""
+    [ -n "$GITHUB_TOKEN" ] || error "GITHUB_TOKEN is required for private repos."
+fi
+
 if [ -z "$SUPABASE_URL" ]; then
     read -r -p "Enter your SUPABASE_URL: " SUPABASE_URL
     [ -n "$SUPABASE_URL" ] || error "SUPABASE_URL is required."
@@ -77,6 +88,9 @@ if [ -z "$SUPABASE_ANON_KEY" ]; then
     echo ""
     [ -n "$SUPABASE_ANON_KEY" ] || error "SUPABASE_ANON_KEY is required."
 fi
+
+# Build authenticated clone URL (token embedded so git pull also works)
+REPO_URL="https://${GITHUB_TOKEN}@github.com/${REPO_OWNER}/${REPO_NAME}.git"
 
 # ── Destroy existing container if present ─────────────────────────────────────
 
