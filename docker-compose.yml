@@ -1,0 +1,22 @@
+# Builds the Flutter web app from source using credentials in .env
+#
+# On the server, create a .env file alongside this file:
+#   SUPABASE_URL=https://your-project.supabase.co
+#   SUPABASE_ANON_KEY=your-anon-key-here
+#
+# Then run:
+#   docker compose up --build -d
+#
+# To update after a git pull:
+#   bash update.sh        (script is created by proxmox-lxc-setup.sh)
+
+services:
+  lobohub:
+    build:
+      context: .
+      args:
+        SUPABASE_URL: ${SUPABASE_URL:-}
+        SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+    ports:
+      - "80:80"
+    restart: unless-stopped
