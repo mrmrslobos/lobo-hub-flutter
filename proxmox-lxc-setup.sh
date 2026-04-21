@@ -24,7 +24,7 @@ HOSTNAME="lobohub"
 MEMORY=4096                     # MB — Flutter build needs headroom
 SWAP=1024                       # MB
 CORES=2
-DISK_SIZE=20                    # GB
+DISK_SIZE=10                    # GB
 STORAGE="local-lvm"             # Proxmox storage pool for the rootfs
 BRIDGE="vmbr0"                  # Proxmox network bridge
 
