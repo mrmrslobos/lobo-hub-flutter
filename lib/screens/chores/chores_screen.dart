@@ -149,6 +149,25 @@ class _ChoresScreenState extends State<ChoresScreen> {
   }
 
   Future<void> _deleteChore(String choreId) async {
+    final provider = context.read<AppProvider>();
+    final userId = provider.activeUser?.id;
+    final chore = provider.db.chores.cast<Chore?>().firstWhere(
+      (c) => c?.id == choreId,
+      orElse: () => null,
+    );
+    final isOwner = userId != null && provider.activeFamily?.ownerId == userId;
+    final canManage = chore != null && userId != null && (chore.creatorId == userId || isOwner);
+    if (!canManage) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Only the chore creator or family owner can delete chores.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -161,7 +180,6 @@ class _ChoresScreenState extends State<ChoresScreen> {
       ),
     );
     if (confirmed != true) return;
-    final provider = context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(
       db.copyWith(
@@ -175,6 +193,19 @@ class _ChoresScreenState extends State<ChoresScreen> {
 
   Future<void> _approveCompletion(String completionId, {bool approve = true}) async {
     final provider = context.read<AppProvider>();
+    final userId = provider.activeUser?.id;
+    final isOwner = userId != null && provider.activeFamily?.ownerId == userId;
+    if (!isOwner) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Only the family owner can approve chore completions.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
     final db = provider.db;
     final updated = db.choreCompletions.map((c) {
       if (c.id != completionId) return c;
@@ -228,6 +259,20 @@ class _ChoresScreenState extends State<ChoresScreen> {
         editChore: editChore,
         onSave: (chore) async {
           final provider = context.read<AppProvider>();
+          final userId = provider.activeUser?.id;
+          final isOwner = userId != null && provider.activeFamily?.ownerId == userId;
+          if (editChore != null &&
+              (userId == null || (editChore.creatorId != userId && !isOwner))) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Only the chore creator or family owner can edit this chore.'),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            }
+            return;
+          }
           final db = provider.db;
           if (editChore != null) {
             await provider.saveAndSync(
@@ -813,7 +858,9 @@ class _ChoresScreenState extends State<ChoresScreen> {
 
                       return Dismissible(
                         key: Key('${row.chore.id}_${row.userId}'),
-                        direction: DismissDirection.endToStart,
+                        direction: ((row.chore.creatorId == user.id) || (user.id == family.ownerId))
+                            ? DismissDirection.endToStart
+                            : DismissDirection.none,
                         background: Container(
                           alignment: Alignment.centerRight,
                           padding: const EdgeInsets.only(right: 20),
@@ -831,6 +878,9 @@ class _ChoresScreenState extends State<ChoresScreen> {
                           ),
                         ),
                         confirmDismiss: (_) async {
+                          if (!((row.chore.creatorId == user.id) || (user.id == family.ownerId))) {
+                            return false;
+                          }
                           return await showDialog<bool>(
                             context: context,
                             builder: (ctx) => AlertDialog(

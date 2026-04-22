@@ -262,7 +262,7 @@ class _HealthScreenState extends State<HealthScreen> {
     if (record.allergies.isNotEmpty) {
       buf.writeln('ALLERGIES');
       for (final a in record.allergies) {
-        buf.writeln('  \u2022 ${a.name}${a.severity != null ? ' (${a.severity})' : ''}');
+        buf.writeln('  \u2022 ${a.name} (${a.severity})');
       }
       buf.writeln('');
     }
@@ -334,9 +334,13 @@ class _HealthScreenState extends State<HealthScreen> {
     final record = _getRecord(provider, _selectedMemberId!);
     final filteredRecord =
         _healthRecordFilteredForSearch(record, _healthSearchQuery);
-    final selectedName = provider.memberDisplayName(
-      members.firstWhere((m) => m.id == _selectedMemberId, orElse: () => members.first),
+    final selectedMember = members.cast<FamilyMember?>().firstWhere(
+      (m) => m?.userId == _selectedMemberId,
+      orElse: () => members.isNotEmpty ? members.first : null,
     );
+    final selectedName = selectedMember != null
+        ? provider.memberDisplayName(selectedMember)
+        : 'Member';
 
     // Stats
     final totalItems = record.allergies.length + record.medications.length +
@@ -421,14 +425,14 @@ class _HealthScreenState extends State<HealthScreen> {
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   children: members.map((m) {
-                    final isSelected = _selectedMemberId == m.id;
+                    final isSelected = _selectedMemberId == m.userId;
                     final name = provider.memberDisplayName(m);
                     return Semantics(
                       button: true,
                       label: 'View health record for $name',
                       selected: isSelected,
                       child: GestureDetector(
-                      onTap: () => setState(() => _selectedMemberId = m.id),
+                      onTap: () => setState(() => _selectedMemberId = m.userId),
                       child: Padding(
                         padding: const EdgeInsets.only(right: 12),
                         child: Column(children: [

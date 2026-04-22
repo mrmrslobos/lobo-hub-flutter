@@ -67,25 +67,52 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   String _currency = 'AUD';
   bool _restoreBusy = false;
   SubscriptionTier? _purchasingTier;
+  final Map<String, String> _storePriceLabels = {};
 
   @override
   void initState() {
     super.initState();
     _loadCurrency();
+    _loadStorePricing();
   }
 
   Future<void> _loadCurrency() async {
     final prefs = await SharedPreferences.getInstance();
     final locale = prefs.getString('lobohub_locale') ?? 'AU';
-    final family = context.read<AppProvider>().activeFamily;
     if (mounted) {
       setState(() {
-        _currency = family?.currency ?? _currencyForLocale[locale] ?? 'AUD';
+        _currency = _currencyForLocale[locale] ?? 'AUD';
       });
     }
   }
 
   _PlanPricing get _prices => _pricing[_currency] ?? _pricing['AUD']!;
+
+  String _priceKey(SubscriptionTier tier, bool yearly) =>
+      '${tier.name}_${yearly ? 'y' : 'm'}';
+
+  Future<void> _loadStorePricing() async {
+    if (!PurchaseService.isConfigured) return;
+    final next = <String, String>{};
+    for (final tier in const [
+      SubscriptionTier.base,
+      SubscriptionTier.ai,
+      SubscriptionTier.ai_family
+    ]) {
+      for (final yearly in const [false, true]) {
+        final pkg = await PurchaseService.packageForPlan(
+          tier: tier,
+          yearly: yearly,
+        );
+        final label = pkg?.storeProduct.priceString;
+        if (label != null && label.isNotEmpty) {
+          next[_priceKey(tier, yearly)] = label;
+        }
+      }
+    }
+    if (!mounted || next.isEmpty) return;
+    setState(() => _storePriceLabels.addAll(next));
+  }
 
   String _formatPrice(double price) {
     final p = _prices;
@@ -235,6 +262,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 subtitle: AppConfig.planDescEssentials,
                 monthlyPrice: _prices.baseMonthly,
                 yearlyPrice: _prices.baseYearly,
+                monthlyStorePrice: _storePriceLabels[_priceKey(SubscriptionTier.base, false)],
+                yearlyStorePrice: _storePriceLabels[_priceKey(SubscriptionTier.base, true)],
                 color: const Color(0xFF0EA5E9),
                 icon: Icons.home_rounded,
                 features: [
@@ -257,6 +286,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 subtitle: AppConfig.planDescAi,
                 monthlyPrice: _prices.aiMonthly,
                 yearlyPrice: _prices.aiYearly,
+                monthlyStorePrice: _storePriceLabels[_priceKey(SubscriptionTier.ai, false)],
+                yearlyStorePrice: _storePriceLabels[_priceKey(SubscriptionTier.ai, true)],
                 color: const Color(0xFF8B5CF6),
                 icon: Icons.auto_awesome_rounded,
                 features: [
@@ -278,6 +309,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 subtitle: AppConfig.planDescAiFamily,
                 monthlyPrice: _prices.aiFamilyMonthly,
                 yearlyPrice: _prices.aiFamilyYearly,
+                monthlyStorePrice: _storePriceLabels[_priceKey(SubscriptionTier.ai_family, false)],
+                yearlyStorePrice: _storePriceLabels[_priceKey(SubscriptionTier.ai_family, true)],
                 color: const Color(0xFF16A34A),
                 icon: Icons.family_restroom_rounded,
                 popular: true,
@@ -450,15 +483,20 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     required String subtitle,
     required double monthlyPrice,
     required double yearlyPrice,
+    String? monthlyStorePrice,
+    String? yearlyStorePrice,
     required Color color,
     required IconData icon,
     required List<String> features,
     bool popular = false,
   }) {
     final isCurrentPlan = currentTier == tier;
+    final selectedStorePrice = _yearly ? yearlyStorePrice : monthlyStorePrice;
     final price = _yearly ? yearlyPrice : monthlyPrice;
     final period = _yearly ? '/year' : '/month';
-    final monthlySaving = _yearly ? ' (${_formatPrice(yearlyPrice / 12)}/mo)' : '';
+    final monthlySaving = (_yearly && selectedStorePrice == null)
+        ? ' (${_formatPrice(yearlyPrice / 12)}/mo)'
+        : '';
 
     return Container(
       decoration: BoxDecoration(
@@ -520,7 +558,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      _formatPrice(price),
+                      selectedStorePrice ?? _formatPrice(price),
                       style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w900, fontSize: 32, color: AppTheme.stone900),
                     ),
                     Padding(

@@ -12,6 +12,7 @@ import '../../config/module_config.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../services/family_activity_service.dart';
 import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
@@ -27,7 +28,11 @@ void _showSnack(BuildContext context, String msg) {
   ));
 }
 
-void _reportContent(BuildContext context, String contentType, String contentId) {
+Future<void> _reportContent(
+  BuildContext context,
+  String contentType,
+  String contentId,
+) async {
   showDialog(
     context: context,
     builder: (ctx) => AlertDialog(
@@ -36,10 +41,26 @@ void _reportContent(BuildContext context, String contentType, String contentId) 
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
         TextButton(
-          onPressed: () {
+          onPressed: () async {
+            final provider = context.read<AppProvider>();
+            final familyId = provider.activeFamily?.id;
+            final actorUserId = provider.activeUser?.id;
+            if (familyId != null && actorUserId != null) {
+              final nextDb = FamilyActivityService.append(
+                provider.db,
+                familyId: familyId,
+                actorUserId: actorUserId,
+                action: 'content_reported',
+                detail: '$contentType:$contentId',
+              );
+              await provider.saveAndSync(
+                nextDb,
+                pushTableScope: {CloudSyncScope.familyActivityLogs},
+              );
+            }
             Navigator.pop(ctx);
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: const Text('Reported to family admin'),
+              content: const Text('Report saved for family admin review'),
               behavior: SnackBarBehavior.floating,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ));
@@ -96,6 +117,17 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
   final _searchCtrl = TextEditingController();
   final _searchDebounce = Debouncer();
   String _searchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context
+          .read<AppProvider>()
+          .scheduleModuleEnterCloudPull({CloudSyncScope.prayerWall});
+    });
+  }
 
   @override
   void dispose() {
@@ -158,11 +190,22 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
 
   Future<void> _deleteRequest(String id) async {
     final provider = context.read<AppProvider>();
+    final request = provider.db.prayerRequests.where((r) => r.id == id).firstOrNull;
+    if (request == null) return;
+    if (request.userId != provider.activeUser?.id) {
+      if (mounted) _showSnack(context, 'You can only delete your own post.');
+      return;
+    }
     final db = provider.db;
-    await provider.saveAndSync(
-      db.copyWith(prayerRequests: db.prayerRequests.where((r) => r.id != id).toList()),
-      pushTableScope: {CloudSyncScope.prayerWall},
-    );
+    try {
+      await provider.saveAndSync(
+        db.copyWith(prayerRequests: db.prayerRequests.where((r) => r.id != id).toList()),
+        pushTableScope: {CloudSyncScope.prayerWall},
+      );
+    } catch (_) {
+      if (mounted) _showSnack(context, 'Could not delete prayer.');
+      return;
+    }
     if (mounted) _showSnack(context, 'Prayer removed');
   }
 
@@ -389,12 +432,16 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
             ...filtered.map((request) {
               final author = userMap[request.creatorId];
               final isGratitude = request.type == PrayerWallType.GRATITUDE;
+              final isOwner = request.userId == user.id;
               return Padding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
                 child: Dismissible(
                   key: ValueKey(request.id),
-                  direction: DismissDirection.endToStart,
+                  direction: isOwner
+                      ? DismissDirection.endToStart
+                      : DismissDirection.none,
                   confirmDismiss: (_) async {
+                    if (!isOwner) return false;
                     return await showDialog<bool>(
                       context: context,
                       builder: (ctx) => AlertDialog(

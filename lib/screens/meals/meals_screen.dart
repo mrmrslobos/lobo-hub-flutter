@@ -1616,6 +1616,11 @@ class _MealPlanTabState extends State<_MealPlanTab> {
   bool _isSameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
 
+  bool _isOwner(AppProvider provider) {
+    final userId = provider.activeUser?.id;
+    return userId != null && provider.activeFamily?.ownerId == userId;
+  }
+
   Recipe? _recipeFor(AppProvider provider, MealPlanEntry? m) {
     if (m?.recipeId == null) return null;
     for (final r in provider.db.recipes) {
@@ -1653,6 +1658,10 @@ class _MealPlanTabState extends State<_MealPlanTab> {
 
   Future<void> _repeatMealWeekly(BuildContext context, MealPlanEntry source) async {
     final provider = context.read<AppProvider>();
+    if (!_isOwner(provider)) {
+      if (context.mounted) _showSnack(context, 'Only the family owner can repeat meals.');
+      return;
+    }
     final familyId = provider.activeFamily?.id ?? '';
     if (familyId.isEmpty) return;
     final nextWeek = source.date.add(const Duration(days: 7));
@@ -1694,6 +1703,10 @@ class _MealPlanTabState extends State<_MealPlanTab> {
     required DateTime targetDay,
   }) async {
     final provider = context.read<AppProvider>();
+    if (!_isOwner(provider)) {
+      if (context.mounted) _showSnack(context, 'Only the family owner can schedule leftovers.');
+      return;
+    }
     final familyId = provider.activeFamily?.id ?? '';
     if (familyId.isEmpty) return;
     final exists = provider.db.mealPlans.any(
@@ -2159,6 +2172,9 @@ class _MealSlotCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
+    final activeUserId = provider.activeUser?.id;
+    final isOwner = activeUserId != null && provider.activeFamily?.ownerId == activeUserId;
+    final canManageMeal = meal != null && isOwner;
     Recipe? linkedRecipe;
     if (meal?.recipeId != null) {
       for (final r in provider.db.recipes) {
@@ -2182,7 +2198,7 @@ class _MealSlotCard extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 10),
       child: GestureDetector(
         onTap: meal != null
-            ? () => _showMealOptions(context)
+            ? () => _showMealOptions(context, canManageMeal: canManageMeal)
             : () => _openAddMealSheet(context, mealType, day),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
@@ -2314,7 +2330,7 @@ class _MealSlotCard extends StatelessWidget {
     );
   }
 
-  void _showMealOptions(BuildContext context) {
+  void _showMealOptions(BuildContext context, {required bool canManageMeal}) {
     final emoji = _mealTypeEmojis[mealType] ?? '🍽️';
     showModalBottomSheet(
       context: context,
@@ -2351,21 +2367,22 @@ class _MealSlotCard extends StatelessWidget {
               ]),
             ),
             const Divider(height: 1, color: AppTheme.stone100),
-            ListTile(
-              leading: Container(
-                width: 36, height: 36,
-                decoration: BoxDecoration(
-                  color: AppTheme.primary.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(10),
+            if (canManageMeal)
+              ListTile(
+                leading: Container(
+                  width: 36, height: 36,
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.edit_outlined, size: 18, color: AppTheme.primary),
                 ),
-                child: const Icon(Icons.edit_outlined, size: 18, color: AppTheme.primary),
+                title: const Text('Edit Meal', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _openAddMealSheet(context, mealType, day, existingMeal: meal);
+                },
               ),
-              title: const Text('Edit Meal', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600)),
-              onTap: () {
-                Navigator.pop(ctx);
-                _openAddMealSheet(context, mealType, day, existingMeal: meal);
-              },
-            ),
             ListTile(
               leading: Container(
                 width: 36, height: 36,
@@ -2381,7 +2398,7 @@ class _MealSlotCard extends StatelessWidget {
                 _aiSwapMeal(context);
               },
             ),
-            if (onRepeatWeekly != null)
+            if (canManageMeal && onRepeatWeekly != null)
               ListTile(
                 leading: Container(
                   width: 36,
@@ -2399,7 +2416,7 @@ class _MealSlotCard extends StatelessWidget {
                   onRepeatWeekly!();
                 },
               ),
-            if (onScheduleLeftovers != null)
+            if (canManageMeal && onScheduleLeftovers != null)
               ListTile(
                 leading: Container(
                   width: 36,
@@ -2416,21 +2433,22 @@ class _MealSlotCard extends StatelessWidget {
                   onScheduleLeftovers!();
                 },
               ),
-            ListTile(
-              leading: Container(
-                width: 36, height: 36,
-                decoration: BoxDecoration(
-                  color: AppTheme.error.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(10),
+            if (canManageMeal)
+              ListTile(
+                leading: Container(
+                  width: 36, height: 36,
+                  decoration: BoxDecoration(
+                    color: AppTheme.error.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.delete_outline_rounded, size: 18, color: AppTheme.error),
                 ),
-                child: const Icon(Icons.delete_outline_rounded, size: 18, color: AppTheme.error),
+                title: const Text('Delete Meal', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.error)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _deleteMeal(context);
+                },
               ),
-              title: const Text('Delete Meal', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.error)),
-              onTap: () {
-                Navigator.pop(ctx);
-                _deleteMeal(context);
-              },
-            ),
             const SizedBox(height: 8),
           ],
         ),
@@ -2439,6 +2457,13 @@ class _MealSlotCard extends StatelessWidget {
   }
 
   Future<void> _deleteMeal(BuildContext context) async {
+    final provider = context.read<AppProvider>();
+    final userId = provider.activeUser?.id;
+    final isOwner = userId != null && provider.activeFamily?.ownerId == userId;
+    if (meal == null || userId == null || !isOwner) {
+      if (context.mounted) _showSnack(context, 'Only the family owner can delete meals.');
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -2472,7 +2497,6 @@ class _MealSlotCard extends StatelessWidget {
       ),
     );
     if (confirmed != true) return;
-    final provider = context.read<AppProvider>();
     final db = provider.db;
     final updated = db.mealPlans.where((m) => m.id != meal!.id).toList();
     provider.saveAndSync(
@@ -2483,6 +2507,13 @@ class _MealSlotCard extends StatelessWidget {
   }
 
   Future<void> _aiSwapMeal(BuildContext context) async {
+    final provider = context.read<AppProvider>();
+    final userId = provider.activeUser?.id;
+    final isOwner = userId != null && provider.activeFamily?.ownerId == userId;
+    if (meal == null || userId == null || !isOwner) {
+      if (context.mounted) _showSnack(context, 'Only the family owner can swap meals.');
+      return;
+    }
     if (SubscriptionModal.guardAI(context, kind: AiPaywallKind.meals)) return;
     final currentMealName = meal!.title;
     final label = _mealTypeLabels[mealType] ?? mealType;
@@ -3353,6 +3384,9 @@ class _RecipeDetailSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final provider = context.read<AppProvider>();
+    final activeUserId = provider.activeUser?.id;
+    final canManageRecipes =
+        activeUserId != null && provider.activeFamily?.ownerId == activeUserId;
     return DraggableScrollableSheet(
       initialChildSize: 0.9,
       minChildSize: 0.5,
@@ -3398,77 +3432,79 @@ class _RecipeDetailSheet extends StatelessWidget {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      GestureDetector(
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          showModalBottomSheet(
-                            context: context,
-                            isScrollControlled: true,
-                            shape: const RoundedRectangleBorder(
-                              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                            ),
-                            builder: (_) => _AddRecipeSheet(existingRecipe: recipe),
-                          );
-                        },
-                        child: Container(
-                          width: 36, height: 36,
-                          decoration: BoxDecoration(
-                            color: AppTheme.stone100,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Icon(Icons.edit_outlined, size: 16, color: AppTheme.stone500),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      GestureDetector(
-                        onTap: () async {
-                          final confirmed = await showDialog<bool>(
-                            context: context,
-                            builder: (dCtx) => AlertDialog(
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                              title: Row(children: [
-                                Container(
-                                  width: 36, height: 36,
-                                  decoration: BoxDecoration(
-                                    color: AppTheme.error.withValues(alpha: 0.1),
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: const Icon(Icons.delete_outline_rounded, size: 18, color: AppTheme.error),
-                                ),
-                                const SizedBox(width: 10),
-                                const Text('Delete Recipe', style: TextStyle(fontFamily: 'Inter', fontSize: 17, fontWeight: FontWeight.w800)),
-                              ]),
-                              content: Text(
-                                'Delete "${recipe.title}"? This cannot be undone.',
-                                style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone600),
+                      if (canManageRecipes) ...[
+                        const SizedBox(width: 8),
+                        GestureDetector(
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            showModalBottomSheet(
+                              context: context,
+                              isScrollControlled: true,
+                              shape: const RoundedRectangleBorder(
+                                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
                               ),
-                              actions: [
-                                TextButton(onPressed: () => Navigator.pop(dCtx, false), child: const Text('Cancel', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, color: AppTheme.stone500))),
-                                TextButton(onPressed: () => Navigator.pop(dCtx, true), child: const Text('Delete', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, color: AppTheme.error))),
-                              ],
-                            ),
-                          );
-                          if (confirmed == true && context.mounted) {
-                            final db = provider.db;
-                            final updated = db.recipes.where((r) => r.id != recipe.id).toList();
-                            provider.saveAndSync(
-                              db.copyWith(recipes: updated),
-                              pushTableScope: CloudSyncScope.mealsExtendedBundle,
+                              builder: (_) => _AddRecipeSheet(existingRecipe: recipe),
                             );
-                            if (ctx.mounted) Navigator.pop(ctx);
-                            if (context.mounted) _showSnack(context, 'Recipe deleted');
-                          }
-                        },
-                        child: Container(
-                          width: 36, height: 36,
-                          decoration: BoxDecoration(
-                            color: AppTheme.error.withValues(alpha: 0.08),
-                            borderRadius: BorderRadius.circular(10),
+                          },
+                          child: Container(
+                            width: 36, height: 36,
+                            decoration: BoxDecoration(
+                              color: AppTheme.stone100,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.edit_outlined, size: 16, color: AppTheme.stone500),
                           ),
-                          child: const Icon(Icons.delete_outline_rounded, size: 16, color: AppTheme.error),
                         ),
-                      ),
+                        const SizedBox(width: 6),
+                        GestureDetector(
+                          onTap: () async {
+                            final confirmed = await showDialog<bool>(
+                              context: context,
+                              builder: (dCtx) => AlertDialog(
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                title: Row(children: [
+                                  Container(
+                                    width: 36, height: 36,
+                                    decoration: BoxDecoration(
+                                      color: AppTheme.error.withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: const Icon(Icons.delete_outline_rounded, size: 18, color: AppTheme.error),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  const Text('Delete Recipe', style: TextStyle(fontFamily: 'Inter', fontSize: 17, fontWeight: FontWeight.w800)),
+                                ]),
+                                content: Text(
+                                  'Delete "${recipe.title}"? This cannot be undone.',
+                                  style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone600),
+                                ),
+                                actions: [
+                                  TextButton(onPressed: () => Navigator.pop(dCtx, false), child: const Text('Cancel', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, color: AppTheme.stone500))),
+                                  TextButton(onPressed: () => Navigator.pop(dCtx, true), child: const Text('Delete', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, color: AppTheme.error))),
+                                ],
+                              ),
+                            );
+                            if (confirmed == true && context.mounted) {
+                              final db = provider.db;
+                              final updated = db.recipes.where((r) => r.id != recipe.id).toList();
+                              provider.saveAndSync(
+                                db.copyWith(recipes: updated),
+                                pushTableScope: CloudSyncScope.mealsExtendedBundle,
+                              );
+                              if (ctx.mounted) Navigator.pop(ctx);
+                              if (context.mounted) _showSnack(context, 'Recipe deleted');
+                            }
+                          },
+                          child: Container(
+                            width: 36, height: 36,
+                            decoration: BoxDecoration(
+                              color: AppTheme.error.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.delete_outline_rounded, size: 16, color: AppTheme.error),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                   if (recipe.description != null && recipe.description!.isNotEmpty) ...[

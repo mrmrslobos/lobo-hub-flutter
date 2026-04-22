@@ -1448,11 +1448,16 @@ Return ONLY the JSON array, no markdown.''',
   }
 
   Widget _buildAnnouncementSection(BuildContext context, AppProvider provider, Family family) {
+    final userId = provider.activeUser?.id;
+    final canEditAnnouncement =
+        userId != null && provider.activeFamily?.ownerId == userId;
     final hasAnnouncement = family.announcement != null && family.announcement!.isNotEmpty && family.announcement != _dismissedAnnouncement;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
       child: GestureDetector(
-        onTap: () => _editAnnouncement(context, provider, family),
+        onTap: canEditAnnouncement
+            ? () => _editAnnouncement(context, provider, family)
+            : null,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
           decoration: BoxDecoration(
@@ -1474,7 +1479,7 @@ Return ONLY the JSON array, no markdown.''',
                 onTap: () { HapticFeedback.lightImpact(); _dismissAnnouncement(family.announcement!, family.id); },
                 child: const Icon(Icons.close, size: 16, color: AppTheme.stone400),
               )
-            else
+            else if (canEditAnnouncement)
               Icon(Icons.edit_outlined, size: 16, color: AppTheme.primary.withValues(alpha: 0.5)),
           ]),
         ),
@@ -1483,6 +1488,10 @@ Return ONLY the JSON array, no markdown.''',
   }
 
   Future<void> _editAnnouncement(BuildContext context, AppProvider provider, Family family) async {
+    final userId = provider.activeUser?.id;
+    final canEditAnnouncement =
+        userId != null && provider.activeFamily?.ownerId == userId;
+    if (!canEditAnnouncement) return;
     final controller = TextEditingController(text: family.announcement ?? '');
     final result = await showDialog<String>(
       context: context,

@@ -469,14 +469,35 @@ class _CalendarScreenState extends State<CalendarScreen> {
     return !_hiddenCalendarLayers.contains(key);
   }
 
+  bool _canAccessEvent(CalendarEvent event, String? userId) {
+    if (event.externalCalendarId != null) return true;
+    if (userId == null) return false;
+    if (event.creatorId == userId) return true;
+    switch (event.visibility) {
+      case Visibility.FAMILY:
+        return true;
+      case Visibility.PRIVATE:
+        return false;
+      case Visibility.SPECIFIC:
+        return event.sharedWith.contains(userId);
+    }
+  }
+
+  bool _canManageEvent(CalendarEvent event, String? userId) {
+    if (event.externalCalendarId != null || userId == null) return false;
+    return event.creatorId == userId;
+  }
+
   List<CalendarEvent> _eventsForDay(
       AppProvider provider, DateTime day) {
     final familyId = provider.activeFamily?.id;
+    final userId = provider.activeUser?.id;
     if (familyId == null) return [];
     return provider.db.events
         .where((e) {
           if (e.familyId != familyId || !isSameDay(e.startDate, day)) return false;
           if (!_eventLayerVisible(e)) return false;
+          if (!_canAccessEvent(e, userId)) return false;
           if (_searchQuery.isNotEmpty) {
             final q = _searchQuery.toLowerCase();
             if (!e.title.toLowerCase().contains(q) &&
@@ -494,11 +515,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
   Map<DateTime, List<CalendarEvent>> _buildEventMap(
       AppProvider provider) {
     final familyId = provider.activeFamily?.id;
+    final userId = provider.activeUser?.id;
     if (familyId == null) return {};
     final map = <DateTime, List<CalendarEvent>>{};
     for (final e in provider.db.events) {
       if (e.familyId != familyId) continue;
       if (!_eventLayerVisible(e)) continue;
+      if (!_canAccessEvent(e, userId)) continue;
       final key = DateTime(
           e.startDate.year, e.startDate.month, e.startDate.day);
       map.putIfAbsent(key, () => []).add(e);
@@ -521,6 +544,14 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }
 
   Future<void> _deleteEvent(AppProvider provider, CalendarEvent event) async {
+    if (!_canManageEvent(event, provider.activeUser?.id)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('You can only delete events you created.')),
+        );
+      }
+      return;
+    }
     final db = provider.db;
     final events = db.events.where((e) => e.id != event.id).toList();
     await provider.saveAndSync(
@@ -585,6 +616,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
             .where((e) =>
                 e.familyId == provider.activeFamily?.id &&
                 _eventLayerVisible(e) &&
+                _canAccessEvent(e, provider.activeUser?.id) &&
                 e.startDate.isAfter(todayDate) &&
                 e.startDate.isBefore(weekEnd))
             .toList()
@@ -1294,6 +1326,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                         event: event,
                         provider: provider,
                         currentUserId: provider.activeUser?.id,
+                        canManage: _canManageEvent(event, provider.activeUser?.id),
                         onEdit: () => _showAddEventSheet(context, event: event),
                         onDelete: () => _deleteEvent(provider, event),
                         onRsvp: provider.activeUser?.id != null
@@ -1331,6 +1364,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       event: event,
                       provider: provider,
                       currentUserId: provider.activeUser?.id,
+                      canManage: _canManageEvent(event, provider.activeUser?.id),
                       onEdit: () => _showAddEventSheet(context, event: event),
                       onDelete: () => _deleteEvent(provider, event),
                       showDate: true,
@@ -1474,6 +1508,7 @@ class _EventCard extends StatelessWidget {
   final CalendarEvent event;
   final AppProvider provider;
   final String? currentUserId;
+  final bool canManage;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final Future<void> Function(_EventRsvpChoice choice)? onRsvp;
@@ -1483,6 +1518,7 @@ class _EventCard extends StatelessWidget {
     required this.event,
     required this.provider,
     this.currentUserId,
+    this.canManage = false,
     required this.onEdit,
     required this.onDelete,
     this.onRsvp,
@@ -1554,7 +1590,7 @@ class _EventCard extends StatelessWidget {
     final uid = currentUserId;
     final showRsvp = !isExternal && uid != null && onRsvp != null && event.visibility == Visibility.FAMILY;
     _EventRsvpChoice? myChoice;
-    if (showRsvp && uid != null) {
+    if (showRsvp) {
       if (event.rsvpYesIds.contains(uid)) {
         myChoice = _EventRsvpChoice.yes;
       } else if (event.rsvpNoIds.contains(uid)) {
@@ -1569,7 +1605,9 @@ class _EventCard extends StatelessWidget {
 
     return Dismissible(
       key: Key(event.id),
-      direction: isExternal ? DismissDirection.none : DismissDirection.endToStart,
+      direction: (!isExternal && canManage)
+          ? DismissDirection.endToStart
+          : DismissDirection.none,
       background: Container(
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 20),
@@ -1588,6 +1626,7 @@ class _EventCard extends StatelessWidget {
         ),
       ),
       confirmDismiss: (_) async {
+        if (!canManage) return false;
         return await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
@@ -1602,7 +1641,7 @@ class _EventCard extends StatelessWidget {
       },
       onDismissed: (_) => onDelete(),
       child: GestureDetector(
-        onTap: isExternal ? null : onEdit,
+        onTap: (!isExternal && canManage) ? onEdit : null,
         child: Container(
           margin: const EdgeInsets.only(bottom: 10),
           decoration: BoxDecoration(

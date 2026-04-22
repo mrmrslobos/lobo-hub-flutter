@@ -207,6 +207,17 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    const cronSecret = Deno.env.get('WEEKLY_DIGEST_CRON_SECRET');
+    if (cronSecret) {
+      const suppliedSecret = req.headers.get('x-weekly-digest-secret') ?? '';
+      if (suppliedSecret !== cronSecret) {
+        return new Response(JSON.stringify({ error: 'unauthorized' }), {
+          status: 401,
+          headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',

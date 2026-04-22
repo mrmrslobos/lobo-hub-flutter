@@ -143,9 +143,35 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
     return AppTheme.stone400;
   }
 
+  bool _isOwner(AppProvider provider) {
+    final userId = provider.activeUser?.id;
+    return userId != null && provider.activeFamily?.ownerId == userId;
+  }
+
+  bool _canManageOccasion(AppProvider provider, Occasion occasion) {
+    final userId = provider.activeUser?.id;
+    return userId != null && (occasion.creatorId == userId || _isOwner(provider));
+  }
+
   // ── Data actions ───────────────────────────────────────────────────────────
 
   Future<void> _deleteOccasion(String id) async {
+    final provider = context.read<AppProvider>();
+    final occasion = provider.db.occasions.cast<Occasion?>().firstWhere(
+      (o) => o?.id == id,
+      orElse: () => null,
+    );
+    if (occasion == null || !_canManageOccasion(provider, occasion)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Only the creator or family owner can delete this occasion.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -158,7 +184,6 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
       ),
     );
     if (confirmed != true) return;
-    final provider = context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(
       db.copyWith(occasions: db.occasions.where((o) => o.id != id).toList()),
@@ -167,6 +192,16 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
   }
 
   void _showAddSheet({Occasion? editOccasion}) {
+    final provider = context.read<AppProvider>();
+    if (editOccasion != null && !_canManageOccasion(provider, editOccasion)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Only the creator or family owner can edit this occasion.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -552,9 +587,11 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
     final color = _badgeColor(days);
     final isToday = days == 0;
 
+    final provider = context.read<AppProvider>();
+    final canManage = _canManageOccasion(provider, occasion);
     return Dismissible(
       key: ValueKey(occasion.id),
-      direction: DismissDirection.endToStart,
+      direction: canManage ? DismissDirection.endToStart : DismissDirection.none,
       background: Container(
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -575,6 +612,7 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
         ),
       ),
       confirmDismiss: (direction) async {
+        if (!canManage) return false;
         return await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
@@ -596,7 +634,7 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
       child: Padding(
         padding: const EdgeInsets.only(bottom: 10),
         child: GestureDetector(
-          onLongPress: () => _showOccasionActions(occasion),
+          onLongPress: canManage ? () => _showOccasionActions(occasion) : null,
           child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           padding: const EdgeInsets.all(16),

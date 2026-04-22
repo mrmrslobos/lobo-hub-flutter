@@ -80,6 +80,15 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const authHeader = req.headers.get('authorization') ?? '';
+    const jwt = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+    if (!jwt) {
+      return new Response(JSON.stringify({ error: 'Missing bearer token' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     const body = await req.json();
     // Accept both snake_case (Flutter client) and camelCase field names
     const familyId = body.family_id ?? body.familyId;
@@ -113,6 +122,27 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     );
+    const { data: authData, error: authError } = await supabase.auth.getUser(jwt);
+    const userId = authData.user?.id;
+    if (authError || !userId) {
+      return new Response(JSON.stringify({ error: 'Invalid or expired session' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const { data: membership, error: membershipError } = await supabase
+      .from('family_members')
+      .select('family_id')
+      .eq('family_id', familyId)
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (membershipError || !membership) {
+      return new Response(JSON.stringify({ error: 'Not authorized for this family' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     const { data: family, error: familyError } = await supabase
       .from('families')

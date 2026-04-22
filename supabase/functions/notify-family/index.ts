@@ -54,6 +54,32 @@ const CORS = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+async function getAuthenticatedUserId(
+  req: Request,
+  supabaseClient: ReturnType<typeof createClient>,
+): Promise<string | null> {
+  const authHeader = req.headers.get('authorization') ?? '';
+  const jwt = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+  if (!jwt) return null;
+  const { data, error } = await supabaseClient.auth.getUser(jwt);
+  if (error) return null;
+  return data.user?.id ?? null;
+}
+
+async function isFamilyMember(
+  supabaseClient: ReturnType<typeof createClient>,
+  userId: string,
+  familyId: string,
+): Promise<boolean> {
+  const { data, error } = await supabaseClient
+    .from('family_members')
+    .select('family_id')
+    .eq('family_id', familyId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  return !error && Boolean(data);
+}
+
 // ---------------------------------------------------------------------------
 // JWT signing helpers for FCM HTTP v1 (service account RS256)
 // ---------------------------------------------------------------------------
@@ -576,9 +602,23 @@ Deno.serve(async (req: Request) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
       { auth: { persistSession: false } },
     );
+    const authenticatedUserId = await getAuthenticatedUserId(req, supabaseClient);
 
     // ── Device token registration ───────────────────────────────────────
     if (body.action === 'register' && body.token && body.familyId && body.userId) {
+      if (!authenticatedUserId || authenticatedUserId !== body.userId) {
+        return new Response(JSON.stringify({ error: 'unauthorized' }), {
+          status: 401,
+          headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
+      }
+      const member = await isFamilyMember(supabaseClient, authenticatedUserId, body.familyId);
+      if (!member) {
+        return new Response(JSON.stringify({ error: 'forbidden_family' }), {
+          status: 403,
+          headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
+      }
       const platform = body.platform || 'android';
       const { error } = await supabaseClient
         .from('device_tokens')
@@ -606,9 +646,22 @@ Deno.serve(async (req: Request) => {
 
     // ── Direct notification from the app ──────────────────────────────
     if (body.action === 'notify' && body.familyId && body.title && body.body) {
+      if (!authenticatedUserId) {
+        return new Response(JSON.stringify({ error: 'unauthorized' }), {
+          status: 401,
+          headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
+      }
+      const member = await isFamilyMember(supabaseClient, authenticatedUserId, body.familyId);
+      if (!member) {
+        return new Response(JSON.stringify({ error: 'forbidden_family' }), {
+          status: 403,
+          headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
+      }
       const notification: NotificationContent = {
         familyId: body.familyId,
-        actorId: body.excludeUserId ?? '',
+        actorId: authenticatedUserId,
         title: body.title,
         body: body.body,
         path: body.path ?? '/',
@@ -691,6 +744,20 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── Webhook notification flow ───────────────────────────────────────
+    const webhookSecret = Deno.env.get('NOTIFY_WEBHOOK_SECRET');
+    if (!webhookSecret) {
+      return new Response(JSON.stringify({ error: 'NOTIFY_WEBHOOK_SECRET is required for webhook mode' }), {
+        status: 500,
+        headers: { ...CORS, 'Content-Type': 'application/json' },
+      });
+    }
+    const suppliedSecret = req.headers.get('x-notify-webhook-secret') ?? '';
+    if (suppliedSecret !== webhookSecret) {
+      return new Response(JSON.stringify({ error: 'invalid webhook signature' }), {
+        status: 401,
+        headers: { ...CORS, 'Content-Type': 'application/json' },
+      });
+    }
     const payload: WebhookPayload = body;
 
     // Build notification content from webhook payload

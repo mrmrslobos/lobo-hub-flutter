@@ -27,6 +27,11 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
   final _searchDebounce = Debouncer();
   String _searchQuery = '';
 
+  bool _canManageEntry(AppProvider provider, AIHistoryEntry entry) {
+    final userId = provider.activeUser?.id;
+    return userId != null && entry.userId == userId;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -59,6 +64,14 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
   Future<void> _deleteEntry(String id) async {
     HapticFeedback.mediumImpact();
     final provider = context.read<AppProvider>();
+    final entry = provider.db.aiHistory.cast<AIHistoryEntry?>().firstWhere(
+      (e) => e?.id == id,
+      orElse: () => null,
+    );
+    if (entry == null || !_canManageEntry(provider, entry)) {
+      if (mounted) _showSnack('Only your own AI history entries can be deleted.');
+      return;
+    }
     final db = provider.db;
     await provider.saveAndSync(
       db.copyWith(aiHistory: db.aiHistory.where((e) => e.id != id).toList()),
@@ -294,7 +307,9 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
                       entry: entry,
                       moduleColor: _moduleColor(entry.module),
                       onTap: () => _openDetail(context, entry, _moduleColor(entry.module)),
-                      onDelete: () => _deleteEntry(entry.id),
+                      onDelete: _canManageEntry(provider, entry)
+                          ? () => _deleteEntry(entry.id)
+                          : null,
                     ),
                   )).toList(),
                 ),
@@ -310,20 +325,22 @@ class _HistoryCard extends StatelessWidget {
   final AIHistoryEntry entry;
   final Color moduleColor;
   final VoidCallback onTap;
-  final VoidCallback onDelete;
+  final VoidCallback? onDelete;
 
   const _HistoryCard({
     required this.entry,
     required this.moduleColor,
     required this.onTap,
-    required this.onDelete,
+    this.onDelete,
   });
 
   @override
   Widget build(BuildContext context) {
     return Dismissible(
       key: Key(entry.id),
-      direction: DismissDirection.endToStart,
+      direction: onDelete != null
+          ? DismissDirection.endToStart
+          : DismissDirection.none,
       background: Container(
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 20),
@@ -331,6 +348,7 @@ class _HistoryCard extends StatelessWidget {
         child: const Icon(Icons.delete_outline_rounded, color: Colors.white),
       ),
       confirmDismiss: (_) async {
+        if (onDelete == null) return false;
         return await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
@@ -343,7 +361,7 @@ class _HistoryCard extends StatelessWidget {
           ),
         ) ?? false;
       },
-      onDismissed: (_) => onDelete(),
+      onDismissed: (_) => onDelete?.call(),
       child: GestureDetector(
         onTap: onTap,
         child: Container(
@@ -397,12 +415,12 @@ class _HistoryCard extends StatelessWidget {
 class _EntryDetailSheet extends StatelessWidget {
   final AIHistoryEntry entry;
   final Color moduleColor;
-  final VoidCallback onDelete;
+  final VoidCallback? onDelete;
 
   const _EntryDetailSheet({
     required this.entry,
     required this.moduleColor,
-    required this.onDelete,
+    this.onDelete,
   });
 
   @override
@@ -452,7 +470,7 @@ class _EntryDetailSheet extends StatelessWidget {
               IconButton(
                 icon: const Icon(Icons.delete_outline_rounded,
                     color: AppTheme.error),
-                onPressed: () async {
+                onPressed: onDelete == null ? null : () async {
                   HapticFeedback.mediumImpact();
                   final confirmed = await showDialog<bool>(
                     context: context,
@@ -467,7 +485,7 @@ class _EntryDetailSheet extends StatelessWidget {
                   );
                   if (confirmed == true) {
                     if (context.mounted) Navigator.pop(context);
-                    onDelete();
+                    onDelete?.call();
                   }
                 },
               ),
