@@ -528,13 +528,28 @@ Deno.serve(async (req: Request) => {
       daily_devotional_minute: number | null;
     };
 
-    type MemberRow = { family_id: string; user_id: string; families: FamilyRow | FamilyRow[] | null };
+    type MemberRow = { family_id: string; user_id: string };
 
+    // Two queries (no PostgREST embed): many DBs lack an FK family_members.family_id →
+    // families.id, which causes "Could not find a relationship ... in the schema cache".
     const { data: memberRows, error: membersErr } = await supabase
       .from('family_members')
-      .select('family_id, user_id, families ( id, name, daily_devotional_enabled, daily_devotional_hour, daily_devotional_minute )');
+      .select('family_id, user_id');
 
     if (membersErr) throw new Error(`family_members query failed: ${membersErr.message}`);
+
+    const famIds = [...new Set((memberRows ?? []).map((r: MemberRow) => r.family_id).filter(Boolean))];
+    const familyById = new Map<string, FamilyRow>();
+    if (famIds.length > 0) {
+      const { data: famRows, error: famErr } = await supabase
+        .from('families')
+        .select('id, name, daily_devotional_enabled, daily_devotional_hour, daily_devotional_minute')
+        .in('id', famIds);
+      if (famErr) throw new Error(`families query failed: ${famErr.message}`);
+      for (const f of (famRows ?? []) as FamilyRow[]) {
+        familyById.set(f.id, f);
+      }
+    }
 
     const userIds = [...new Set((memberRows ?? []).map((r: MemberRow) => r.user_id).filter(Boolean))];
     const { data: userRows } = userIds.length > 0
@@ -562,8 +577,7 @@ Deno.serve(async (req: Request) => {
     const candidates: Candidate[] = [];
 
     for (const row of (memberRows ?? []) as MemberRow[]) {
-      const famRel = row.families;
-      const fam = Array.isArray(famRel) ? famRel[0] : famRel;
+      const fam = familyById.get(row.family_id);
       if (!fam) continue;
       if (targetFamilyId && fam.id !== targetFamilyId) continue;
 
