@@ -1611,6 +1611,20 @@ Return ONLY the JSON array, no markdown.''',
                   IconButton(
                     icon: const Icon(Icons.close_rounded, color: Colors.white70, size: 18),
                     onPressed: () {
+                      final uid = provider.activeUser?.id;
+                      final isOwner = uid != null && family.ownerId == uid;
+                      if (!isOwner) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Only the family owner can dismiss this banner for everyone.',
+                              style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600),
+                            ),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                        return;
+                      }
                       final updated = family.copyWith(welcomeDismissed: true);
                       final db = provider.db;
                       provider.updateFamily(updated);

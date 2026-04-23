@@ -193,10 +193,25 @@ class _MealsScreenState extends State<MealsScreen>
     super.dispose();
   }
 
+  bool _isFamilyOwner(AppProvider provider) {
+    final uid = provider.activeUser?.id;
+    return uid != null && provider.activeFamily?.ownerId == uid;
+  }
+
+  bool _requireFamilyOwnerForHouseholdMeals(String actionDescription) {
+    final provider = context.read<AppProvider>();
+    if (_isFamilyOwner(provider)) return true;
+    if (mounted) {
+      _showSnack(context, 'Only the family owner can $actionDescription');
+    }
+    return false;
+  }
+
   Future<void> _showMacroTargetsDialog() async {
     final provider = context.read<AppProvider>();
     final fam = provider.activeFamily;
     if (fam == null) return;
+    if (!_requireFamilyOwnerForHouseholdMeals('edit macro targets for this household.')) return;
     final t = mealMacroTargetsFromSettings(fam.settings);
     _kcalTargetCtrl.text = t['kcal']?.toStringAsFixed(0) ?? '';
     _proteinTargetCtrl.text = t['protein']?.toStringAsFixed(0) ?? '';
@@ -362,6 +377,7 @@ Return a JSON array of exactly 3 objects, each with these fields:
   }
 
   void _saveChefRecipe(Map<String, dynamic> suggestion) {
+    if (!_requireFamilyOwnerForHouseholdMeals('save AI chef recipes to the library.')) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
     final userId = provider.activeUser?.id ?? '';
@@ -425,6 +441,7 @@ Return a JSON array of exactly 3 objects, each with these fields:
   // ── AI Week Planner ──
   Future<void> _generateWeekPlan() async {
     if (SubscriptionModal.guardAI(context, kind: AiPaywallKind.meals)) return;
+    if (!_requireFamilyOwnerForHouseholdMeals('run the AI week planner.')) return;
     final prefs = _weekPlannerController.text.trim();
     if (prefs.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -731,6 +748,7 @@ Return a JSON array of 7 objects, each with:
   // ── Refine Meal Plan ──
   Future<void> _refineMealPlan() async {
     if (SubscriptionModal.guardAI(context, kind: AiPaywallKind.meals)) return;
+    if (!_requireFamilyOwnerForHouseholdMeals('refine the meal plan.')) return;
     final request = _refineController.text.trim();
     if (request.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -926,6 +944,7 @@ Return a JSON array of 7 objects, each with:
   // ── Import from URL (inline) ──
   Future<void> _importFromUrl() async {
     if (SubscriptionModal.guardAI(context, kind: AiPaywallKind.meals)) return;
+    if (!_requireFamilyOwnerForHouseholdMeals('import recipes for this family.')) return;
     final url = _importUrlController.text.trim();
     if (url.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1020,6 +1039,7 @@ Return a JSON array of 7 objects, each with:
     final provider = context.read<AppProvider>();
     final fam = provider.activeFamily;
     if (fam == null) return;
+    if (!_requireFamilyOwnerForHouseholdMeals('change the pantry.')) return;
     final nameCtrl = TextEditingController();
     final qtyCtrl = TextEditingController();
     final unitCtrl = TextEditingController();
@@ -1064,6 +1084,7 @@ Return a JSON array of 7 objects, each with:
   }
 
   Future<void> _removePantryItem(PantryItem item) async {
+    if (!_requireFamilyOwnerForHouseholdMeals('change the pantry.')) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(
@@ -1079,7 +1100,6 @@ Return a JSON array of 7 objects, each with:
     final now = DateTime.now();
     final monday = now.subtract(Duration(days: now.weekday - 1));
     final sunday = monday.add(const Duration(days: 6));
-    final weekLabel = '${DateFormat('MMM d').format(monday)} - ${DateFormat('MMM d').format(sunday)}';
 
     // ── Computed stats ──
     final recipes = provider.db.recipes.where((r) => r.familyId == familyId).toList();
@@ -1616,9 +1636,16 @@ class _MealPlanTabState extends State<_MealPlanTab> {
   bool _isSameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
 
-  bool _isOwner(AppProvider provider) {
+  bool _isFamilyOwnerForTab(AppProvider provider) {
     final userId = provider.activeUser?.id;
     return userId != null && provider.activeFamily?.ownerId == userId;
+  }
+
+  bool _requireFamilyOwnerForTab(BuildContext context, String onlyOwnerMessage) {
+    final provider = context.read<AppProvider>();
+    if (_isFamilyOwnerForTab(provider)) return true;
+    if (context.mounted) _showSnack(context, onlyOwnerMessage);
+    return false;
   }
 
   Recipe? _recipeFor(AppProvider provider, MealPlanEntry? m) {
@@ -1658,7 +1685,7 @@ class _MealPlanTabState extends State<_MealPlanTab> {
 
   Future<void> _repeatMealWeekly(BuildContext context, MealPlanEntry source) async {
     final provider = context.read<AppProvider>();
-    if (!_isOwner(provider)) {
+    if (!_isFamilyOwnerForTab(provider)) {
       if (context.mounted) _showSnack(context, 'Only the family owner can repeat meals.');
       return;
     }
@@ -1703,7 +1730,7 @@ class _MealPlanTabState extends State<_MealPlanTab> {
     required DateTime targetDay,
   }) async {
     final provider = context.read<AppProvider>();
-    if (!_isOwner(provider)) {
+    if (!_isFamilyOwnerForTab(provider)) {
       if (context.mounted) _showSnack(context, 'Only the family owner can schedule leftovers.');
       return;
     }
@@ -1803,6 +1830,12 @@ class _MealPlanTabState extends State<_MealPlanTab> {
   }
 
   Future<void> _addWeekIngredientsToGrocery(BuildContext context) async {
+    if (!_requireFamilyOwnerForTab(
+      context,
+      'Only the family owner can build the grocery list from the week plan.',
+    )) {
+      return;
+    }
     final provider = context.read<AppProvider>();
     final familyId = provider.activeFamily?.id ?? '';
     if (familyId.isEmpty) return;
@@ -2757,7 +2790,6 @@ class _AddMealSheetState extends State<_AddMealSheet> {
 
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    final userId = provider.activeUser?.id ?? '';
     final familyId = provider.activeFamily?.id ?? '';
 
     final servings = int.tryParse(_servingsController.text.trim());
@@ -3385,8 +3417,12 @@ class _RecipeDetailSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final provider = context.read<AppProvider>();
     final activeUserId = provider.activeUser?.id;
-    final canManageRecipes =
+    final isOwner =
         activeUserId != null && provider.activeFamily?.ownerId == activeUserId;
+    final canManageRecipes = isOwner ||
+        (activeUserId != null &&
+            recipe.createdBy.isNotEmpty &&
+            recipe.createdBy == activeUserId);
     return DraggableScrollableSheet(
       initialChildSize: 0.9,
       minChildSize: 0.5,
@@ -3816,6 +3852,19 @@ class _ImportUrlDialogState extends State<_ImportUrlDialog> {
 
   Future<void> _import() async {
     if (SubscriptionModal.guardAI(context, kind: AiPaywallKind.meals)) return;
+    final prov = context.read<AppProvider>();
+    final uid = prov.activeUser?.id;
+    if (uid == null || prov.activeFamily?.ownerId != uid) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Only the family owner can import recipes from a URL.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
     final url = _urlController.text.trim();
     if (url.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(

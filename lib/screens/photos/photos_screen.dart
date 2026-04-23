@@ -257,6 +257,9 @@ class _PhotosScreenState extends State<PhotosScreen> {
       ),
     );
     if (confirmed != true || !mounted) return;
+    if (SupabaseService.isConfigured && _isNetworkUrl(photo.url)) {
+      await SupabaseService.deleteFamilyPhotoFromStorage(photo.url);
+    }
     final db = provider.db;
     await provider.saveAndSync(
       db.copyWith(photos: db.photos.where((p) => p.id != id).toList()),

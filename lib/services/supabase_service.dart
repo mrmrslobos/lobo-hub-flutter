@@ -507,4 +507,22 @@ class SupabaseService {
       return filePath; // fallback to local path
     }
   }
+
+  /// Remove an object from the `family-photos` bucket when [url] is a Supabase public URL.
+  /// No-op for local file paths or when Supabase is not configured. Errors are logged only.
+  static Future<void> deleteFamilyPhotoFromStorage(String url) async {
+    if (!isConfigured) return;
+    if (!url.startsWith('http')) return;
+    try {
+      final uri = Uri.parse(url);
+      final segments = uri.pathSegments;
+      final idx = segments.indexOf('family-photos');
+      if (idx == -1 || idx >= segments.length - 1) return;
+      final path = segments.sublist(idx + 1).join('/');
+      if (path.isEmpty) return;
+      await client.storage.from('family-photos').remove([path]);
+    } on Object catch (e, st) {
+      _debugCatch('deleteFamilyPhotoFromStorage', e, st);
+    }
+  }
 }

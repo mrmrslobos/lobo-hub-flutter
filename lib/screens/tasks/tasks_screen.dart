@@ -720,17 +720,23 @@ class _TasksScreenState extends State<TasksScreen> {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Column(
-                    children: tasks.map((task) => _TaskCard(
-                      task: task,
-                      provider: provider,
-                      onToggle: () => _toggleComplete(provider, task),
-                      onEdit: _canManageTask(provider, task)
-                          ? () => _showAddTaskSheet(context, editTask: task)
-                          : null,
-                      onDelete: _canManageTask(provider, task)
-                          ? () => _deleteTask(provider, task)
-                          : null,
-                    )).toList(),
+                    children: [
+                      for (final task in tasks)
+                        RepaintBoundary(
+                          key: ValueKey<String>(task.id),
+                          child: _TaskCard(
+                            task: task,
+                            provider: provider,
+                            onToggle: () => _toggleComplete(provider, task),
+                            onEdit: _canManageTask(provider, task)
+                                ? () => _showAddTaskSheet(context, editTask: task)
+                                : null,
+                            onDelete: _canManageTask(provider, task)
+                                ? () => _deleteTask(provider, task)
+                                : null,
+                          ),
+                        ),
+                    ],
                   ),
                 ),
 

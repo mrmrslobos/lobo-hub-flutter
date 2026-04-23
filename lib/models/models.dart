@@ -981,6 +981,8 @@ class Recipe {
   final double? fatG;
   final double? fiberG;
   final DateTime updatedAt;
+  /// Supabase `created_by` — used for RLS; empty means legacy / unknown.
+  final String createdBy;
 
   Recipe({
     required this.id,
@@ -998,13 +1000,13 @@ class Recipe {
     this.carbsG,
     this.fatG,
     this.fiberG,
-    // Accept but ignore extra fields from screen
     String? description,
     String? sourceUrl,
     String? createdBy,
     String? creatorId,
     DateTime? updatedAt,
-  })  : updatedAt = updatedAt ?? DateTime.now(),
+  })  : createdBy = creatorId ?? createdBy ?? '',
+        updatedAt = updatedAt ?? DateTime.now(),
         servings = servings ?? 4,
        ingredients = ingredients ?? const [];
 
@@ -1037,6 +1039,7 @@ class Recipe {
       fatG: (j['fat_g'] as num?)?.toDouble() ?? (j['fatG'] as num?)?.toDouble(),
       fiberG: (j['fiber_g'] as num?)?.toDouble() ?? (j['fiberG'] as num?)?.toDouble(),
       updatedAt: _parseDateOpt(j['updated_at']) ?? DateTime.fromMillisecondsSinceEpoch(0),
+      createdBy: j['created_by'] as String? ?? j['createdBy'] as String?,
     );
   }
 
@@ -1057,6 +1060,7 @@ class Recipe {
     'fat_g': fatG,
     'fiber_g': fiberG,
     'updated_at': updatedAt.toIso8601String(),
+    if (createdBy.isNotEmpty) 'created_by': createdBy,
   };
 
   // Convenience getters
@@ -1068,6 +1072,7 @@ class Recipe {
     List<String>? steps, int? servings, List<String>? tags, String? image,
     int? prepMinutes, int? cookMinutes, int? kcal, double? proteinG,
     double? carbsG, double? fatG, double? fiberG, DateTime? updatedAt,
+    String? createdBy,
   }) => Recipe(
     id: id ?? this.id, familyId: familyId ?? this.familyId,
     title: title ?? this.title, ingredients: ingredients ?? this.ingredients,
@@ -1080,10 +1085,12 @@ class Recipe {
     carbsG: carbsG ?? this.carbsG,
     fatG: fatG ?? this.fatG,
     fiberG: fiberG ?? this.fiberG,
+    createdBy: createdBy ?? this.createdBy,
     updatedAt: updatedAt ??
         ((title != null || ingredients != null || steps != null || servings != null ||
                 tags != null || image != null || prepMinutes != null || cookMinutes != null ||
-                kcal != null || proteinG != null || carbsG != null || fatG != null || fiberG != null)
+                kcal != null || proteinG != null || carbsG != null || fatG != null || fiberG != null ||
+                createdBy != null)
             ? DateTime.now()
             : this.updatedAt),
   );
