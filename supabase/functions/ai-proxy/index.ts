@@ -15,6 +15,8 @@
  *
  * Required Supabase secrets (set via `supabase secrets set`):
  *   GEMINI_API_KEY
+ *   SUPABASE_ANON_KEY         — validates JWT + family_members / families under RLS
+ *   SUPABASE_URL
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -117,12 +119,20 @@ Deno.serve(async (req) => {
       );
     }
 
-    // ── Verify subscription tier ──────────────────────────────────────────
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-    );
-    const { data: authData, error: authError } = await supabase.auth.getUser(jwt);
+    // ── Verify session + membership + tier (RLS via anon key; no service role) ─
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+    if (!anonKey) {
+      return new Response(JSON.stringify({ error: 'Server misconfigured: SUPABASE_ANON_KEY missing' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    const userSb = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authHeader } },
+      auth: { persistSession: false },
+    });
+    const { data: authData, error: authError } = await userSb.auth.getUser();
     const userId = authData.user?.id;
     if (authError || !userId) {
       return new Response(JSON.stringify({ error: 'Invalid or expired session' }), {
@@ -131,7 +141,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { data: membership, error: membershipError } = await supabase
+    const { data: membership, error: membershipError } = await userSb
       .from('family_members')
       .select('family_id')
       .eq('family_id', familyId)
@@ -144,7 +154,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { data: family, error: familyError } = await supabase
+    const { data: family, error: familyError } = await userSb
       .from('families')
       .select('subscription_tier, trial_start_date, created_at')
       .eq('id', familyId)

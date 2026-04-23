@@ -25,6 +25,9 @@
  *   5. In AuthFlow.tsx, pass scopes: 'email profile openid https://www.googleapis.com/auth/calendar.readonly'
  *      when calling signInWithProvider('google')
  *
+ * Auth: validates the caller JWT with SUPABASE_ANON_KEY and checks family_members
+ * under RLS (no service role for user-scoped reads).
+ *
  * Microsoft:
  *   1. Enable "Azure" provider in Supabase Auth → Providers
  *   2. Register an app in Azure Portal → App registrations
@@ -167,12 +170,19 @@ serve(async (req) => {
       );
     }
 
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-      { auth: { persistSession: false } },
-    );
-    const { data: authData, error: authError } = await supabase.auth.getUser(jwt);
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+    if (!anonKey) {
+      return new Response(
+        JSON.stringify({ error: 'Server misconfigured: SUPABASE_ANON_KEY missing' }),
+        { status: 500, headers: { ...CORS, 'Content-Type': 'application/json' } },
+      );
+    }
+    const userSb = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authHeader } },
+      auth: { persistSession: false },
+    });
+    const { data: authData, error: authError } = await userSb.auth.getUser();
     const userId = authData.user?.id;
     if (authError || !userId) {
       return new Response(
@@ -181,7 +191,7 @@ serve(async (req) => {
       );
     }
 
-    const { data: membership, error: membershipError } = await supabase
+    const { data: membership, error: membershipError } = await userSb
       .from('family_members')
       .select('family_id')
       .eq('family_id', familyId)

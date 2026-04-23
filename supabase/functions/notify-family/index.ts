@@ -14,6 +14,8 @@
  *   VAPID_PRIVATE_KEY         — base64url P-256 raw private scalar (32 bytes)
  *   SUPABASE_SERVICE_ROLE_KEY — injected automatically by Supabase runtime
  *   SUPABASE_URL              — injected automatically by Supabase runtime
+ *   SUPABASE_ANON_KEY         — used to validate end-user JWTs (register/notify);
+ *                               falls back to service role if unset
  *
  * Generate VAPID keys: npx web-push generate-vapid-keys
  */
@@ -54,14 +56,25 @@ const CORS = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-async function getAuthenticatedUserId(
-  req: Request,
-  supabaseClient: ReturnType<typeof createClient>,
-): Promise<string | null> {
+/** Prefer anon key for JWT validation (same pattern as daily-devotional / ai-proxy). */
+async function getAuthenticatedUserId(req: Request): Promise<string | null> {
   const authHeader = req.headers.get('authorization') ?? '';
   const jwt = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
   if (!jwt) return null;
-  const { data, error } = await supabaseClient.auth.getUser(jwt);
+  const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+  const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+  if (anonKey && authHeader.startsWith('Bearer ')) {
+    const userClient = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authHeader } },
+      auth: { persistSession: false },
+    });
+    const { data, error } = await userClient.auth.getUser();
+    if (!error && data.user?.id) return data.user.id;
+  }
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+  if (!serviceKey) return null;
+  const svc = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
+  const { data, error } = await svc.auth.getUser(jwt);
   if (error) return null;
   return data.user?.id ?? null;
 }
@@ -602,7 +615,7 @@ Deno.serve(async (req: Request) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
       { auth: { persistSession: false } },
     );
-    const authenticatedUserId = await getAuthenticatedUserId(req, supabaseClient);
+    const authenticatedUserId = await getAuthenticatedUserId(req);
 
     // ── Device token registration ───────────────────────────────────────
     if (body.action === 'register' && body.token && body.familyId && body.userId) {
