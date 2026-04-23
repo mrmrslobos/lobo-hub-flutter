@@ -880,8 +880,8 @@ Return ONLY the JSON array, no markdown.''',
                 if (!family.welcomeDismissed)
                   _buildTryAICard(context, provider, family),
                 _buildBirthdaysSection(db, familyId, today),
-                _buildAISuggestionsSection(),
-                _buildMonthlySummarySection(),
+                RepaintBoundary(child: _buildAISuggestionsSection()),
+                RepaintBoundary(child: _buildMonthlySummarySection()),
                 _buildStatsGrid(
                   tasksDue: tasksDueToday.length,
                   choresCompleted: choresCompletedToday,

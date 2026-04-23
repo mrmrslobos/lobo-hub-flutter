@@ -16,6 +16,10 @@
  *   FIREBASE_SERVICE_ACCOUNT  — JSON string of the Firebase service account key
  *   SUPABASE_SERVICE_ROLE_KEY — injected automatically by Supabase runtime
  *   SUPABASE_URL              — injected automatically by Supabase runtime
+ *   WEEKLY_DIGEST_CRON_SECRET — optional; when set, pg_cron must send header
+ *     `x-weekly-digest-secret` with the same value. Signed-in users may instead
+ *     call with `{"test":true,"family_id":"<id>"}` (no cron header) to dry-run
+ *     one family they belong to (bypasses UTC schedule for that family only).
  *
  * Scheduling — run the SQL in supabase/migrations/weekly_digest_cron.sql once
  * in your Supabase project's SQL editor to register the pg_cron job (hourly).
@@ -207,14 +211,61 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    let parsedBody: Record<string, unknown> | null = null;
+    try {
+      const raw = await req.text();
+      if (raw.trim()) parsedBody = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      parsedBody = null;
+    }
+
+    const testFromUrl = new URL(req.url).searchParams.get('test') === 'true';
+    const isTestStyleInvoke = testFromUrl || parsedBody?.test === true;
+
+    /** When set, caller used user JWT + test body (not cron secret); digest only for this family. */
+    let authenticatedTestUserId: string | null = null;
+
     const cronSecret = Deno.env.get('WEEKLY_DIGEST_CRON_SECRET');
     if (cronSecret) {
       const suppliedSecret = req.headers.get('x-weekly-digest-secret') ?? '';
       if (suppliedSecret !== cronSecret) {
-        return new Response(JSON.stringify({ error: 'unauthorized' }), {
-          status: 401,
-          headers: { ...CORS, 'Content-Type': 'application/json' },
+        if (!isTestStyleInvoke) {
+          return new Response(JSON.stringify({ error: 'unauthorized' }), {
+            status: 401,
+            headers: { ...CORS, 'Content-Type': 'application/json' },
+          });
+        }
+        const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+        const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+        const authHeader = req.headers.get('Authorization') ?? '';
+        if (!anonKey || !authHeader.startsWith('Bearer ')) {
+          return new Response(JSON.stringify({ error: 'unauthorized' }), {
+            status: 401,
+            headers: { ...CORS, 'Content-Type': 'application/json' },
+          });
+        }
+        const userClient = createClient(supabaseUrl, anonKey, {
+          global: { headers: { Authorization: authHeader } },
+          auth: { persistSession: false },
         });
+        const { data: userData, error: userErr } = await userClient.auth.getUser();
+        if (userErr || !userData?.user) {
+          return new Response(JSON.stringify({ error: 'unauthorized' }), {
+            status: 401,
+            headers: { ...CORS, 'Content-Type': 'application/json' },
+          });
+        }
+        const fid = typeof parsedBody?.family_id === 'string' ? parsedBody.family_id : null;
+        if (!fid) {
+          return new Response(
+            JSON.stringify({
+              error: 'family_id required',
+              detail: 'Test invokes without x-weekly-digest-secret must include family_id in the JSON body.',
+            }),
+            { status: 400, headers: { ...CORS, 'Content-Type': 'application/json' } },
+          );
+        }
+        authenticatedTestUserId = userData.user.id;
       }
     }
 
@@ -223,6 +274,22 @@ Deno.serve(async (req: Request) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
       { auth: { persistSession: false } },
     );
+
+    if (authenticatedTestUserId) {
+      const fid = parsedBody?.family_id as string;
+      const { data: mem, error: memErr } = await supabase
+        .from('family_members')
+        .select('family_id')
+        .eq('family_id', fid)
+        .eq('user_id', authenticatedTestUserId)
+        .maybeSingle();
+      if (memErr || !mem) {
+        return new Response(JSON.stringify({ error: 'forbidden', detail: 'Not a member of this family.' }), {
+          status: 403,
+          headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
+      }
+    }
 
     const serviceAccountRaw = Deno.env.get('FIREBASE_SERVICE_ACCOUNT');
     if (!serviceAccountRaw) throw new Error('FIREBASE_SERVICE_ACCOUNT secret not configured');
@@ -255,12 +322,35 @@ Deno.serve(async (req: Request) => {
       weekly_digest_hour: number | null;
     };
 
-    let families = ((allFamilies ?? []) as FamilyRow[]).filter((f) => {
-      if (f.weekly_digest === false) return false;
-      const schedDay = f.weekly_digest_day ?? 0;    // default: Sunday
-      const schedHour = f.weekly_digest_hour ?? 8;  // default: 08:00 UTC
-      return schedDay === currentUtcDay && schedHour === currentUtcHour;
-    });
+    const manualTestFamilyId =
+      authenticatedTestUserId && typeof parsedBody?.family_id === 'string'
+        ? (parsedBody.family_id as string)
+        : null;
+
+    let families: FamilyRow[];
+    if (manualTestFamilyId) {
+      const fam = ((allFamilies ?? []) as FamilyRow[]).find((f) => f.id === manualTestFamilyId);
+      if (!fam) {
+        return new Response(JSON.stringify({ error: 'family not found', families: 0, sent: 0, pruned: 0 }), {
+          status: 404,
+          headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
+      }
+      if (fam.weekly_digest === false) {
+        return new Response(
+          JSON.stringify({ error: 'weekly digest disabled for this family', families: 0, sent: 0, pruned: 0 }),
+          { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } },
+        );
+      }
+      families = [fam];
+    } else {
+      families = ((allFamilies ?? []) as FamilyRow[]).filter((f) => {
+        if (f.weekly_digest === false) return false;
+        const schedDay = f.weekly_digest_day ?? 0; // default: Sunday
+        const schedHour = f.weekly_digest_hour ?? 8; // default: 08:00 UTC
+        return schedDay === currentUtcDay && schedHour === currentUtcHour;
+      });
+    }
 
     const maxFamilies = Number(Deno.env.get('WEEKLY_DIGEST_MAX_FAMILIES_PER_RUN') ?? '40');
     const famCap = Number.isFinite(maxFamilies) && maxFamilies > 0 ? Math.floor(maxFamilies) : 40;
