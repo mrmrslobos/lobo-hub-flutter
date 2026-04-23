@@ -455,6 +455,12 @@ class DatabaseService {
 
     final fid = familyId;
     final currentUserId = SupabaseService.currentUser?.id;
+    String mealPlanCreatedByFallback() {
+      for (final f in db.families) {
+        if (f.id == fid && f.ownerId.isNotEmpty) return f.ownerId;
+      }
+      return currentUserId ?? '';
+    }
 
     // Helper to upsert then delete removed rows in one step
     Future<void> upAndClean(String table, List<Map<String, dynamic>> rows,
@@ -519,6 +525,14 @@ class DatabaseService {
                   row['family_id'] = fid;
                   for (final k in _mealPlanCloudOmit) {
                     row.remove(k);
+                  }
+                  final cb = row['created_by'];
+                  final cbStr = cb is String ? cb : '';
+                  if (cbStr.isEmpty) {
+                    final fb = (currentUserId != null && currentUserId.isNotEmpty)
+                        ? currentUserId
+                        : mealPlanCreatedByFallback();
+                    if (fb.isNotEmpty) row['created_by'] = fb;
                   }
                   return row;
                 })
