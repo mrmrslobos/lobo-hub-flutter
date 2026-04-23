@@ -224,6 +224,12 @@ class _TasksScreenState extends State<TasksScreen> {
   bool _isSameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
 
+  bool _canManageTask(AppProvider provider, Task task) {
+    final userId = provider.activeUser?.id;
+    final isOwner = userId != null && provider.activeFamily?.ownerId == userId;
+    return userId != null && (task.createdBy == userId || isOwner);
+  }
+
   Future<void> _toggleComplete(AppProvider provider, Task task) async {
     HapticFeedback.lightImpact();
     final db = provider.db;
@@ -278,6 +284,17 @@ class _TasksScreenState extends State<TasksScreen> {
   }
 
   Future<void> _deleteTask(AppProvider provider, Task task) async {
+    if (!_canManageTask(provider, task)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Only the task creator or family owner can delete this task.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
     final db = provider.db;
     final tasks = db.tasks.where((t) => t.id != task.id).toList();
     await provider.saveAndSync(db.copyWith(tasks: tasks),
@@ -703,13 +720,23 @@ class _TasksScreenState extends State<TasksScreen> {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Column(
-                    children: tasks.map((task) => _TaskCard(
-                      task: task,
-                      provider: provider,
-                      onToggle: () => _toggleComplete(provider, task),
-                      onEdit: () => _showAddTaskSheet(context, editTask: task),
-                      onDelete: () => _deleteTask(provider, task),
-                    )).toList(),
+                    children: [
+                      for (final task in tasks)
+                        RepaintBoundary(
+                          key: ValueKey<String>(task.id),
+                          child: _TaskCard(
+                            task: task,
+                            provider: provider,
+                            onToggle: () => _toggleComplete(provider, task),
+                            onEdit: _canManageTask(provider, task)
+                                ? () => _showAddTaskSheet(context, editTask: task)
+                                : null,
+                            onDelete: _canManageTask(provider, task)
+                                ? () => _deleteTask(provider, task)
+                                : null,
+                          ),
+                        ),
+                    ],
                   ),
                 ),
 
@@ -1218,21 +1245,24 @@ class _TaskCard extends StatelessWidget {
   final Task task;
   final AppProvider provider;
   final VoidCallback onToggle;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
 
   const _TaskCard({
     required this.task,
     required this.provider,
     required this.onToggle,
-    required this.onEdit,
-    required this.onDelete,
+    this.onEdit,
+    this.onDelete,
   });
 
   @override
   Widget build(BuildContext context) {
     return Dismissible(
       key: Key(task.id),
+      direction: onDelete != null
+          ? DismissDirection.horizontal
+          : DismissDirection.startToEnd,
       background: Container(
         alignment: Alignment.centerLeft,
         padding: const EdgeInsets.only(left: 20),
@@ -1281,6 +1311,7 @@ class _TaskCard extends StatelessWidget {
           onToggle();
           return false; // don't remove from list, toggle handles state
         } else {
+          if (onDelete == null) return false;
           // Swipe left to delete
           return await showDialog<bool>(
             context: context,
@@ -1295,7 +1326,7 @@ class _TaskCard extends StatelessWidget {
           );
         }
       },
-      onDismissed: (_) => onDelete(),
+      onDismissed: (_) => onDelete?.call(),
       child: GestureDetector(
         onTap: onEdit,
         child: AnimatedContainer(

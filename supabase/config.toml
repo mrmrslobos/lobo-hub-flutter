@@ -1,5 +1,5 @@
 [functions.ai-proxy]
-verify_jwt = false
+verify_jwt = true
 
 [functions.daily-devotional]
 verify_jwt = false
@@ -11,3 +11,6 @@ verify_jwt = false
 # Caller must be a real family member (checked in function).
 [functions.notify-family]
 verify_jwt = false
+
+[functions.calendar-sync]
+verify_jwt = true

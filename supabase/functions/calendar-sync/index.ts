@@ -40,6 +40,7 @@
  */
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -148,12 +149,48 @@ serve(async (req) => {
   }
 
   try {
-    const { provider, accessToken, calendarId, timeMin, timeMax } = await req.json();
-
-    if (!provider || !accessToken || !calendarId) {
+    const authHeader = req.headers.get('authorization') ?? '';
+    const jwt = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+    if (!jwt) {
       return new Response(
-        JSON.stringify({ error: 'Missing required fields: provider, accessToken, calendarId' }),
+        JSON.stringify({ error: 'Missing bearer token' }),
+        { status: 401, headers: { ...CORS, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    const { provider, accessToken, calendarId, familyId, timeMin, timeMax } = await req.json();
+
+    if (!provider || !accessToken || !calendarId || !familyId) {
+      return new Response(
+        JSON.stringify({ error: 'Missing required fields: provider, accessToken, calendarId, familyId' }),
         { status: 400, headers: { ...CORS, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+      { auth: { persistSession: false } },
+    );
+    const { data: authData, error: authError } = await supabase.auth.getUser(jwt);
+    const userId = authData.user?.id;
+    if (authError || !userId) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid or expired session' }),
+        { status: 401, headers: { ...CORS, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    const { data: membership, error: membershipError } = await supabase
+      .from('family_members')
+      .select('family_id')
+      .eq('family_id', familyId)
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (membershipError || !membership) {
+      return new Response(
+        JSON.stringify({ error: 'Not authorized for this family' }),
+        { status: 403, headers: { ...CORS, 'Content-Type': 'application/json' } },
       );
     }
 

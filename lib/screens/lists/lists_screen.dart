@@ -29,6 +29,33 @@ class ListsScreen extends StatefulWidget {
 class _ListsScreenState extends State<ListsScreen> {
   ShoppingList? _selectedList;
 
+  bool _canAccessList(ShoppingList list, String userId) {
+    if (list.creatorId == userId) return true;
+    switch (list.visibility) {
+      case Visibility.FAMILY:
+        return true;
+      case Visibility.PRIVATE:
+        return false;
+      case Visibility.SPECIFIC:
+        return list.sharedWith.contains(userId);
+    }
+  }
+
+  bool _isOwner(AppProvider provider) {
+    final userId = provider.activeUser?.id;
+    return userId != null && provider.activeFamily?.ownerId == userId;
+  }
+
+  bool _canDeleteList(AppProvider provider, ShoppingList list) {
+    final userId = provider.activeUser?.id;
+    return userId != null && (list.creatorId == userId || _isOwner(provider));
+  }
+
+  bool _canMutateItems(AppProvider provider, ShoppingList list) {
+    final userId = provider.activeUser?.id;
+    return userId != null && _canAccessList(list, userId);
+  }
+
   // ── Data helpers ───────────────────────────────────────────────────────────
 
   /// Persist lists and push to Supabase ([saveAndSync] enqueues list scope).
@@ -66,6 +93,17 @@ class _ListsScreenState extends State<ListsScreen> {
 
   Future<void> _deleteList(ShoppingList list) async {
     final provider = context.read<AppProvider>();
+    if (!_canDeleteList(provider, list)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Only the list creator or family owner can delete this list.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
     final db = provider.db;
     await _saveShoppingLists(provider, db.copyWith(
       shoppingLists: db.shoppingLists.where((l) => l.id != list.id).toList(),
@@ -74,6 +112,8 @@ class _ListsScreenState extends State<ListsScreen> {
   }
 
   void _showListActions(ShoppingList list) {
+    final provider = context.read<AppProvider>();
+    final canDelete = _canDeleteList(provider, list);
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -99,10 +139,12 @@ class _ListsScreenState extends State<ListsScreen> {
             leading: Icon(Icons.delete_rounded, color: AppTheme.error),
             title: Text('Delete', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, color: AppTheme.error)),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            onTap: () {
-              Navigator.pop(ctx);
-              _deleteList(list);
-            },
+            onTap: canDelete
+                ? () {
+                    Navigator.pop(ctx);
+                    _deleteList(list);
+                  }
+                : null,
           ),
           const SizedBox(height: 8),
         ]),
@@ -133,6 +175,17 @@ class _ListsScreenState extends State<ListsScreen> {
               if (newName.isEmpty) return;
               Navigator.pop(ctx);
               final provider = context.read<AppProvider>();
+              if (!_canDeleteList(provider, list)) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Only the list creator or family owner can rename this list.'),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+                return;
+              }
               final db = provider.db;
               final updated = list.copyWith(title: newName);
               await _saveShoppingLists(provider, db.copyWith(
@@ -153,6 +206,7 @@ class _ListsScreenState extends State<ListsScreen> {
 
   Future<void> _addItem(ShoppingList list, String name) async {
     final provider = context.read<AppProvider>();
+    if (!_canMutateItems(provider, list)) return;
     final db = provider.db;
     final newItem = ListItem(id: const Uuid().v4(), text: name, checked: false);
     final updatedList = list.copyWith(items: [...list.items, newItem]);
@@ -174,6 +228,7 @@ class _ListsScreenState extends State<ListsScreen> {
   Future<void> _toggleItem(ShoppingList list, ListItem item) async {
     HapticFeedback.lightImpact();
     final provider = context.read<AppProvider>();
+    if (!_canMutateItems(provider, list)) return;
     final db = provider.db;
     final updatedItems = list.items.map((i) => i.id == item.id ? i.copyWith(checked: !i.checked) : i).toList();
     final updatedList = list.copyWith(items: updatedItems);
@@ -194,6 +249,7 @@ class _ListsScreenState extends State<ListsScreen> {
 
   Future<void> _deleteItem(ShoppingList list, String itemId) async {
     final provider = context.read<AppProvider>();
+    if (!_canMutateItems(provider, list)) return;
     final db = provider.db;
     final updatedList = list.copyWith(items: list.items.where((i) => i.id != itemId).toList());
     final updatedLists = db.shoppingLists.map((l) => l.id == list.id ? updatedList : l).toList();
@@ -222,6 +278,7 @@ class _ListsScreenState extends State<ListsScreen> {
     );
     if (confirm != true) return;
     final provider = context.read<AppProvider>();
+    if (!_canMutateItems(provider, list)) return;
     final db = provider.db;
     final updatedList = list.copyWith(items: list.items.where((i) => !i.checked).toList());
     final updatedLists = db.shoppingLists.map((l) => l.id == list.id ? updatedList : l).toList();
@@ -296,7 +353,7 @@ class _ListsScreenState extends State<ListsScreen> {
             SharePicker(
               members: members.map((m) {
                 final user = provider.userById(m.userId);
-                return SharePickerMember(id: m.id, name: user?.name ?? m.name);
+                return SharePickerMember(id: m.userId, name: user?.name ?? m.name);
               }).toList(),
               onChanged: (result) => shareResult = result,
             ),
@@ -441,7 +498,11 @@ class _ListsScreenState extends State<ListsScreen> {
     final family = provider.activeFamily;
     if (family == null) return const Scaffold(body: Center(child: CircularProgressIndicator()));
 
-    final lists = provider.db.shoppingLists.where((l) => l.familyId == family.id).toList();
+    final currentUserId = provider.activeUser?.id;
+    final lists = provider.db.shoppingLists
+        .where((l) => l.familyId == family.id)
+        .where((l) => currentUserId != null && _canAccessList(l, currentUserId))
+        .toList();
 
     // Sync selectedList with latest db state
     if (_selectedList != null) {
@@ -647,7 +708,9 @@ class _ListsScreenState extends State<ListsScreen> {
                     padding: const EdgeInsets.only(bottom: 10),
                     child: Dismissible(
                       key: Key(list.id),
-                      direction: DismissDirection.endToStart,
+                      direction: list.creatorId == currentUserId
+                          ? DismissDirection.endToStart
+                          : DismissDirection.none,
                       background: Container(
                         alignment: Alignment.centerRight,
                         padding: const EdgeInsets.only(right: 24),

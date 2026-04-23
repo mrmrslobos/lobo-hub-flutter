@@ -38,6 +38,19 @@ class _RewardsScreenState extends State<RewardsScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
 
+  bool _isOwner(AppProvider provider) {
+    final userId = provider.activeUser?.id;
+    final ownerId = provider.activeFamily?.ownerId;
+    return userId != null && ownerId != null && userId == ownerId;
+  }
+
+  bool _guardOwnerAction([String message = 'Only the family owner can do that.']) {
+    final provider = context.read<AppProvider>();
+    if (_isOwner(provider)) return true;
+    if (mounted) _showSnack(context, message);
+    return false;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -51,6 +64,7 @@ class _RewardsScreenState extends State<RewardsScreen>
   }
 
   void _showAddGoalSheet() {
+    if (!_guardOwnerAction()) return;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -69,6 +83,7 @@ class _RewardsScreenState extends State<RewardsScreen>
   }
 
   Future<void> _addFunds(SavingsGoal goal, double amount) async {
+    if (!_guardOwnerAction()) return;
     HapticFeedback.lightImpact();
     final provider = context.read<AppProvider>();
     final db = provider.db;
@@ -90,6 +105,7 @@ class _RewardsScreenState extends State<RewardsScreen>
   }
 
   Future<void> _deleteGoal(String goalId) async {
+    if (!_guardOwnerAction()) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -182,6 +198,7 @@ class _RewardsScreenState extends State<RewardsScreen>
     String resolverUserId,
     String? note,
   ) async {
+    if (!_guardOwnerAction('Only the family owner can review requests.')) return;
     HapticFeedback.mediumImpact();
     final provider = context.read<AppProvider>();
     final db = provider.db;
@@ -231,6 +248,7 @@ class _RewardsScreenState extends State<RewardsScreen>
   }
 
   void _showApprovalDialog(RewardRedemption redemption) {
+    if (!_guardOwnerAction('Only the family owner can review requests.')) return;
     final noteCtrl = TextEditingController();
     final provider = context.read<AppProvider>();
     final requesterName = provider.userById(redemption.userId)?.name ?? 'Family member';
@@ -303,6 +321,7 @@ class _RewardsScreenState extends State<RewardsScreen>
   }
 
   Future<void> _deleteReward(String rewardId) async {
+    if (!_guardOwnerAction()) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -332,6 +351,7 @@ class _RewardsScreenState extends State<RewardsScreen>
   }
 
   void _showAddRewardSheet({Reward? editReward}) {
+    if (!_guardOwnerAction()) return;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -562,6 +582,7 @@ class _RewardsScreenState extends State<RewardsScreen>
   }
 
   void _showAddFundsDialog(SavingsGoal goal) {
+    if (!_guardOwnerAction()) return;
     final amountCtrl = TextEditingController();
     showDialog(
       context: context,

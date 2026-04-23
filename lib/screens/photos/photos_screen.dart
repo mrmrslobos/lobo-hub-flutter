@@ -12,6 +12,7 @@ import '../../config/module_config.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../services/family_activity_service.dart';
 import '../../services/notification_service.dart';
 import '../../services/supabase_service.dart';
 import '../../widgets/app_drawer.dart';
@@ -20,7 +21,11 @@ import '../../utils/debounce.dart';
 
 const _reactionEmojis = ['❤️', '😍', '😂', '🥹', '🎉', '👏'];
 
-void _reportContent(BuildContext context, String contentType, String contentId) {
+Future<void> _reportContent(
+  BuildContext context,
+  String contentType,
+  String contentId,
+) async {
   showDialog(
     context: context,
     builder: (ctx) => AlertDialog(
@@ -29,10 +34,26 @@ void _reportContent(BuildContext context, String contentType, String contentId) 
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
         TextButton(
-          onPressed: () {
+          onPressed: () async {
+            final provider = context.read<AppProvider>();
+            final familyId = provider.activeFamily?.id;
+            final actorUserId = provider.activeUser?.id;
+            if (familyId != null && actorUserId != null) {
+              final nextDb = FamilyActivityService.append(
+                provider.db,
+                familyId: familyId,
+                actorUserId: actorUserId,
+                action: 'content_reported',
+                detail: '$contentType:$contentId',
+              );
+              await provider.saveAndSync(
+                nextDb,
+                pushTableScope: {CloudSyncScope.familyActivityLogs},
+              );
+            }
             Navigator.pop(ctx);
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: const Text('Reported to family admin'),
+              content: const Text('Report saved for family admin review'),
               behavior: SnackBarBehavior.floating,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ));
@@ -70,6 +91,21 @@ class _PhotosScreenState extends State<PhotosScreen> {
   int _tabIndex = 0;
   bool _isUploading = false;
   String _searchQuery = '';
+
+  bool _isOwner(AppProvider provider) {
+    final userId = provider.activeUser?.id;
+    return userId != null && provider.activeFamily?.ownerId == userId;
+  }
+
+  bool _canManagePhoto(AppProvider provider, Photo photo) {
+    final userId = provider.activeUser?.id;
+    return userId != null && (photo.uploaderId == userId || _isOwner(provider));
+  }
+
+  bool _canManageMilestone(AppProvider provider, Milestone ms) {
+    final userId = provider.activeUser?.id;
+    return userId != null && (ms.childId == userId || _isOwner(provider));
+  }
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -175,6 +211,22 @@ class _PhotosScreenState extends State<PhotosScreen> {
   }
 
   Future<void> _deletePhoto(String id) async {
+    final provider = context.read<AppProvider>();
+    final photo = provider.db.photos.cast<Photo?>().firstWhere(
+      (p) => p?.id == id,
+      orElse: () => null,
+    );
+    if (photo == null || !_canManagePhoto(provider, photo)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Only the uploader or family owner can delete this photo.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -205,7 +257,9 @@ class _PhotosScreenState extends State<PhotosScreen> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    final provider = context.read<AppProvider>();
+    if (SupabaseService.isConfigured && _isNetworkUrl(photo.url)) {
+      await SupabaseService.deleteFamilyPhotoFromStorage(photo.url);
+    }
     final db = provider.db;
     await provider.saveAndSync(
       db.copyWith(photos: db.photos.where((p) => p.id != id).toList()),
@@ -222,6 +276,16 @@ class _PhotosScreenState extends State<PhotosScreen> {
   }
 
   Future<void> _editCaption(Photo photo) async {
+    final provider = context.read<AppProvider>();
+    if (!_canManagePhoto(provider, photo)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Only the uploader or family owner can edit this caption.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     final newCaption = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
@@ -232,7 +296,6 @@ class _PhotosScreenState extends State<PhotosScreen> {
     );
     if (newCaption == null || !mounted) return;
 
-    final provider = context.read<AppProvider>();
     final db = provider.db;
     final updatedPhotos = db.photos.map((p) {
       if (p.id != photo.id) return p;
@@ -301,6 +364,18 @@ class _PhotosScreenState extends State<PhotosScreen> {
   }
 
   Future<void> _deleteMilestone(Milestone ms) async {
+    final provider = context.read<AppProvider>();
+    if (!_canManageMilestone(provider, ms)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Only the milestone owner or family owner can delete this milestone.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -332,7 +407,6 @@ class _PhotosScreenState extends State<PhotosScreen> {
     );
     if (confirmed != true || !mounted) return;
 
-    final provider = context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(
       db.copyWith(milestones: db.milestones.where((m) => m.id != ms.id).toList()),
@@ -349,6 +423,16 @@ class _PhotosScreenState extends State<PhotosScreen> {
   }
 
   void _showAddMilestone({Milestone? editing}) {
+    final provider = context.read<AppProvider>();
+    if (editing != null && !_canManageMilestone(provider, editing)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Only the milestone owner or family owner can edit this milestone.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -360,6 +444,8 @@ class _PhotosScreenState extends State<PhotosScreen> {
   }
 
   void _showPhotoActions(Photo photo) {
+    final provider = context.read<AppProvider>();
+    final canManage = _canManagePhoto(provider, photo);
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -392,21 +478,22 @@ class _PhotosScreenState extends State<PhotosScreen> {
               ]),
             ),
             const Divider(height: 1, color: AppTheme.stone100),
-            ListTile(
-              leading: Container(
-                width: 36, height: 36,
-                decoration: BoxDecoration(
-                  color: AppTheme.primary.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(10),
+            if (canManage)
+              ListTile(
+                leading: Container(
+                  width: 36, height: 36,
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.edit_outlined, size: 18, color: AppTheme.primary),
                 ),
-                child: const Icon(Icons.edit_outlined, size: 18, color: AppTheme.primary),
+                title: const Text('Edit Caption', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _editCaption(photo);
+                },
               ),
-              title: const Text('Edit Caption', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600)),
-              onTap: () {
-                Navigator.pop(context);
-                _editCaption(photo);
-              },
-            ),
             ListTile(
               leading: Container(
                 width: 36, height: 36,
@@ -422,21 +509,22 @@ class _PhotosScreenState extends State<PhotosScreen> {
                 _reportContent(context, 'photo', photo.id);
               },
             ),
-            ListTile(
-              leading: Container(
-                width: 36, height: 36,
-                decoration: BoxDecoration(
-                  color: AppTheme.error.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(10),
+            if (canManage)
+              ListTile(
+                leading: Container(
+                  width: 36, height: 36,
+                  decoration: BoxDecoration(
+                    color: AppTheme.error.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.delete_outline_rounded, size: 18, color: AppTheme.error),
                 ),
-                child: const Icon(Icons.delete_outline_rounded, size: 18, color: AppTheme.error),
+                title: const Text('Delete Photo', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.error)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _deletePhoto(photo.id);
+                },
               ),
-              title: const Text('Delete Photo', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.error)),
-              onTap: () {
-                Navigator.pop(context);
-                _deletePhoto(photo.id);
-              },
-            ),
             const SizedBox(height: 8),
           ],
         ),
@@ -445,6 +533,8 @@ class _PhotosScreenState extends State<PhotosScreen> {
   }
 
   void _showMilestoneActions(Milestone ms) {
+    final provider = context.read<AppProvider>();
+    final canManage = _canManageMilestone(provider, ms);
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -477,36 +567,38 @@ class _PhotosScreenState extends State<PhotosScreen> {
               ]),
             ),
             const Divider(height: 1, color: AppTheme.stone100),
-            ListTile(
-              leading: Container(
-                width: 36, height: 36,
-                decoration: BoxDecoration(
-                  color: AppTheme.primary.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(10),
+            if (canManage)
+              ListTile(
+                leading: Container(
+                  width: 36, height: 36,
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.edit_outlined, size: 18, color: AppTheme.primary),
                 ),
-                child: const Icon(Icons.edit_outlined, size: 18, color: AppTheme.primary),
+                title: const Text('Edit Milestone', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showAddMilestone(editing: ms);
+                },
               ),
-              title: const Text('Edit Milestone', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600)),
-              onTap: () {
-                Navigator.pop(context);
-                _showAddMilestone(editing: ms);
-              },
-            ),
-            ListTile(
-              leading: Container(
-                width: 36, height: 36,
-                decoration: BoxDecoration(
-                  color: AppTheme.error.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(10),
+            if (canManage)
+              ListTile(
+                leading: Container(
+                  width: 36, height: 36,
+                  decoration: BoxDecoration(
+                    color: AppTheme.error.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.delete_outline_rounded, size: 18, color: AppTheme.error),
                 ),
-                child: const Icon(Icons.delete_outline_rounded, size: 18, color: AppTheme.error),
+                title: const Text('Delete Milestone', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.error)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _deleteMilestone(ms);
+                },
               ),
-              title: const Text('Delete Milestone', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.error)),
-              onTap: () {
-                Navigator.pop(context);
-                _deleteMilestone(ms);
-              },
-            ),
             const SizedBox(height: 8),
           ],
         ),

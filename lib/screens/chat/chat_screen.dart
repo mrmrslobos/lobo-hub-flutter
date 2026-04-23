@@ -11,6 +11,7 @@ import '../../config/cloud_sync_scope.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../services/family_activity_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../utils/debounce.dart';
@@ -26,7 +27,11 @@ void _showSnack(BuildContext context, String msg) {
   ));
 }
 
-void _reportContent(BuildContext context, String contentType, String contentId) {
+Future<void> _reportContent(
+  BuildContext context,
+  String contentType,
+  String contentId,
+) async {
   showDialog(
     context: context,
     builder: (ctx) => AlertDialog(
@@ -35,10 +40,26 @@ void _reportContent(BuildContext context, String contentType, String contentId) 
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
         TextButton(
-          onPressed: () {
+          onPressed: () async {
+            final provider = context.read<AppProvider>();
+            final familyId = provider.activeFamily?.id;
+            final actorUserId = provider.activeUser?.id;
+            if (familyId != null && actorUserId != null) {
+              final nextDb = FamilyActivityService.append(
+                provider.db,
+                familyId: familyId,
+                actorUserId: actorUserId,
+                action: 'content_reported',
+                detail: '$contentType:$contentId',
+              );
+              await provider.saveAndSync(
+                nextDb,
+                pushTableScope: {CloudSyncScope.familyActivityLogs},
+              );
+            }
             Navigator.pop(ctx);
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: const Text('Reported to family admin'),
+              content: const Text('Report saved for family admin review'),
               behavior: SnackBarBehavior.floating,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ));
@@ -133,6 +154,9 @@ class _ChatScreenState extends State<ChatScreen> {
       _textCtrl.clear();
       setState(() => _replyTo = null);
       _scrollToBottom();
+    } catch (_) {
+      if (!mounted) return;
+      _showSnack(context, 'Failed to send message. Try again.');
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -158,32 +182,52 @@ class _ChatScreenState extends State<ChatScreen> {
     final db = provider.db;
     final messages =
         db.messages.map((m) => m.id == msg.id ? updated : m).toList();
-    await provider.saveAndSync(
-      db.copyWith(messages: messages),
-      pushTableScope: {CloudSyncScope.messages},
-    );
+    try {
+      await provider.saveAndSync(
+        db.copyWith(messages: messages),
+        pushTableScope: {CloudSyncScope.messages},
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _showSnack(context, 'Could not update reaction.');
+    }
   }
 
-  Future<void> _deleteMessage(AppProvider provider, ChatMessage msg) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete Message'),
-        content: const Text('Delete this message? This cannot be undone.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
+  Future<void> _deleteMessage(
+    AppProvider provider,
+    ChatMessage msg, {
+    bool confirm = true,
+  }) async {
+    if (provider.activeUser?.id != msg.senderId) {
+      if (mounted) _showSnack(context, 'You can only delete your own messages.');
+      return;
+    }
+    if (confirm) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Delete Message'),
+          content: const Text('Delete this message? This cannot be undone.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    }
     final db = provider.db;
-    await provider.saveAndSync(
-      db.copyWith(
-        messages: db.messages.where((m) => m.id != msg.id).toList(),
-      ),
-      pushTableScope: {CloudSyncScope.messages},
-    );
+    try {
+      await provider.saveAndSync(
+        db.copyWith(
+          messages: db.messages.where((m) => m.id != msg.id).toList(),
+        ),
+        pushTableScope: {CloudSyncScope.messages},
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _showSnack(context, 'Could not delete message.');
+    }
   }
 
   void _showMessageActions(AppProvider provider, ChatMessage msg) {
@@ -437,8 +481,11 @@ class _ChatScreenState extends State<ChatScreen> {
                             ),
                           Dismissible(
                             key: ValueKey(msg.id),
-                            direction: DismissDirection.endToStart,
+                            direction: isMe
+                                ? DismissDirection.endToStart
+                                : DismissDirection.none,
                             confirmDismiss: (direction) async {
+                              if (!isMe) return false;
                               return await showDialog<bool>(
                                 context: context,
                                 builder: (ctx) => AlertDialog(
@@ -458,7 +505,8 @@ class _ChatScreenState extends State<ChatScreen> {
                                 ),
                               ) ?? false;
                             },
-                            onDismissed: (_) => _deleteMessage(provider, msg),
+                            onDismissed: (_) =>
+                                _deleteMessage(provider, msg, confirm: false),
                             background: Container(
                               alignment: Alignment.centerRight,
                               padding: const EdgeInsets.symmetric(horizontal: 20),

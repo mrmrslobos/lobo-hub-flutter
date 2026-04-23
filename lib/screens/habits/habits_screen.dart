@@ -65,6 +65,12 @@ class _HabitsScreenState extends State<HabitsScreen> {
   final _searchDebounce = Debouncer();
   String _searchQuery = '';
 
+  bool _canManageHabit(AppProvider provider, DailyHabit habit) {
+    final userId = provider.activeUser?.id;
+    final isOwner = userId != null && provider.activeFamily?.ownerId == userId;
+    return userId != null && (habit.userId == userId || isOwner);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -261,10 +267,14 @@ class _HabitsScreenState extends State<HabitsScreen> {
                     ...habitsForUi.map((habit) {
                       final isDone = todayCompletions.any((c) => c.habitId == habit.id);
                       final streak = _calcStreak(habit, db.habitCompletions, user.id);
+                      final canManageHabit = _canManageHabit(provider, habit);
                       return Dismissible(
                         key: ValueKey(habit.id),
-                        direction: DismissDirection.endToStart,
+                        direction: canManageHabit
+                            ? DismissDirection.endToStart
+                            : DismissDirection.none,
                         confirmDismiss: (_) async {
+                          if (!canManageHabit) return false;
                           return await showDialog<bool>(
                             context: context,
                             builder: (ctx) => AlertDialog(
@@ -284,6 +294,7 @@ class _HabitsScreenState extends State<HabitsScreen> {
                           ) ?? false;
                         },
                         onDismissed: (_) async {
+                          if (!canManageHabit) return;
                           final updatedHabits = db.dailyHabits.where((h) => h.id != habit.id).toList();
                           final updatedCompletions = db.habitCompletions.where((c) => c.habitId != habit.id).toList();
                           await provider.saveAndSync(
@@ -367,6 +378,10 @@ class _HabitsScreenState extends State<HabitsScreen> {
     BuildContext context, AppProvider provider, AppDB db,
     DailyHabit habit, User user, Family family,
   ) async {
+    if (!_canManageHabit(provider, habit)) {
+      _showSnack(context, 'Only the habit creator or family owner can manage this habit.');
+      return;
+    }
     await showModalBottomSheet<void>(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -496,6 +511,10 @@ class _HabitsScreenState extends State<HabitsScreen> {
       builder: (_) => _AddHabitSheet(
         editHabit: editHabit,
         onSave: (habit) async {
+          if (editHabit != null && !_canManageHabit(provider, editHabit)) {
+            _showSnack(context, 'Only the habit creator or family owner can edit this habit.');
+            return;
+          }
           List<DailyHabit> updatedHabits;
           if (editHabit != null) {
             updatedHabits = db.dailyHabits.map((h) => h.id == habit.id ? habit : h).toList();

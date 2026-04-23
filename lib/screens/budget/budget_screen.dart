@@ -85,9 +85,34 @@ class _BudgetScreenState extends State<BudgetScreen> {
 
   static Color _categoryColor(String key) => _categoryColors[key.toLowerCase()] ?? const Color(0xFF78716C);
 
+  bool _isOwner(AppProvider provider) {
+    final userId = provider.activeUser?.id;
+    return userId != null && provider.activeFamily?.ownerId == userId;
+  }
+
+  bool _canManageEntry(AppProvider provider, BudgetEntry entry) {
+    final userId = provider.activeUser?.id;
+    return userId != null && (entry.creatorId == userId || _isOwner(provider));
+  }
+
+  bool _canManageGoal(AppProvider provider, SavingsGoal goal) {
+    final userId = provider.activeUser?.id;
+    return userId != null && (goal.userId == userId || _isOwner(provider));
+  }
+
   Future<void> _deleteEntry(String id) async {
     HapticFeedback.lightImpact();
     final provider = context.read<AppProvider>();
+    final entry = provider.db.budgetEntries.cast<BudgetEntry?>().firstWhere(
+      (e) => e?.id == id,
+      orElse: () => null,
+    );
+    if (entry == null || !_canManageEntry(provider, entry)) {
+      if (mounted) {
+        _showSnack(context, 'Only the entry creator or family owner can delete this entry.');
+      }
+      return;
+    }
     final db = provider.db;
     await provider.saveAndSync(
       db.copyWith(budgetEntries: db.budgetEntries.where((e) => e.id != id).toList()),
@@ -132,6 +157,17 @@ class _BudgetScreenState extends State<BudgetScreen> {
   }
 
   Future<void> _deleteGoal(String id) async {
+    final provider = context.read<AppProvider>();
+    final goal = provider.db.savingsGoals.cast<SavingsGoal?>().firstWhere(
+      (g) => g?.id == id,
+      orElse: () => null,
+    );
+    if (goal == null || !_canManageGoal(provider, goal)) {
+      if (mounted) {
+        _showSnack(context, 'Only the goal creator or family owner can delete this goal.');
+      }
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -144,7 +180,6 @@ class _BudgetScreenState extends State<BudgetScreen> {
       ),
     );
     if (confirmed != true) return;
-    final provider = context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(
       db.copyWith(savingsGoals: db.savingsGoals.where((g) => g.id != id).toList()),
@@ -270,6 +305,11 @@ class _BudgetScreenState extends State<BudgetScreen> {
   }
 
   void _showEditEntry(BudgetEntry entry) {
+    final provider = context.read<AppProvider>();
+    if (!_canManageEntry(provider, entry)) {
+      _showSnack(context, 'Only the entry creator or family owner can edit this entry.');
+      return;
+    }
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -1138,8 +1178,12 @@ class _BudgetScreenState extends State<BudgetScreen> {
                       child: _EntryCard(
                         entry: entry,
                         currencyFmt: _currencyFmt,
-                        onDelete: () => _deleteEntry(entry.id),
-                        onEdit: () => _showEditEntry(entry),
+                        onDelete: _canManageEntry(provider, entry)
+                            ? () => _deleteEntry(entry.id)
+                            : null,
+                        onEdit: _canManageEntry(provider, entry)
+                            ? () => _showEditEntry(entry)
+                            : null,
                       ),
                     );
                   }),
@@ -1222,7 +1266,9 @@ class _BudgetScreenState extends State<BudgetScreen> {
                         ),
                       const SizedBox(width: 8),
                       GestureDetector(
-                        onTap: () => _deleteGoal(goal.id),
+                        onTap: _canManageGoal(provider, goal)
+                            ? () => _deleteGoal(goal.id)
+                            : null,
                         child: const Icon(Icons.close_rounded, size: 16, color: AppTheme.stone300),
                       ),
                     ]),
@@ -1762,13 +1808,13 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet> {
 class _EntryCard extends StatelessWidget {
   final BudgetEntry entry;
   final NumberFormat currencyFmt;
-  final VoidCallback onDelete;
+  final VoidCallback? onDelete;
   final VoidCallback? onEdit;
 
   const _EntryCard(
       {required this.entry,
       required this.currencyFmt,
-      required this.onDelete,
+      this.onDelete,
       this.onEdit});
 
   @override
@@ -1777,7 +1823,9 @@ class _EntryCard extends StatelessWidget {
     final color = isIncome ? AppTheme.success : AppTheme.error;
     return Dismissible(
       key: Key(entry.id),
-      direction: DismissDirection.endToStart,
+      direction: onDelete != null
+          ? DismissDirection.endToStart
+          : DismissDirection.none,
       background: Container(
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 20),
@@ -1786,7 +1834,9 @@ class _EntryCard extends StatelessWidget {
         child: const Icon(Icons.delete_outline_rounded,
             color: Colors.white, size: 24),
       ),
-      confirmDismiss: (_) async => await showDialog<bool>(
+      confirmDismiss: (_) async => onDelete == null
+          ? false
+          : await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('Delete Entry'),
@@ -1802,7 +1852,7 @@ class _EntryCard extends StatelessWidget {
           ],
         ),
       ),
-      onDismissed: (_) => onDelete(),
+      onDismissed: (_) => onDelete?.call(),
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
@@ -2762,6 +2812,16 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
   bool _rolloverEnabled = false;
   BudgetLimitPeriod _limitPeriod = BudgetLimitPeriod.monthly;
 
+  bool _isOwner(AppProvider provider) {
+    final userId = provider.activeUser?.id;
+    return userId != null && provider.activeFamily?.ownerId == userId;
+  }
+
+  bool _canManageCategory(AppProvider provider, BudgetCategoryRecord cat) {
+    final userId = provider.activeUser?.id;
+    return userId != null && (cat.creatorId == userId || _isOwner(provider));
+  }
+
   static const _colorPresets = [
     'amber', 'blue', 'pink', 'emerald', 'purple', 'red', 'cyan',
     'orange', 'teal', 'indigo', 'lime', 'rose', 'sky', 'violet', 'green',
@@ -2811,6 +2871,18 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
 
     setState(() => _isSaving = true);
     final provider = context.read<AppProvider>();
+    if (!_canManageCategory(provider, cat)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Only the category creator or family owner can edit this category.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      setState(() => _isSaving = false);
+      return;
+    }
     final db = provider.db;
     final updated = BudgetCategoryRecord(
       id: cat.id,
@@ -2836,6 +2908,17 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
 
   Future<void> _deleteCategory(BudgetCategoryRecord cat) async {
     final provider = context.read<AppProvider>();
+    if (!_canManageCategory(provider, cat)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Only the category creator or family owner can delete this category.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
     final db = provider.db;
     final txCount = db.budgetEntries.where((e) => e.category.name == cat.name).length;
 
@@ -3064,12 +3147,16 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
                         IconButton(
                           icon: const Icon(Icons.edit_outlined, size: 18),
                           color: AppTheme.stone400,
-                          onPressed: () => _startEdit(cat),
+                          onPressed: _canManageCategory(provider, cat)
+                              ? () => _startEdit(cat)
+                              : null,
                         ),
                         IconButton(
                           icon: const Icon(Icons.delete_outline_rounded, size: 18),
                           color: AppTheme.error,
-                          onPressed: () => _deleteCategory(cat),
+                          onPressed: _canManageCategory(provider, cat)
+                              ? () => _deleteCategory(cat)
+                              : null,
                         ),
                       ]),
                     );

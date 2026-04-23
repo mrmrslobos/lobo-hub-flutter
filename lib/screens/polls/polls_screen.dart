@@ -14,6 +14,16 @@ import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../utils/debounce.dart';
 
+void _showSnack(BuildContext context, String message) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(message),
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    ),
+  );
+}
+
 class PollsScreen extends StatefulWidget {
   const PollsScreen({super.key});
 
@@ -28,6 +38,11 @@ class _PollsScreenState extends State<PollsScreen> {
   final _searchCtrl = TextEditingController();
   final _searchDebounce = Debouncer();
   String _searchQuery = '';
+
+  bool _canManagePoll(AppProvider provider, Poll poll) {
+    final userId = provider.activeUser?.id;
+    return userId != null && poll.creatorId == userId;
+  }
 
   @override
   void dispose() {
@@ -74,6 +89,13 @@ class _PollsScreenState extends State<PollsScreen> {
   }
 
   Future<void> _closePoll(Poll poll) async {
+    final provider = context.read<AppProvider>();
+    if (!_canManagePoll(provider, poll)) {
+      if (mounted) {
+        _showSnack(context, 'Only the poll creator can close this poll.');
+      }
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -95,7 +117,6 @@ class _PollsScreenState extends State<PollsScreen> {
       ),
     );
     if (confirmed != true) return;
-    final provider = context.read<AppProvider>();
     final db = provider.db;
     final updatedPoll = poll.copyWith(status: PollStatus.closed);
     await provider.saveAndSync(
@@ -113,6 +134,16 @@ class _PollsScreenState extends State<PollsScreen> {
   }
 
   Future<void> _deletePoll(String pollId) async {
+    final provider = context.read<AppProvider>();
+    final poll = provider.db.polls.cast<Poll?>().firstWhere(
+      (p) => p?.id == pollId,
+      orElse: () => null,
+    );
+    if (poll == null) return;
+    if (!_canManagePoll(provider, poll)) {
+      if (mounted) _showSnack(context, 'Only the poll creator can delete this poll.');
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -125,7 +156,6 @@ class _PollsScreenState extends State<PollsScreen> {
       ),
     );
     if (confirmed != true) return;
-    final provider = context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(
       db.copyWith(polls: db.polls.where((p) => p.id != pollId).toList()),
@@ -347,7 +377,9 @@ class _PollsScreenState extends State<PollsScreen> {
                   padding: const EdgeInsets.only(bottom: 10),
                   child: Dismissible(
                     key: ValueKey(poll.id),
-                    direction: DismissDirection.endToStart,
+                    direction: _canManagePoll(provider, poll)
+                        ? DismissDirection.endToStart
+                        : DismissDirection.none,
                     background: Container(
                       alignment: Alignment.centerRight,
                       padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -371,6 +403,7 @@ class _PollsScreenState extends State<PollsScreen> {
                       ),
                     ),
                     confirmDismiss: (direction) async {
+                      if (!_canManagePoll(provider, poll)) return false;
                       return await showDialog<bool>(
                         context: context,
                         builder: (context) => AlertDialog(
@@ -399,8 +432,10 @@ class _PollsScreenState extends State<PollsScreen> {
                       }),
                       onVote: poll.status == PollStatus.open ? (optId) => _vote(poll, optId) : null,
                       onClose: poll.status == PollStatus.open ? () => _closePoll(poll) : null,
-                      onEdit: poll.status == PollStatus.open ? () => _showCreatePollSheet(editPoll: poll) : null,
-                      onDelete: () => _deletePoll(poll.id),
+                      onEdit: poll.status == PollStatus.open && _canManagePoll(provider, poll)
+                          ? () => _showCreatePollSheet(editPoll: poll)
+                          : null,
+                      onDelete: _canManagePoll(provider, poll) ? () => _deletePoll(poll.id) : null,
                     ),
                   ),
                 )).toList(),
@@ -572,7 +607,7 @@ class _PollCard extends StatelessWidget {
   final Future<void> Function(String)? onVote;
   final VoidCallback? onClose;
   final VoidCallback? onEdit;
-  final VoidCallback onDelete;
+  final VoidCallback? onDelete;
 
   const _PollCard({
     required this.poll,
@@ -582,7 +617,7 @@ class _PollCard extends StatelessWidget {
     required this.onVote,
     required this.onClose,
     this.onEdit,
-    required this.onDelete,
+    this.onDelete,
   });
 
   bool get _isOpen => poll.status == PollStatus.open;
@@ -858,7 +893,7 @@ class _PollCard extends StatelessWidget {
                 ],
 
                 // Action buttons
-                if ((_isOpen && onClose != null) || onDelete != null) ...[
+                if ((_isOpen && onClose != null) || onDelete != null || onEdit != null) ...[
                   const SizedBox(height: 12),
                   const Divider(height: 1, color: AppTheme.stone100),
                   const SizedBox(height: 8),
@@ -910,27 +945,28 @@ class _PollCard extends StatelessWidget {
                       ),
                     ],
                     const Spacer(),
-                    GestureDetector(
-                      onTap: onDelete,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: AppTheme.error.withValues(alpha: 0.05),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: AppTheme.error.withValues(alpha: 0.2)),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.delete_outline_rounded, size: 14, color: AppTheme.error),
-                            SizedBox(width: 6),
-                            Text('Delete', style: TextStyle(
-                              fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.error,
-                            )),
-                          ],
+                    if (onDelete != null)
+                      GestureDetector(
+                        onTap: onDelete,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: AppTheme.error.withValues(alpha: 0.05),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: AppTheme.error.withValues(alpha: 0.2)),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.delete_outline_rounded, size: 14, color: AppTheme.error),
+                              SizedBox(width: 6),
+                              Text('Delete', style: TextStyle(
+                                fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.error,
+                              )),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
                   ]),
                 ],
               ]),

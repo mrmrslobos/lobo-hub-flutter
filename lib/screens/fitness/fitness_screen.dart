@@ -535,9 +535,20 @@ Write 2-4 short paragraphs: (1) what went well or patterns you notice, (2) one c
   }
 
   Future<void> _deleteLog(BuildContext context, String sessionId) async {
+    final provider = this.context.read<AppProvider>();
+    final session = provider.db.workoutSessions.cast<WorkoutSession?>().firstWhere(
+      (s) => s?.id == sessionId,
+      orElse: () => null,
+    );
+    final userId = provider.activeUser?.id;
+    final isOwner = userId != null && provider.activeFamily?.ownerId == userId;
+    final canManage = session != null && userId != null && (session.userId == userId || isOwner);
+    if (!canManage) {
+      if (mounted) _showSnack(context, 'Only the workout owner or family owner can delete this log.');
+      return;
+    }
     final ok = await _confirmRemove(context, 'Delete Session', 'Remove this workout session?');
     if (!ok) return;
-    final provider = this.context.read<AppProvider>();
     final db = provider.db;
     final exerciseIdsToDelete =
         db.workoutExercises.where((e) => e.sessionId == sessionId).map((e) => e.id).toSet();
@@ -1183,63 +1194,69 @@ Write 2-4 short paragraphs: (1) what went well or patterns you notice, (2) one c
           else
             ...sessionsForList.map((session) => Padding(
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-                  child: Dismissible(
-                    key: ValueKey(session.id),
-                    direction: DismissDirection.endToStart,
-                    confirmDismiss: (_) async {
-                      return await showDialog<bool>(
-                        context: context,
-                        builder: (ctx) => AlertDialog(
-                          title: const Text('Delete Session'),
-                          content: const Text('Remove this workout session?'),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.of(ctx).pop(false),
-                              child: const Text('Cancel'),
+                  child: Builder(builder: (ctx) {
+                    final userId = provider.activeUser?.id;
+                    final isOwner = userId != null && provider.activeFamily?.ownerId == userId;
+                    final canManage = userId != null && (session.userId == userId || isOwner);
+                    return Dismissible(
+                      key: ValueKey(session.id),
+                      direction: canManage ? DismissDirection.endToStart : DismissDirection.none,
+                      confirmDismiss: (_) async {
+                        if (!canManage) return false;
+                        return await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Delete Session'),
+                            content: const Text('Remove this workout session?'),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.of(ctx).pop(false),
+                                child: const Text('Cancel'),
+                              ),
+                              TextButton(
+                                onPressed: () => Navigator.of(ctx).pop(true),
+                                child: const Text('Delete'),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                      onDismissed: (_) => _deleteLog(context, session.id),
+                      background: Container(
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.only(right: 20),
+                        decoration: BoxDecoration(
+                          color: AppTheme.error,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Text(
+                              'Delete',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
-                            TextButton(
-                              onPressed: () => Navigator.of(ctx).pop(true),
-                              child: const Text('Delete'),
-                            ),
+                            SizedBox(width: 8),
+                            Icon(Icons.delete, color: Colors.white),
                           ],
                         ),
-                      );
-                    },
-                    onDismissed: (_) => _deleteLog(context, session.id),
-                    background: Container(
-                      alignment: Alignment.centerRight,
-                      padding: const EdgeInsets.only(right: 20),
-                      decoration: BoxDecoration(
-                        color: AppTheme.error,
-                        borderRadius: BorderRadius.circular(16),
                       ),
-                      child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          Text(
-                            'Delete',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          SizedBox(width: 8),
-                          Icon(Icons.delete, color: Colors.white),
-                        ],
+                      child: _SessionCard(
+                        session: session,
+                        exercises: provider.db.workoutExercises
+                            .where((e) => e.sessionId == session.id)
+                            .toList()
+                          ..sort((a, b) => a.order.compareTo(b.order)),
+                        emoji: _activityEmoji(session.title),
+                        memberName:
+                            provider.displayNameForUserId(session.userId),
+                        onDelete: canManage ? () => _deleteLog(context, session.id) : () {},
                       ),
-                    ),
-                    child: _SessionCard(
-                      session: session,
-                      exercises: provider.db.workoutExercises
-                          .where((e) => e.sessionId == session.id)
-                          .toList()
-                        ..sort((a, b) => a.order.compareTo(b.order)),
-                      emoji: _activityEmoji(session.title),
-                      memberName:
-                          provider.displayNameForUserId(session.userId),
-                      onDelete: () => _deleteLog(context, session.id),
-                    ),
-                  ),
+                    );
+                  }),
                 )),
         ],
       ),

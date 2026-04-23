@@ -326,6 +326,12 @@ class _DevotionalScreenState extends State<DevotionalScreen>
     final provider = context.read<AppProvider>();
     final db = provider.db;
     final entry = db.devotionalEntries.where((e) => e.id == id).firstOrNull;
+    final userId = provider.activeUser?.id;
+    final isOwner = userId != null && provider.activeFamily?.ownerId == userId;
+    if (entry == null || userId == null || !(entry.creatorId == userId || isOwner)) {
+      if (mounted) _showSnack(context, 'Only the entry creator or family owner can delete this devotional.');
+      return;
+    }
     final isDailyAuto = entry != null && entry.tags.contains('daily-auto');
 
     if (isDailyAuto) {
@@ -1117,95 +1123,102 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
                           )),
                         )
                       else
-                        ...filtered.map((entry) => Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-                          child: Dismissible(
-                            key: Key(entry.id),
-                            direction: DismissDirection.endToStart,
-                            background: Container(
-                              alignment: Alignment.centerRight,
-                              padding: const EdgeInsets.only(right: 20),
-                              decoration: BoxDecoration(
-                                color: AppTheme.error.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: const Row(
-                                mainAxisAlignment: MainAxisAlignment.end,
-                                children: [
-                                  Text('Delete', style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.error)),
-                                  SizedBox(width: 8),
-                                  Icon(Icons.delete_outline_rounded, color: AppTheme.error),
-                                ],
-                              ),
-                            ),
-                            confirmDismiss: (_) async {
-                              return await showDialog<bool>(
-                                context: context,
-                                builder: (ctx) => AlertDialog(
-                                  title: const Text('Delete Devotional'),
-                                  content: Text('Delete "${entry.title}"?'),
-                                  actions: [
-                                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-                                    TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
+                        ...filtered.map((entry) {
+                          final provider = context.read<AppProvider>();
+                          final userId = provider.activeUser?.id;
+                          final isOwner = userId != null && provider.activeFamily?.ownerId == userId;
+                          final canManage = userId != null && (entry.creatorId == userId || isOwner);
+                          return Padding(
+                            padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+                            child: Dismissible(
+                              key: Key(entry.id),
+                              direction: canManage ? DismissDirection.endToStart : DismissDirection.none,
+                              background: Container(
+                                alignment: Alignment.centerRight,
+                                padding: const EdgeInsets.only(right: 20),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.error.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: const Row(
+                                  mainAxisAlignment: MainAxisAlignment.end,
+                                  children: [
+                                    Text('Delete', style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.error)),
+                                    SizedBox(width: 8),
+                                    Icon(Icons.delete_outline_rounded, color: AppTheme.error),
                                   ],
                                 ),
-                              );
-                            },
-                            onDismissed: (_) => widget.onDeleteEntry(entry.id),
-                            child: GestureDetector(
-                            onTap: () => widget.onSelectEntry(entry),
-                            child: Container(
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: AppTheme.stone100),
                               ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (entry.scripture != null)
-                                    Text(
-                                      'BASED ON ${_extractRef(entry.scripture!).toUpperCase()}',
-                                      style: const TextStyle(
-                                        fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700,
-                                        color: AppTheme.stone400, letterSpacing: 0.5,
-                                      ),
-                                    ),
-                                  if (entry.scripture != null) const SizedBox(height: 6),
-                                  Text(entry.title, style: const TextStyle(
-                                    fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: AppTheme.stone900,
-                                  ), maxLines: 2, overflow: TextOverflow.ellipsis),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    DateFormat('MMM d, yyyy').format(entry.date),
-                                    style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Row(
-                                    children: [
-                                      if (entry.visibility == Visibility.FAMILY)
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                          margin: const EdgeInsets.only(right: 6),
-                                          decoration: BoxDecoration(
-                                            color: AppTheme.primary.withValues(alpha: 0.08),
-                                            borderRadius: BorderRadius.circular(6),
-                                          ),
-                                          child: const Text('Shared', style: TextStyle(
-                                            fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w600, color: AppTheme.primary,
-                                          )),
-                                        ),
-                                      if (entry.isFavorited)
-                                        Icon(Icons.bookmark_rounded, size: 16, color: AppTheme.primary),
+                              confirmDismiss: (_) async {
+                                if (!canManage) return false;
+                                return await showDialog<bool>(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    title: const Text('Delete Devotional'),
+                                    content: Text('Delete "${entry.title}"?'),
+                                    actions: [
+                                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                                      TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
                                     ],
                                   ),
-                                ],
+                                );
+                              },
+                              onDismissed: (_) => widget.onDeleteEntry(entry.id),
+                              child: GestureDetector(
+                                onTap: () => widget.onSelectEntry(entry),
+                                child: Container(
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(color: AppTheme.stone100),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      if (entry.scripture != null)
+                                        Text(
+                                          'BASED ON ${_extractRef(entry.scripture!).toUpperCase()}',
+                                          style: const TextStyle(
+                                            fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700,
+                                            color: AppTheme.stone400, letterSpacing: 0.5,
+                                          ),
+                                        ),
+                                      if (entry.scripture != null) const SizedBox(height: 6),
+                                      Text(entry.title, style: const TextStyle(
+                                        fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: AppTheme.stone900,
+                                      ), maxLines: 2, overflow: TextOverflow.ellipsis),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        DateFormat('MMM d, yyyy').format(entry.date),
+                                        style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Row(
+                                        children: [
+                                          if (entry.visibility == Visibility.FAMILY)
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                              margin: const EdgeInsets.only(right: 6),
+                                              decoration: BoxDecoration(
+                                                color: AppTheme.primary.withValues(alpha: 0.08),
+                                                borderRadius: BorderRadius.circular(6),
+                                              ),
+                                              child: const Text('Shared', style: TextStyle(
+                                                fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w600, color: AppTheme.primary,
+                                              )),
+                                            ),
+                                          if (entry.isFavorited)
+                                            Icon(Icons.bookmark_rounded, size: 16, color: AppTheme.primary),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
-                          ),
-                        )),
+                          );
+                        }),
                     ],
                   ),
                   crossFadeState: _pastReadingsExpanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,

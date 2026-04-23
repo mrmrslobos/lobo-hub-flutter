@@ -76,6 +76,16 @@ class LocationScreen extends StatefulWidget {
 
 class _LocationScreenState extends State<LocationScreen> {
   Timer? _locationTimer;
+
+  bool _isOwner(AppProvider provider) {
+    final userId = provider.activeUser?.id;
+    return userId != null && provider.activeFamily?.ownerId == userId;
+  }
+
+  bool _canManagePlace(AppProvider provider, SavedPlace place) {
+    final userId = provider.activeUser?.id;
+    return userId != null && (place.creatorId == userId || _isOwner(provider));
+  }
   bool _permissionDenied = false;
   Position? _lastPosition;
   final _placeSearchCtrl = TextEditingController();
@@ -244,6 +254,10 @@ class _LocationScreenState extends State<LocationScreen> {
             }
           } catch (_) {}
         } catch (_) {}
+        if (lat == 0.0 && lng == 0.0) {
+          if (mounted) _showSnack('Could not get your location. Try again.');
+          return;
+        }
       }
 
       final newShare = LocationShare(
@@ -305,6 +319,11 @@ class _LocationScreenState extends State<LocationScreen> {
   // ─── Place CRUD ─────────────────────────────────────────────────────────────
 
   Future<void> _deletePlace(SavedPlace place) async {
+    final provider = context.read<AppProvider>();
+    if (!_canManagePlace(provider, place)) {
+      if (mounted) _showSnack('Only the place creator or family owner can delete this place.');
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -335,7 +354,6 @@ class _LocationScreenState extends State<LocationScreen> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    final provider = context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(
       db.copyWith(savedPlaces: db.savedPlaces.where((p) => p.id != place.id).toList()),
@@ -345,6 +363,11 @@ class _LocationScreenState extends State<LocationScreen> {
   }
 
   void _showAddPlaceSheet({SavedPlace? editing}) {
+    final provider = context.read<AppProvider>();
+    if (editing != null && !_canManagePlace(provider, editing)) {
+      _showSnack('Only the place creator or family owner can edit this place.');
+      return;
+    }
     final pos = _lastPosition;
     showModalBottomSheet(
       context: context,
@@ -360,6 +383,8 @@ class _LocationScreenState extends State<LocationScreen> {
   }
 
   void _showPlaceActions(SavedPlace place) {
+    final provider = context.read<AppProvider>();
+    final canManage = _canManagePlace(provider, place);
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -392,21 +417,22 @@ class _LocationScreenState extends State<LocationScreen> {
               ]),
             ),
             const Divider(height: 1, color: AppTheme.stone100),
-            ListTile(
-              leading: Container(
-                width: 36, height: 36,
-                decoration: BoxDecoration(
-                  color: AppTheme.primary.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(10),
+            if (canManage)
+              ListTile(
+                leading: Container(
+                  width: 36, height: 36,
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.edit_outlined, size: 18, color: AppTheme.primary),
                 ),
-                child: const Icon(Icons.edit_outlined, size: 18, color: AppTheme.primary),
+                title: const Text('Edit Place', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showAddPlaceSheet(editing: place);
+                },
               ),
-              title: const Text('Edit Place', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600)),
-              onTap: () {
-                Navigator.pop(context);
-                _showAddPlaceSheet(editing: place);
-              },
-            ),
             ListTile(
               leading: Container(
                 width: 36, height: 36,
@@ -422,21 +448,22 @@ class _LocationScreenState extends State<LocationScreen> {
                 _openInMaps(place.latitude, place.longitude);
               },
             ),
-            ListTile(
-              leading: Container(
-                width: 36, height: 36,
-                decoration: BoxDecoration(
-                  color: AppTheme.error.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(10),
+            if (canManage)
+              ListTile(
+                leading: Container(
+                  width: 36, height: 36,
+                  decoration: BoxDecoration(
+                    color: AppTheme.error.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.delete_outline_rounded, size: 18, color: AppTheme.error),
                 ),
-                child: const Icon(Icons.delete_outline_rounded, size: 18, color: AppTheme.error),
+                title: const Text('Delete Place', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.error)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _deletePlace(place);
+                },
               ),
-              title: const Text('Delete Place', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.error)),
-              onTap: () {
-                Navigator.pop(context);
-                _deletePlace(place);
-              },
-            ),
             const SizedBox(height: 8),
           ],
         ),
@@ -733,8 +760,8 @@ class _LocationScreenState extends State<LocationScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Column(
                   children: members.map((member) {
-                    final share = shareMap[member.id];
-                    final isMe = member.id == user.id;
+                    final share = shareMap[member.userId];
+                    final isMe = member.userId == user.id;
                     final memberName = provider.memberDisplayName(member);
 
                     String? distLabel;
@@ -1099,8 +1126,8 @@ class _AddPlaceSheetState extends State<_AddPlaceSheet> {
           creatorId: p.creatorId,
           name: _nameCtrl.text.trim(),
           emoji: _emoji,
-          latitude: pos?.lat ?? p.latitude,
-          longitude: pos?.lng ?? p.longitude,
+          latitude: p.latitude,
+          longitude: p.longitude,
           radiusMetres: _radius,
           createdAt: p.createdAt,
         );

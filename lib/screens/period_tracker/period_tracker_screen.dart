@@ -28,7 +28,6 @@ const _uuid = Uuid();
 const _pink = Color(0xFFEC4899);
 const _pinkDark = Color(0xFFE11D48);
 const _pinkLight = Color(0xFFFCE7F3);
-const _pinkBg = Color(0xFFFDF2F8);
 
 const _symptomOptions = [
   'Cramps 😣',
@@ -175,6 +174,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
   DateTime? _lastOvulationDate;
 
   bool _fertilityScheduleInFlight = false;
+  String? _lastPredictionTriggerKey;
 
   @override
   void initState() {
@@ -369,7 +369,6 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
         await _cancelFertilityRemindersForLastDates();
       }
 
-      final nowLocal = DateTime.now();
       final fertileWhen = DateTime(
         fertileStartDateOnly.year,
         fertileStartDateOnly.month,
@@ -439,7 +438,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
       builder: (_) => _PeriodLogSheet(
         existing: existing,
         initialDate: initialDate,
-        onSave: (entry) async {
+        onSave: (entry, moodEmoji) async {
           final provider = context.read<AppProvider>();
           final db = provider.db;
           List<PeriodEntry> updated;
@@ -448,8 +447,55 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
           } else {
             updated = [...db.periodEntries, entry];
           }
+          final logDate = DateTime(entry.startDate.year, entry.startDate.month, entry.startDate.day);
+          final existingMoodLog = db.periodSymptoms.cast<PeriodSymptomLog?>().firstWhere(
+            (s) =>
+                s?.userId == entry.userId &&
+                s?.familyId == entry.familyId &&
+                _isSameDay(s!.date, logDate),
+            orElse: () => null,
+          );
+          final mood = switch (moodEmoji) {
+            '😄' => CycleMood.GREAT,
+            '🙂' => CycleMood.GOOD,
+            '😐' => CycleMood.OKAY,
+            '😔' => CycleMood.LOW,
+            '😢' => CycleMood.ROUGH,
+            _ => null,
+          };
+          final withMoodLogs = mood == null
+              ? db.periodSymptoms
+              : existingMoodLog == null
+                  ? [
+                      ...db.periodSymptoms,
+                      PeriodSymptomLog(
+                        id: _uuid.v4(),
+                        userId: entry.userId,
+                        familyId: entry.familyId,
+                        date: logDate,
+                        symptoms: const [],
+                        mood: mood,
+                        createdAt: DateTime.now(),
+                      ),
+                    ]
+                  : db.periodSymptoms
+                      .map((s) => s.id == existingMoodLog.id
+                          ? PeriodSymptomLog(
+                              id: s.id,
+                              userId: s.userId,
+                              familyId: s.familyId,
+                              date: s.date,
+                              symptoms: s.symptoms,
+                              mood: mood,
+                              painLevel: s.painLevel,
+                              notes: s.notes,
+                              createdAt: s.createdAt,
+                            )
+                          : s)
+                      .toList();
+
           await provider.saveAndSync(
-            db.copyWith(periodEntries: updated),
+            db.copyWith(periodEntries: updated, periodSymptoms: withMoodLogs),
             pushTableScope: CloudSyncScope.periodBundle,
           );
         },
@@ -489,8 +535,32 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
         onSave: (log) async {
           final provider = context.read<AppProvider>();
           final db = provider.db;
+          final existing = db.periodSymptoms.cast<PeriodSymptomLog?>().firstWhere(
+            (s) =>
+                s?.userId == log.userId &&
+                s?.familyId == log.familyId &&
+                _isSameDay(s!.date, log.date),
+            orElse: () => null,
+          );
+          final updatedSymptoms = existing == null
+              ? [...db.periodSymptoms, log]
+              : db.periodSymptoms
+                  .map((s) => s.id == existing.id
+                      ? PeriodSymptomLog(
+                          id: existing.id,
+                          userId: log.userId,
+                          familyId: log.familyId,
+                          date: log.date,
+                          symptoms: log.symptoms,
+                          mood: log.mood,
+                          painLevel: log.painLevel,
+                          notes: log.notes,
+                          createdAt: existing.createdAt,
+                        )
+                      : s)
+                  .toList();
           await provider.saveAndSync(
-            db.copyWith(periodSymptoms: [...db.periodSymptoms, log]),
+            db.copyWith(periodSymptoms: updatedSymptoms),
             pushTableScope: CloudSyncScope.periodBundle,
           );
         },
@@ -602,7 +672,8 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
 
                   for (final line in lines) {
                     try {
-                      final parts = line.split(RegExp(r'\s*[-–—]+\s*'));
+                      final normalized = line.replaceAll('–', '-').replaceAll('—', '-');
+                      final parts = normalized.split(RegExp(r'\s+-\s+'));
                       final start = DateTime.parse(parts[0].trim());
                       final end = parts.length > 1 ? DateTime.parse(parts[1].trim()) : null;
                       newEntries.add(PeriodEntry(
@@ -647,9 +718,18 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
   }
 
   Future<void> _deleteEntry(BuildContext context, String id) async {
+    final provider = this.context.read<AppProvider>();
+    final userId = provider.activeUser?.id;
+    final entry = provider.db.periodEntries.cast<PeriodEntry?>().firstWhere(
+      (e) => e?.id == id,
+      orElse: () => null,
+    );
+    if (entry == null || userId == null || entry.userId != userId) {
+      if (mounted) _showSnack(context, 'You can only delete your own period entries.');
+      return;
+    }
     final ok = await _confirmRemove(context, 'Delete Entry', 'Delete this period log entry? This cannot be undone.');
     if (!ok) return;
-    final provider = this.context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(
       db.copyWith(periodEntries: db.periodEntries.where((e) => e.id != id).toList()),
@@ -710,14 +790,22 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     final predictedFertileStart = prediction[0];
     final predictedOvulationDate = prediction[1];
 
-    if (_selectedTab == 0 || _selectedTab == 2) {
-      // One-time local notifications for upcoming fertile window/ovulation.
-      unawaited(
-        _maybeScheduleFertilityReminders(
-          fertileStartDateOnly: predictedFertileStart,
-          ovulationDateOnly: predictedOvulationDate,
-        ),
-      );
+    final predictionKey = predictedFertileStart != null && predictedOvulationDate != null
+        ? '${_selectedTab}_${_dateOnlyKey(predictedFertileStart)}_${_dateOnlyKey(predictedOvulationDate)}'
+        : null;
+    if ((_selectedTab == 0 || _selectedTab == 2) &&
+        predictionKey != null &&
+        predictionKey != _lastPredictionTriggerKey) {
+      _lastPredictionTriggerKey = predictionKey;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(
+          _maybeScheduleFertilityReminders(
+            fertileStartDateOnly: predictedFertileStart,
+            ovulationDateOnly: predictedOvulationDate,
+          ),
+        );
+      });
     }
 
     return Scaffold(
@@ -1455,7 +1543,7 @@ class _PeriodCalendar extends StatelessWidget {
 class _PeriodLogSheet extends StatefulWidget {
   final PeriodEntry? existing;
   final DateTime? initialDate;
-  final Future<void> Function(PeriodEntry) onSave;
+  final Future<void> Function(PeriodEntry, String) onSave;
   const _PeriodLogSheet({this.existing, this.initialDate, required this.onSave});
 
   @override
@@ -1520,7 +1608,7 @@ class _PeriodLogSheetState extends State<_PeriodLogSheet> {
       symptoms: _symptoms,
       notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
     );
-    await widget.onSave(entry);
+    await widget.onSave(entry, _mood);
     if (mounted) Navigator.pop(context);
   }
 
