@@ -1140,6 +1140,8 @@ class MealPlanEntry {
   final String? sourceMealPlanId;
   final String? leftoverMealPlanId;
   final DateTime updatedAt;
+  /// Supabase `created_by`; empty means legacy (RLS allows any member to update/delete).
+  final String createdBy;
 
   MealPlanEntry({
     required this.id,
@@ -1158,7 +1160,8 @@ class MealPlanEntry {
     String? createdBy,
     String? creatorId,
     DateTime? updatedAt,
-  }) : updatedAt = updatedAt ?? DateTime.now();
+  })  : createdBy = creatorId ?? createdBy ?? '',
+        updatedAt = updatedAt ?? DateTime.now();
 
   factory MealPlanEntry.fromJson(Map<String, dynamic> j) => MealPlanEntry(
     id: j['id'] as String? ?? '',
@@ -1174,6 +1177,7 @@ class MealPlanEntry {
     sourceMealPlanId: j['source_meal_plan_id'] as String?,
     leftoverMealPlanId: j['leftover_meal_plan_id'] as String?,
     updatedAt: _parseDateOpt(j['updated_at']) ?? DateTime.fromMillisecondsSinceEpoch(0),
+    createdBy: j['created_by'] as String? ?? j['createdBy'] as String?,
   );
 
   Map<String, dynamic> toJson() => {
@@ -1190,6 +1194,7 @@ class MealPlanEntry {
     'source_meal_plan_id': sourceMealPlanId,
     'leftover_meal_plan_id': leftoverMealPlanId,
     'updated_at': updatedAt.toIso8601String(),
+    if (createdBy.isNotEmpty) 'created_by': createdBy,
   };
 
   // Convenience getters
@@ -1200,6 +1205,7 @@ class MealPlanEntry {
     String? recipeId, String? customMeal, String? notes, int? servings,
     String? prepNotes, String? repeatRule, String? sourceMealPlanId,
     String? leftoverMealPlanId, DateTime? updatedAt,
+    String? createdBy,
   }) => MealPlanEntry(
     id: id ?? this.id, familyId: familyId ?? this.familyId,
     date: date ?? this.date, mealType: mealType ?? this.mealType,
@@ -1210,8 +1216,9 @@ class MealPlanEntry {
     repeatRule: repeatRule ?? this.repeatRule,
     sourceMealPlanId: sourceMealPlanId ?? this.sourceMealPlanId,
     leftoverMealPlanId: leftoverMealPlanId ?? this.leftoverMealPlanId,
+    createdBy: createdBy ?? this.createdBy,
     updatedAt: updatedAt ??
-        ((date != null || mealType != null || recipeId != null || customMeal != null || notes != null || servings != null || prepNotes != null || repeatRule != null || sourceMealPlanId != null || leftoverMealPlanId != null)
+        ((date != null || mealType != null || recipeId != null || customMeal != null || notes != null || servings != null || prepNotes != null || repeatRule != null || sourceMealPlanId != null || leftoverMealPlanId != null || createdBy != null)
             ? DateTime.now()
             : this.updatedAt),
   );

@@ -538,6 +538,10 @@ Return a JSON array of 7 objects, each with:
       final provider = context.read<AppProvider>();
       var dbState = provider.db;
       final userId = provider.activeUser?.id ?? '';
+      if (userId.isEmpty) {
+        if (mounted) setState(() => _weekPlannerLoading = false);
+        return;
+      }
 
       final now = DateTime.now();
       final monday = now.subtract(Duration(days: now.weekday - 1));
@@ -637,6 +641,7 @@ Return a JSON array of 7 objects, each with:
             mealType: mealType,
             recipeId: recipeId,
             customMeal: mealName,
+            createdBy: userId,
           ));
         }
       }
@@ -809,6 +814,14 @@ Return a JSON array of 7 objects, each with:
       final provider = context.read<AppProvider>();
       var db = provider.db;
       final userId = provider.activeUser?.id ?? '';
+      if (userId.isEmpty) {
+        if (mounted) setState(() {
+          _refineLoading = false;
+          _refineHistory.last['status'] = 'error';
+          _refineHistory.last['error'] = 'Sign in to save meal plans.';
+        });
+        return;
+      }
 
       final now = DateTime.now();
       final monday = now.subtract(Duration(days: now.weekday - 1));
@@ -902,6 +915,7 @@ Return a JSON array of 7 objects, each with:
             mealType: mealType,
             recipeId: recipeId,
             customMeal: mealName,
+            createdBy: userId,
           ));
         }
       }
@@ -1702,6 +1716,14 @@ class _MealPlanTabState extends State<_MealPlanTab> {
       _showSnack(context, 'That slot next week is already filled.');
       return;
     }
+    final uid = provider.activeUser?.id ?? '';
+    final createdForRow = uid.isNotEmpty ? uid : source.createdBy;
+    if (createdForRow.isEmpty) {
+      if (context.mounted) {
+        _showSnack(context, 'Sign in to repeat this meal to next week.');
+      }
+      return;
+    }
     final copy = MealPlanEntry(
       id: const Uuid().v4(),
       familyId: familyId,
@@ -1714,6 +1736,7 @@ class _MealPlanTabState extends State<_MealPlanTab> {
       prepNotes: source.prepNotes,
       repeatRule: 'weekly_same_slot',
       sourceMealPlanId: source.id,
+      createdBy: createdForRow,
     );
     final db = provider.db;
     await provider.saveAndSync(
@@ -1746,6 +1769,14 @@ class _MealPlanTabState extends State<_MealPlanTab> {
       _showSnack(context, 'Target meal slot is already filled.');
       return;
     }
+    final uid = provider.activeUser?.id ?? '';
+    final createdForRow = uid.isNotEmpty ? uid : source.createdBy;
+    if (createdForRow.isEmpty) {
+      if (context.mounted) {
+        _showSnack(context, 'Sign in to schedule leftovers.');
+      }
+      return;
+    }
     final copy = MealPlanEntry(
       id: const Uuid().v4(),
       familyId: familyId,
@@ -1759,6 +1790,7 @@ class _MealPlanTabState extends State<_MealPlanTab> {
       servings: source.servings,
       prepNotes: 'Leftovers from ${DateFormat('MMM d').format(source.date)}',
       leftoverMealPlanId: source.id,
+      createdBy: createdForRow,
     );
     final db = provider.db;
     await provider.saveAndSync(
@@ -2789,6 +2821,16 @@ class _AddMealSheetState extends State<_AddMealSheet> {
     setState(() => _saving = true);
 
     final provider = context.read<AppProvider>();
+    final actorId = provider.activeUser?.id;
+    if (actorId == null || actorId.isEmpty) {
+      setState(() => _saving = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Sign in to save meals.'), behavior: SnackBarBehavior.floating),
+        );
+      }
+      return;
+    }
     final db = provider.db;
     final familyId = provider.activeFamily?.id ?? '';
 
@@ -2819,6 +2861,7 @@ class _AddMealSheetState extends State<_AddMealSheet> {
         servings: servings,
         prepNotes: prep,
         notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
+        createdBy: actorId,
       );
       final meals = [...db.mealPlans, newMeal];
       await provider.saveAndSync(
