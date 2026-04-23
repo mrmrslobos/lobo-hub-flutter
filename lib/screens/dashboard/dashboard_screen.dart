@@ -869,6 +869,7 @@ Return ONLY the JSON array, no markdown.''',
             onRefresh: _onRefresh,
             color: AppTheme.primary,
             child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
               padding: EdgeInsets.zero,
               children: [
                 _buildHeroSection(family),
@@ -985,6 +986,7 @@ Return ONLY the JSON array, no markdown.''',
         onRefresh: _onRefresh,
         color: AppTheme.primary,
         child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.only(bottom: 32),
           children: [
             // Greeting
