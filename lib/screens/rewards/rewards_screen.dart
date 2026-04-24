@@ -124,6 +124,7 @@ class _RewardsScreenState extends State<RewardsScreen>
       ),
     );
     if (confirmed != true) return;
+    if (!mounted) return;
     HapticFeedback.lightImpact();
     final provider = context.read<AppProvider>();
     final db = provider.db;
@@ -340,6 +341,7 @@ class _RewardsScreenState extends State<RewardsScreen>
       ),
     );
     if (confirmed != true) return;
+    if (!mounted) return;
     HapticFeedback.lightImpact();
     final provider = context.read<AppProvider>();
     final db = provider.db;

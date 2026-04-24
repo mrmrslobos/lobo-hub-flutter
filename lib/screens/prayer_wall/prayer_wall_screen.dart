@@ -1,6 +1,5 @@
 // lib/screens/prayer_wall/prayer_wall_screen.dart
 // Prayer wall screen for Huddle
-// ignore_for_file: use_build_context_synchronously
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -58,7 +57,8 @@ Future<void> _reportContent(
                 pushTableScope: {CloudSyncScope.familyActivityLogs},
               );
             }
-            Navigator.pop(ctx);
+            if (ctx.mounted) Navigator.pop(ctx);
+            if (!context.mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
               content: const Text('Report saved for family admin review'),
               behavior: SnackBarBehavior.floating,

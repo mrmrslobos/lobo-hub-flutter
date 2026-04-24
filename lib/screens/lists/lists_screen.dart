@@ -234,6 +234,7 @@ class _ListsScreenState extends State<ListsScreen> {
     final updatedList = list.copyWith(items: updatedItems);
     final updatedLists = db.shoppingLists.map((l) => l.id == list.id ? updatedList : l).toList();
     await _saveShoppingLists(provider, db.copyWith(shoppingLists: updatedLists));
+    if (!mounted) return;
     setState(() => _selectedList = updatedList);
     if (!item.checked && list.visibility != Visibility.PRIVATE) {
       NotificationService.notifyFamilyActivityWithDb(
@@ -254,6 +255,7 @@ class _ListsScreenState extends State<ListsScreen> {
     final updatedList = list.copyWith(items: list.items.where((i) => i.id != itemId).toList());
     final updatedLists = db.shoppingLists.map((l) => l.id == list.id ? updatedList : l).toList();
     await _saveShoppingLists(provider, db.copyWith(shoppingLists: updatedLists));
+    if (!mounted) return;
     setState(() => _selectedList = updatedList);
   }
 
@@ -277,12 +279,14 @@ class _ListsScreenState extends State<ListsScreen> {
       ),
     );
     if (confirm != true) return;
+    if (!mounted) return;
     final provider = context.read<AppProvider>();
     if (!_canMutateItems(provider, list)) return;
     final db = provider.db;
     final updatedList = list.copyWith(items: list.items.where((i) => !i.checked).toList());
     final updatedLists = db.shoppingLists.map((l) => l.id == list.id ? updatedList : l).toList();
     await _saveShoppingLists(provider, db.copyWith(shoppingLists: updatedLists));
+    if (!mounted) return;
     setState(() => _selectedList = updatedList);
   }
 
@@ -464,6 +468,7 @@ class _ListsScreenState extends State<ListsScreen> {
         ),
       );
       if (list == null) return;
+      if (!mounted) return;
       setState(() => _selectedList = list);
     }
 
@@ -919,6 +924,7 @@ class _AiCategorizationSheetState extends State<_AiCategorizationSheet> {
         return;
       }
       final raw = await AiService.categorizeItems(widget.itemNames, familyId: familyId);
+      if (!mounted) return;
       final grouped = <String, List<String>>{};
       for (final entry in raw.entries) {
         grouped.putIfAbsent(entry.value, () => []).add(entry.key);
@@ -1279,6 +1285,7 @@ class _ListDetailViewState extends State<_ListDetailView> {
     );
 
     if (result == null || result['text']!.isEmpty) return;
+    if (!mounted) return;
 
     final provider = context.read<AppProvider>();
     final db = provider.db;
@@ -1720,6 +1727,7 @@ class _AiTextToChecklistSheetState extends State<_AiTextToChecklistSheet> {
         if (mounted) setState(() => _loading = false);
         return;
       }
+      if (!mounted) return;
 
       final provider = context.read<AppProvider>();
       final db = provider.db;

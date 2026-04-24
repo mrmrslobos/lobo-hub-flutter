@@ -2344,12 +2344,14 @@ $text
       final decoded = jsonDecode(cleaned);
       if (decoded is Map<String, dynamic> && decoded['transactions'] is List) {
         final txs = (decoded['transactions'] as List).cast<Map<String, dynamic>>();
+        if (!mounted) return;
         setState(() {
           _parsedTransactions = txs;
           _selected = List.filled(txs.length, true);
           _loading = false;
         });
       } else {
+        if (!mounted) return;
         setState(() { _loading = false; _error = 'Unexpected response format. Try again.'; });
       }
     } catch (e) {

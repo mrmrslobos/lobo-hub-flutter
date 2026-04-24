@@ -339,6 +339,7 @@ Return a JSON object:
       cleaned = cleaned.trim();
 
       final decoded = jsonDecode(cleaned);
+      if (!mounted) return;
       if (decoded is Map<String, dynamic>) {
         setState(() { _monthlySummary = decoded; _monthlySummaryLoading = false; });
       } else {

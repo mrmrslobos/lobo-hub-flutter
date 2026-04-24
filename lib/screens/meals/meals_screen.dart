@@ -354,16 +354,19 @@ Return a JSON array of exactly 3 objects, each with these fields:
         if (mounted) setState(() => _chefLoading = false);
         return;
       }
+      if (!mounted) return;
       context.read<AppProvider>().saveAiHistory(module: 'meals', prompt: 'Generate chef meal suggestions', response: raw);
       final cleaned = _stripFences(raw);
       final decoded = jsonDecode(cleaned);
       if (decoded is List) {
-        setState(() {
-          _chefSuggestions = decoded.cast<Map<String, dynamic>>();
-          _chefLoading = false;
-        });
+        if (mounted) {
+          setState(() {
+            _chefSuggestions = decoded.cast<Map<String, dynamic>>();
+            _chefLoading = false;
+          });
+        }
       } else {
-        setState(() => _chefLoading = false);
+        if (mounted) setState(() => _chefLoading = false);
       }
     } catch (e) {
       debugPrint('[Meals] chef suggestion error: $e');
@@ -523,6 +526,7 @@ Return a JSON array of 7 objects, each with:
         if (mounted) setState(() => _weekPlannerLoading = false);
         return;
       }
+      if (!mounted) return;
       context.read<AppProvider>().saveAiHistory(module: 'meals', prompt: 'Generate weekly meal plan', response: raw);
       final cleaned = _stripFences(raw);
       final decoded = jsonDecode(cleaned);
@@ -535,6 +539,7 @@ Return a JSON array of 7 objects, each with:
       _lastPlanJson = cleaned;
       _refineHistory.clear();
 
+      if (!mounted) return;
       final provider = context.read<AppProvider>();
       var dbState = provider.db;
       final userId = provider.activeUser?.id ?? '';
@@ -794,6 +799,7 @@ Return a JSON array of 7 objects, each with:
         });
         return;
       }
+      if (!mounted) return;
       context.read<AppProvider>().saveAiHistory(module: 'meals', prompt: 'Refine meal plan: "$request"', response: raw);
 
       final cleaned = _stripFences(raw);
@@ -985,6 +991,7 @@ Return a JSON array of 7 objects, each with:
         return;
       }
 
+      if (!mounted) return;
       final provider = context.read<AppProvider>();
       final db = provider.db;
       final userId = provider.activeUser?.id ?? '';
@@ -3931,6 +3938,7 @@ class _ImportUrlDialogState extends State<_ImportUrlDialog> {
       }
       final result = await AiService.scrapeRecipe(url, familyId: familyId);
       if (result == null) {
+        if (!mounted) return;
         setState(() {
           _error = 'Could not extract recipe. Try a different URL.';
           _loading = false;
@@ -3987,6 +3995,7 @@ class _ImportUrlDialogState extends State<_ImportUrlDialog> {
 
       if (mounted) Navigator.pop(context);
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = 'Something went wrong. Please try again.';
         _loading = false;

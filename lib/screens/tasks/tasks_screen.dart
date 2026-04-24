@@ -1053,6 +1053,7 @@ class _AiBreakdownSheetState extends State<_AiBreakdownSheet> {
       final updatedTasks = [...db.tasks, ...newTasks];
       await provider.saveAndSync(db.copyWith(tasks: updatedTasks),
           pushTableScope: {CloudSyncScope.tasks});
+      if (!mounted) return;
       if (provider.activeFamily != null) await provider.syncTasksNow();
 
       if (mounted) {
@@ -1655,6 +1656,7 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
       }
     }
 
+    if (!mounted) return;
     setState(() => _loading = true);
     try {
       final provider = context.read<AppProvider>();

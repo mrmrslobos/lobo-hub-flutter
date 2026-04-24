@@ -478,6 +478,7 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
     setState(() => _resettingData = true);
     try {
       await sheetContext.read<AppProvider>().resetAllLocalDataAndSignOut();
+      if (!sheetContext.mounted) return;
       await sheetContext.read<LocaleService>().reloadFromPrefs();
       if (!sheetContext.mounted) return;
       Navigator.of(sheetContext).pop();
@@ -555,7 +556,9 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
     setState(() => _deletingCloudData = true);
     try {
       await SupabaseService.deleteFamilyCloudData(familyId: fam.id);
+      if (!sheetContext.mounted) return;
       await provider.resetAllLocalDataAndSignOut();
+      if (!sheetContext.mounted) return;
       await sheetContext.read<LocaleService>().reloadFromPrefs();
       if (!sheetContext.mounted) return;
       Navigator.of(sheetContext).pop();
@@ -2148,6 +2151,7 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
       ),
     );
     if (confirmed != true) return;
+    if (!mounted) return;
 
     final provider = context.read<AppProvider>();
     final db = provider.db;

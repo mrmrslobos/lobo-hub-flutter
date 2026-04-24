@@ -1,6 +1,5 @@
 // lib/screens/calendar/calendar_screen.dart
 // Calendar screen for Huddle
-// ignore_for_file: use_build_context_synchronously
 
 import 'dart:convert';
 import 'package:flutter/material.dart' hide Visibility;
@@ -88,7 +87,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
         familyId: family.id,
       );
 
-      if (result == null || !mounted) {
+      if (!mounted) return;
+      if (result == null) {
         setState(() {
           _isAiLoading = false;
           _aiError = 'AI failed to create itinerary. Please try again.';
@@ -210,10 +210,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
         builder: (_) => _GoogleCalendarPicker(calendars: calendars),
       );
 
-      if (selected == null || selected.isEmpty || !mounted) {
-        setState(() => _isSyncing = false);
+      if (selected == null || selected.isEmpty) {
+        if (mounted) setState(() => _isSyncing = false);
         return;
       }
+      if (!mounted) return;
 
       final provider = context.read<AppProvider>();
       final user = provider.activeUser!;
@@ -251,6 +252,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
           userId: user.id,
           externalCalendarId: extCal.id,
         );
+        if (!mounted) return;
 
         // Merge: remove old events from this external calendar, add new
         final existingEvents = db.events
@@ -290,6 +292,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
       if (cal.type == ExternalCalendarType.google && cal.googleCalendarId != null) {
         // Re-auth silently
         await CalendarSyncService.silentSignIn();
+        if (!mounted) return;
         newEvents = await CalendarSyncService.fetchGoogleCalendarEvents(
           googleCalendarId: cal.googleCalendarId!,
           familyId: family.id,
@@ -307,6 +310,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
         setState(() => _isSyncing = false);
         return;
       }
+      if (!mounted) return;
 
       // Replace old events from this calendar
       final db = provider.db;
@@ -368,6 +372,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
       ),
       pushTableScope: CloudSyncScope.calendarBundle,
     );
+    if (!mounted) return;
   }
 
   // ── ICS URL Import ───────────────────────────────────────────────────────
@@ -408,6 +413,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
         userId: user.id,
         externalCalendarId: extCal.id,
       );
+      if (!mounted) return;
 
       final db = provider.db;
       await provider.saveAndSync(
@@ -2703,7 +2709,7 @@ class _EventPlannerWizardState extends State<_EventPlannerWizard> {
       firstDate: DateTime.now(),
       lastDate: DateTime.now().add(const Duration(days: 365)),
     );
-    if (picked != null) setState(() => _eventDate = picked);
+    if (picked != null && mounted) setState(() => _eventDate = picked);
   }
 
   Future<void> _generatePlan() async {
@@ -2736,7 +2742,8 @@ class _EventPlannerWizardState extends State<_EventPlannerWizard> {
         familyId: family.id,
       );
 
-      if (result == null || !mounted) {
+      if (!mounted) return;
+      if (result == null) {
         setState(() {
           _isLoading = false;
           _error = 'AI event planning failed. Please try again.';
@@ -2815,6 +2822,7 @@ class _EventPlannerWizardState extends State<_EventPlannerWizard> {
         pushTableScope: CloudSyncScope.eventPlannerAiBundle,
       );
 
+      if (!mounted) return;
       setState(() {
         _planResult = result;
         _createdTaskCount = newTasks.length;

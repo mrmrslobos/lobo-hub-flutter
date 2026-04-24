@@ -35,7 +35,7 @@ Future<void> _reportContent(
         TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
         TextButton(
           onPressed: () async {
-            final provider = context.read<AppProvider>();
+            final provider = ctx.read<AppProvider>();
             final familyId = provider.activeFamily?.id;
             final actorUserId = provider.activeUser?.id;
             if (familyId != null && actorUserId != null) {
@@ -51,8 +51,9 @@ Future<void> _reportContent(
                 pushTableScope: {CloudSyncScope.familyActivityLogs},
               );
             }
+            if (!ctx.mounted) return;
             Navigator.pop(ctx);
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
               content: const Text('Report saved for family admin review'),
               behavior: SnackBarBehavior.floating,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),

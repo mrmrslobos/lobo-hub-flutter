@@ -1595,6 +1595,7 @@ Apply the requested change while keeping everything else sensible.
           return;
         }
         await ExercisePlanMediaService.enrichPlanMap(decoded);
+        if (!mounted) return;
         final pid = widget.plan['plan_id']?.toString();
         final sid = fitnessPlanStableId(widget.plan);
         final plans = db.fitnessPlans.toList();

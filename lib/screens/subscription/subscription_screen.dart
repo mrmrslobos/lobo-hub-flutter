@@ -671,6 +671,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         const SnackBar(content: Text('Purchases restored. Syncing your account…')),
       );
     } else {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(

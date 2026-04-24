@@ -889,8 +889,9 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
             ),
             pushTableScope: {CloudSyncScope.devotionals},
           );
+          if (!mounted) return;
           _topicCtrl.clear();
-          if (mounted) widget.onSelectEntry(entry);
+          widget.onSelectEntry(entry);
         } else {
           // Fallback: treat raw as plain text
           final entry = DevotionalEntry(
@@ -1381,10 +1382,9 @@ For each entry's "discussion" field, provide one substantive personal reflection
           },
         );
 
+        if (!mounted) return;
         _customTopicCtrl.clear();
-        if (mounted) {
-          widget.onSelectPlan(plan);
-        }
+        widget.onSelectPlan(plan);
       }
     } catch (e) {
       if (mounted) {
