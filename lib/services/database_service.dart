@@ -601,7 +601,7 @@ class DatabaseService {
                   .where((p) => p['user_id'] == currentUserId)
                   .map((p) {
                     final row = fitnessPlanRowForCloud(
-                      Map<String, dynamic>.from(p as Map),
+                      Map<String, dynamic>.from(p), // FIXED: whereType<Map> element
                       fid,
                     );
                     for (final k in _fitnessPlansCloudOmit) {
@@ -1378,7 +1378,7 @@ class DatabaseService {
       'summary': raw['summary']?.toString() ?? '',
       'weeklyPlan': wp,
       'tips': tips,
-      'profile': Map<String, dynamic>.from(prof as Map),
+      'profile': Map<String, dynamic>.from(prof), // FIXED: prof is Map after guard
       'user_id': raw['user_id']?.toString() ?? '',
       'created_at': raw['created_at']?.toString() ?? '',
       'plan_id': raw['plan_id']?.toString() ?? '',

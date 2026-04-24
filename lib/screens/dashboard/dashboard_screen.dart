@@ -242,6 +242,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _loadDismissedAnnouncement() async {
     final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return; // FIXED: context after async
     final familyId = context.read<AppProvider>().activeFamily?.id;
     if (familyId == null) return;
     final dismissed = prefs.getString('dismissed_announcement_$familyId');
@@ -256,6 +257,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _onRefresh() async {
     await pullCloudLatestWithHaptic(context);
+    if (!mounted) return; // FIXED: context after async
     final provider = context.read<AppProvider>();
     await provider.saveAndSync(provider.db);
     await _loadAISuggestions(forceRefresh: true);
@@ -281,7 +283,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return;
     }
     final familyId = family.id;
-    final familyName = family.name ?? 'Family';
+    final familyName = family.name; // FIXED: Family.name is non-nullable
     final now = DateTime.now();
     final monthStart = DateTime(now.year, now.month, 1);
     final monthName = DateFormat('MMMM yyyy').format(now);
@@ -844,18 +846,6 @@ Return ONLY the JSON array, no markdown.''',
         final isRestricted = userMembership.isNotEmpty &&
             userMembership.first.moduleAccess != null &&
             userMembership.first.moduleAccess!.isNotEmpty;
-
-        // Find switchable kids (for parent view)
-        final switchableKids = db.familyMembers
-            .where((m) =>
-                m.familyId == familyId &&
-                m.userId != user.id &&
-                m.moduleAccess != null &&
-                m.moduleAccess!.isNotEmpty)
-            .map((m) => db.users.where((u) => u.id == m.userId).toList())
-            .where((u) => u.isNotEmpty)
-            .map((u) => u.first)
-            .toList();
 
         if (isRestricted) {
           return _buildKidsDashboard(context, provider, user, family, db, familyId, today, choresToday, choresCompletedToday, todayMealPlans, tasksDueToday);
@@ -2760,17 +2750,6 @@ Return ONLY the JSON array, no markdown.''',
         ],
       ),
     );
-  }
-
-  void _showSnack(String msg) {
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(
-        content: Text(msg, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        duration: const Duration(seconds: 2),
-      ));
   }
 
   bool _isSameDay(DateTime a, DateTime b) =>

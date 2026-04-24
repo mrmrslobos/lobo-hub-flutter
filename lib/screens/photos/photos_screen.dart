@@ -929,7 +929,7 @@ class _PhotosScreenState extends State<PhotosScreen> {
             (c) => c.id == ms.category,
             orElse: () => _milestoneCategories.first,
           );
-          final childName = ms.childId != null ? provider.userById(ms.childId!)?.name : null;
+          final childName = provider.userById(ms.childId)?.name; // FIXED: childId is non-nullable String
 
           return GestureDetector(
             onLongPress: () => _showMilestoneActions(ms),

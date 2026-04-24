@@ -979,7 +979,8 @@ class _AddHabitSheetState extends State<_AddHabitSheet> {
                       ])),
                       Switch.adaptive(
                         value: _isShared,
-                        activeColor: AppTheme.primary,
+                        activeThumbColor: AppTheme.surface,
+                        activeTrackColor: AppTheme.primary,
                         onChanged: (v) => setState(() => _isShared = v),
                       ),
                     ]),

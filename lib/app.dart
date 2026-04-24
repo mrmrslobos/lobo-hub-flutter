@@ -89,6 +89,7 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
           // Sync first so the notification's content (e.g. devotional) is
           // available locally before navigating to the screen.
           await _provider.refreshFromCloud();
+          if (!mounted) return; // FIXED: avoid navigation after dispose
           _router.go(route);
         }
       });
@@ -107,7 +108,7 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
           // OAuth callback or token refresh — re-resolve user/family from
           // the new session so isAuthenticated becomes true, then the
           // router's refreshListenable triggers redirect re-evaluation.
-          _provider.initialize();
+          unawaited(_provider.initialize()); // FIXED: explicit fire-and-forget
         } else if (data.event == AuthChangeEvent.signedOut) {
           _isPasswordRecovery = false;
         }

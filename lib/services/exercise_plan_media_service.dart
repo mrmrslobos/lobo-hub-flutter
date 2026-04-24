@@ -4,7 +4,6 @@
 
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'exercise_db_service.dart';
@@ -25,7 +24,7 @@ class ExercisePlanMediaService {
     try {
       final d = jsonDecode(raw);
       if (d is Map) {
-        return Map<String, dynamic>.from(d as Map);
+        return Map<String, dynamic>.from(d); // FIXED: d promoted Map
       }
     } catch (_) {}
     return {};
@@ -53,7 +52,7 @@ class ExercisePlanMediaService {
         out.add(day);
         continue;
       }
-      final d = Map<String, dynamic>.from(day as Map);
+      final d = Map<String, dynamic>.from(day); // FIXED: day promoted Map
       final exs = d['exercises'];
       if (exs is! List) {
         out.add(d);
@@ -63,7 +62,7 @@ class ExercisePlanMediaService {
         if (e is! Map) {
           return e;
         }
-        final m = Map<String, dynamic>.from(e as Map);
+        final m = Map<String, dynamic>.from(e); // FIXED: e promoted Map
         final url = m['imageUrl']?.toString() ?? '';
         if (_isLegacyPaidUrl(url)) {
           m.remove('imageUrl');
@@ -97,7 +96,7 @@ class ExercisePlanMediaService {
     var cache = await _loadCache();
     final hit = cache[key];
     if (hit is Map) {
-      final hm = Map<String, dynamic>.from(hit as Map);
+      final hm = Map<String, dynamic>.from(hit); // FIXED: hit promoted Map
       final id = hm['exerciseDbId']?.toString().trim();
       var gif = hm['gifUrl']?.toString().trim();
       if (id != null && id.isNotEmpty) {
@@ -147,7 +146,7 @@ class ExercisePlanMediaService {
         if (e is! Map) {
           continue;
         }
-        final em = Map<String, dynamic>.from(e as Map);
+        final em = Map<String, dynamic>.from(e); // FIXED: e promoted Map
         final name = em['name']?.toString().trim() ?? '';
         if (name.isEmpty) {
           continue;
@@ -157,8 +156,7 @@ class ExercisePlanMediaService {
           continue;
         }
 
-        final existingEdb = em['exerciseDbId']?.toString().trim();
-        var existingImg = em['imageUrl']?.toString().trim();
+        var existingImg = em['imageUrl']?.toString().trim(); // FIXED: removed unused existingEdb
 
         if (existingImg != null &&
             existingImg.isNotEmpty &&
@@ -174,7 +172,7 @@ class ExercisePlanMediaService {
         Map<String, dynamic>? cachedEntry;
         final hit = cache[key];
         if (hit is Map) {
-          cachedEntry = Map<String, dynamic>.from(hit as Map);
+          cachedEntry = Map<String, dynamic>.from(hit); // FIXED: hit promoted Map
         }
 
         String? exerciseDbId = cachedEntry?['exerciseDbId']?.toString();

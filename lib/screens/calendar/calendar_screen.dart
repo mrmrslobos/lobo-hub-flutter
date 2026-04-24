@@ -4,7 +4,6 @@
 
 import 'dart:convert';
 import 'package:flutter/material.dart' hide Visibility;
-import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:table_calendar/table_calendar.dart';
@@ -2060,7 +2059,8 @@ class _EventFormSheetState extends State<_EventFormSheet> {
                           Switch(
                             value: _allDay,
                             onChanged: (v) => setState(() => _allDay = v),
-                            activeColor: AppTheme.primary,
+                            activeThumbColor: AppTheme.surface, // FIXED: activeColor deprecated
+                            activeTrackColor: AppTheme.primary,
                           ),
                         ],
                       ),

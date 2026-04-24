@@ -2150,20 +2150,22 @@ class _MealPlanTabState extends State<_MealPlanTab> {
         ),
         // Meal slots
         ..._mealTypes.map((type) {
-          final meal = mealsForDay.cast<MealPlan?>().firstWhere(
+          final meal = mealsForDay.cast<MealPlanEntry?>().firstWhere(
                 (m) => m?.mealType == type,
                 orElse: () => null,
               );
+          final slotMeal = meal;
           return Padding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
             child: _MealSlotCard(
               mealType: type,
               meal: meal,
               day: _selectedDay,
-              onRepeatWeekly:
-                  meal != null ? () => _repeatMealWeekly(context, meal!) : null,
-              onScheduleLeftovers: meal != null
-                  ? () => _showLeftoverTargetPicker(context, meal!)
+              onRepeatWeekly: slotMeal != null
+                  ? () => _repeatMealWeekly(context, slotMeal)
+                  : null, // FIXED: promote nullable for async-safe closure
+              onScheduleLeftovers: slotMeal != null
+                  ? () => _showLeftoverTargetPicker(context, slotMeal)
                   : null,
             ),
           );
@@ -3374,7 +3376,7 @@ class _RecipeCard extends StatelessWidget {
                               ],
                             ),
                           ),
-                        if (recipe.servings != null && recipe.servings! > 0)
+                        if (recipe.servings > 0) // FIXED: Recipe.servings is non-nullable int
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
@@ -3605,8 +3607,8 @@ class _RecipeDetailSheet extends StatelessWidget {
                         _InfoChip(icon: Icons.local_fire_department_outlined, label: 'Cook: ${recipe.cookMinutes}m'),
                       if ((recipe.prepMinutes ?? 0) + (recipe.cookMinutes ?? 0) > 0)
                         _InfoChip(icon: Icons.timer_outlined, label: 'Total: ${_totalTime()}'),
-                      if (recipe.servings != null)
-                        _InfoChip(icon: Icons.people_outline, label: '${recipe.servings} servings'),
+                      if (recipe.servings > 0)
+                        _InfoChip(icon: Icons.people_outline, label: '${recipe.servings} servings'), // FIXED: servings non-nullable
                     ],
                   ),
                   if (recipe.tags.isNotEmpty) ...[
@@ -4120,7 +4122,7 @@ class _AddRecipeSheetState extends State<_AddRecipeSheet> {
       _descController.text = r.description ?? '';
       _prepController.text = r.prepMinutes?.toString() ?? '';
       _cookController.text = r.cookMinutes?.toString() ?? '';
-      _servingsController.text = r.servings?.toString() ?? '';
+      _servingsController.text = r.servings.toString(); // FIXED: servings non-nullable
       if (r.kcal != null) _kcalController.text = r.kcal!.toString();
       if (r.proteinG != null) _proteinController.text = r.proteinG!.toString();
       if (r.carbsG != null) _carbsController.text = r.carbsG!.toString();

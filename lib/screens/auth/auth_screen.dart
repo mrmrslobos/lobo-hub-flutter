@@ -423,7 +423,7 @@ class _AuthScreenState extends State<AuthScreen> {
         _setError(AppConfig.authInvalidInviteCodeFamily);
         return;
       }
-      final joinedFamily = family!;
+      final joinedFamily = family; // FIXED: unnecessary ! after null check
 
       // Real owners re-joining their own home must stay OWNER — never append
       // MEMBER after reconcile already loaded OWNER, or upsert overwrites OWNER

@@ -94,7 +94,7 @@ class ExerciseDBService {
     final out = <Map<String, dynamic>>[];
     for (final item in data) {
       if (item is Map) {
-        out.add(Map<String, dynamic>.from(item as Map));
+        out.add(Map<String, dynamic>.from(item)); // FIXED: item promoted Map
       }
     }
     return out;
@@ -131,7 +131,7 @@ class ExerciseDBService {
       if (decoded is! Map || decoded['success'] != true) return null;
       final data = decoded['data'];
       if (data is Map) {
-        return Map<String, dynamic>.from(data as Map);
+        return Map<String, dynamic>.from(data); // FIXED: data promoted Map
       }
     } catch (_) {}
     return null;

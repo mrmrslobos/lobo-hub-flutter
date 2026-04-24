@@ -1,4 +1,5 @@
 /// Short, user-safe copy for sync and network failures (avoid raw stack traces in UI).
+library;
 
 String humanizeCloudSyncError(String raw) {
   final s = raw.trim();

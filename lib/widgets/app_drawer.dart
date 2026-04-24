@@ -1762,7 +1762,6 @@ class _NavTile extends StatelessWidget {
   final String route;
   final bool isActive;
   final bool canAccess;
-  final int unreadCount;
 
   const _NavTile({
     required this.icon,
@@ -1770,7 +1769,6 @@ class _NavTile extends StatelessWidget {
     required this.route,
     required this.isActive,
     required this.canAccess,
-    this.unreadCount = 0,
   });
 
   @override
@@ -1826,15 +1824,6 @@ class _NavTile extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (unreadCount > 0)
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: const BoxDecoration(
-                      color: AppTheme.primary,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
               ],
             ),
           ),
@@ -2957,47 +2946,6 @@ class _EditableMember {
     required this.displayName,
     this.declaredUnder16 = false,
   });
-}
-
-// ─────────────────────────────────────────────
-// Theme option tile
-// ─────────────────────────────────────────────
-
-class _ThemeOption extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _ThemeOption({
-    required this.icon,
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: Icon(icon, size: 20, color: selected ? AppTheme.primary : AppTheme.stone500),
-      title: Text(
-        label,
-        style: TextStyle(
-          fontFamily: 'Inter',
-          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-          fontSize: 14,
-          color: selected ? AppTheme.primary : AppTheme.stone800,
-        ),
-      ),
-      trailing: selected
-          ? const Icon(Icons.check_circle_rounded, color: AppTheme.primary, size: 20)
-          : null,
-      onTap: onTap,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      dense: true,
-      visualDensity: VisualDensity.compact,
-    );
-  }
 }
 
 // ─────────────────────────────────────────────

@@ -332,7 +332,7 @@ class _DevotionalScreenState extends State<DevotionalScreen>
       if (mounted) _showSnack(context, 'Only the entry creator or family owner can delete this devotional.');
       return;
     }
-    final isDailyAuto = entry != null && entry.tags.contains('daily-auto');
+    final isDailyAuto = entry.tags.contains('daily-auto'); // FIXED: entry non-null after guard
 
     if (isDailyAuto) {
       // 1) Locally remember that we dismissed today's auto devotional.
@@ -2585,7 +2585,7 @@ class _DailyDevotionalCardState extends State<_DailyDevotionalCard> {
                   child: Switch.adaptive(
                     value: enabled,
                     onChanged: (val) => _toggleUser(context, val),
-                    activeColor: Colors.white,
+                    activeThumbColor: Colors.white, // FIXED: activeColor deprecated
                     activeTrackColor: Colors.white.withValues(alpha: 0.35),
                     inactiveThumbColor: Colors.white70,
                     inactiveTrackColor: Colors.white.withValues(alpha: 0.15),

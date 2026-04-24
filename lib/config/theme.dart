@@ -38,6 +38,7 @@ class AppTheme {
   static ThemeData get lightTheme {
     return ThemeData(
       useMaterial3: true,
+      primaryColor: primary, // FIXED: legacy widgets that read Theme.primaryColor
       colorScheme: ColorScheme.fromSeed(
         seedColor: primary,
         primary: primary,
@@ -210,6 +211,7 @@ class AppTheme {
   static ThemeData get darkTheme {
     return ThemeData(
       useMaterial3: true,
+      primaryColor: primaryDarkMode, // FIXED: match dark scheme primary
       colorScheme: ColorScheme.fromSeed(
         seedColor: primary,
         primary: primaryDarkMode,
