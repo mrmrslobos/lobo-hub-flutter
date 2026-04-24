@@ -42,6 +42,7 @@ class _ConnectivityWrapperState extends State<ConnectivityWrapper> {
   void _onChanged(List<ConnectivityResult> results) {
     final offline = results.every((r) => r == ConnectivityResult.none);
     if (offline != _isOffline) {
+      if (!mounted) return;
       setState(() => _isOffline = offline);
     }
   }

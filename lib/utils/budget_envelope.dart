@@ -3,22 +3,22 @@
 import '../models/models.dart';
 
 /// Inclusive day range (local calendar dates).
-class _DayRange {
-  const _DayRange(this.start, this.end);
+class BudgetWeekDayRange {
+  const BudgetWeekDayRange(this.start, this.end);
   final DateTime start;
   final DateTime end;
 }
 
-List<_DayRange> weekBucketsInMonth(DateTime month) {
+List<BudgetWeekDayRange> weekBucketsInMonth(DateTime month) {
   final first = DateTime(month.year, month.month, 1);
   final last = DateTime(month.year, month.month + 1, 0);
-  final out = <_DayRange>[];
+  final out = <BudgetWeekDayRange>[];
   var d = first;
   while (!d.isAfter(last)) {
     final end = d.add(const Duration(days: 6));
     final endDay = DateTime(end.year, end.month, end.day);
     final endClamped = endDay.isAfter(last) ? last : endDay;
-    out.add(_DayRange(d, endClamped));
+    out.add(BudgetWeekDayRange(d, endClamped));
     d = endClamped.add(const Duration(days: 1));
   }
   return out;

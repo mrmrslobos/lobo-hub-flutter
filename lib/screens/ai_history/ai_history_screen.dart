@@ -258,29 +258,40 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
             if (modules.isNotEmpty)
               SizedBox(
                 height: 48,
-                child: ListView(
+                child: ListView.builder(
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
-                  children: [
-                    Padding(
+                  itemCount: 1 + modules.length,
+                  cacheExtent: 120, // FIXED: horizontal chip list uses builder
+                  itemBuilder: (context, i) {
+                    if (i == 0) {
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: FilterChip(
+                          label: const Text('All'),
+                          selected: _selectedModule == null,
+                          onSelected: (_) {
+                            HapticFeedback.selectionClick();
+                            setState(() => _selectedModule = null);
+                          },
+                          showCheckmark: false,
+                        ),
+                      );
+                    }
+                    final m = modules[i - 1];
+                    return Padding(
                       padding: const EdgeInsets.only(right: 8),
                       child: FilterChip(
-                        label: const Text('All'),
-                        selected: _selectedModule == null,
-                        onSelected: (_) { HapticFeedback.selectionClick(); setState(() => _selectedModule = null); },
+                        label: Text(m),
+                        selected: _selectedModule == m,
+                        onSelected: (_) {
+                          HapticFeedback.selectionClick();
+                          setState(() => _selectedModule = m);
+                        },
                         showCheckmark: false,
                       ),
-                    ),
-                    ...modules.map((m) => Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: FilterChip(
-                            label: Text(m),
-                            selected: _selectedModule == m,
-                            onSelected: (_) { HapticFeedback.selectionClick(); setState(() => _selectedModule = m); },
-                            showCheckmark: false,
-                          ),
-                        )),
-                  ],
+                    );
+                  },
                 ),
               ),
             const SectionHeader(title: 'History'),

@@ -225,7 +225,11 @@ class SyncProvider extends ChangeNotifier {
     _isSyncing = true;
     notifyListeners();
     try {
-      final merged = await DatabaseService.reconcileCloud(dataProvider.db, fid);
+      final merged = await DatabaseService.reconcileCloud(
+        dataProvider.db,
+        fid,
+        getLocalAfterFetch: () => dataProvider.db,
+      );
       final err = DatabaseService.lastError;
       if (err != null && err.isNotEmpty) {
         _lastSyncError = err;
@@ -266,6 +270,7 @@ class SyncProvider extends ChangeNotifier {
         dataProvider.db,
         familyId,
         pullTables: tables,
+        getLocalAfterFetch: () => dataProvider.db,
       );
       final err = DatabaseService.lastError;
       if (err != null && err.isNotEmpty) {

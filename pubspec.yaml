@@ -1,6 +1,6 @@
 name: lobohub
 description: Family life in one app — tasks, calendar, meals, budget, and more. (Huddle / LoboHub)
-version: 1.0.7+8
+version: 1.0.8+9
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -39,6 +39,7 @@ dependencies:
 
   # Internationalization
   intl: ^0.20.2
+  timezone: ^0.10.1
 
   # UUID generation
   uuid: ^4.5.1
@@ -56,6 +57,9 @@ dependencies:
 
   # URL launcher
   url_launcher: ^6.3.2
+
+  # Voice input (Family copilot)
+  speech_to_text: ^7.3.0
 
   # Native share sheet (meal plans, lists)
   share_plus: ^10.1.4

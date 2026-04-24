@@ -234,7 +234,11 @@ class _AuthScreenState extends State<AuthScreen> {
               if (jc != null && jc.isNotEmpty) {
                 await FieldEncryption.init(familyId, jc);
               }
-              final db = await DatabaseService.reconcileCloud(provider.db, familyId);
+              final db = await DatabaseService.reconcileCloud(
+                provider.db,
+                familyId,
+                getLocalAfterFetch: () => provider.db,
+              );
               provider.setDb(db);
 
               // Now resolve from the merged DB
@@ -423,7 +427,7 @@ class _AuthScreenState extends State<AuthScreen> {
         _setError(AppConfig.authInvalidInviteCodeFamily);
         return;
       }
-      final joinedFamily = family!;
+      final joinedFamily = family; // FIXED: unnecessary ! after null check
 
       // Real owners re-joining their own home must stay OWNER — never append
       // MEMBER after reconcile already loaded OWNER, or upsert overwrites OWNER
@@ -475,6 +479,7 @@ class _AuthScreenState extends State<AuthScreen> {
           final merged = await DatabaseService.reconcileCloud(
             provider.db,
             joinedFamily.id,
+            getLocalAfterFetch: () => provider.db,
           );
           provider.setDb(merged);
         } catch (e, st) {

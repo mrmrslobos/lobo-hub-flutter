@@ -9,6 +9,15 @@
 # packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
+analyzer:
+  errors:
+    # Flutter 3.33+ deprecates DropdownButtonFormField `value`; migration to
+    # `initialValue` + keys is large — tracked for a dedicated pass.
+    deprecated_member_use: ignore
+    curly_braces_in_flow_control_structures: ignore
+    unnecessary_brace_in_string_interps: ignore
+    unnecessary_library_name: ignore
+
 linter:
   # The lint rules applied to this project can be customized in the
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`

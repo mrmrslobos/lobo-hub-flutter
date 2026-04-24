@@ -1061,7 +1061,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
                       : 0.0;
                   final pct = cap > 0 ? (spent / cap).clamp(0.0, 1.5) : 0.0;
                   final overBudget = pct > 1.0;
-                  final catColor = _categoryColor(cat.color ?? cat.name);
+                  final catColor = _categoryColor(cat.color); // FIXED: color is non-nullable
                   final weekRows = weekBucketRowsForCategory(cat, allEntries, _selectedMonth);
                   final denom = cap > 0 ? cap : cat.limit;
 
@@ -2344,12 +2344,14 @@ $text
       final decoded = jsonDecode(cleaned);
       if (decoded is Map<String, dynamic> && decoded['transactions'] is List) {
         final txs = (decoded['transactions'] as List).cast<Map<String, dynamic>>();
+        if (!mounted) return;
         setState(() {
           _parsedTransactions = txs;
           _selected = List.filled(txs.length, true);
           _loading = false;
         });
       } else {
+        if (!mounted) return;
         setState(() { _loading = false; _error = 'Unexpected response format. Try again.'; });
       }
     } catch (e) {
@@ -2946,7 +2948,7 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
       _editingId = cat.id;
       _nameCtrl.text = cat.name;
       _limitCtrl.text = cat.limit.toStringAsFixed(0);
-      _selectedColor = cat.color ?? 'blue';
+      _selectedColor = cat.color; // FIXED: color is non-nullable
       _categoryVisibility = cat.visibility;
       _rolloverEnabled = cat.rolloverEnabled;
       _limitPeriod = cat.limitPeriod;
@@ -3121,7 +3123,7 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
                   )
                 else
                   ...categories.map((cat) {
-                    final color = _colorForName(cat.color ?? cat.name);
+                    final color = _colorForName(cat.color); // FIXED: color is non-nullable
                     return Container(
                       margin: const EdgeInsets.only(bottom: 8),
                       padding: const EdgeInsets.all(12),

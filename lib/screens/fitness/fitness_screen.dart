@@ -33,17 +33,6 @@ import '../../utils/fitness_plan_storage.dart';
 
 const _uuid = Uuid();
 
-const _activitySuggestions = [
-  'Running',
-  'Walking',
-  'Swimming',
-  'Cycling',
-  'Yoga',
-  'Weight Training',
-  'HIIT',
-  'Hiking',
-];
-
 const _activityEmojis = {
   'run': '🏃',
   'walk': '🚶',
@@ -1340,11 +1329,7 @@ class _StoredPlanViewState extends State<_StoredPlanView> {
     if (_imageEnrichStarted || !mounted) {
       return;
     }
-    final raw = widget.plan;
-    if (raw is! Map) {
-      return;
-    }
-    final planMap = raw as Map<dynamic, dynamic>;
+    final planMap = widget.plan; // FIXED: plan is always Map
     ExercisePlanMediaService.normalizeWeeklyPlanKey(planMap);
     final wp = planMap['weeklyPlan'] ?? planMap['weekly_plan'];
     if (wp is! List) {
@@ -1363,7 +1348,7 @@ class _StoredPlanViewState extends State<_StoredPlanView> {
         if (e is! Map) {
           continue;
         }
-        if ((_exerciseImageUrl(Map<String, dynamic>.from(e as Map)) ?? '').isEmpty) {
+        if ((_exerciseImageUrl(Map<String, dynamic>.from(e)) ?? '').isEmpty) { // FIXED: e promoted to Map
           anyMissing = true;
           break;
         }
@@ -1610,6 +1595,7 @@ Apply the requested change while keeping everything else sensible.
           return;
         }
         await ExercisePlanMediaService.enrichPlanMap(decoded);
+        if (!mounted) return;
         final pid = widget.plan['plan_id']?.toString();
         final sid = fitnessPlanStableId(widget.plan);
         final plans = db.fitnessPlans.toList();
@@ -1739,8 +1725,8 @@ Apply the requested change while keeping everything else sensible.
                       child: Column(children: exercises.asMap().entries.map((ex) {
                         final idx = ex.key;
                         final exercise = ex.value;
-                        final imgUrl = _exerciseImageUrl(exercise as Map);
-                        final edbId = _exerciseDbIdFromMap(exercise as Map);
+                        final imgUrl = _exerciseImageUrl(exercise); // FIXED: List<Map> element
+                        final edbId = _exerciseDbIdFromMap(exercise);
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 8),
                           child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -2277,66 +2263,6 @@ For every exercise, "howTo" is REQUIRED (plain text, not markdown). Use simple, 
   }
 }
 
-// ─── Log Card ─────────────────────────────────────────────────────────────────
-
-class _LogCard extends StatelessWidget {
-  final FitnessLog log;
-  final String emoji;
-  final String memberName;
-  final VoidCallback onDelete;
-
-  const _LogCard({required this.log, required this.emoji, required this.memberName, required this.onDelete});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onLongPress: onDelete,
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: AppTheme.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppTheme.stone100),
-        ),
-        child: Row(children: [
-          Container(
-            width: 46, height: 46,
-            decoration: BoxDecoration(
-              color: AppTheme.primaryLight,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Center(child: Text(emoji, style: const TextStyle(fontSize: 22))),
-          ),
-          const SizedBox(width: 12),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(log.activity,
-                style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: AppTheme.stone900)),
-            const SizedBox(height: 4),
-            Wrap(spacing: 6, runSpacing: 4, children: [
-              _Chip(label: '${log.durationMinutes} min', color: AppTheme.primary),
-              if (log.caloriesBurned != null)
-                _Chip(label: '${log.caloriesBurned} cal', color: const Color(0xFFF97316)),
-              _Chip(label: memberName.split(' ').first, color: AppTheme.stone500),
-            ]),
-            if (log.notes != null && log.notes!.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text(log.notes!,
-                  style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
-                  maxLines: 1, overflow: TextOverflow.ellipsis),
-            ],
-          ])),
-          Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-            Text(DateFormat('MMM d').format(log.date),
-                style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
-            Text(DateFormat('h:mm a').format(log.date),
-                style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone300)),
-          ]),
-        ]),
-      ),
-    );
-  }
-}
-
 // ─── Workout Session Card ─────────────────────────────────────────────────
 class _SessionCard extends StatelessWidget {
   final WorkoutSession session;
@@ -2624,7 +2550,6 @@ class _FitnessLogSheetState extends State<_FitnessLogSheet> {
   // Simple Strong-style rest timer between sets
   Timer? _restTimer;
   int _restRemaining = 0;
-  int _restActiveSetIndex = -1;
 
   @override
   void initState() {
@@ -2659,7 +2584,6 @@ class _FitnessLogSheetState extends State<_FitnessLogSheet> {
       _restTimer?.cancel();
       _restTimer = null;
       _restRemaining = 0;
-      _restActiveSetIndex = -1;
     });
   }
 
@@ -2673,10 +2597,9 @@ class _FitnessLogSheetState extends State<_FitnessLogSheet> {
     if (d != null) setState(() => _date = d);
   }
 
-  void _startRestTimer(int activeSetIndex) {
+  void _startRestTimer() {
     _restTimer?.cancel();
     setState(() {
-      _restActiveSetIndex = activeSetIndex;
       _restRemaining = _restSeconds;
     });
 
@@ -3014,7 +2937,7 @@ class _FitnessLogSheetState extends State<_FitnessLogSheet> {
                                 ? null
                                 : () {
                                     setState(() => _completed[i] = true);
-                                    _startRestTimer(i);
+                                    _startRestTimer();
                                   },
                             icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
                             label: const Text('Complete set'),
@@ -3081,13 +3004,13 @@ class _WorkoutExerciseDraft {
   _WorkoutExerciseDraft({
     required this.id,
     this.name = '',
-    this.techniqueNotes = '',
-    this.setsCount = 3,
-    this.restSeconds = 60,
-  })  : reps = <String>[],
+  })  : techniqueNotes = '',
+        setsCount = 3,
+        restSeconds = 60,
+        reps = <String>[],
         weights = <String?>[],
         completed = <bool>[] {
-    syncSets(setsCount);
+    syncSets(3); // FIXED: ctor defaults moved to initializers (unused optional params)
   }
 
   void syncSets(int newCount) {

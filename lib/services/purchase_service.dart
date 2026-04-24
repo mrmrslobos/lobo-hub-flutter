@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:purchases_flutter/errors.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 
 import '../models/models.dart';

@@ -125,18 +125,18 @@ class _LocationScreenState extends State<LocationScreen> {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
         if (mounted) _showSnack('Location permission denied');
-        setState(() => _permissionDenied = true);
+        if (mounted) setState(() => _permissionDenied = true);
         return false;
       }
     }
 
     if (permission == LocationPermission.deniedForever) {
       if (mounted) _showSnack('Location permission permanently denied. Please enable in Settings.');
-      setState(() => _permissionDenied = true);
+      if (mounted) setState(() => _permissionDenied = true);
       return false;
     }
 
-    setState(() => _permissionDenied = false);
+    if (mounted) setState(() => _permissionDenied = false);
     return true;
   }
 

@@ -47,10 +47,13 @@ class LocalSembastStore {
   static Future<AppDB> readAppDb() async {
     final database = await _database();
     final template = AppDB.empty().toJson();
+    final keys = template.keys.toList();
+    final snapshots = await _store.records(keys).getSnapshots(database);
     final map = <String, dynamic>{};
-    for (final key in template.keys) {
-      final v = await _store.record(key).get(database);
-      map[key] = v ?? template[key];
+    for (var i = 0; i < keys.length; i++) {
+      final key = keys[i];
+      final snap = i < snapshots.length ? snapshots[i] : null;
+      map[key] = snap?.value ?? template[key];
     }
     return AppDB.fromJson(map);
   }

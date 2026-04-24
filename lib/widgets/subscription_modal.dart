@@ -27,6 +27,7 @@ enum AiPaywallKind {
   fitness,
   devotional,
   lists,
+  copilot,
 }
 
 class _PaywallCopy {
@@ -134,6 +135,15 @@ const _paywallCopy = <AiPaywallKind, _PaywallCopy>{
       'Reorder and group ideas in seconds',
       'Stays synced with your family’s shared lists',
       'Part of AI & AI Family plans',
+    ],
+  ),
+  AiPaywallKind.copilot: _PaywallCopy(
+    subtitle: 'One assistant that understands your week and can draft tasks, events, lists, and meals.',
+    bullets: [
+      'Describe what you need in plain language',
+      'Review every change before it is saved',
+      'Works with your existing family data',
+      'Unlocked on AI & AI Family plans',
     ],
   ),
 };

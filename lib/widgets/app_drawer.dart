@@ -318,6 +318,7 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
   String _selectedLocale = 'US';
   bool _loading = true;
   NotificationPrefs _notifPrefs = const NotificationPrefs();
+  final _smsPhoneCtrl = TextEditingController();
   bool _notifLoaded = false;
   bool _resettingData = false;
   bool _deletingCloudData = false;
@@ -344,7 +345,14 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
     if (!_notifLoaded) {
       _notifLoaded = true;
       _notifPrefs = context.read<AppProvider>().deviceNotificationPrefs;
+      _smsPhoneCtrl.text = _notifPrefs.reminderSmsPhone ?? '';
     }
+  }
+
+  @override
+  void dispose() {
+    _smsPhoneCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _persistNotif(NotificationPrefs next) async {
@@ -478,6 +486,7 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
     setState(() => _resettingData = true);
     try {
       await sheetContext.read<AppProvider>().resetAllLocalDataAndSignOut();
+      if (!sheetContext.mounted) return;
       await sheetContext.read<LocaleService>().reloadFromPrefs();
       if (!sheetContext.mounted) return;
       Navigator.of(sheetContext).pop();
@@ -555,7 +564,9 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
     setState(() => _deletingCloudData = true);
     try {
       await SupabaseService.deleteFamilyCloudData(familyId: fam.id);
+      if (!sheetContext.mounted) return;
       await provider.resetAllLocalDataAndSignOut();
+      if (!sheetContext.mounted) return;
       await sheetContext.read<LocaleService>().reloadFromPrefs();
       if (!sheetContext.mounted) return;
       Navigator.of(sheetContext).pop();
@@ -755,6 +766,46 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
                       _notifSwitch('Location', _notifPrefs.location, (v) => _persistNotif(_notifPrefs.copyWith(location: v))),
                     ],
                   ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Extra task reminders',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: AppTheme.stone800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'When a task uses Email, SMS, or Call delivery, the server sends at the reminder time if Resend/Twilio are configured (see reminder-dispatch function).',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 12,
+                    color: AppTheme.stone500,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                _notifSwitch(
+                  'Email reminders (account email)',
+                  _notifPrefs.reminderEmailEnabled,
+                  (v) => _persistNotif(_notifPrefs.copyWith(reminderEmailEnabled: v)),
+                ),
+                _notifSwitch(
+                  'SMS / voice (uses phone below)',
+                  _notifPrefs.reminderSmsEnabled,
+                  (v) => _persistNotif(_notifPrefs.copyWith(reminderSmsEnabled: v)),
+                ),
+                TextField(
+                  controller: _smsPhoneCtrl,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(
+                    labelText: 'SMS / voice phone (E.164 when possible)',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  onSubmitted: (s) => _persistNotif(_notifPrefs.copyWith(reminderSmsPhone: s.trim().isEmpty ? null : s.trim())),
                 ),
                 const SizedBox(height: 12),
                 const Text(
@@ -1762,7 +1813,6 @@ class _NavTile extends StatelessWidget {
   final String route;
   final bool isActive;
   final bool canAccess;
-  final int unreadCount;
 
   const _NavTile({
     required this.icon,
@@ -1770,7 +1820,6 @@ class _NavTile extends StatelessWidget {
     required this.route,
     required this.isActive,
     required this.canAccess,
-    this.unreadCount = 0,
   });
 
   @override
@@ -1826,15 +1875,6 @@ class _NavTile extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (unreadCount > 0)
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: const BoxDecoration(
-                      color: AppTheme.primary,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
               ],
             ),
           ),
@@ -2159,6 +2199,7 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
       ),
     );
     if (confirmed != true) return;
+    if (!mounted) return;
 
     final provider = context.read<AppProvider>();
     final db = provider.db;
@@ -2957,47 +2998,6 @@ class _EditableMember {
     required this.displayName,
     this.declaredUnder16 = false,
   });
-}
-
-// ─────────────────────────────────────────────
-// Theme option tile
-// ─────────────────────────────────────────────
-
-class _ThemeOption extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _ThemeOption({
-    required this.icon,
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: Icon(icon, size: 20, color: selected ? AppTheme.primary : AppTheme.stone500),
-      title: Text(
-        label,
-        style: TextStyle(
-          fontFamily: 'Inter',
-          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-          fontSize: 14,
-          color: selected ? AppTheme.primary : AppTheme.stone800,
-        ),
-      ),
-      trailing: selected
-          ? const Icon(Icons.check_circle_rounded, color: AppTheme.primary, size: 20)
-          : null,
-      onTap: onTap,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      dense: true,
-      visualDensity: VisualDensity.compact,
-    );
-  }
 }
 
 // ─────────────────────────────────────────────

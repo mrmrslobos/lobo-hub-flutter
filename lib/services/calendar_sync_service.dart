@@ -21,6 +21,7 @@ class CalendarSyncService {
   static final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: [
       gcal.CalendarApi.calendarReadonlyScope,
+      gcal.CalendarApi.calendarScope,
       gtasks.TasksApi.tasksReadonlyScope,
     ],
   );
@@ -113,6 +114,7 @@ class CalendarSyncService {
           end: end,
           visibility: Visibility.PRIVATE,
           externalCalendarId: externalCalendarId,
+          externalUid: ge.id,
         );
       }).toList();
     } catch (e) {
@@ -317,5 +319,36 @@ class CalendarSyncService {
         .replaceAll('\\,', ',')
         .replaceAll('\\;', ';')
         .replaceAll('\\\\', '\\');
+  }
+
+  /// Inserts [event] into the signed-in user’s primary Google Calendar (requires write scope).
+  /// Returns the Google event id, or null on failure / no session.
+  static Future<String?> insertPrimaryGoogleEvent(CalendarEvent event) async {
+    var httpClient = await _googleSignIn.authenticatedClient();
+    if (httpClient == null) {
+      await _googleSignIn.signInSilently();
+      httpClient = await _googleSignIn.authenticatedClient();
+      if (httpClient == null) return null;
+    }
+    try {
+      final api = gcal.CalendarApi(httpClient);
+      final ge = gcal.Event()
+        ..summary = event.title
+        ..description = event.description
+        ..location = event.location
+        ..start = gcal.EventDateTime(
+          dateTime: event.start.toUtc(),
+          timeZone: 'Etc/UTC',
+        )
+        ..end = gcal.EventDateTime(
+          dateTime: event.end.toUtc(),
+          timeZone: 'Etc/UTC',
+        );
+      final created = await api.events.insert(ge, 'primary');
+      return created.id;
+    } catch (e) {
+      debugPrint('insertPrimaryGoogleEvent: $e');
+      return null;
+    }
   }
 }

@@ -332,7 +332,7 @@ class _DevotionalScreenState extends State<DevotionalScreen>
       if (mounted) _showSnack(context, 'Only the entry creator or family owner can delete this devotional.');
       return;
     }
-    final isDailyAuto = entry != null && entry.tags.contains('daily-auto');
+    final isDailyAuto = entry.tags.contains('daily-auto'); // FIXED: entry non-null after guard
 
     if (isDailyAuto) {
       // 1) Locally remember that we dismissed today's auto devotional.
@@ -714,7 +714,11 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
     // Sync with cloud — the server may still generate a family-wide daily;
     // prefer a row created by this user for today.
     try {
-      final merged = await DatabaseService.reconcileCloud(provider.db, family.id);
+      final merged = await DatabaseService.reconcileCloud(
+        provider.db,
+        family.id,
+        getLocalAfterFetch: () => provider.db,
+      );
       if (mounted) {
         provider.updateDb(merged);
         final synced = findTodaysDevotional();
@@ -889,8 +893,9 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
             ),
             pushTableScope: {CloudSyncScope.devotionals},
           );
+          if (!mounted) return;
           _topicCtrl.clear();
-          if (mounted) widget.onSelectEntry(entry);
+          widget.onSelectEntry(entry);
         } else {
           // Fallback: treat raw as plain text
           final entry = DevotionalEntry(
@@ -1381,10 +1386,9 @@ For each entry's "discussion" field, provide one substantive personal reflection
           },
         );
 
+        if (!mounted) return;
         _customTopicCtrl.clear();
-        if (mounted) {
-          widget.onSelectPlan(plan);
-        }
+        widget.onSelectPlan(plan);
       }
     } catch (e) {
       if (mounted) {
@@ -2585,7 +2589,7 @@ class _DailyDevotionalCardState extends State<_DailyDevotionalCard> {
                   child: Switch.adaptive(
                     value: enabled,
                     onChanged: (val) => _toggleUser(context, val),
-                    activeColor: Colors.white,
+                    activeThumbColor: Colors.white, // FIXED: activeColor deprecated
                     activeTrackColor: Colors.white.withValues(alpha: 0.35),
                     inactiveThumbColor: Colors.white70,
                     inactiveTrackColor: Colors.white.withValues(alpha: 0.15),

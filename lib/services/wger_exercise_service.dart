@@ -74,7 +74,7 @@ class WgerExerciseImageService {
       if (item is! Map) {
         continue;
       }
-      final m = Map<String, dynamic>.from(item as Map);
+      final m = Map<String, dynamic>.from(item); // FIXED: item promoted Map
       final img = m['image']?.toString();
       if (img != null && img.isNotEmpty) {
         return img.startsWith('http') ? img : '$_base$img';
@@ -219,7 +219,7 @@ class WgerExerciseImageService {
         }
         final url = await resolveImageUrl(name);
         if (url != null) {
-          final em = Map<String, dynamic>.from(e as Map);
+          final em = Map<String, dynamic>.from(e); // FIXED: e promoted Map
           exs[i] = {...em, 'imageUrl': url};
         }
       }

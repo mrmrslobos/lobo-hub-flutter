@@ -229,6 +229,7 @@ class _PollsScreenState extends State<PollsScreen> {
           db.copyWith(polls: updatedPolls),
           pushTableScope: CloudSyncScope.pollBundle,
         );
+        if (!mounted) return;
         _closingExpired = false;
       });
     }

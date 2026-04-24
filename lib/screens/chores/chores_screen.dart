@@ -1263,7 +1263,7 @@ class _ChoreFormSheetState extends State<_ChoreFormSheet> {
       _rotationEnabled = c.rotationEnabled;
       if (c.color != null) {
         final parsed = Color(int.tryParse(c.color!.replaceFirst('#', '0xFF')) ?? 0xFF7C6BFF);
-        final idx = _choreColors.indexWhere((cc) => cc.value == parsed.value);
+        final idx = _choreColors.indexWhere((cc) => cc.toARGB32() == parsed.toARGB32()); // FIXED: Color.value deprecated
         if (idx >= 0) _selectedColorIndex = idx;
       }
     }
@@ -1302,7 +1302,7 @@ class _ChoreFormSheetState extends State<_ChoreFormSheet> {
       frequency: _frequency,
       daysOfWeek: _frequency == ChoreFrequency.CUSTOM ? _customDays : const [],
       assignees: _assigneeIds,
-      color: '#${_choreColors[_selectedColorIndex].value.toRadixString(16).substring(2)}',
+      color: '#${_choreColors[_selectedColorIndex].toARGB32().toRadixString(16).substring(2)}', // FIXED: Color.value deprecated
       requiresApproval: _requiresApproval,
       rotationEnabled: _assigneeIds.length > 1 && _rotationEnabled,
       rotationCursor: widget.editChore?.rotationCursor ?? 0,
@@ -1693,7 +1693,8 @@ class _ChoreFormSheetState extends State<_ChoreFormSheet> {
                           Switch.adaptive(
                             value: _rotationEnabled,
                             onChanged: (v) => setState(() => _rotationEnabled = v),
-                            activeColor: AppTheme.primary,
+                            activeThumbColor: AppTheme.surface,
+                            activeTrackColor: AppTheme.primary,
                           ),
                         ],
                       ),
@@ -1739,7 +1740,8 @@ class _ChoreFormSheetState extends State<_ChoreFormSheet> {
                         Switch.adaptive(
                           value: _requiresApproval,
                           onChanged: (v) => setState(() => _requiresApproval = v),
-                          activeColor: AppTheme.primary,
+                          activeThumbColor: AppTheme.surface,
+                          activeTrackColor: AppTheme.primary,
                         ),
                       ],
                     ),

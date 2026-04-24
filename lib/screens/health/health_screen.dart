@@ -1171,7 +1171,10 @@ class _ImmunizationsSectionState extends State<_ImmunizationsSection> {
       firstDate: DateTime(2000),
       lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
     );
-    if (picked != null) setState(() => _selectedDate = picked);
+    if (picked != null) {
+      if (!mounted) return;
+      setState(() => _selectedDate = picked);
+    }
   }
 
   void _add() {

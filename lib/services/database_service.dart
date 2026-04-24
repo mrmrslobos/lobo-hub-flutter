@@ -601,7 +601,7 @@ class DatabaseService {
                   .where((p) => p['user_id'] == currentUserId)
                   .map((p) {
                     final row = fitnessPlanRowForCloud(
-                      Map<String, dynamic>.from(p as Map),
+                      Map<String, dynamic>.from(p), // FIXED: whereType<Map> element
                       fid,
                     );
                     for (final k in _fitnessPlansCloudOmit) {
@@ -1070,6 +1070,11 @@ class DatabaseService {
     AppDB local,
     String familyId, {
     Set<String>? pullTables,
+    /// Called **after** the cloud HTTP fetch completes, to merge against the
+    /// latest in-memory DB. Prevents losing edits (e.g. a new list) made while
+    /// the network request was in flight — the initial [local] snapshot can be
+    /// stale by tens of seconds on slow links or right after a deferred startup pull.
+    AppDB Function()? getLocalAfterFetch,
   }) async {
     lastError = null;
     if (!SupabaseService.isConfigured) return local;
@@ -1084,14 +1089,15 @@ class DatabaseService {
         partial = false;
         cloudData = await SupabaseService.fetchAllTables(familyId);
       }
+      final localForMerge = getLocalAfterFetch?.call() ?? local;
       _pruneTombstonesAgainstCloud(cloudData, partial: partial);
       await _persistTombstones();
-      var merged = _mergeWithCloud(local, cloudData, familyId);
+      var merged = _mergeWithCloud(localForMerge, cloudData, familyId);
       if (FieldEncryption.isReady(familyId)) {
         merged = merged.applySensitiveDecryption(familyId);
       }
       merged = await backfillMissingUsersForFamily(merged, familyId);
-      await saveLocal(merged, tombstoneBase: local);
+      await saveLocal(merged, tombstoneBase: localForMerge);
       return merged;
     } on Object catch (e, st) {
       lastError = '$e\n$st';
@@ -1378,7 +1384,7 @@ class DatabaseService {
       'summary': raw['summary']?.toString() ?? '',
       'weeklyPlan': wp,
       'tips': tips,
-      'profile': Map<String, dynamic>.from(prof as Map),
+      'profile': Map<String, dynamic>.from(prof), // FIXED: prof is Map after guard
       'user_id': raw['user_id']?.toString() ?? '',
       'created_at': raw['created_at']?.toString() ?? '',
       'plan_id': raw['plan_id']?.toString() ?? '',
