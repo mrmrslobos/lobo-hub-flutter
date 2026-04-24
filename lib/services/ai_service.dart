@@ -69,6 +69,8 @@ class AiService {
     required String familyId,
     String? responseMimeType,
     Map<String, dynamic>? responseSchema,
+    String? imageBase64,
+    String? imageMimeType,
   }) async {
     if (_aiBlocked) throw const AINotAvailableException();
     try {
@@ -77,6 +79,10 @@ class AiService {
         'feature': feature,
         'prompt': prompt,
       };
+      if (imageBase64 != null && imageBase64.isNotEmpty) {
+        body['image_base64'] = imageBase64;
+        body['image_mime_type'] = imageMimeType ?? 'image/jpeg';
+      }
       if (responseMimeType != null) {
         body['responseMimeType'] = responseMimeType;
       }
@@ -321,5 +327,86 @@ Please provide:
       feature: 'ai_budget',
       familyId: familyId,
     );
+  }
+
+  /// Family copilot: returns decoded `{ "reply", "actions" }` or null.
+  static Future<Map<String, dynamic>?> askCopilot({
+    required String userMessage,
+    required String familyId,
+    required String contextBlock,
+  }) async {
+    final prompt = '''
+You are the Family copilot for the Huddle app. The user describes what they need; you propose concrete actions the app can perform.
+
+Return ONLY valid JSON (no markdown) with this shape:
+{"reply":"short friendly message to the user","actions":[]}
+
+Each action is: {"type":"<type>","payload":{...}}
+
+Allowed types and payloads:
+- create_task: title (string), notes?, due_date (ISO date yyyy-MM-DD), due_time (HH:mm), priority LOW|MEDIUM|HIGH, reminder_minutes?
+- create_event: title, start (ISO datetime), end (ISO datetime), location?, description?
+- create_shopping_list: title, items optional array of {text, quantity?}
+- add_list_items: list_id OR list_title_substring, items array of {text, quantity?}
+- create_meal_plan_entry: date (yyyy-MM-DD), meal_type breakfast|lunch|dinner|snack, custom_meal (string)
+- create_chore: title, description?, points (int), frequency DAILY|WEEKLY
+
+If the user asks for restaurant reservations, put a helpful reply and optionally create_event for date night; you may mention they can open a reservation link from the calendar after the event is saved.
+
+If nothing applies, use empty actions.
+
+Context (read-only):
+$contextBlock
+
+User message:
+$userMessage
+''';
+    try {
+      final raw = await ask(
+        prompt: prompt,
+        feature: 'ai_copilot',
+        familyId: familyId,
+        responseMimeType: 'application/json',
+      );
+      if (raw == null) return null;
+      final decoded = tryParseJsonObject(raw);
+      if (decoded == null) return null;
+      return decoded;
+    } catch (e, st) {
+      debugPrint('[AiService] askCopilot error: $e\n$st');
+      return null;
+    }
+  }
+
+  /// Vision: extract events from a flyer image. Returns JSON with "events" array.
+  static Future<Map<String, dynamic>?> extractEventsFromImage({
+    required String familyId,
+    required String imageBase64,
+    String mimeType = 'image/jpeg',
+  }) async {
+    const prompt = '''
+Analyze this image (flyer, invitation, or schedule). Extract every distinct dated event you can read.
+
+Return ONLY valid JSON:
+{"events":[{"title":"string","start":"ISO 8601 datetime","end":"ISO 8601 datetime","location":"string or empty","description":"string or empty"}]}
+
+If there are no events, return {"events":[]}.
+Use reasonable duration (e.g. 1 hour) if only a start time is visible.
+''';
+    try {
+      final raw = await ask(
+        prompt: prompt,
+        feature: 'ai_events_vision',
+        familyId: familyId,
+        responseMimeType: 'application/json',
+        imageBase64: imageBase64,
+        imageMimeType: mimeType,
+      );
+      if (raw == null) return null;
+      return tryParseJsonObject(raw);
+    } catch (e, st) {
+      debugPrint('[AiService] extractEventsFromImage error: $e\n$st');
+      return null;
+    }
   }
 }

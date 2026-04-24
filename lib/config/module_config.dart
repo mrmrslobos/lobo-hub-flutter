@@ -29,6 +29,7 @@ const moduleGroups = [
     label: 'Family',
     modules: [
       ModuleInfo(path: '/chat', name: 'Chat', emoji: '💬', desc: 'Messages and reactions'),
+      ModuleInfo(path: '/assistant', name: 'Family copilot', emoji: '🤖', desc: 'Ask AI to update tasks, calendar, lists, and meals'),
       ModuleInfo(path: '/tasks', name: 'Tasks', emoji: '✅', desc: 'Shared to-dos and who’s doing what'),
       ModuleInfo(path: '/calendar', name: 'Calendar', emoji: '📅', desc: 'Events and the family schedule'),
       ModuleInfo(path: '/chores', name: 'Chores', emoji: '🧹', desc: 'Chore charts and tracking'),
@@ -116,6 +117,7 @@ class DrawerNavSectionSpec {
 const drawerNavSectionSpecs = [
   DrawerNavSectionSpec(title: 'Family', entries: [
     DrawerNavEntry(path: '/chat', icon: Icons.chat_bubble_outline_rounded),
+    DrawerNavEntry(path: '/assistant', icon: Icons.auto_awesome_rounded),
     DrawerNavEntry(path: '/tasks', icon: Icons.check_circle_outline_rounded),
     DrawerNavEntry(path: '/calendar', icon: Icons.calendar_month_rounded),
     DrawerNavEntry(path: '/chores', icon: Icons.assignment_turned_in_outlined),

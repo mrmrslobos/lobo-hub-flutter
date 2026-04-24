@@ -18,6 +18,7 @@ import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
 import '../../utils/cloud_pull.dart';
 import '../../services/notification_service.dart';
+import '../../services/reminder_enqueue_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/subscription_modal.dart';
@@ -1581,6 +1582,8 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
   DateTime? _dueDate;
   TimeOfDay? _dueTime;
   int? _reminderMinutes;
+  /// push | email | sms | voice — used with server reminder_jobs when not push.
+  String _reminderChannel = 'push';
   List<String> _assigneeIds = [];
   bool _loading = false;
 
@@ -1606,6 +1609,7 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
       _dueDate = t.dueDate;
       _assigneeIds = List.from(t.assignees);
       _reminderMinutes = t.reminderMinutes;
+      _reminderChannel = t.reminderChannel ?? 'push';
       if (t.dueTime != null && t.dueTime!.contains(':')) {
         final parts = t.dueTime!.split(':');
         _dueTime = TimeOfDay(
@@ -1685,6 +1689,7 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
           dueDate: _dueDate,
           dueTime: dueTimeStr,
           reminderMinutes: _reminderMinutes,
+          reminderChannel: _reminderMinutes == null ? null : _reminderChannel,
           assignees: _assigneeIds,
           tags: tags,
           updatedAt: DateTime.now(),
@@ -1705,6 +1710,7 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
           dueDate: _dueDate,
           dueTime: dueTimeStr,
           reminderMinutes: _reminderMinutes,
+          reminderChannel: _reminderMinutes == null ? null : _reminderChannel,
           assignees: _assigneeIds,
           tags: tags,
           creatorId: userId,
@@ -1738,6 +1744,13 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
             dueDate: savedTask.dueDate!,
             dueTime: dueTimeStr,
             reminderMinutes: _reminderMinutes!,
+          );
+          await ReminderEnqueueService.tryEnqueueTaskReminder(
+            task: savedTask,
+            familyId: familyId,
+            userId: userId,
+            userEmail: provider.activeUser?.email ?? '',
+            prefs: provider.deviceNotificationPrefs,
           );
         } else {
           await NotificationService.cancelTaskReminder(savedTask.id);
@@ -1913,12 +1926,50 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
                         scrollDirection: Axis.horizontal,
                         child: Row(
                           children: [
-                            _MiniChip(label: 'None', selected: _reminderMinutes == null, onTap: () => setState(() => _reminderMinutes = null)),
+                            _MiniChip(label: 'None', selected: _reminderMinutes == null, onTap: () => setState(() {
+                              _reminderMinutes = null;
+                              _reminderChannel = 'push';
+                            })),
                             ..._reminderOptions.map((opt) => _MiniChip(
                               label: opt.$2,
                               selected: _reminderMinutes == opt.$1,
                               onTap: () => setState(() => _reminderMinutes = opt.$1),
                             )),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      _sectionLabel('Also notify via'),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Push is always scheduled on this device. Email/SMS/voice use the server when configured.',
+                        style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone500.withValues(alpha: 0.9)),
+                      ),
+                      const SizedBox(height: 6),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            _MiniChip(
+                              label: 'Push only',
+                              selected: _reminderChannel == 'push',
+                              onTap: () => setState(() => _reminderChannel = 'push'),
+                            ),
+                            _MiniChip(
+                              label: 'Email',
+                              selected: _reminderChannel == 'email',
+                              onTap: () => setState(() => _reminderChannel = 'email'),
+                            ),
+                            _MiniChip(
+                              label: 'SMS',
+                              selected: _reminderChannel == 'sms',
+                              onTap: () => setState(() => _reminderChannel = 'sms'),
+                            ),
+                            _MiniChip(
+                              label: 'Call',
+                              selected: _reminderChannel == 'voice',
+                              onTap: () => setState(() => _reminderChannel = 'voice'),
+                            ),
                           ],
                         ),
                       ),

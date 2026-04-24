@@ -40,6 +40,8 @@ const FEATURE_TIER_MAP: Record<string, 'core' | 'ai'> = {
   ai_tasks:     'ai',
   ai_events:    'ai',
   ai_motivation:'ai',
+  ai_copilot:   'ai',
+  ai_events_vision: 'ai',
 };
 
 const TIER_RANK: Record<string, number> = { free: 0, core: 1, ai: 2 };
@@ -48,6 +50,53 @@ const TRIAL_MS = 14 * 24 * 60 * 60 * 1000;
 
 /** Reject absurdly large prompts to protect Gemini quota and function wall time. */
 const MAX_PROMPT_CHARS = 180_000;
+/** Max base64 image payload (~6 MB raw) */
+const MAX_IMAGE_BASE64_CHARS = 8_000_000;
+
+const COPILOT_ACTION_TYPES = new Set([
+  'create_task',
+  'create_event',
+  'create_shopping_list',
+  'add_list_items',
+  'create_meal_plan_entry',
+  'create_chore',
+]);
+
+interface CopilotAction {
+  type: string;
+  payload: Record<string, unknown>;
+}
+
+/** Strip to JSON-safe copilot response; drops unknown action types and oversized arrays. */
+function sanitizeCopilotJson(raw: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw.trim());
+  } catch {
+    return JSON.stringify({
+      reply: 'I could not produce a valid plan. Please try rephrasing your request.',
+      actions: [],
+    });
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return JSON.stringify({ reply: '', actions: [] });
+  }
+  const o = parsed as Record<string, unknown>;
+  const reply = typeof o.reply === 'string' ? o.reply.slice(0, 8000) : '';
+  const rawActions = Array.isArray(o.actions) ? o.actions : [];
+  const actions: CopilotAction[] = [];
+  for (const a of rawActions.slice(0, 20)) {
+    if (!a || typeof a !== 'object' || Array.isArray(a)) continue;
+    const rec = a as Record<string, unknown>;
+    const type = typeof rec.type === 'string' ? rec.type : '';
+    if (!COPILOT_ACTION_TYPES.has(type)) continue;
+    const payload = rec.payload && typeof rec.payload === 'object' && !Array.isArray(rec.payload)
+      ? rec.payload as Record<string, unknown>
+      : {};
+    actions.push({ type, payload });
+  }
+  return JSON.stringify({ reply, actions });
+}
 
 /** Matches Flutter [Family.hasAIAccess] / [Family.effectiveTrialStart]. */
 function effectiveAiRank(
@@ -98,15 +147,33 @@ Deno.serve(async (req) => {
     const prompt = body.prompt;
     const responseMimeType = body.responseMimeType;
     const responseSchema = body.responseSchema;
+    const imageBase64 = body.image_base64 ?? body.imageBase64;
+    const imageMimeType = body.image_mime_type ?? body.imageMimeType ?? 'image/jpeg';
 
-    if (!familyId || !feature || !prompt) {
-      return new Response(JSON.stringify({ error: 'Missing required fields: family_id, feature, prompt' }), {
+    if (!familyId || !feature) {
+      return new Response(JSON.stringify({ error: 'Missing required fields: family_id, feature' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    if (typeof prompt !== 'string' || prompt.length > MAX_PROMPT_CHARS) {
+    const hasImage = typeof imageBase64 === 'string' && imageBase64.length > 0;
+    if ((!prompt || typeof prompt !== 'string') && !hasImage) {
+      return new Response(JSON.stringify({ error: 'Provide prompt and/or image_base64' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const promptStr = typeof prompt === 'string' ? prompt : '';
+    if (hasImage && typeof imageBase64 === 'string' && imageBase64.length > MAX_IMAGE_BASE64_CHARS) {
+      return new Response(JSON.stringify({ error: 'image_too_large', maxChars: MAX_IMAGE_BASE64_CHARS }), {
+        status: 413,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (promptStr.length > MAX_PROMPT_CHARS) {
       return new Response(
         JSON.stringify({
           error: 'prompt_too_large',
@@ -194,9 +261,25 @@ Deno.serve(async (req) => {
     let lastError: unknown;
     let geminiResponse: Response | null = null;
 
+    const textPart = promptStr.length > 0
+      ? promptStr
+      : (feature === 'ai_events_vision'
+        ? 'Extract calendar events from this image. Return JSON only.'
+        : 'Describe this image briefly.');
+
+    const parts: Record<string, unknown>[] = [{ text: textPart }];
+    if (hasImage && typeof imageBase64 === 'string') {
+      parts.push({
+        inline_data: {
+          mime_type: typeof imageMimeType === 'string' ? imageMimeType : 'image/jpeg',
+          data: imageBase64,
+        },
+      });
+    }
+
     for (const model of MODEL_CANDIDATES) {
       const reqBody: Record<string, unknown> = {
-        contents: [{ parts: [{ text: prompt }] }],
+        contents: [{ parts }],
       };
       const genConfig: Record<string, unknown> = {};
       if (responseMimeType) {
@@ -240,7 +323,11 @@ Deno.serve(async (req) => {
     // Find the last non-thinking text part (Gemini 2.5+ may prepend thought parts)
     const parts = geminiData?.candidates?.[0]?.content?.parts ?? [];
     const textParts = parts.filter((p: Record<string, unknown>) => 'text' in p && !p.thought);
-    const text = textParts.length > 0 ? (textParts[textParts.length - 1].text as string) : '';
+    let text = textParts.length > 0 ? (textParts[textParts.length - 1].text as string) : '';
+
+    if (feature === 'ai_copilot') {
+      text = sanitizeCopilotJson(text);
+    }
 
     return new Response(JSON.stringify({ text }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

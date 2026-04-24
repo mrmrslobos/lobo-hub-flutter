@@ -1391,6 +1391,7 @@ Return ONLY the JSON array, no markdown.''',
 
   Widget _buildActionButtons(BuildContext context) {
     final actions = [
+      _QuickAction(Icons.auto_awesome_rounded, 'Copilot', const Color(0xFF7C3AED), () => context.go('/assistant')),
       _QuickAction(Icons.add_rounded, 'Add Task', const Color(0xFF6366F1), () => context.go('/tasks')),
       _QuickAction(Icons.restaurant_rounded, 'Meal Plan', const Color(0xFF10B981), () => context.go('/meals')),
       _QuickAction(Icons.shopping_cart_rounded, 'Shopping', const Color(0xFF0EA5E9), () => context.go('/lists')),

@@ -58,6 +58,9 @@ dependencies:
   # URL launcher
   url_launcher: ^6.3.2
 
+  # Voice input (Family copilot)
+  speech_to_text: ^7.3.0
+
   # Native share sheet (meal plans, lists)
   share_plus: ^10.1.4
 

@@ -38,6 +38,7 @@ import 'screens/health/health_screen.dart';
 import 'screens/ai_history/ai_history_screen.dart';
 import 'screens/habits/habits_screen.dart';
 import 'screens/subscription/subscription_screen.dart';
+import 'screens/assistant/assistant_screen.dart';
 
 class HuddleApp extends StatefulWidget {
   const HuddleApp({super.key});
@@ -193,6 +194,11 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
               path: '/chat',
               name: 'chat',
               builder: (context, state) => const ChatScreen(),
+            ),
+            GoRoute(
+              path: '/assistant',
+              name: 'assistant',
+              builder: (context, state) => const AssistantScreen(),
             ),
             GoRoute(
               path: '/calendar',

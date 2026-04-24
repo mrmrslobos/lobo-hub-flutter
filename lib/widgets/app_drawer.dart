@@ -318,6 +318,7 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
   String _selectedLocale = 'US';
   bool _loading = true;
   NotificationPrefs _notifPrefs = const NotificationPrefs();
+  final _smsPhoneCtrl = TextEditingController();
   bool _notifLoaded = false;
   bool _resettingData = false;
   bool _deletingCloudData = false;
@@ -344,7 +345,14 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
     if (!_notifLoaded) {
       _notifLoaded = true;
       _notifPrefs = context.read<AppProvider>().deviceNotificationPrefs;
+      _smsPhoneCtrl.text = _notifPrefs.reminderSmsPhone ?? '';
     }
+  }
+
+  @override
+  void dispose() {
+    _smsPhoneCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _persistNotif(NotificationPrefs next) async {
@@ -758,6 +766,46 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
                       _notifSwitch('Location', _notifPrefs.location, (v) => _persistNotif(_notifPrefs.copyWith(location: v))),
                     ],
                   ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Extra task reminders',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: AppTheme.stone800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'When a task uses Email, SMS, or Call delivery, the server sends at the reminder time if Resend/Twilio are configured (see reminder-dispatch function).',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 12,
+                    color: AppTheme.stone500,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                _notifSwitch(
+                  'Email reminders (account email)',
+                  _notifPrefs.reminderEmailEnabled,
+                  (v) => _persistNotif(_notifPrefs.copyWith(reminderEmailEnabled: v)),
+                ),
+                _notifSwitch(
+                  'SMS / voice (uses phone below)',
+                  _notifPrefs.reminderSmsEnabled,
+                  (v) => _persistNotif(_notifPrefs.copyWith(reminderSmsEnabled: v)),
+                ),
+                TextField(
+                  controller: _smsPhoneCtrl,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(
+                    labelText: 'SMS / voice phone (E.164 when possible)',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  onSubmitted: (s) => _persistNotif(_notifPrefs.copyWith(reminderSmsPhone: s.trim().isEmpty ? null : s.trim())),
                 ),
                 const SizedBox(height: 12),
                 const Text(

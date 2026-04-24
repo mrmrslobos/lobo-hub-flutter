@@ -630,6 +630,8 @@ class Task {
   final DateTime? dueDate;
   final String? dueTime;
   final int? reminderMinutes;
+  /// `push` (default), `email`, `sms`, or `voice` — used with server [reminder_jobs].
+  final String? reminderChannel;
   final Priority priority;
   final bool completed;
   final String? completedBy;
@@ -651,6 +653,7 @@ class Task {
     this.dueDate,
     this.dueTime,
     this.reminderMinutes,
+    this.reminderChannel,
     Priority? priority,
     TaskPriority? taskPriority,
     this.completed = false,
@@ -679,6 +682,7 @@ class Task {
     dueDate: _parseDateOpt(j['due_date']),
     dueTime: j['due_time'] as String?,
     reminderMinutes: (j['reminder_minutes'] as num?)?.toInt() ?? (j['reminderMinutes'] as num?)?.toInt(),
+    reminderChannel: j['reminder_channel'] as String? ?? j['reminderChannel'] as String?,
     priority: priorityFromString(j['priority'] as String?),
     completed: _coerceBool(j['completed']),
     completedBy: j['completed_by'] as String?,
@@ -699,6 +703,7 @@ class Task {
     'due_date': (dueDate ?? DateTime.now()).toIso8601String(),
     'due_time': dueTime,
     'reminder_minutes': reminderMinutes,
+    if (reminderChannel != null) 'reminder_channel': reminderChannel,
     'priority': priority.name,
     'completed': completed,
     'completed_by': completedBy,
@@ -718,6 +723,7 @@ class Task {
   Task copyWith({
     String? id, String? familyId, String? creatorId, String? title,
     String? notes, DateTime? dueDate, String? dueTime, int? reminderMinutes,
+    String? reminderChannel,
     Priority? priority, bool? completed, String? completedBy, String? updatedBy,
     Visibility? visibility, List<String>? assignees, List<String>? tags,
     Recurrence? recurrence, DateTime? updatedAt,
@@ -730,6 +736,7 @@ class Task {
     dueDate: dueDate ?? this.dueDate,
     dueTime: dueTime ?? this.dueTime,
     reminderMinutes: reminderMinutes ?? this.reminderMinutes,
+    reminderChannel: reminderChannel ?? this.reminderChannel,
     priority: priority ?? this.priority,
     completed: completed ?? this.completed,
     completedBy: completedBy ?? this.completedBy,
@@ -764,6 +771,8 @@ class CalendarEvent {
   final List<String> rsvpMaybeIds;
   final double? budgetEstimate;
   final String? externalCalendarId;
+  /// Provider-native event id (e.g. Google Graph / Outlook) when syncing or pushing.
+  final String? externalUid;
   final Recurrence recurrence;
   final DateTime updatedAt;
 
@@ -789,6 +798,7 @@ class CalendarEvent {
     this.rsvpMaybeIds = const [],
     this.budgetEstimate,
     this.externalCalendarId,
+    this.externalUid,
     this.recurrence = Recurrence.NONE,
     DateTime? updatedAt,
   })  : updatedAt = updatedAt ?? DateTime.now(),
@@ -815,6 +825,7 @@ class CalendarEvent {
         ? (j['budget_estimate'] as num).toDouble()
         : null,
     externalCalendarId: j['external_calendar_id'] as String?,
+    externalUid: j['external_uid'] as String?,
     recurrence: recurrenceFromString(j['recurrence'] as String?),
     updatedAt: _parseDateOpt(j['updated_at']) ?? DateTime.fromMillisecondsSinceEpoch(0),
   );
@@ -836,6 +847,7 @@ class CalendarEvent {
     'rsvp_maybe_ids': rsvpMaybeIds,
     'budget_estimate': budgetEstimate,
     'external_calendar_id': externalCalendarId,
+    if (externalUid != null) 'external_uid': externalUid,
     'recurrence': recurrence.name,
     'updated_at': updatedAt.toIso8601String(),
   };
@@ -852,7 +864,8 @@ class CalendarEvent {
     String? description, String? location, DateTime? start, DateTime? end,
     Visibility? visibility, List<String>? sharedWith, List<String>? checklist,
     List<String>? rsvpYesIds, List<String>? rsvpNoIds, List<String>? rsvpMaybeIds,
-    double? budgetEstimate, String? externalCalendarId, Recurrence? recurrence,
+    double? budgetEstimate, String? externalCalendarId, String? externalUid,
+    Recurrence? recurrence,
     DateTime? updatedAt,
   }) => CalendarEvent(
     id: id ?? this.id, familyId: familyId ?? this.familyId,
@@ -866,6 +879,7 @@ class CalendarEvent {
     rsvpMaybeIds: rsvpMaybeIds ?? this.rsvpMaybeIds,
     budgetEstimate: budgetEstimate ?? this.budgetEstimate,
     externalCalendarId: externalCalendarId ?? this.externalCalendarId,
+    externalUid: externalUid ?? this.externalUid,
     recurrence: recurrence ?? this.recurrence,
     updatedAt: updatedAt ?? this.updatedAt,
   );
@@ -875,12 +889,13 @@ class CalendarEvent {
 // ExternalCalendar
 // ─────────────────────────────────────────────────────────────────────────────
 
-enum ExternalCalendarType { google, icsUrl }
+enum ExternalCalendarType { google, icsUrl, microsoft }
 
 ExternalCalendarType externalCalendarTypeFromString(String? s) {
   switch (s) {
     case 'google': return ExternalCalendarType.google;
     case 'icsUrl': return ExternalCalendarType.icsUrl;
+    case 'microsoft': return ExternalCalendarType.microsoft;
     default: return ExternalCalendarType.icsUrl;
   }
 }
@@ -4048,6 +4063,10 @@ class NotificationPrefs {
   final int? quietHoursStart;
   /// Local hour 0–23 when quiet hours end (exclusive).
   final int? quietHoursEnd;
+  /// When true, server may send task/event reminders to the account email (requires Supabase cron + provider).
+  final bool reminderEmailEnabled;
+  final bool reminderSmsEnabled;
+  final String? reminderSmsPhone;
 
   const NotificationPrefs({
     this.chat = true,
@@ -4064,6 +4083,9 @@ class NotificationPrefs {
     this.webPushEnabled = false,
     this.quietHoursStart,
     this.quietHoursEnd,
+    this.reminderEmailEnabled = false,
+    this.reminderSmsEnabled = false,
+    this.reminderSmsPhone,
   });
 
   /// Stable id for local merge (single row per device).
@@ -4085,6 +4107,9 @@ class NotificationPrefs {
     webPushEnabled: (j['web_push_enabled'] ?? false) as bool,
     quietHoursStart: (j['quiet_hours_start'] as num?)?.toInt(),
     quietHoursEnd: (j['quiet_hours_end'] as num?)?.toInt(),
+    reminderEmailEnabled: (j['reminder_email_enabled'] ?? false) as bool,
+    reminderSmsEnabled: (j['reminder_sms_enabled'] ?? false) as bool,
+    reminderSmsPhone: j['reminder_sms_phone'] as String?,
   );
 
   Map<String, dynamic> toJson() => {
@@ -4102,6 +4127,9 @@ class NotificationPrefs {
     'web_push_enabled': webPushEnabled,
     'quiet_hours_start': quietHoursStart,
     'quiet_hours_end': quietHoursEnd,
+    'reminder_email_enabled': reminderEmailEnabled,
+    'reminder_sms_enabled': reminderSmsEnabled,
+    'reminder_sms_phone': reminderSmsPhone,
   };
 
   NotificationPrefs copyWith({
@@ -4110,6 +4138,9 @@ class NotificationPrefs {
     bool? weeklyDigest, bool? webPushEnabled,
     int? quietHoursStart,
     int? quietHoursEnd,
+    bool? reminderEmailEnabled,
+    bool? reminderSmsEnabled,
+    String? reminderSmsPhone,
   }) => NotificationPrefs(
     chat: chat ?? this.chat,
     tasks: tasks ?? this.tasks,
@@ -4125,6 +4156,9 @@ class NotificationPrefs {
     webPushEnabled: webPushEnabled ?? this.webPushEnabled,
     quietHoursStart: quietHoursStart ?? this.quietHoursStart,
     quietHoursEnd: quietHoursEnd ?? this.quietHoursEnd,
+    reminderEmailEnabled: reminderEmailEnabled ?? this.reminderEmailEnabled,
+    reminderSmsEnabled: reminderSmsEnabled ?? this.reminderSmsEnabled,
+    reminderSmsPhone: reminderSmsPhone ?? this.reminderSmsPhone,
   );
 }
 

@@ -2,12 +2,17 @@
 // Calendar screen for Huddle
 
 import 'dart:convert';
+
 import 'package:flutter/material.dart' hide Visibility;
+import 'package:geocoding/geocoding.dart';
 import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../config/app_config.dart';
@@ -17,8 +22,11 @@ import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
+import '../../services/calendar_external_links.dart';
 import '../../services/calendar_sync_service.dart';
 import '../../services/notification_service.dart';
+import '../../services/outlook_calendar_edge_service.dart';
+import '../../services/weather_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/subscription_modal.dart';
@@ -306,6 +314,29 @@ class _CalendarScreenState extends State<CalendarScreen> {
           userId: user.id,
           externalCalendarId: cal.id,
         );
+      } else if (cal.type == ExternalCalendarType.microsoft) {
+        final token = Supabase.instance.client.auth.currentSession?.providerToken;
+        if (token == null || token.isEmpty) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Microsoft sign-in required. Use Continue with Microsoft, then sync again.')),
+            );
+          }
+          setState(() => _isSyncing = false);
+          return;
+        }
+        final raw = await OutlookCalendarEdgeService.fetchOutlookEvents(
+          accessToken: token,
+          familyId: family.id,
+        );
+        newEvents = raw == null
+            ? <CalendarEvent>[]
+            : OutlookCalendarEdgeService.normalizedToEvents(
+                rawEvents: raw,
+                familyId: family.id,
+                userId: user.id,
+                externalCalendarId: cal.id,
+              );
       } else {
         setState(() => _isSyncing = false);
         return;
@@ -373,6 +404,174 @@ class _CalendarScreenState extends State<CalendarScreen> {
       pushTableScope: CloudSyncScope.calendarBundle,
     );
     if (!mounted) return;
+  }
+
+  Future<void> _connectOutlookCalendar() async {
+    if (SubscriptionModal.guardAI(context, kind: AiPaywallKind.calendar)) return;
+    final session = Supabase.instance.client.auth.currentSession;
+    final token = session?.providerToken;
+    if (token == null || token.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sign in with Microsoft first, then tap Outlook sync again.')),
+      );
+      return;
+    }
+
+    final provider = context.read<AppProvider>();
+    final user = provider.activeUser!;
+    final family = provider.activeFamily!;
+
+    final existingMs = provider.db.externalCalendars.where(
+      (c) => c.userId == user.id && c.type == ExternalCalendarType.microsoft,
+    ).toList();
+
+    if (existingMs.isNotEmpty) {
+      await _syncExternalCalendar(existingMs.first);
+      return;
+    }
+
+    setState(() => _isSyncing = true);
+    try {
+      final raw = await OutlookCalendarEdgeService.fetchOutlookEvents(
+        accessToken: token,
+        familyId: family.id,
+      );
+      if (!mounted) return;
+      if (raw == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not load Outlook events. Check Microsoft permissions.')),
+        );
+        return;
+      }
+
+      final db = provider.db;
+
+      final extCal = ExternalCalendar(
+        id: const Uuid().v4(),
+        familyId: family.id,
+        userId: user.id,
+        type: ExternalCalendarType.microsoft,
+        name: 'Outlook',
+        enabled: true,
+      );
+
+      final eventsWithLayer = OutlookCalendarEdgeService.normalizedToEvents(
+        rawEvents: raw,
+        familyId: family.id,
+        userId: user.id,
+        externalCalendarId: extCal.id,
+      );
+
+      await provider.saveAndSync(
+        db.copyWith(
+          externalCalendars: [...db.externalCalendars, extCal],
+          events: [...db.events, ...eventsWithLayer],
+        ),
+        pushTableScope: CloudSyncScope.calendarBundle,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Imported ${eventsWithLayer.length} Outlook events')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Outlook sync failed: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSyncing = false);
+    }
+  }
+
+  Future<void> _scanFlyerForEvents() async {
+    if (SubscriptionModal.guardAI(context, kind: AiPaywallKind.calendar)) return;
+    final picker = ImagePicker();
+    final img = await picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1600,
+      imageQuality: 82,
+    );
+    if (img == null || !mounted) return;
+
+    setState(() => _isSyncing = true);
+    try {
+      final bytes = await img.readAsBytes();
+      if (!mounted) return;
+      final b64 = base64Encode(bytes);
+      final mime = img.mimeType ?? 'image/jpeg';
+
+      final provider = context.read<AppProvider>();
+      final family = provider.activeFamily;
+      final user = provider.activeUser;
+      if (family == null || user == null) return;
+
+      final decoded = await AiService.extractEventsFromImage(
+        familyId: family.id,
+        imageBase64: b64,
+        mimeType: mime,
+      );
+      if (!mounted) return;
+      if (decoded == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not read this image. Try a clearer photo.')),
+        );
+        return;
+      }
+      final rawList = decoded['events'];
+      if (rawList is! List || rawList.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No events found on this flyer.')),
+        );
+        return;
+      }
+
+      final newEvents = <CalendarEvent>[];
+      for (final item in rawList) {
+        if (item is! Map) continue;
+        final m = Map<String, dynamic>.from(item);
+        final title = m['title']?.toString().trim() ?? 'Event';
+        final start = DateTime.tryParse(m['start']?.toString() ?? '') ?? DateTime.now();
+        var end = DateTime.tryParse(m['end']?.toString() ?? '') ?? start.add(const Duration(hours: 1));
+        if (!end.isAfter(start)) end = start.add(const Duration(hours: 1));
+        final desc = [m['description']?.toString(), 'Imported from flyer scan'].whereType<String>().where((s) => s.isNotEmpty).join('\n\n');
+        newEvents.add(CalendarEvent(
+          id: const Uuid().v4(),
+          familyId: family.id,
+          creatorId: user.id,
+          title: title,
+          description: desc,
+          location: m['location']?.toString(),
+          start: start,
+          end: end,
+          visibility: Visibility.FAMILY,
+        ));
+      }
+
+      final db = provider.db;
+      await provider.saveAndSync(
+        db.copyWith(events: [...db.events, ...newEvents]),
+        pushTableScope: {CloudSyncScope.events},
+      );
+      provider.saveAiHistory(module: 'calendar', prompt: 'Flyer scan', response: jsonEncode(decoded));
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Added ${newEvents.length} event(s) from flyer')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Flyer scan failed: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSyncing = false);
+    }
   }
 
   // ── ICS URL Import ───────────────────────────────────────────────────────
@@ -654,6 +853,20 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     label: _isSyncing ? 'Syncing...' : 'Google Sync',
                     onTap: _isSyncing ? () {} : _connectGoogleCalendar,
                     isPrimary: true,
+                  ),
+                  ActionChipButton(
+                    icon: Icons.document_scanner_outlined,
+                    label: _isSyncing ? '…' : 'Scan flyer',
+                    onTap: _isSyncing ? () {} : _scanFlyerForEvents,
+                    backgroundColor: Theme.of(context).colorScheme.surface,
+                    foregroundColor: Theme.of(context).colorScheme.onSurface,
+                  ),
+                  ActionChipButton(
+                    icon: Icons.mail_outline_rounded,
+                    label: _isSyncing ? '…' : 'Outlook',
+                    onTap: _isSyncing ? () {} : _connectOutlookCalendar,
+                    backgroundColor: Theme.of(context).colorScheme.surface,
+                    foregroundColor: Theme.of(context).colorScheme.onSurface,
                   ),
                   ActionChipButton(
                     icon: Icons.share_rounded,
@@ -1408,25 +1621,34 @@ class _CalendarScreenState extends State<CalendarScreen> {
           border: Border.all(color: AppTheme.stone100),
         ),
         child: Row(children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: cal.type == ExternalCalendarType.google
-                  ? const Color(0xFF4285F4).withValues(alpha: 0.1)
-                  : AppTheme.primary.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(
-              cal.type == ExternalCalendarType.google
-                  ? Icons.account_circle_rounded
-                  : Icons.link_rounded,
-              size: 18,
-              color: cal.type == ExternalCalendarType.google
-                  ? const Color(0xFF4285F4)
-                  : AppTheme.primary,
-            ),
-          ),
+          Builder(builder: (_) {
+            final (Color bg, Color fg, IconData ic) = switch (cal.type) {
+              ExternalCalendarType.google => (
+                  const Color(0xFF4285F4).withValues(alpha: 0.1),
+                  const Color(0xFF4285F4),
+                  Icons.account_circle_rounded,
+                ),
+              ExternalCalendarType.microsoft => (
+                  const Color(0xFF0078D4).withValues(alpha: 0.12),
+                  const Color(0xFF0078D4),
+                  Icons.mail_outline_rounded,
+                ),
+              ExternalCalendarType.icsUrl => (
+                  AppTheme.primary.withValues(alpha: 0.1),
+                  AppTheme.primary,
+                  Icons.link_rounded,
+                ),
+            };
+            return Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: bg,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(ic, size: 18, color: fg),
+            );
+          }),
           const SizedBox(width: 10),
           Expanded(child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1744,6 +1966,89 @@ class _EventCard extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
+                          ),
+                        ],
+                        if (event.location != null && event.location!.trim().isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          _EventWeatherRow(query: event.location!.trim(), day: event.startDate),
+                        ],
+                        if (!isExternal && canManage) ...[
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 4,
+                            runSpacing: 0,
+                            children: [
+                              TextButton.icon(
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                onPressed: () async {
+                                  final u = Uri.parse(CalendarExternalLinks.googleCalendarComposeUrl(event));
+                                  if (await canLaunchUrl(u)) {
+                                    await launchUrl(u, mode: LaunchMode.externalApplication);
+                                  }
+                                },
+                                icon: const Icon(Icons.event_available_outlined, size: 14),
+                                label: const Text('Google', style: TextStyle(fontFamily: 'Inter', fontSize: 11)),
+                              ),
+                              TextButton.icon(
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                onPressed: () async {
+                                  final u = Uri.parse(CalendarExternalLinks.outlookComposeUrl(event));
+                                  if (await canLaunchUrl(u)) {
+                                    await launchUrl(u, mode: LaunchMode.externalApplication);
+                                  }
+                                },
+                                icon: const Icon(Icons.mail_outline, size: 14),
+                                label: const Text('Outlook', style: TextStyle(fontFamily: 'Inter', fontSize: 11)),
+                              ),
+                              TextButton.icon(
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                onPressed: () async {
+                                  final u = Uri.parse(
+                                    CalendarExternalLinks.openTableSearchUrl('${event.title} ${event.location ?? ''}'),
+                                  );
+                                  if (await canLaunchUrl(u)) {
+                                    await launchUrl(u, mode: LaunchMode.externalApplication);
+                                  }
+                                },
+                                icon: const Icon(Icons.restaurant_outlined, size: 14),
+                                label: const Text('Reserve', style: TextStyle(fontFamily: 'Inter', fontSize: 11)),
+                              ),
+                              TextButton.icon(
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                onPressed: () async {
+                                  final gid = await CalendarSyncService.insertPrimaryGoogleEvent(event);
+                                  if (!context.mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        gid != null
+                                            ? 'Saved to your Google Calendar (id: ${gid.substring(0, gid.length > 8 ? 8 : gid.length)}…)'
+                                            : 'Could not save to Google. Sign in to Google Calendar from My Calendars first.',
+                                      ),
+                                      behavior: SnackBarBehavior.floating,
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(Icons.cloud_upload_outlined, size: 14),
+                                label: const Text('Push GCal', style: TextStyle(fontFamily: 'Inter', fontSize: 11)),
+                              ),
+                            ],
                           ),
                         ],
                         if (creator != null && !isExternal) ...[
@@ -2510,32 +2815,45 @@ class _MyCalendarsSheet extends StatelessWidget {
                     border: Border.all(color: AppTheme.stone100),
                   ),
                   child: Row(children: [
-                    Container(
-                      width: 36,
-                      height: 36,
-                      decoration: BoxDecoration(
-                        color: cal.type == ExternalCalendarType.google
-                            ? const Color(0xFF4285F4).withValues(alpha: 0.1)
-                            : AppTheme.primary.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(
-                        cal.type == ExternalCalendarType.google
-                            ? Icons.account_circle_rounded
-                            : Icons.link_rounded,
-                        size: 18,
-                        color: cal.type == ExternalCalendarType.google
-                            ? const Color(0xFF4285F4)
-                            : AppTheme.primary,
-                      ),
-                    ),
+                    Builder(builder: (_) {
+                      final (Color bg, Color fg, IconData ic) = switch (cal.type) {
+                        ExternalCalendarType.google => (
+                            const Color(0xFF4285F4).withValues(alpha: 0.1),
+                            const Color(0xFF4285F4),
+                            Icons.account_circle_rounded,
+                          ),
+                        ExternalCalendarType.microsoft => (
+                            const Color(0xFF0078D4).withValues(alpha: 0.12),
+                            const Color(0xFF0078D4),
+                            Icons.mail_outline_rounded,
+                          ),
+                        ExternalCalendarType.icsUrl => (
+                            AppTheme.primary.withValues(alpha: 0.1),
+                            AppTheme.primary,
+                            Icons.link_rounded,
+                          ),
+                      };
+                      return Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: bg,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(ic, size: 18, color: fg),
+                      );
+                    }),
                     const SizedBox(width: 12),
                     Expanded(child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(cal.name, style: const TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone800)),
                         Text(
-                          '${cal.type == ExternalCalendarType.google ? 'Google' : 'URL'} \u00b7 Synced ${_timeAgo(cal.lastSyncedAt)}',
+                          '${switch (cal.type) {
+                            ExternalCalendarType.google => 'Google',
+                            ExternalCalendarType.microsoft => 'Outlook',
+                            ExternalCalendarType.icsUrl => 'URL feed',
+                          }} \u00b7 Synced ${_timeAgo(cal.lastSyncedAt)}',
                           style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400),
                         ),
                       ],
@@ -3162,6 +3480,56 @@ class _EventPlannerWizardState extends State<_EventPlannerWizard> {
           Text(label, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF166534))),
         ],
       ),
+    );
+  }
+}
+
+class _EventWeatherRow extends StatefulWidget {
+  final String query;
+  final DateTime day;
+
+  const _EventWeatherRow({required this.query, required this.day});
+
+  @override
+  State<_EventWeatherRow> createState() => _EventWeatherRowState();
+}
+
+class _EventWeatherRowState extends State<_EventWeatherRow> {
+  String? _line;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final locs = await locationFromAddress(widget.query);
+      if (!mounted || locs.isEmpty) return;
+      final line = await WeatherService.daySummaryForLocation(
+        latitude: locs.first.latitude,
+        longitude: locs.first.longitude,
+        day: widget.day,
+      );
+      if (mounted) setState(() => _line = line);
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_line == null) return const SizedBox.shrink();
+    return Row(
+      children: [
+        const Icon(Icons.wb_cloudy_outlined, size: 12, color: AppTheme.stone400),
+        const SizedBox(width: 4),
+        Expanded(
+          child: Text(
+            _line!,
+            style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone500),
+          ),
+        ),
+      ],
     );
   }
 }
