@@ -146,20 +146,30 @@ class AuthProvider extends ChangeNotifier {
         debugPrint('[AuthProvider] join_code fetch: $e');
       }
 
+      // Do not await full cloud reconcile here — it blocks [main]/[runApp] for
+      // tens of seconds on large families. Local DB + session are already applied;
+      // merge results when the pull completes.
       if (_syncRefreshFromCloud != null) {
-        await _syncRefreshFromCloud!(familyIdOverride: knownFamilyId);
-      }
-
-      if (DatabaseService.lastError != null) {
-        debugPrint('[AuthProvider] refreshFromCloud: ${DatabaseService.lastError}');
-      } else {
-        user = dataProvider.db.users.firstWhereOrNull((u) => u.id == userId);
-        if (user != null) {
-          _setActiveUserFamily(user, knownFamilyId);
-          if (FieldEncryption.isReady(knownFamilyId)) {
-            dataProvider.updateDb(dataProvider.db.applySensitiveDecryption(knownFamilyId));
-          }
-        }
+        final familyIdForPull = knownFamilyId;
+        unawaited(
+          _syncRefreshFromCloud!(familyIdOverride: familyIdForPull).then((_) {
+            if (DatabaseService.lastError != null) {
+              debugPrint(
+                  '[AuthProvider] refreshFromCloud: ${DatabaseService.lastError}');
+              return;
+            }
+            final mergedUser =
+                dataProvider.db.users.firstWhereOrNull((u) => u.id == userId);
+            if (mergedUser != null) {
+              _setActiveUserFamily(mergedUser, familyIdForPull);
+              if (FieldEncryption.isReady(familyIdForPull)) {
+                dataProvider.updateDb(
+                  dataProvider.db.applySensitiveDecryption(familyIdForPull),
+                );
+              }
+            }
+          }),
+        );
       }
     }
   }

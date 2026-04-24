@@ -714,7 +714,11 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
     // Sync with cloud — the server may still generate a family-wide daily;
     // prefer a row created by this user for today.
     try {
-      final merged = await DatabaseService.reconcileCloud(provider.db, family.id);
+      final merged = await DatabaseService.reconcileCloud(
+        provider.db,
+        family.id,
+        getLocalAfterFetch: () => provider.db,
+      );
       if (mounted) {
         provider.updateDb(merged);
         final synced = findTodaysDevotional();
