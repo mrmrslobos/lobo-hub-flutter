@@ -1,6 +1,6 @@
 name: lobohub
 description: Family life in one app — tasks, calendar, meals, budget, and more. (Huddle / LoboHub)
-version: 1.0.8+9
+version: 1.0.12+13
 
 environment:
   sdk: '>=3.3.0 <4.0.0'

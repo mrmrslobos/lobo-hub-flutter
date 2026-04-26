@@ -17,6 +17,7 @@ import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/huddle_module_scaffold.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/debounce.dart';
 import '../../utils/budget_envelope.dart' show
@@ -769,11 +770,12 @@ class _BudgetScreenState extends State<BudgetScreen> {
     }
     shown.sort((a, b) => b.date.compareTo(a.date));
 
-    return Scaffold(
+    return HuddleModuleScaffold(
+      modulePath: '/budget',
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),
-      body: ListView(
+      child: ListView(
         padding: const EdgeInsets.only(bottom: 32),
         children: [
           // ─── Page Header ───────────────────────────────────────────────

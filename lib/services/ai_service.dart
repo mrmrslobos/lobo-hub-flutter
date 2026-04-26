@@ -27,6 +27,20 @@ class AiService {
     return t;
   }
 
+  /// Parses flyer-vision responses: root object, or a bare JSON array of events.
+  static Map<String, dynamic>? tryParseFlyerVisionJson(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return null;
+    final asObj = tryParseJsonObject(raw);
+    if (asObj != null) return asObj;
+    try {
+      var s = raw.trim();
+      s = _stripLlmJsonWrappers(s);
+      final decoded = jsonDecode(s);
+      if (decoded is List) return {'events': decoded};
+    } catch (_) {}
+    return null;
+  }
+
   /// Parses a JSON object from LLM text that may include markdown fences
   /// or short preamble/epilogue. Returns null on failure.
   static Map<String, dynamic>? tryParseJsonObject(String raw) {
@@ -110,6 +124,15 @@ class AiService {
       return data != null ? jsonEncode(data) : null;
     } on AINotAvailableException {
       rethrow;
+    } on FunctionException catch (e) {
+      if (e.status == 402) {
+        final d = e.details;
+        if (d is Map && d['error'] == 'subscription_required') {
+          throw const AINotAvailableException();
+        }
+      }
+      debugPrint('[AiService] ask() FunctionException status=${e.status} details=${e.details}');
+      return null;
     } catch (e, st) {
       final msg = e.toString();
       if (msg.contains('402') || msg.contains('subscription_required')) {
@@ -384,17 +407,25 @@ $userMessage
     required String imageBase64,
     String mimeType = 'image/jpeg',
   }) async {
-    const prompt = '''
-Analyze this image (flyer, invitation, or schedule). Extract every distinct dated event you can read.
+    final y = DateTime.now().year;
+    final prompt = '''
+You are transcribing a photo of a flyer, invitation, school handout, sports schedule, or church bulletin.
 
-Return ONLY valid JSON:
+Rules:
+- Extract EVERY event that has a date or date+time, even if text is small, angled, or busy in the background.
+- Do NOT refuse or apologize for "blur" or quality—do your best with whatever is visible.
+- If the year is missing, assume the NEXT occurrence of that month/day is in the current calendar year ($y); if that date is already past this year, use ${y + 1}.
+- If only a date is given (no time), use 09:00 local as start and 10:00 as end unless the flyer states otherwise.
+- If only "doors at 6 / show at 7", use those times.
+- Put venue/address/room in "location", extra notes in "description".
+
+Return ONLY valid JSON (no markdown, no commentary):
 {"events":[{"title":"string","start":"ISO 8601 datetime","end":"ISO 8601 datetime","location":"string or empty","description":"string or empty"}]}
 
-If there are no events, return {"events":[]}.
-Use reasonable duration (e.g. 1 hour) if only a start time is visible.
+If there are truly no schedulable events, return {"events":[]}.
 ''';
     try {
-      final raw = await ask(
+      String? raw = await ask(
         prompt: prompt,
         feature: 'ai_events_vision',
         familyId: familyId,
@@ -402,10 +433,75 @@ Use reasonable duration (e.g. 1 hour) if only a start time is visible.
         imageBase64: imageBase64,
         imageMimeType: mimeType,
       );
-      if (raw == null) return null;
-      return tryParseJsonObject(raw);
+      var parsed = tryParseFlyerVisionJson(raw);
+      if (parsed != null) return parsed;
+
+      // JSON mode + vision occasionally returns empty or non-JSON; retry plain text.
+      debugPrint('[AiService] extractEventsFromImage: JSON mode parse failed, retrying without responseMimeType');
+      raw = await ask(
+        prompt: '$prompt\n\nReturn the JSON object only, nothing else.',
+        feature: 'ai_events_vision',
+        familyId: familyId,
+        imageBase64: imageBase64,
+        imageMimeType: mimeType,
+      );
+      parsed = tryParseFlyerVisionJson(raw);
+      if (parsed == null && raw != null && raw.length > 2) {
+        debugPrint('[AiService] extractEventsFromImage raw sample: ${raw.substring(0, raw.length > 400 ? 400 : raw.length)}');
+      }
+      return parsed;
     } catch (e, st) {
       debugPrint('[AiService] extractEventsFromImage error: $e\n$st');
+      return null;
+    }
+  }
+
+  /// Vision: identify food items visible in a fridge / pantry / shelf photo.
+  /// Returns `{"items":[{"name","quantity?","unit?"},...]}` or null.
+  static Future<Map<String, dynamic>?> extractPantryItemsFromImage({
+    required String familyId,
+    required String imageBase64,
+    String mimeType = 'image/jpeg',
+  }) async {
+    final prompt = '''
+You are helping a family meal-planning app. Look at this photo of a refrigerator, pantry shelf, or food storage.
+
+Identify edible ingredients you can reasonably see or infer (produce, dairy, proteins, jars, packages with readable labels, eggs, etc.).
+- Use clear generic names (e.g. "Greek yogurt", "cheddar cheese", "baby carrots").
+- If quantity is unclear, omit quantity and unit or use a rough guess (e.g. "1" "bunch" for herbs).
+- Skip non-food items (containers without identifiable food, empty shelves).
+- Limit to at most 40 items; prefer the most useful for cooking.
+
+Return ONLY valid JSON (no markdown):
+{"items":[{"name":"string","quantity":"string optional","unit":"string optional"}]}
+
+If nothing usable is visible, return {"items":[]}.
+''';
+    try {
+      String? raw = await ask(
+        prompt: prompt,
+        feature: 'ai_recipes',
+        familyId: familyId,
+        responseMimeType: 'application/json',
+        imageBase64: imageBase64,
+        imageMimeType: mimeType,
+      );
+      var parsed = raw != null ? tryParseJsonObject(raw) : null;
+      if (parsed != null && parsed['items'] is List) return parsed;
+
+      debugPrint('[AiService] extractPantryItemsFromImage: JSON mode parse failed, retrying without responseMimeType');
+      raw = await ask(
+        prompt: '$prompt\n\nReturn the JSON object only, nothing else.',
+        feature: 'ai_recipes',
+        familyId: familyId,
+        imageBase64: imageBase64,
+        imageMimeType: mimeType,
+      );
+      parsed = raw != null ? tryParseJsonObject(raw) : null;
+      if (parsed != null && parsed['items'] is List) return parsed;
+      return null;
+    } catch (e, st) {
+      debugPrint('[AiService] extractPantryItemsFromImage error: $e\n$st');
       return null;
     }
   }

@@ -16,6 +16,7 @@ import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/huddle_module_scaffold.dart';
 import '../../utils/debounce.dart';
 
 // ─── Place emoji presets ──────────────────────────────────────────────────────
@@ -340,7 +341,7 @@ class _LocationScreenState extends State<LocationScreen> {
           const SizedBox(width: 10),
           const Text('Delete Place', style: TextStyle(fontFamily: 'Inter', fontSize: 17, fontWeight: FontWeight.w800)),
         ]),
-        content: Text('Remove "${place.name}" from saved places?', style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone600)),
+        content: Text('Remove "${place.name}" from saved places?', style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone600)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -404,13 +405,13 @@ class _LocationScreenState extends State<LocationScreen> {
                     color: AppTheme.primary.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Center(child: Text(place.emoji ?? '\u{1F4CD}', style: const TextStyle(fontSize: 18))),
+                  child: Center(child: Text(place.emoji ?? '\u{1F4CD}', style: TextStyle(fontSize: 18))),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     place.name,
-                    style: const TextStyle(fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.stone900),
+                    style: TextStyle(fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.stone900),
                     maxLines: 1, overflow: TextOverflow.ellipsis,
                   ),
                 ),
@@ -525,11 +526,12 @@ class _LocationScreenState extends State<LocationScreen> {
 
     final sharingCount = locationShares.where((l) => l.isSharing).length;
 
-    return Scaffold(
+    return HuddleModuleScaffold(
+      modulePath: '/location',
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),
-      body: SingleChildScrollView(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -579,10 +581,10 @@ class _LocationScreenState extends State<LocationScreen> {
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
               child: TextField(
                 controller: _placeSearchCtrl,
-                style: const TextStyle(fontFamily: 'Inter', fontSize: 14),
+                style: TextStyle(fontFamily: 'Inter', fontSize: 14),
                 decoration: InputDecoration(
                   hintText: 'Search saved places…',
-                  hintStyle: const TextStyle(fontFamily: 'Inter', color: AppTheme.stone400),
+                  hintStyle: TextStyle(fontFamily: 'Inter', color: AppTheme.stone400),
                   prefixIcon: const Icon(Icons.search, size: 20, color: AppTheme.stone400),
                   suffixIcon: _placeSearchQuery.trim().isEmpty
                       ? null
@@ -644,7 +646,7 @@ class _LocationScreenState extends State<LocationScreen> {
                   Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text(
                       isSharing ? 'Sharing your location' : 'Location sharing is off',
-                      style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: AppTheme.stone800),
+                      style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: AppTheme.stone800),
                     ),
                     const SizedBox(height: 2),
                     if (isSharing && myShare != null)
@@ -654,7 +656,7 @@ class _LocationScreenState extends State<LocationScreen> {
                             : myShare.nearPlace != null
                                 ? '\u{1F4CD} ${myShare.nearPlace}'
                                 : 'Getting your location...',
-                        style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
+                        style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
                         maxLines: 1, overflow: TextOverflow.ellipsis,
                       )
                     else
@@ -804,7 +806,7 @@ class _LocationScreenState extends State<LocationScreen> {
                           Row(children: [
                             Text(
                               memberName,
-                              style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone900),
+                              style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone900),
                             ),
                             if (isMe) ...[
                               const SizedBox(width: 6),
@@ -826,7 +828,7 @@ class _LocationScreenState extends State<LocationScreen> {
                                   : share?.nearPlace != null
                                       ? '\u{1F4CD} ${share!.nearPlace}'
                                       : 'Location shared',
-                              style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
+                              style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
                               maxLines: 1, overflow: TextOverflow.ellipsis,
                             ),
                             if (share != null)
@@ -835,10 +837,10 @@ class _LocationScreenState extends State<LocationScreen> {
                                 child: Row(children: [
                                   const Icon(Icons.schedule_rounded, size: 11, color: AppTheme.stone400),
                                   const SizedBox(width: 3),
-                                  Text(_timeAgo(share.updatedAt), style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
+                                  Text(_timeAgo(share.updatedAt), style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
                                   if (distLabel != null) ...[
                                     const Text(' \u00B7 ', style: TextStyle(fontSize: 11, color: AppTheme.stone400)),
-                                    Text(distLabel, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
+                                    Text(distLabel, style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
                                   ],
                                 ]),
                               ),
@@ -947,16 +949,16 @@ class _LocationScreenState extends State<LocationScreen> {
                               color: AppTheme.primary.withValues(alpha: 0.08),
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            child: Center(child: Text(place.emoji ?? '\u{1F4CD}', style: const TextStyle(fontSize: 22))),
+                            child: Center(child: Text(place.emoji ?? '\u{1F4CD}', style: TextStyle(fontSize: 22))),
                           ),
                           const SizedBox(width: 12),
                           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text(place.name, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone800)),
+                            Text(place.name, style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.stone800)),
                             const SizedBox(height: 2),
                             Row(children: [
                               Icon(Icons.radar_rounded, size: 11, color: AppTheme.stone400),
                               const SizedBox(width: 4),
-                              Text('${place.radiusMetres.round()} m radius', style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
+                              Text('${place.radiusMetres.round()} m radius', style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
                             ]),
                           ])),
                           const Icon(Icons.chevron_right_rounded, size: 20, color: AppTheme.stone300),
@@ -1039,10 +1041,10 @@ class _MiniStat extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(value, style: const TextStyle(
+                Text(value, style: TextStyle(
                   fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.stone800,
                 )),
-                Text(label, style: const TextStyle(
+                Text(label, style: TextStyle(
                   fontFamily: 'Inter', fontSize: 9, fontWeight: FontWeight.w600, color: AppTheme.stone400,
                 )),
               ],
@@ -1191,7 +1193,7 @@ class _AddPlaceSheetState extends State<_AddPlaceSheet> {
                     const SizedBox(width: 10),
                     Text(
                       _isEditing ? 'Edit Place' : 'Save a Place',
-                      style: const TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.stone900),
+                      style: TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.stone900),
                     ),
                   ]),
                   const SizedBox(height: 20),
@@ -1218,7 +1220,7 @@ class _AddPlaceSheetState extends State<_AddPlaceSheet> {
                             ),
                             color: isSelected ? AppTheme.primaryLight : AppTheme.stone50,
                           ),
-                          child: Center(child: Text(e, style: const TextStyle(fontSize: 22))),
+                          child: Center(child: Text(e, style: TextStyle(fontSize: 22))),
                         ),
                       );
                     }).toList(),
@@ -1236,7 +1238,7 @@ class _AddPlaceSheetState extends State<_AddPlaceSheet> {
                     textCapitalization: TextCapitalization.words,
                     decoration: InputDecoration(
                       hintText: 'e.g. Home, School, Work',
-                      hintStyle: const TextStyle(color: AppTheme.stone300),
+                      hintStyle: TextStyle(color: AppTheme.stone300),
                       filled: true,
                       fillColor: AppTheme.stone50,
                       border: OutlineInputBorder(
@@ -1277,7 +1279,7 @@ class _AddPlaceSheetState extends State<_AddPlaceSheet> {
                               const SizedBox(width: 8),
                               Expanded(child: Text(
                                 'Using your current location (${widget.currentPosition!.lat.toStringAsFixed(4)}, ${widget.currentPosition!.lng.toStringAsFixed(4)})',
-                                style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.success),
+                                style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.success),
                               )),
                             ])
                           : Row(children: const [
@@ -1321,7 +1323,7 @@ class _AddPlaceSheetState extends State<_AddPlaceSheet> {
                       ),
                       child: Text(
                         '${_radius.round()} m',
-                        style: const TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.primary),
+                        style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.primary),
                       ),
                     ),
                   ]),
@@ -1349,7 +1351,7 @@ class _AddPlaceSheetState extends State<_AddPlaceSheet> {
                           ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(Colors.white)))
                           : Text(
                               _isEditing ? 'Save Changes' : 'Save Place',
-                              style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15),
+                              style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15),
                             ),
                     ),
                   ),

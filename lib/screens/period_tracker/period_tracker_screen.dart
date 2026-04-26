@@ -17,6 +17,7 @@ import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/huddle_module_scaffold.dart';
 import '../../services/notification_service.dart';
 import '../../utils/debounce.dart';
 
@@ -90,9 +91,9 @@ Future<bool> _confirmRemove(BuildContext context, String title, String message) 
           child: const Icon(Icons.delete_outline_rounded, size: 18, color: AppTheme.error),
         ),
         const SizedBox(width: 10),
-        Expanded(child: Text(title, style: const TextStyle(fontFamily: 'Inter', fontSize: 17, fontWeight: FontWeight.w800))),
+        Expanded(child: Text(title, style: TextStyle(fontFamily: 'Inter', fontSize: 17, fontWeight: FontWeight.w800))),
       ]),
-      content: Text(message, style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone600)),
+      content: Text(message, style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone600)),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(ctx, false),
@@ -110,7 +111,7 @@ Future<bool> _confirmRemove(BuildContext context, String title, String message) 
 
 InputDecoration _styledInput(String hint, {IconData? icon}) => InputDecoration(
   hintText: hint,
-  hintStyle: const TextStyle(color: AppTheme.stone300, fontFamily: 'Inter', fontSize: 13),
+  hintStyle: TextStyle(color: AppTheme.stone300, fontFamily: 'Inter', fontSize: 13),
   prefixIcon: icon != null ? Icon(icon, size: 20, color: AppTheme.stone400) : null,
   filled: true,
   fillColor: Colors.white,
@@ -135,7 +136,7 @@ bool _isSameDay(DateTime a, DateTime b) =>
 
 Widget _sectionLabel(String text) => Text(
   text,
-  style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.8, color: AppTheme.stone400),
+  style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.8, color: AppTheme.stone400),
 );
 
 Widget _privacyNote() => Container(
@@ -649,7 +650,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
             TextField(
               controller: ctrl,
               maxLines: 8,
-              style: const TextStyle(fontFamily: 'Inter', fontSize: 13),
+              style: TextStyle(fontFamily: 'Inter', fontSize: 13),
               decoration: _styledInput('2025-01-05 - 2025-01-10\n2025-02-03 - 2025-02-08'),
             ),
             const SizedBox(height: 16),
@@ -808,11 +809,12 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
       });
     }
 
-    return Scaffold(
+    return HuddleModuleScaffold(
+      modulePath: '/period-tracker',
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),
-      body: SingleChildScrollView(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1062,7 +1064,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
       children: [
         dot,
         const SizedBox(width: 4),
-        Text(label, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone500, fontWeight: FontWeight.w500)),
+        Text(label, style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone500, fontWeight: FontWeight.w500)),
       ],
     );
   }
@@ -1119,10 +1121,10 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
           ),
           TextField(
             controller: _historySearchCtrl,
-            style: const TextStyle(fontFamily: 'Inter', fontSize: 14),
+            style: TextStyle(fontFamily: 'Inter', fontSize: 14),
             decoration: InputDecoration(
               hintText: 'Search history…',
-              hintStyle: const TextStyle(fontFamily: 'Inter', color: AppTheme.stone400),
+              hintStyle: TextStyle(fontFamily: 'Inter', color: AppTheme.stone400),
               prefixIcon: const Icon(Icons.search, size: 20, color: AppTheme.stone400),
               suffixIcon: _historySearchQuery.trim().isEmpty
                   ? null
@@ -1197,12 +1199,12 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
                         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                           Text(
                             DateFormat('MMMM d, y').format(entry.startDate),
-                            style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: AppTheme.stone900),
+                            style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: AppTheme.stone900),
                           ),
                           if (entry.endDate != null)
                             Text(
                               'to ${DateFormat('MMM d').format(entry.endDate!)}',
-                              style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
+                              style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
                             ),
                         ]),
                       ),
@@ -1210,7 +1212,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(color: _pinkLight, borderRadius: BorderRadius.circular(8)),
-                          child: Text('$duration days', style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: _pink)),
+                          child: Text('$duration days', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: _pink)),
                         ),
                     ]),
                     if (entrySymptoms.isNotEmpty) ...[
@@ -1218,7 +1220,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
                       Wrap(spacing: 6, runSpacing: 4, children: entrySymptoms.map((s) => Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(color: const Color(0xFFFDF4FF), borderRadius: BorderRadius.circular(8)),
-                        child: Text(s, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: Color(0xFFA855F7))),
+                        child: Text(s, style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: Color(0xFFA855F7))),
                       )).toList()),
                     ],
                     // Flow level indicator
@@ -1231,11 +1233,11 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
                         color: _pink,
                       )),
                       const SizedBox(width: 4),
-                      Text(entry.flowLevel.name, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
+                      Text(entry.flowLevel.name, style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400)),
                     ]),
                     if (entry.notes != null && entry.notes!.isNotEmpty) ...[
                       const SizedBox(height: 6),
-                      Text(entry.notes!, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400), maxLines: 2, overflow: TextOverflow.ellipsis),
+                      Text(entry.notes!, style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400), maxLines: 2, overflow: TextOverflow.ellipsis),
                     ],
                   ]),
                 ),
@@ -1368,10 +1370,10 @@ class _MiniStat extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(value, style: const TextStyle(
+                Text(value, style: TextStyle(
                   fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.stone800,
                 ), overflow: TextOverflow.ellipsis),
-                Text(label, style: const TextStyle(
+                Text(label, style: TextStyle(
                   fontFamily: 'Inter', fontSize: 9, fontWeight: FontWeight.w600, color: AppTheme.stone400,
                 )),
               ],
@@ -1445,7 +1447,7 @@ class _PeriodCalendar extends StatelessWidget {
             ),
             Text(
               DateFormat('MMMM yyyy').format(currentMonth),
-              style: const TextStyle(fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.stone900),
+              style: TextStyle(fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.stone900),
             ),
             IconButton(
               onPressed: onNextMonth,
@@ -1459,7 +1461,7 @@ class _PeriodCalendar extends StatelessWidget {
         Row(
           children: dayHeaders.map((d) => Expanded(
             child: Center(
-              child: Text(d, style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.stone400, letterSpacing: 0.5)),
+              child: Text(d, style: TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.stone400, letterSpacing: 0.5)),
             ),
           )).toList(),
         ),
@@ -1623,7 +1625,7 @@ class _PeriodLogSheetState extends State<_PeriodLogSheet> {
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
             child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              Text(widget.existing != null ? 'Edit Entry' : 'Log Period', style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 20, color: AppTheme.stone900)),
+              Text(widget.existing != null ? 'Edit Entry' : 'Log Period', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 20, color: AppTheme.stone900)),
               TextButton(
                 onPressed: _isSaving ? null : _save,
                 child: _isSaving
@@ -1749,7 +1751,7 @@ class _PeriodLogSheetState extends State<_PeriodLogSheet> {
           border: Border.all(color: AppTheme.stone200),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(label, style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.stone400, letterSpacing: 0.8)),
+          Text(label, style: TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.stone400, letterSpacing: 0.8)),
           const SizedBox(height: 4),
           Text(
             date != null ? DateFormat('MMM d').format(date) : 'Ongoing',
@@ -1794,7 +1796,7 @@ class _DayActionSheet extends StatelessWidget {
           // Header row
           Row(children: [
             Expanded(
-              child: Text(dayLabel, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.stone900)),
+              child: Text(dayLabel, style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.stone900)),
             ),
             GestureDetector(
               onTap: () => Navigator.pop(context),
@@ -1851,7 +1853,7 @@ class _DayActionSheet extends StatelessWidget {
     return SizedBox(
       width: double.infinity,
       child: ElevatedButton.icon(
-        icon: Text(emoji, style: const TextStyle(fontSize: 18)),
+        icon: Text(emoji, style: TextStyle(fontSize: 18)),
         label: Text(label, style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: fgColor)),
         onPressed: onTap,
         style: ElevatedButton.styleFrom(
@@ -1931,7 +1933,7 @@ class _SymptomsSheetState extends State<_SymptomsSheet> {
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   const Text('Log Symptoms', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 20, color: AppTheme.stone900)),
-                  Text(dayLabel, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: _pink)),
+                  Text(dayLabel, style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: _pink)),
                 ]),
               ),
               TextButton(

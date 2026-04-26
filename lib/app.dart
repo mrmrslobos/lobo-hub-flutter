@@ -11,6 +11,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import 'config/theme.dart';
 import 'config/app_config.dart';
 import 'providers/app_provider.dart';
+import 'widgets/route_recency.dart';
 import 'services/notification_service.dart';
 import 'widgets/biometric_lock.dart';
 import 'widgets/offline_banner.dart';
@@ -182,7 +183,10 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
               if (BackNavigationScope.invokeActive()) return;
               context.go('/');
             },
-            child: child,
+            child: ModuleRouteRecency(
+              location: state.matchedLocation,
+              child: child,
+            ),
           ),
           routes: [
             GoRoute(
@@ -198,7 +202,14 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
             GoRoute(
               path: '/assistant',
               name: 'assistant',
-              builder: (context, state) => const AssistantScreen(),
+              builder: (context, state) {
+                final q = state.uri.queryParameters;
+                return AssistantScreen(
+                  initialQuery: q['q'],
+                  fromPath: q['from'],
+                  startDictation: q['dictate'] == '1',
+                );
+              },
             ),
             GoRoute(
               path: '/calendar',

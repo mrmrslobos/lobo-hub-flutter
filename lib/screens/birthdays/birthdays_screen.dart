@@ -13,6 +13,7 @@ import '../../providers/app_provider.dart';
 import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/huddle_module_scaffold.dart';
 import '../../utils/debounce.dart';
 
 // ─── Type config ─────────────────────────────────────────────────────────────
@@ -341,11 +342,12 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
     final nextOccasion = occasions.isNotEmpty ? occasions.first : null;
     final nextDays = nextOccasion != null ? _daysUntil(nextOccasion) : null;
 
-    return Scaffold(
+    return HuddleModuleScaffold(
+      modulePath: '/birthdays',
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),
-      body: ListView(
+      child: ListView(
         padding: EdgeInsets.zero,
         children: [
           // ── Page Header ──

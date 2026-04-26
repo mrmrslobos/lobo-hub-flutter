@@ -21,6 +21,7 @@ import '../../services/notification_service.dart';
 import '../../services/reminder_enqueue_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/huddle_module_scaffold.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/debounce.dart';
 
@@ -360,10 +361,11 @@ class _TasksScreenState extends State<TasksScreen> {
         final totalTasks = provider.db.tasks.where((t) => t.familyId == familyId).length;
         final completedCount = doneTasks.length;
 
-        return Scaffold(
+        return HuddleModuleScaffold(
+          modulePath: '/tasks',
           drawer: const AppDrawer(),
           appBar: const MainAppBar(),
-          body: RefreshIndicator(
+          child: RefreshIndicator(
             color: AppTheme.primary,
             onRefresh: () => pullCloudLatestWithHaptic(context),
             child: ListView(

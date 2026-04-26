@@ -12,6 +12,7 @@ import '../../providers/app_provider.dart';
 import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/huddle_module_scaffold.dart';
 import '../../utils/debounce.dart';
 
 void _showSnack(BuildContext context, String message) {
@@ -250,11 +251,12 @@ class _PollsScreenState extends State<PollsScreen> {
       filteredPolls = filteredPolls.where((p) => _pollMatchesSearch(p, q)).toList();
     }
 
-    return Scaffold(
+    return HuddleModuleScaffold(
+      modulePath: '/polls',
       drawer: const AppDrawer(),
       // backgroundColor handled by theme
       appBar: const MainAppBar(),
-      body: ListView(
+      child: ListView(
         padding: EdgeInsets.zero,
         children: [
           // ── Page Header ──

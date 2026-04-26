@@ -14,6 +14,7 @@ import '../../providers/app_provider.dart';
 import '../../services/family_activity_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/huddle_module_scaffold.dart';
 import '../../utils/debounce.dart';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -372,7 +373,8 @@ class _ChatScreenState extends State<ChatScreen> {
           }
         });
 
-        return Scaffold(
+        return HuddleModuleScaffold(
+          modulePath: '/chat',
           resizeToAvoidBottomInset: true,
           drawer: const AppDrawer(),
           appBar: MainAppBar(
@@ -393,7 +395,7 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ],
           ),
-          body: Column(
+          child: Column(
             children: [
               // ─── Search bar ────────────────────────────────────────────
               if (_showSearch)

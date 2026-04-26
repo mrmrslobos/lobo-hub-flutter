@@ -13,6 +13,7 @@ import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/huddle_module_scaffold.dart';
 import '../../utils/debounce.dart';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -411,11 +412,12 @@ class _RewardsScreenState extends State<RewardsScreen>
     final completedGoals =
         savingsGoals.where((g) => g.savedAmount >= g.targetAmount).length;
 
-    return Scaffold(
+    return HuddleModuleScaffold(
+      modulePath: '/rewards',
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),
-      body: Column(
+      child: Column(
         children: [
           // ── Page Header ──
           PageHeader(

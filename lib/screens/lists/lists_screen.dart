@@ -16,6 +16,7 @@ import '../../services/ai_service.dart';
 import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/huddle_module_scaffold.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/cloud_pull.dart';
 
@@ -542,11 +543,12 @@ class _ListsScreenState extends State<ListsScreen> {
     final totalItems = lists.fold<int>(0, (s, l) => s + l.items.length);
     final checkedItems = lists.fold<int>(0, (s, l) => s + l.items.where((i) => i.checked).length);
 
-    return Scaffold(
+    return HuddleModuleScaffold(
+      modulePath: '/lists',
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),
-      body: RefreshIndicator(
+      child: RefreshIndicator(
         color: AppTheme.primary,
         onRefresh: () => pullCloudLatestWithHaptic(context),
         child: ListView(

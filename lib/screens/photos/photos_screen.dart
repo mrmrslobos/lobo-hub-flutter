@@ -17,6 +17,7 @@ import '../../services/notification_service.dart';
 import '../../services/supabase_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/huddle_module_scaffold.dart';
 import '../../utils/debounce.dart';
 
 const _reactionEmojis = ['❤️', '😍', '😂', '🥹', '🎉', '👏'];
@@ -645,11 +646,12 @@ class _PhotosScreenState extends State<PhotosScreen> {
 
     final totalReactions = photos.fold<int>(0, (n, p) => n + p.reactions.length);
 
-    return Scaffold(
+    return HuddleModuleScaffold(
+      modulePath: '/photos',
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),
-      body: SingleChildScrollView(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,

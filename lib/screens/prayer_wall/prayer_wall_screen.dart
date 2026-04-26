@@ -15,6 +15,7 @@ import '../../services/family_activity_service.dart';
 import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/huddle_module_scaffold.dart';
 import '../../utils/debounce.dart';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -287,11 +288,12 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
       filtered = filtered.where((r) => r.text.toLowerCase().contains(q)).toList();
     }
 
-    return Scaffold(
+    return HuddleModuleScaffold(
+      modulePath: '/prayer-wall',
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),
-      body: ListView(
+      child: ListView(
         padding: const EdgeInsets.only(bottom: 32),
         children: [
           // ── Page Header ──

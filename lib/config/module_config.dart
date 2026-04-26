@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'app_config.dart';
+import '../models/models.dart' show Family;
 
 /// Module catalogue — defines all available app modules.
 class ModuleGroup {
@@ -156,4 +157,44 @@ String screenTitleForModulePath(String path) {
     if (m.path == path) return m.name;
   }
   return AppConfig.appName;
+}
+
+/// When [Family.enabledModules] is empty, all catalogue modules are treated as on.
+bool isModulePathEnabledForFamily(String path, Family family) {
+  if (family.enabledModules.isEmpty) return true;
+  final key = path.startsWith('/') ? path.substring(1) : path;
+  return family.enabledModules.contains(key);
+}
+
+/// All modules the family can open (for All tools and filtering recents).
+List<ModuleInfo> catalogModulesVisibleToFamily(Family family) {
+  final out = <ModuleInfo>[];
+  for (final g in moduleGroups) {
+    for (final m in g.modules) {
+      if (isModulePathEnabledForFamily(m.path, family)) out.add(m);
+    }
+  }
+  return out;
+}
+
+/// Home quick row: a short list of the most important tools (max five).
+List<String> homeQuickActionPathsFor(Family family) {
+  const order = <String>[
+    '/assistant',
+    '/tasks',
+    '/calendar',
+    '/meals',
+    '/lists',
+    '/chores',
+    '/rewards',
+    '/habits',
+  ];
+  final out = <String>[];
+  for (final p in order) {
+    if (isModulePathEnabledForFamily(p, family)) {
+      out.add(p);
+    }
+    if (out.length >= 5) break;
+  }
+  return out;
 }

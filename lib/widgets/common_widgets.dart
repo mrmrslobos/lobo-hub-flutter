@@ -1,3 +1,5 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart' hide Visibility;
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -9,6 +11,7 @@ import '../config/theme.dart';
 import 'app_brand_mark.dart';
 import '../models/models.dart';
 import '../providers/app_provider.dart';
+import '../services/recent_routes_service.dart';
 import '../services/supabase_service.dart';
 import '../utils/sync_format.dart';
 
@@ -615,12 +618,15 @@ class PageHeader extends StatelessWidget {
   final String title;
   final String? subtitle;
   final List<Widget>? actions;
+  /// Optional leading badge (e.g. [AiGlyph]) on the title row.
+  final Widget? titlePrefix;
 
   const PageHeader({
     super.key,
     required this.title,
     this.subtitle,
     this.actions,
+    this.titlePrefix,
   });
 
   @override
@@ -633,15 +639,29 @@ class PageHeader extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              title,
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 28,
-                fontWeight: FontWeight.w900,
-                color: cs.onSurface,
-                height: 1.2,
-              ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (titlePrefix != null) ...[
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: titlePrefix!,
+                  ),
+                  const SizedBox(width: 10),
+                ],
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 28,
+                      fontWeight: FontWeight.w900,
+                      color: cs.onSurface,
+                      height: 1.2,
+                    ),
+                  ),
+                ),
+              ],
             ),
             if (subtitle != null) ...[
               const SizedBox(height: 6),
@@ -902,6 +922,7 @@ class MainAppBar extends StatelessWidget implements PreferredSizeWidget {
                               subtitle: Text('${e.group} · ${e.path}', style: const TextStyle(fontFamily: 'Inter', fontSize: 11)),
                               onTap: () {
                                 Navigator.pop(ctx);
+                                unawaited(RecentRoutesService.recordPath(e.path));
                                 context.go(e.path);
                               },
                             );

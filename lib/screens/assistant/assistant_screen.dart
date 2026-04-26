@@ -1,6 +1,7 @@
 // lib/screens/assistant/assistant_screen.dart
 // Family copilot — natural language actions across tasks, calendar, lists, meals.
 
+import 'dart:async' show unawaited;
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -20,7 +21,9 @@ import '../../services/ai_service.dart';
 import '../../services/calendar_external_links.dart';
 import '../../services/copilot_action_applier.dart';
 import '../../widgets/app_drawer.dart';
+import '../../widgets/ai_affordance.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/huddle_module_scaffold.dart';
 import '../../widgets/subscription_modal.dart';
 
 const _uuid = Uuid();
@@ -42,7 +45,21 @@ class _ChatTurn {
 }
 
 class AssistantScreen extends StatefulWidget {
-  const AssistantScreen({super.key});
+  const AssistantScreen({
+    super.key,
+    this.initialQuery,
+    this.fromPath,
+    this.startDictation = false,
+  });
+
+  /// Pre-filled input (from module copilot strip or deep link).
+  final String? initialQuery;
+
+  /// Module path user came from (`/tasks`, `/`, etc.) for model context.
+  final String? fromPath;
+
+  /// Open mic after load (native only; web shows a hint).
+  final bool startDictation;
 
   @override
   State<AssistantScreen> createState() => _AssistantScreenState();
@@ -61,9 +78,31 @@ class _AssistantScreenState extends State<AssistantScreen> {
   @override
   void initState() {
     super.initState();
+    final q = widget.initialQuery;
+    if (q != null && q.trim().isNotEmpty) {
+      _ctrl.text = q.trim();
+    }
     if (!kIsWeb) {
       _speech.initialize().then((ok) {
-        if (mounted) setState(() => _speechReady = ok);
+        if (!mounted) return;
+        setState(() => _speechReady = ok);
+        if (ok &&
+            widget.startDictation &&
+            (widget.initialQuery == null || widget.initialQuery!.trim().isEmpty)) {
+          Future<void>.delayed(const Duration(milliseconds: 450), () {
+            if (mounted) unawaited(_toggleListen());
+          });
+        }
+      });
+    } else if (widget.startDictation) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Voice capture works best in the mobile app. Type your request here on web.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       });
     }
   }
@@ -94,7 +133,14 @@ class _AssistantScreenState extends State<AssistantScreen> {
         .take(5)
         .map((e) => '${e.title} (${DateFormat.MMMd().format(e.start)})')
         .join('; ');
-    return 'Family: ${family.name}. Tasks due today: $tasksDue. Next events: $upcoming.';
+    var block =
+        'Family: ${family.name}. Tasks due today: $tasksDue. Next events: $upcoming.';
+    final from = widget.fromPath;
+    if (from != null && from.isNotEmpty) {
+      final title = screenTitleForModulePath(from);
+      block += ' User opened copilot from: $title ($from).';
+    }
+    return block;
   }
 
   bool _sameDay(DateTime a, DateTime b) =>
@@ -246,13 +292,16 @@ class _AssistantScreenState extends State<AssistantScreen> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return Scaffold(
+    return HuddleModuleScaffold(
+      modulePath: '/assistant',
+      showCopilotBar: false,
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),
-      body: Column(
+      child: Column(
         children: [
           PageHeader(
             title: screenTitleForModulePath('/assistant'),
+            titlePrefix: const AiGlyph(size: 24),
             subtitle: 'Describe what you need — review actions before they are saved.',
             actions: [
               ActionChipButton(

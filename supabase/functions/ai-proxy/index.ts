@@ -267,9 +267,9 @@ Deno.serve(async (req) => {
         ? 'Extract calendar events from this image. Return JSON only.'
         : 'Describe this image briefly.');
 
-    const parts: Record<string, unknown>[] = [{ text: textPart }];
+    const bodyParts: Record<string, unknown>[] = [{ text: textPart }];
     if (hasImage && typeof imageBase64 === 'string') {
-      parts.push({
+      bodyParts.push({
         inline_data: {
           mime_type: typeof imageMimeType === 'string' ? imageMimeType : 'image/jpeg',
           data: imageBase64,
@@ -279,7 +279,7 @@ Deno.serve(async (req) => {
 
     for (const model of MODEL_CANDIDATES) {
       const reqBody: Record<string, unknown> = {
-        contents: [{ parts }],
+        contents: [{ parts: bodyParts }],
       };
       const genConfig: Record<string, unknown> = {};
       if (responseMimeType) {
@@ -291,15 +291,12 @@ Deno.serve(async (req) => {
         genConfig.temperature = 1.12;
         genConfig.topP = 0.92;
       }
+      // Per Gemini REST API, thinkingConfig lives under generationConfig (not top-level).
+      if (model.includes('2.5')) {
+        genConfig.thinkingConfig = { thinkingBudget: 0 };
+      }
       if (Object.keys(genConfig).length > 0) {
         reqBody.generationConfig = genConfig;
-      }
-
-      // Gemini 2.5+ models return "thinking" parts by default which can
-      // break JSON extraction from parts[0]. Disable thinking for clean output.
-      // thinkingConfig is a top-level field, NOT inside generationConfig.
-      if (model.includes('2.5')) {
-        reqBody.thinkingConfig = { thinkingBudget: 0 };
       }
 
       geminiResponse = await fetch(
@@ -321,9 +318,14 @@ Deno.serve(async (req) => {
 
     const geminiData = await geminiResponse.json();
     // Find the last non-thinking text part (Gemini 2.5+ may prepend thought parts)
-    const parts = geminiData?.candidates?.[0]?.content?.parts ?? [];
-    const textParts = parts.filter((p: Record<string, unknown>) => 'text' in p && !p.thought);
+    const candidateParts: Record<string, unknown>[] =
+      (geminiData?.candidates?.[0]?.content?.parts ?? []) as Record<string, unknown>[];
+    const textParts = candidateParts.filter((p) => 'text' in p && !p.thought);
     let text = textParts.length > 0 ? (textParts[textParts.length - 1].text as string) : '';
+    if (!text && candidateParts.length > 0) {
+      const withText = candidateParts.filter((p) => typeof p.text === 'string' && (p.text as string).length > 0);
+      if (withText.length > 0) text = withText[withText.length - 1].text as string;
+    }
 
     if (feature === 'ai_copilot') {
       text = sanitizeCopilotJson(text);
