@@ -22,6 +22,7 @@ import '../../services/reminder_enqueue_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/huddle_page_layout.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/debounce.dart';
 
@@ -379,8 +380,7 @@ class _TasksScreenState extends State<TasksScreen> {
               ),
 
               // Quick stats row
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+              HuddlePagePadding(
                 child: Row(
                   children: [
                     _StatCard(
@@ -409,8 +409,8 @@ class _TasksScreenState extends State<TasksScreen> {
               const SizedBox(height: 16),
 
               // Progress bar
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
+              HuddlePagePadding(
+                horizontal: 20,
                 child: Column(
                   children: [
                     Row(
@@ -443,8 +443,7 @@ class _TasksScreenState extends State<TasksScreen> {
               const SizedBox(height: 20),
 
               // Add task + AI planner row
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+              HuddlePagePadding(
                 child: Row(
                   children: [
                     Expanded(
@@ -499,8 +498,7 @@ class _TasksScreenState extends State<TasksScreen> {
               const SizedBox(height: 20),
 
               // Search bar
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+              HuddlePagePadding(
                 child: TextField(
                   controller: _searchCtrl,
                   onChanged: (v) {
@@ -535,8 +533,7 @@ class _TasksScreenState extends State<TasksScreen> {
               const SizedBox(height: 14),
 
               // Filter chips
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+              HuddlePagePadding(
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
@@ -558,17 +555,17 @@ class _TasksScreenState extends State<TasksScreen> {
               ),
               const SizedBox(height: 14),
 
-              // FOLDERS section
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: const Text(
-                  'FOLDERS',
-                  style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1),
+              // Folders
+              HuddlePagePadding(
+                horizontal: 20,
+                child: HuddleSectionHeader(
+                  overline: 'Organize',
+                  title: 'Folders',
+                  subtitle: 'Tap a folder to filter your list.',
                 ),
               ),
               const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+              HuddlePagePadding(
                 child: Container(
                   decoration: BoxDecoration(
                     color: Colors.white,
@@ -617,18 +614,18 @@ class _TasksScreenState extends State<TasksScreen> {
               ),
               const SizedBox(height: 20),
 
-              // TEAM section
+              // Team
               if (members.length > 1) ...[
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: const Text(
-                    'TEAM',
-                    style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1),
+                HuddlePagePadding(
+                  horizontal: 20,
+                  child: HuddleSectionHeader(
+                    overline: 'People',
+                    title: 'Team',
+                    subtitle: 'Filter tasks by family member.',
                   ),
                 ),
                 const SizedBox(height: 8),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                HuddlePagePadding(
                   child: Container(
                     decoration: BoxDecoration(
                       color: Colors.white,
@@ -697,21 +694,19 @@ class _TasksScreenState extends State<TasksScreen> {
                 const SizedBox(height: 20),
               ],
 
-              // Section header for task list
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Row(
-                  children: [
-                    Text(
-                      _filter == _TaskFilter.done ? 'COMPLETED' : 'TASKS',
-                      style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      '${tasks.length}',
-                      style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.stone300),
-                    ),
-                  ],
+              // Task list
+              HuddlePagePadding(
+                horizontal: 20,
+                child: HuddleSectionHeader(
+                  overline: _filter == _TaskFilter.done ? 'Completed' : 'List',
+                  title: _filter == _TaskFilter.done ? 'Done tasks' : 'Your tasks',
+                  trailing: Text(
+                    '${tasks.length}',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.stone300,
+                        ),
+                  ),
                 ),
               ),
               const SizedBox(height: 10),

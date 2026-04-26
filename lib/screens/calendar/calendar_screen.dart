@@ -32,6 +32,7 @@ import '../../services/weather_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/huddle_page_layout.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/debounce.dart';
 import '../../utils/cloud_pull.dart';
@@ -1613,23 +1614,20 @@ class _CalendarScreenState extends State<CalendarScreen> {
               const SizedBox(height: 20),
 
               // Selected day events
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
-                child: Row(
-                  children: [
-                    Text(
-                      isSameDay(_selectedDay, DateTime.now())
-                          ? 'TODAY'
-                          : DateFormat('EEEE, MMM d').format(_selectedDay).toUpperCase(),
-                      style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1),
-                    ),
-                    const SizedBox(width: 8),
-                    if (selectedEvents.isNotEmpty)
-                      Text(
-                        '${selectedEvents.length}',
-                        style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.stone300),
-                      ),
-                  ],
+              HuddlePagePadding(
+                horizontal: 20,
+                child: HuddleSectionHeader(
+                  overline: isSameDay(_selectedDay, todayDate) ? 'Today' : 'Selected',
+                  title: DateFormat('EEEE, MMMM d').format(_selectedDay),
+                  trailing: selectedEvents.isNotEmpty
+                      ? Text(
+                          '${selectedEvents.length}',
+                          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.stone300,
+                              ),
+                        )
+                      : null,
                 ),
               ),
               const SizedBox(height: 8),
@@ -1675,20 +1673,18 @@ class _CalendarScreenState extends State<CalendarScreen> {
               // Upcoming events
               if (upcomingEvents.isNotEmpty) ...[
                 const SizedBox(height: 20),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Row(
-                    children: [
-                      const Text(
-                        'COMING UP',
-                        style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '${upcomingEvents.length}',
-                        style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.stone300),
-                      ),
-                    ],
+                HuddlePagePadding(
+                  horizontal: 20,
+                  child: HuddleSectionHeader(
+                    overline: 'This week',
+                    title: 'Coming up',
+                    trailing: Text(
+                      '${upcomingEvents.length}',
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.stone300,
+                          ),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 8),
