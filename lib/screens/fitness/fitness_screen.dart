@@ -26,6 +26,7 @@ import '../../widgets/exercise_media_image.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/huddle_subpage_scaffold.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/debounce.dart';
 import '../../utils/fitness_plan_storage.dart';
@@ -3920,12 +3921,10 @@ class _GuidedPlanWorkoutScreenState extends State<_GuidedPlanWorkoutScreen> {
         _exerciseIndex == widget.exercises.length - 1 && _setIndex == ex.setsCount - 1;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.title, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16)),
-        leading: IconButton(
-          icon: const Icon(Icons.close),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
+      appBar: SubpageAppBar(
+        title: widget.title,
+        leading: SubpageLeading.close,
+        onBack: () => Navigator.of(context).pop(),
       ),
       body: Stack(
         children: [

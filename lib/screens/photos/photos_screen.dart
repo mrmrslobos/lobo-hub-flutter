@@ -18,6 +18,7 @@ import '../../services/supabase_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/huddle_subpage_scaffold.dart';
 import '../../utils/debounce.dart';
 
 const _reactionEmojis = ['❤️', '😍', '😂', '🥹', '🎉', '👏'];
@@ -1246,15 +1247,10 @@ class _PhotoLightbox extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(
+      appBar: SubpageAppBar(
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        title: Text(
-          photo.caption ?? 'Photo',
-          style: const TextStyle(color: Colors.white, fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w700),
-        ),
+        title: photo.caption ?? 'Photo',
         actions: [
           IconButton(
             icon: const Icon(Icons.edit_outlined, color: Colors.white70, size: 20),

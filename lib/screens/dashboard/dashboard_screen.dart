@@ -31,6 +31,8 @@ import '../../config/module_config.dart';
 import '../../services/recent_routes_service.dart';
 import '../../widgets/all_tools_sheet.dart';
 import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/huddle_subpage_scaffold.dart';
+import '../../widgets/huddle_page_layout.dart';
 import '../onboarding/welcome_module_tour_screen.dart';
 
 // ─── AI Suggestion model ─────────────────────────────────────────────────────
@@ -987,17 +989,24 @@ Return ONLY the JSON array, no markdown.''',
     final myChoresCompleted = myChores.where((c) => completedChoreIds.contains(c.id)).length;
 
     return Scaffold(
-      // backgroundColor handled by theme
-      appBar: AppBar(
-        backgroundColor: AppTheme.surface,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        title: Row(mainAxisSize: MainAxisSize.min, children: [
-          Text(String.fromCharCode(0x2728), style: const TextStyle(fontSize: 18)),
-          const SizedBox(width: 6),
-          const Text('Huddle', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
-        ]),
-        centerTitle: false,
+      appBar: SubpageAppBar(
+        titleWidget: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(String.fromCharCode(0x2728), style: const TextStyle(fontSize: 18)),
+            const SizedBox(width: 6),
+            Text(
+              AppConfig.appName,
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontWeight: FontWeight.w800,
+                fontSize: 18,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+          ],
+        ),
+        leading: SubpageLeading.none,
         actions: [
           if (provider.isSyncing)
             const Padding(
@@ -1017,13 +1026,17 @@ Return ONLY the JSON array, no markdown.''',
           padding: const EdgeInsets.only(bottom: 32),
           children: [
             // Greeting
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Hey $firstName! \u{1F44B}', style: const TextStyle(fontFamily: 'Inter', fontSize: 28, fontWeight: FontWeight.w900, color: AppTheme.stone900)),
-                const SizedBox(height: 4),
-                Text("It's $dayName, $monthDay. Here's your day.", style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone500)),
-              ]),
+            HuddlePagePadding(
+              horizontal: 20,
+              vertical: 24,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Hey $firstName! \u{1F44B}', style: const TextStyle(fontFamily: 'Inter', fontSize: 28, fontWeight: FontWeight.w900, color: AppTheme.stone900)),
+                  const SizedBox(height: 4),
+                  Text("It's $dayName, $monthDay. Here's your day.", style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone500)),
+                ],
+              ),
             ),
             const SizedBox(height: 20),
 

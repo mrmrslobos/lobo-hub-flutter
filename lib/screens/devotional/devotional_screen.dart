@@ -25,6 +25,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/huddle_subpage_scaffold.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/debounce.dart';
 
@@ -1588,15 +1589,8 @@ class _EntryDetailView extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final onSurf = cs.onSurface;
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: cs.surface,
-        foregroundColor: cs.onSurface,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded, color: cs.onSurface.withValues(alpha: 0.85)),
-          onPressed: onBack,
-        ),
+      appBar: SubpageAppBar(
+        onBack: onBack,
         actions: [
           IconButton(
             icon: Icon(Icons.share_rounded, color: onSurf.withValues(alpha: 0.55)),
@@ -2196,15 +2190,8 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
 
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: cs.surface,
-        foregroundColor: cs.onSurface,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded, color: cs.onSurface.withValues(alpha: 0.85)),
-          onPressed: widget.onBack,
-        ),
+      appBar: SubpageAppBar(
+        onBack: widget.onBack,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),

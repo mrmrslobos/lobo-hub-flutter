@@ -14,6 +14,8 @@ import '../../providers/app_provider.dart';
 import '../../services/purchase_service.dart';
 import '../../utils/ai_family_household.dart';
 import '../../utils/user_facing_errors.dart';
+import '../../widgets/huddle_subpage_scaffold.dart';
+import '../../widgets/huddle_state_views.dart';
 
 // ─── Currency pricing data ──────────────────────────────────────────────────
 
@@ -128,7 +130,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       builder: (context, provider, _) {
         final family = provider.activeFamily;
         if (family == null) {
-          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+          return const Scaffold(body: HuddleLoadingView(message: 'Loading…'));
         }
 
         final currentTier = family.subscriptionTier;
@@ -148,21 +150,16 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
         final cs = Theme.of(context).colorScheme;
         return Scaffold(
-          appBar: AppBar(
-            backgroundColor: cs.surface,
-            foregroundColor: cs.onSurface,
-            elevation: 0,
-            scrolledUnderElevation: 0,
-            title: Text(
-              'Choose Your Plan',
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontWeight: FontWeight.w800,
-                fontSize: 18,
-                color: cs.onSurface,
-              ),
-            ),
+          appBar: SubpageAppBar(
             centerTitle: true,
+            titleWidget: Text(
+              'Choose Your Plan',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).appBarTheme.titleTextStyle?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: cs.onSurface,
+                  ),
+            ),
             actions: [
               if (!kIsWeb && PurchaseService.isConfigured)
                 TextButton(

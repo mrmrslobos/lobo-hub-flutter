@@ -173,6 +173,14 @@ class AppTheme {
           fontWeight: FontWeight.w700,
           color: stone900,
         ),
+        contentTextStyle: const TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 15,
+          fontWeight: FontWeight.w400,
+          color: stone700,
+          height: 1.45,
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
       ),
       bottomSheetTheme: const BottomSheetThemeData(
         backgroundColor: surface,
@@ -348,6 +356,14 @@ class AppTheme {
           fontWeight: FontWeight.w700,
           color: Color(0xFFFAFAF9),
         ),
+        contentTextStyle: const TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 15,
+          fontWeight: FontWeight.w400,
+          color: Color(0xFFD6D3D1),
+          height: 1.45,
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
       ),
       bottomSheetTheme: const BottomSheetThemeData(
         backgroundColor: darkSurface,

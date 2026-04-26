@@ -18,6 +18,7 @@ import '../../services/ai_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/huddle_subpage_scaffold.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/debounce.dart';
 import '../../utils/budget_envelope.dart' show
@@ -534,9 +535,10 @@ class _BudgetScreenState extends State<BudgetScreen> {
       context: context,
       builder: (ctx) => Dialog.fullscreen(
         child: Scaffold(
-          appBar: AppBar(
-            title: const Text('Finance Report', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700)),
-            leading: IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+          appBar: SubpageAppBar(
+            title: 'Finance Report',
+            leading: SubpageLeading.close,
+            onBack: () => Navigator.pop(ctx),
           ),
           body: ListView(
             padding: const EdgeInsets.all(20),

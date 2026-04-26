@@ -21,6 +21,7 @@ import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/huddle_subpage_scaffold.dart';
 import '../../services/ai_service.dart';
 import '../../services/locale_service.dart';
 import '../../config/app_config.dart';
@@ -4261,15 +4262,13 @@ class _CookModeScreenState extends State<_CookModeScreen> {
   Widget build(BuildContext context) {
     final steps = widget.recipe.steps.where((s) => s.trim().isNotEmpty).toList();
     if (steps.isEmpty) {
-      return Scaffold(
-        appBar: AppBar(title: Text(widget.recipe.title)),
+      return HuddleSubpageScaffold(
+        title: widget.recipe.title,
         body: const Center(child: Text('No steps for this recipe.')),
       );
     }
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.recipe.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-      ),
+    return HuddleSubpageScaffold(
+      title: widget.recipe.title,
       body: Column(
         children: [
           Padding(

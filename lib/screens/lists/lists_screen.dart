@@ -17,6 +17,7 @@ import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/huddle_subpage_scaffold.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/cloud_pull.dart';
 
@@ -1337,20 +1338,18 @@ class _ListDetailViewState extends State<_ListDetailView> {
 
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: cs.surface,
-        foregroundColor: cs.onSurface,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded, color: cs.onSurface.withValues(alpha: 0.85)),
-          onPressed: widget.onBack,
+      appBar: SubpageAppBar(
+        onBack: widget.onBack,
+        titleWidget: Text(
+          widget.list.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: cs.onSurface,
+                fontSize: 16,
+              ),
         ),
-        title: Text(widget.list.title, style: TextStyle(
-          fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: cs.onSurface,
-        )),
-        centerTitle: false,
-        titleSpacing: 0,
         actions: [
           PopupMenuButton<_ListSortMode>(
             tooltip: 'Sort items',
