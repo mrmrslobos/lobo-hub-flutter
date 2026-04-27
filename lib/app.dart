@@ -516,7 +516,10 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
                     dark ? Brightness.light : Brightness.dark,
                 systemNavigationBarContrastEnforced: false,
               ));
-              var wrapped = child ?? const SizedBox.shrink();
+              // Router can pass null briefly; never use shrink here — ConnectivityWrapper
+              // puts this in an Expanded, and shrink breaks flex layout (blank area).
+              var wrapped = child ??
+                  const Center(child: CircularProgressIndicator());
               if (kIsWeb) {
                 wrapped = Align(
                   alignment: Alignment.topCenter,
@@ -526,7 +529,9 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
                   ),
                 );
               }
-              if (_provider.isAuthenticated) {
+              // Root back guard: mobile/desktop only. On web it can leave the routed
+              // child blank; shell + route PopScopes still apply on web.
+              if (_provider.isAuthenticated && !kIsWeb) {
                 wrapped = BackButtonListener(
                   onBackButtonPressed: () async =>
                       _huddleSystemBackIntercepts(_provider, _router),
