@@ -61,6 +61,22 @@ Page<void> _huddlePage(GoRouterState state, Widget child) {
   );
 }
 
+/// System back (gesture or button) when signed in: home stays; other routes → `/`.
+/// Returns `true` if the event was consumed (app must not be popped to exit).
+bool _huddleSystemBackIntercepts(
+  AppProvider app,
+  GoRouter router,
+) {
+  if (kIsWeb) return false;
+  if (!app.isAuthenticated) return false;
+  if (BackNavigationScope.invokeActive()) return true;
+  final path = router.state.uri.path;
+  if (path == '/' || path.isEmpty) return true;
+  if (path.startsWith('/auth')) return false;
+  router.go('/');
+  return true;
+}
+
 class HuddleApp extends StatefulWidget {
   const HuddleApp({super.key});
 
@@ -506,6 +522,20 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
                   alignment: Alignment.topCenter,
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 1280),
+                    child: wrapped,
+                  ),
+                );
+              }
+              if (_provider.isAuthenticated) {
+                wrapped = BackButtonListener(
+                  onBackButtonPressed: () async =>
+                      _huddleSystemBackIntercepts(_provider, _router),
+                  child: PopScope(
+                    canPop: false,
+                    onPopInvokedWithResult: (didPop, _) {
+                      if (didPop) return;
+                      _huddleSystemBackIntercepts(_provider, _router);
+                    },
                     child: wrapped,
                   ),
                 );
