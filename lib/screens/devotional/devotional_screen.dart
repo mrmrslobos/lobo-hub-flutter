@@ -1942,7 +1942,7 @@ class _DevotionalThoughtsSection extends StatefulWidget {
 
 class _DevotionalThoughtsSectionState extends State<_DevotionalThoughtsSection> {
   late TextEditingController _controller;
-  final _debounce = Debouncer(duration: const Duration(milliseconds: 650));
+  final _debounce = Debouncer(duration: const Duration(milliseconds: 1200));
 
   DevotionalThought? _myThought() {
     final uid = widget.activeUserId;
@@ -2188,7 +2188,6 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
         .where((e) => _entryHasPersonalPrayer(e, uid, thoughts))
         .length;
 
-    final cs = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: SubpageAppBar(
         onBack: widget.onBack,

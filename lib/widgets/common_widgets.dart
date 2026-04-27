@@ -835,88 +835,97 @@ class OnboardingCard extends StatelessWidget {
 }
 
 // ─── Primary shell app bar (title uses [AppConfig.appName]) ─────────────────
-class MainAppBar extends StatelessWidget implements PreferredSizeWidget {
+void _openMainAppBarJumpTo(BuildContext context) {
+  final q = ValueNotifier<String>('');
+  showHuddleDraggableScrollableSheet<void>(
+    context: context,
+    builder: (ctx, scrollCtrl) {
+      return Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+            child: ValueListenableBuilder<String>(
+              valueListenable: q,
+              builder: (_, query, __) {
+                return TextField(
+                  autofocus: true,
+                  onChanged: (v) => q.value = v,
+                  decoration: InputDecoration(
+                    hintText: 'Jump to a screen…',
+                    prefixIcon: const Icon(Icons.search_rounded),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                    isDense: true,
+                  ),
+                );
+              },
+            ),
+          ),
+          Expanded(
+            child: ValueListenableBuilder<String>(
+              valueListenable: q,
+              builder: (_, query, __) {
+                final qq = query.trim().toLowerCase();
+                final items = <({String path, String name, String emoji, String group})>[];
+                for (final g in moduleGroups) {
+                  for (final m in g.modules) {
+                    items.add((path: m.path, name: m.name, emoji: m.emoji, group: g.label));
+                  }
+                }
+                for (final m in accountJumpModules) {
+                  items.add((path: m.path, name: m.name, emoji: m.emoji, group: 'Account'));
+                }
+                final filtered = qq.isEmpty
+                    ? items
+                    : items
+                        .where((e) =>
+                            e.name.toLowerCase().contains(qq) ||
+                            e.path.toLowerCase().contains(qq) ||
+                            e.group.toLowerCase().contains(qq))
+                        .toList();
+                return ListView.builder(
+                  controller: scrollCtrl,
+                  padding: const EdgeInsets.fromLTRB(8, 0, 8, 24),
+                  itemCount: filtered.length,
+                  itemBuilder: (_, i) {
+                    final e = filtered[i];
+                    return ListTile(
+                      leading: Text(e.emoji, style: const TextStyle(fontSize: 22)),
+                      title: Text(e.name, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+                      subtitle: Text('${e.group} · ${e.path}', style: const TextStyle(fontFamily: 'Inter', fontSize: 11)),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        unawaited(RecentRoutesService.recordPath(e.path));
+                        context.go(e.path);
+                      },
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+class MainAppBar extends StatefulWidget implements PreferredSizeWidget {
   final VoidCallback? onMenuTap;
   final List<Widget>? actions;
 
   const MainAppBar({super.key, this.onMenuTap, this.actions});
 
-  void _openJumpTo(BuildContext context) {
-    final q = ValueNotifier<String>('');
-    showHuddleDraggableScrollableSheet<void>(
-      context: context,
-      builder: (ctx, scrollCtrl) {
-        return Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-              child: ValueListenableBuilder<String>(
-                valueListenable: q,
-                builder: (_, query, __) {
-                  return TextField(
-                    autofocus: true,
-                    onChanged: (v) => q.value = v,
-                    decoration: InputDecoration(
-                      hintText: 'Jump to a screen…',
-                      prefixIcon: const Icon(Icons.search_rounded),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                      isDense: true,
-                    ),
-                  );
-                },
-              ),
-            ),
-            Expanded(
-              child: ValueListenableBuilder<String>(
-                valueListenable: q,
-                builder: (_, query, __) {
-                  final qq = query.trim().toLowerCase();
-                  final items = <({String path, String name, String emoji, String group})>[];
-                  for (final g in moduleGroups) {
-                    for (final m in g.modules) {
-                      items.add((path: m.path, name: m.name, emoji: m.emoji, group: g.label));
-                    }
-                  }
-                  for (final m in accountJumpModules) {
-                    items.add((path: m.path, name: m.name, emoji: m.emoji, group: 'Account'));
-                  }
-                  final filtered = qq.isEmpty
-                      ? items
-                      : items
-                          .where((e) =>
-                              e.name.toLowerCase().contains(qq) ||
-                              e.path.toLowerCase().contains(qq) ||
-                              e.group.toLowerCase().contains(qq))
-                          .toList();
-                  return ListView.builder(
-                    controller: scrollCtrl,
-                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 24),
-                    itemCount: filtered.length,
-                    itemBuilder: (_, i) {
-                      final e = filtered[i];
-                      return ListTile(
-                        leading: Text(e.emoji, style: const TextStyle(fontSize: 22)),
-                        title: Text(e.name, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
-                        subtitle: Text('${e.group} · ${e.path}', style: const TextStyle(fontFamily: 'Inter', fontSize: 11)),
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          unawaited(RecentRoutesService.recordPath(e.path));
-                          context.go(e.path);
-                        },
-                      );
-                    },
-                  );
-                },
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
   @override
   Size get preferredSize => const Size.fromHeight(56);
+
+  @override
+  State<MainAppBar> createState() => _MainAppBarState();
+}
+
+class _MainAppBarState extends State<MainAppBar> {
+  bool _prevIsSyncing = false;
+  bool _showSyncedCheck = false;
+  int _checkFlashId = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -924,52 +933,86 @@ class MainAppBar extends StatelessWidget implements PreferredSizeWidget {
     final onSurf = cs.onSurface;
     final provider = context.watch<AppProvider>();
     final showSync = SupabaseService.isConfigured && provider.isAuthenticated;
+    final syncing = provider.isSyncing;
+    final err = provider.lastSyncError;
+    final hasErr = err != null && err.isNotEmpty;
+
+    if (_prevIsSyncing && !syncing && !hasErr) {
+      _checkFlashId++;
+      final id = _checkFlashId;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || id != _checkFlashId) return;
+        setState(() => _showSyncedCheck = true);
+        Future<void>.delayed(const Duration(milliseconds: 1500), () {
+          if (mounted && id == _checkFlashId) {
+            setState(() => _showSyncedCheck = false);
+          }
+        });
+      });
+    } else if (hasErr && _showSyncedCheck) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _showSyncedCheck = false);
+      });
+    }
+    _prevIsSyncing = syncing;
 
     String syncTooltip() {
-      if (provider.isSyncing) return 'Syncing…';
-      final err = provider.lastSyncError;
-      if (err != null && err.isNotEmpty) {
-        return 'Sync failed — tap to retry';
-      }
+      if (syncing) return 'Syncing…';
+      if (_showSyncedCheck) return 'Synced with cloud';
+      if (hasErr) return 'Sync failed — tap to retry';
       final at = provider.lastSuccessfulSyncAt;
       if (at != null) return formatRelativeSyncTime(at);
       return 'Pull latest from cloud';
+    }
+
+    Widget buildSyncButtonIcon() {
+      if (syncing) {
+        return SizedBox(
+          width: 22,
+          height: 22,
+          child: CircularProgressIndicator(
+            strokeWidth: 2.2,
+            color: cs.primary,
+          ),
+        );
+      }
+      if (_showSyncedCheck && !hasErr) {
+        return Icon(
+          Icons.check_rounded,
+          size: 24,
+          color: AppTheme.success,
+        );
+      }
+      if (hasErr) {
+        return Icon(
+          Icons.cloud_off_outlined,
+          color: AppTheme.error.withValues(alpha: 0.9),
+        );
+      }
+      return Icon(
+        Icons.sync_rounded,
+        color: onSurf.withValues(alpha: 0.85),
+      );
     }
 
     final mergedActions = <Widget>[
       if (showSync)
         IconButton(
           tooltip: syncTooltip(),
-          onPressed: provider.isSyncing
+          onPressed: syncing
               ? null
               : () {
                   HapticFeedback.lightImpact();
-                  provider.refreshFromCloud();
+                  unawaited(provider.refreshFromCloud());
                 },
-          icon: provider.isSyncing
-              ? SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: cs.primary,
-                  ),
-                )
-              : Icon(
-                  provider.lastSyncError != null && provider.lastSyncError!.isNotEmpty
-                      ? Icons.cloud_off_outlined
-                      : Icons.sync_rounded,
-                  color: provider.lastSyncError != null && provider.lastSyncError!.isNotEmpty
-                      ? AppTheme.error.withValues(alpha: 0.9)
-                      : onSurf.withValues(alpha: 0.85),
-                ),
+          icon: buildSyncButtonIcon(),
         ),
       IconButton(
         tooltip: 'Jump to',
         icon: Icon(Icons.search_rounded, color: onSurf.withValues(alpha: 0.85)),
-        onPressed: () => _openJumpTo(context),
+        onPressed: () => _openMainAppBarJumpTo(context),
       ),
-      ...?actions,
+      ...?widget.actions,
     ];
     return AppBar(
       backgroundColor: cs.surface,
@@ -978,7 +1021,7 @@ class MainAppBar extends StatelessWidget implements PreferredSizeWidget {
       scrolledUnderElevation: 0,
       leading: IconButton(
         icon: Icon(Icons.menu_rounded, color: onSurf.withValues(alpha: 0.8)),
-        onPressed: onMenuTap ?? () => Scaffold.of(context).openDrawer(),
+        onPressed: widget.onMenuTap ?? () => Scaffold.of(context).openDrawer(),
       ),
       title: Row(
         mainAxisSize: MainAxisSize.min,
