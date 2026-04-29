@@ -17,6 +17,7 @@ import '../../providers/app_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/module_ui_kit.dart';
 import '../../utils/debounce.dart';
 
 // ─── Place emoji presets ──────────────────────────────────────────────────────
@@ -498,7 +499,7 @@ class _LocationScreenState extends State<LocationScreen> {
     final user = provider.activeUser;
     final family = provider.activeFamily;
     if (user == null || family == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const ModuleFamilyLoadingScaffold();
     }
 
     final members = provider.familyMembers;

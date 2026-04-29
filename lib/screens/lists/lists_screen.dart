@@ -17,6 +17,7 @@ import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/module_ui_kit.dart';
 import '../../widgets/huddle_subpage_scaffold.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/cloud_pull.dart';
@@ -528,7 +529,7 @@ class _ListsScreenState extends State<ListsScreen> {
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
     final family = provider.activeFamily;
-    if (family == null) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (family == null) return const ModuleFamilyLoadingScaffold();
 
     final currentUserId = provider.activeUser?.id;
     final lists = provider.db.shoppingLists
@@ -743,13 +744,12 @@ class _ListsScreenState extends State<ListsScreen> {
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: AppTheme.stone100),
                 ),
-                child: EmptyState(
-                  compact: true,
-                  emoji: '📝',
-                  emojiSize: 44,
+                child: CatalogModuleEmptyState(
+                  modulePath: '/lists',
                   title: 'No lists yet',
                   subtitle:
                       'Shared or private lists for groceries, trips, chores — whatever your household tracks together.',
+                  compact: true,
                   actionLabel: 'New list',
                   onAction: _showNewListSheet,
                 ),

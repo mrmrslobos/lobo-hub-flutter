@@ -15,6 +15,7 @@ import '../../services/family_activity_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/module_ui_kit.dart';
 import '../../utils/debounce.dart';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -441,10 +442,14 @@ class _ChatScreenState extends State<ChatScreen> {
                       : messages.where((m) => m.text.toLowerCase().contains(_searchQuery.toLowerCase())).toList();
                   if (filteredMessages.isEmpty) {
                     if (_searchQuery.isNotEmpty) {
-                      return const EmptyState(emoji: '🔍', title: 'No matches', subtitle: 'Try a different search term');
+                      return CatalogModuleEmptyState(
+                        modulePath: '/chat',
+                        title: 'No matches',
+                        subtitle: 'Try a different search term',
+                      );
                     }
-                    return const EmptyState(
-                      emoji: '💬',
+                    return CatalogModuleEmptyState(
+                      modulePath: '/chat',
                       title: 'No messages yet',
                       subtitle: 'Send the first message to your family!',
                     );

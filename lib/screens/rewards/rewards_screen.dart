@@ -14,6 +14,7 @@ import '../../providers/app_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/module_ui_kit.dart';
 import '../../utils/debounce.dart';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -388,7 +389,7 @@ class _RewardsScreenState extends State<RewardsScreen>
     final user = provider.activeUser;
     final family = provider.activeFamily;
     if (user == null || family == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const ModuleFamilyLoadingScaffold();
     }
 
     final members = provider.familyMembers;
@@ -933,8 +934,8 @@ class _RequestsTab extends StatelessWidget {
     final allHistory = resolvedRequests;
 
     if (pendingRequests.isEmpty && resolvedRequests.isEmpty) {
-      return EmptyState(
-        emoji: '📋',
+      return CatalogModuleEmptyState(
+        modulePath: '/rewards',
         title: 'No requests yet',
         subtitle: isOwner
             ? 'When someone redeems a reward, you can approve or deny it here.'
@@ -1321,8 +1322,8 @@ class _GoalsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (savingsGoals.isEmpty) {
-      return EmptyState(
-        emoji: '🎯',
+      return CatalogModuleEmptyState(
+        modulePath: '/rewards',
         title: 'No savings goals yet',
         subtitle:
             'Set a target and add funds over time — perfect for trips, gadgets, or a shared family treat.',

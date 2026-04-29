@@ -13,6 +13,7 @@ import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/module_ui_kit.dart';
 import '../../utils/debounce.dart';
 
 void _showSnack(BuildContext context, String message) {
@@ -206,7 +207,7 @@ class _PollsScreenState extends State<PollsScreen> {
     final user = provider.activeUser;
     final family = provider.activeFamily;
     if (user == null || family == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const ModuleFamilyLoadingScaffold();
     }
 
     final polls = provider.db.polls.where((p) => p.familyId == family.id).toList();
@@ -453,44 +454,19 @@ class _PollsScreenState extends State<PollsScreen> {
 
   Widget _buildEmptyState() {
     final labels = ['open polls', 'closed polls', 'polls'];
+    final subtitle = _selectedFilter == 0
+        ? 'Tap "New Poll" to get the family voting!'
+        : _selectedFilter == 1
+            ? 'No polls have been closed yet'
+            : 'Create your first poll to decide together';
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 32),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppTheme.stone100),
-        ),
-        child: Column(
-          children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: const BoxDecoration(
-                color: AppTheme.stone50,
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.poll_outlined, size: 28, color: AppTheme.stone300),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'No ${labels[_selectedFilter]}',
-              style: const TextStyle(fontFamily: 'Inter', fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.stone500),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              _selectedFilter == 0
-                  ? 'Tap "New Poll" to get the family voting!'
-                  : _selectedFilter == 1
-                      ? 'No polls have been closed yet'
-                      : 'Create your first poll to decide together',
-              style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
+      child: CatalogModuleEmptyState(
+        modulePath: '/polls',
+        title: 'No ${labels[_selectedFilter]}',
+        subtitle: subtitle,
+        actionLabel: 'New poll',
+        onAction: () => _showCreatePollSheet(),
       ),
     );
   }

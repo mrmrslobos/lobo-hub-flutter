@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../config/theme.dart';
 
+export 'module_ui_kit.dart';
+
 /// Standard horizontal inset for scrollable module content.
 class HuddlePagePadding extends StatelessWidget {
   const HuddlePagePadding({

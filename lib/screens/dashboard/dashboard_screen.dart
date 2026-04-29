@@ -763,9 +763,7 @@ Return ONLY the JSON array, no markdown.''',
         final family = provider.activeFamily;
 
         if (user == null || family == null) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
+          return const ModuleFamilyLoadingScaffold();
         }
 
         final db = provider.db;
@@ -1301,6 +1299,17 @@ Return ONLY the JSON array, no markdown.''',
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      Text(
+                        'TODAY',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1.15,
+                          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.72),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
                       Text(
                         welcomeTitle,
                         style: const TextStyle(
@@ -2592,9 +2601,9 @@ Return ONLY the JSON array, no markdown.''',
           ]),
           const SizedBox(height: 8),
           if (devotionals.isEmpty)
-            EmptyState(
+            CatalogModuleEmptyState(
               compact: true,
-              emoji: '📖',
+              modulePath: '/devotional',
               emojiSize: 36,
               title: 'No devotionals yet',
               subtitle: 'Open Devotional to read, save favorites, or get today\'s reading.',

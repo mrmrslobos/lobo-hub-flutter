@@ -1643,8 +1643,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(color: AppTheme.stone100),
                         ),
-                        child: EmptyState(
-                          emoji: '📅',
+                        child: CatalogModuleEmptyState(
+                          modulePath: '/calendar',
                           title: 'Nothing scheduled',
                           subtitle:
                               'Add an event for this day, or connect a calendar above.',

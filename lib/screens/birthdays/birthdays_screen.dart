@@ -14,6 +14,7 @@ import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/module_ui_kit.dart';
 import '../../utils/debounce.dart';
 
 // ─── Type config ─────────────────────────────────────────────────────────────
@@ -323,7 +324,7 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
     final family = provider.activeFamily;
-    if (family == null) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (family == null) return const ModuleFamilyLoadingScaffold();
 
     final occasions = provider.db.occasions
         .where((o) => o.familyId == family.id)
@@ -520,13 +521,13 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: AppTheme.stone100),
                 ),
-                child: EmptyState(
-                  compact: true,
-                  emoji: '🎂',
-                  emojiSize: 44,
+                child: CatalogModuleEmptyState(
+                  modulePath: '/birthdays',
                   title: 'No occasions yet',
                   subtitle:
                       'Birthdays, anniversaries, and milestones show up on the calendar and stay visible for the whole family.',
+                  compact: true,
+                  emojiSize: 44,
                   actionLabel: 'Add occasion',
                   onAction: () => _showAddSheet(),
                 ),

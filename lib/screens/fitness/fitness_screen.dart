@@ -26,6 +26,7 @@ import '../../widgets/exercise_media_image.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/module_ui_kit.dart';
 import '../../widgets/huddle_subpage_scaffold.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/debounce.dart';
@@ -566,7 +567,7 @@ Write 2-4 short paragraphs: (1) what went well or patterns you notice, (2) one c
     final user = provider.activeUser;
     final family = provider.activeFamily;
     if (user == null || family == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const ModuleFamilyLoadingScaffold();
     }
 
     final locale = context.read<LocaleService>().config;
@@ -1172,8 +1173,8 @@ Write 2-4 short paragraphs: (1) what went well or patterns you notice, (2) one c
 
           // ── Workout Logs ──
           if (sessionsForList.isEmpty)
-            EmptyState(
-              emoji: '💪',
+            CatalogModuleEmptyState(
+              modulePath: '/fitness',
               title: baseSessions.isEmpty
                   ? 'No workout sessions yet'
                   : 'No matches',

@@ -13,6 +13,7 @@ import '../../providers/app_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/module_ui_kit.dart';
 import '../../utils/debounce.dart';
 import '../../utils/cloud_pull.dart';
 
@@ -98,7 +99,7 @@ class _HabitsScreenState extends State<HabitsScreen> {
     final db = provider.db;
 
     if (user == null || family == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const ModuleFamilyLoadingScaffold();
     }
 
     final today = DateTime.now();
@@ -246,8 +247,8 @@ class _HabitsScreenState extends State<HabitsScreen> {
             else if (habitsForUi.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: EmptyState(
-                  emoji: '🔍',
+                child: CatalogModuleEmptyState(
+                  modulePath: '/habits',
                   title: 'No matching habits',
                   subtitle: 'Try a different search term',
                 ),

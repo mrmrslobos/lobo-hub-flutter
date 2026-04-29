@@ -14,6 +14,7 @@ import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/module_ui_kit.dart';
 import '../../utils/debounce.dart';
 
 // ─── Icon & Color palettes for chore creation ────────────────────────────────
@@ -505,7 +506,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
     final user = provider.activeUser;
     final family = provider.activeFamily;
     if (user == null || family == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const ModuleFamilyLoadingScaffold();
     }
 
     final familyId = family.id;
@@ -1108,40 +1109,13 @@ class _ChoresScreenState extends State<ChoresScreen> {
   Widget _buildEmptyState() {
     final hasSearch = _searchQuery.isNotEmpty;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 32),
-      child: Center(
-        child: Column(
-          children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: const BoxDecoration(
-                color: AppTheme.stone50,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                hasSearch ? Icons.search_off_rounded : Icons.assignment_turned_in_outlined,
-                size: 28,
-                color: AppTheme.stone300,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              hasSearch ? 'No matching chores' : 'No chores yet',
-              style: TextStyle(
-                fontFamily: 'Inter', fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.stone500,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              hasSearch ? 'Try a different search term' : 'Tap "Add Chore" to get started',
-              style: TextStyle(
-                fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
+      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 16),
+      child: CatalogModuleEmptyState(
+        modulePath: '/chores',
+        title: hasSearch ? 'No matching chores' : 'No chores yet',
+        subtitle: hasSearch ? 'Try a different search term' : 'Tap "Add Chore" to get started',
+        actionLabel: hasSearch ? null : 'Add chore',
+        onAction: hasSearch ? null : () => _showAddSheet(),
       ),
     );
   }

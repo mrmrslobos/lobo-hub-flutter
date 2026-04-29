@@ -18,6 +18,7 @@ import '../../services/ai_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/module_ui_kit.dart';
 import '../../widgets/huddle_subpage_scaffold.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/debounce.dart';
@@ -717,7 +718,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
     final user = provider.activeUser;
     final family = provider.activeFamily;
     if (user == null || family == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const ModuleFamilyLoadingScaffold();
     }
 
     final userId = user.id;
@@ -1358,6 +1359,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
               ]),
             ),
           ),
+          const FamilySyncPrivacyFootnote(),
         ],
       ),
     );
@@ -3117,9 +3119,9 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
                 const Text('CURRENT CATEGORIES', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.0, color: AppTheme.stone400)),
                 const SizedBox(height: 8),
                 if (categories.isEmpty)
-                  const EmptyState(
+                  CatalogModuleEmptyState(
                     compact: true,
-                    emoji: '💰',
+                    modulePath: '/budget',
                     emojiSize: 40,
                     title: 'No categories yet',
                     subtitle:

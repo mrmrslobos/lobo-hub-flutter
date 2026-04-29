@@ -748,70 +748,45 @@ class _TasksScreenState extends State<TasksScreen> {
   }
 
   Widget _buildEmptyState() {
-    IconData icon;
     String title;
     String subtitle;
 
     switch (_filter) {
       case _TaskFilter.done:
-        icon = Icons.check_circle_outline_rounded;
         title = 'No completed tasks yet';
         subtitle = 'Tasks you complete will appear here';
       case _TaskFilter.today:
-        icon = Icons.today_rounded;
         title = 'Nothing due today';
         subtitle = 'Enjoy your free time!';
       case _TaskFilter.highPriority:
-        icon = Icons.flag_outlined;
         title = 'No urgent tasks';
         subtitle = 'All high-priority items are handled';
       case _TaskFilter.mine:
-        icon = Icons.person_outline_rounded;
         title = 'No tasks assigned to you';
         subtitle = 'Create a task or ask someone to assign one';
       case _TaskFilter.others:
-        icon = Icons.people_outline_rounded;
         title = 'No tasks from others';
         subtitle = 'Tasks assigned to family members show here';
       case _TaskFilter.all:
-        icon = Icons.task_alt_rounded;
         title = 'All clear!';
         subtitle = 'Tap "New Task" to add something';
     }
 
     if (_searchQuery.isNotEmpty) {
-      icon = Icons.search_off_rounded;
       title = 'No matching tasks';
       subtitle = 'Try a different search term';
     }
 
+    final canAdd = _searchQuery.isEmpty && _filter != _TaskFilter.done;
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 32),
-      child: Center(
-        child: Column(
-          children: [
-            Container(
-              width: 64,
-              height: 64,
-              decoration: BoxDecoration(
-                color: AppTheme.stone50,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, size: 32, color: AppTheme.stone300),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              title,
-              style: const TextStyle(fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w600, color: AppTheme.stone600),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
+      padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 16),
+      child: CatalogModuleEmptyState(
+        modulePath: '/tasks',
+        title: title,
+        subtitle: subtitle,
+        actionLabel: canAdd ? 'New task' : null,
+        onAction: canAdd ? () => _showAddTaskSheet(context) : null,
       ),
     );
   }

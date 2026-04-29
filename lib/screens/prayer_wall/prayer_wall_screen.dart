@@ -16,6 +16,7 @@ import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/module_ui_kit.dart';
 import '../../utils/debounce.dart';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -248,7 +249,7 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
     final user = provider.activeUser;
     final family = provider.activeFamily;
     if (user == null || family == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const ModuleFamilyLoadingScaffold();
     }
 
     final all = provider.db.prayerRequests
@@ -418,16 +419,22 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
           if (filtered.isEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 40),
-              child: EmptyState(
-                emoji: '🙏',
-                title: _selectedFilter == 'gratitude'
-                    ? 'No gratitude entries yet'
-                    : _selectedFilter == 'request'
-                        ? 'No prayer requests yet'
-                        : _selectedFilter == 'answered'
-                            ? 'No answered prayers yet'
-                            : 'No posts yet',
-                subtitle: 'Tap "New Post" to share with your family',
+              child: CatalogModuleEmptyState(
+                modulePath: '/prayer-wall',
+                title: _searchQuery.isNotEmpty
+                    ? 'No matching posts'
+                    : (_selectedFilter == 'gratitude'
+                        ? 'No gratitude entries yet'
+                        : _selectedFilter == 'request'
+                            ? 'No prayer requests yet'
+                            : _selectedFilter == 'answered'
+                                ? 'No answered prayers yet'
+                                : 'No posts yet'),
+                subtitle: _searchQuery.isNotEmpty
+                    ? 'Try a different search term'
+                    : 'Tap "New Post" to share with your family',
+                actionLabel: _searchQuery.isNotEmpty ? null : 'New post',
+                onAction: _searchQuery.isNotEmpty ? null : _showAddSheet,
               ),
             )
           else

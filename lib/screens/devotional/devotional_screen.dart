@@ -25,6 +25,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/module_ui_kit.dart';
 import '../../widgets/huddle_subpage_scaffold.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/devotional_display_utils.dart';
@@ -445,7 +446,7 @@ class _DevotionalScreenState extends State<DevotionalScreen>
     final provider = context.watch<AppProvider>();
     final family = provider.activeFamily;
     if (family == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const ModuleFamilyLoadingScaffold();
     }
 
     final uid = provider.activeUser?.id;

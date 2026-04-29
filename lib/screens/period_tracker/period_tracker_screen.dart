@@ -18,6 +18,7 @@ import '../../providers/app_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/module_ui_kit.dart';
 import '../../services/notification_service.dart';
 import '../../utils/debounce.dart';
 
@@ -775,7 +776,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     final user = provider.activeUser;
     final family = provider.activeFamily;
     if (user == null || family == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const ModuleFamilyLoadingScaffold();
     }
 
     // Private data — only current user
@@ -925,6 +926,8 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
             if (_selectedTab == 0) _buildCalendarTab(entries),
             if (_selectedTab == 1) _buildHistoryTab(entries, _historySearchQuery),
             if (_selectedTab == 2) _buildInsightsTab(entries, avgCycle, daysUntil),
+
+            const FamilySyncPrivacyFootnote(),
           ],
         ),
       ),
@@ -1074,8 +1077,8 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     if (entries.isEmpty) {
       return const Padding(
         padding: EdgeInsets.symmetric(horizontal: 20),
-        child: EmptyState(
-          emoji: '🌸',
+        child: CatalogModuleEmptyState(
+          modulePath: '/period-tracker',
           title: 'No entries yet',
           subtitle: 'Track your period and symptoms privately.',
         ),
