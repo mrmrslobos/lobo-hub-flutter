@@ -66,6 +66,31 @@ class _ListsScreenState extends State<ListsScreen> {
         pushTableScope: {CloudSyncScope.lists});
   }
 
+  /// Opens an existing list or creates one when the title matches case-insensitively.
+  Future<void> _openOrCreateQuickList(String title) async {
+    final t = title.trim();
+    if (t.isEmpty) return;
+    final provider = context.read<AppProvider>();
+    final familyId = provider.activeFamily?.id;
+    final uid = provider.activeUser?.id;
+    if (familyId == null || uid == null) return;
+    final lower = t.toLowerCase();
+    ShoppingList? match;
+    for (final l in provider.db.shoppingLists) {
+      if (l.familyId != familyId) continue;
+      if (!_canAccessList(l, uid)) continue;
+      if (l.title.toLowerCase() == lower) {
+        match = l;
+        break;
+      }
+    }
+    if (match != null) {
+      setState(() => _selectedList = match);
+      return;
+    }
+    await _createList(t);
+  }
+
   Future<void> _createList(String name, {Visibility visibility = Visibility.FAMILY, List<String> sharedWith = const []}) async {
     final provider = context.read<AppProvider>();
     final db = provider.db;
@@ -568,6 +593,34 @@ class _ListsScreenState extends State<ListsScreen> {
                 isPrimary: true,
               ),
             ],
+          ),
+
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  ActionChip(
+                    label: const Text('Groceries'),
+                    avatar: const Icon(Icons.shopping_cart_outlined, size: 18),
+                    onPressed: () => _openOrCreateQuickList('Groceries'),
+                  ),
+                  const SizedBox(width: 8),
+                  ActionChip(
+                    label: const Text('Hardware'),
+                    avatar: const Icon(Icons.hardware_outlined, size: 18),
+                    onPressed: () => _openOrCreateQuickList('Hardware'),
+                  ),
+                  const SizedBox(width: 8),
+                  ActionChip(
+                    label: const Text('Costco run'),
+                    avatar: const Icon(Icons.storefront_outlined, size: 18),
+                    onPressed: () => _openOrCreateQuickList('Costco run'),
+                  ),
+                ],
+              ),
+            ),
           ),
 
           // ── Stat Cards ──

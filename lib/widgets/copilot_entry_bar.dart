@@ -1,31 +1,12 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 
 import '../config/module_config.dart';
 import '../config/theme.dart';
 import 'ai_affordance.dart';
+import 'family_copilot_panel.dart';
 
-/// Navigates to the family copilot with optional pre-filled text and source module
-/// (for [AssistantScreen] context). Uses query params on `/assistant`.
-void openFamilyCopilot(
-  BuildContext context, {
-  required String modulePath,
-  String? initialQuery,
-  bool startDictation = false,
-}) {
-  final q = <String, String>{'from': modulePath};
-  if (initialQuery != null && initialQuery.trim().isNotEmpty) {
-    q['q'] = initialQuery.trim();
-  }
-  if (startDictation) {
-    q['dictate'] = '1';
-  }
-  final uri = Uri(path: '/assistant', queryParameters: q);
-  context.go(uri.toString());
-}
-
-/// Fixed strip under the app bar: type a request or open copilot with dictation.
+/// Fixed strip under the app bar: type a request or open copilot in a sheet (stay on module).
 class CopilotEntryBar extends StatefulWidget {
   const CopilotEntryBar({
     super.key,
@@ -71,11 +52,11 @@ class _CopilotEntryBarState extends State<CopilotEntryBar> {
                 onSubmitted: (text) {
                   final t = text.trim();
                   if (t.isEmpty) {
-                    openFamilyCopilot(context, modulePath: widget.modulePath);
+                    showFamilyCopilotSheet(context, modulePath: widget.modulePath);
                     return;
                   }
                   _ctrl.clear();
-                  openFamilyCopilot(
+                  showFamilyCopilotSheet(
                     context,
                     modulePath: widget.modulePath,
                     initialQuery: t,
@@ -115,19 +96,19 @@ class _CopilotEntryBarState extends State<CopilotEntryBar> {
             ),
             const SizedBox(width: 4),
             Tooltip(
-              message: kIsWeb ? 'Open copilot (voice in the app)' : 'Speak your request',
+              message: kIsWeb ? 'Ask Huddle (voice in the app)' : 'Speak your request',
               child: IconButton.filledTonal(
                 onPressed: () {
                   final t = _ctrl.text.trim();
                   _ctrl.clear();
                   if (t.isNotEmpty) {
-                    openFamilyCopilot(
+                    showFamilyCopilotSheet(
                       context,
                       modulePath: widget.modulePath,
                       initialQuery: t,
                     );
                   } else {
-                    openFamilyCopilot(
+                    showFamilyCopilotSheet(
                       context,
                       modulePath: widget.modulePath,
                       startDictation: true,

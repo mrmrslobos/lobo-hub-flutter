@@ -26,6 +26,53 @@ class CopilotApplyResult {
 class CopilotActionApplier {
   CopilotActionApplier._();
 
+  /// Human-readable lines for confirmation UI (Phase 1 trust).
+  static List<String> describeActionsForUi(List<dynamic> actions) {
+    final out = <String>[];
+    for (final raw in actions) {
+      if (raw is! Map) continue;
+      final m = Map<String, dynamic>.from(raw);
+      final type = m['type'] as String? ?? '';
+      final payload = m['payload'];
+      if (payload is! Map) continue;
+      final p = Map<String, dynamic>.from(payload);
+      switch (type) {
+        case 'create_task':
+          final t = p['title']?.toString().trim() ?? 'Task';
+          out.add('Add task: $t');
+          break;
+        case 'create_event':
+          final t = p['title']?.toString().trim() ?? 'Event';
+          out.add('Add calendar event: $t');
+          break;
+        case 'create_shopping_list':
+          final t = p['title']?.toString().trim() ?? 'List';
+          final items = p['items'];
+          final n = items is List ? items.length : 0;
+          out.add(n > 0 ? 'Create list “$t” with $n items' : 'Create list “$t”');
+          break;
+        case 'add_list_items':
+          final sub = p['list_title_substring']?.toString() ?? p['list_id']?.toString() ?? 'list';
+          final items = p['items'];
+          final n = items is List ? items.length : 0;
+          out.add('Add $n item(s) to list matching “$sub”');
+          break;
+        case 'create_meal_plan_entry':
+          final meal = p['custom_meal']?.toString().trim() ?? 'Meal';
+          out.add('Add to meal plan: $meal');
+          break;
+        case 'create_chore':
+          final t = p['title']?.toString().trim() ?? 'Chore';
+          out.add('Add chore: $t');
+          break;
+        default:
+          break;
+      }
+    }
+    if (out.isEmpty) return ['Review actions in chat above'];
+    return out;
+  }
+
   static Priority _parsePriority(dynamic v) {
     final s = v?.toString().toUpperCase() ?? '';
     if (s == 'LOW') return Priority.LOW;

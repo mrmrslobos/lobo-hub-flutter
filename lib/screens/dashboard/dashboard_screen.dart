@@ -27,6 +27,7 @@ import '../../widgets/common_widgets.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/module_disclaimer.dart';
 import '../../utils/dashboard_ai_suggestions_cache.dart';
+import '../../utils/devotional_display_utils.dart';
 import '../../config/module_config.dart';
 import '../../services/recent_routes_service.dart';
 import '../../widgets/all_tools_sheet.dart';
@@ -2569,6 +2570,8 @@ Return ONLY the JSON array, no markdown.''',
   }
 
   Widget _buildDevotional(BuildContext context, List<DevotionalEntry> devotionals) {
+    final first =
+        devotionals.isEmpty ? null : devotionalEntryForDisplay(devotionals.first);
     return Container(
       margin: const EdgeInsets.fromLTRB(20, 14, 20, 0),
       padding: const EdgeInsets.all(16),
@@ -2599,11 +2602,11 @@ Return ONLY the JSON array, no markdown.''',
               onAction: () => context.go('/devotional'),
             )
           else ...[
-            Text(DateFormat('MMM d').format(devotionals.first.date).toUpperCase(), style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.5, color: Color(0xFF3B82F6))),
+            Text(DateFormat('MMM d').format(first!.date).toUpperCase(), style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.5, color: Color(0xFF3B82F6))),
             const SizedBox(height: 4),
-            Text(devotionals.first.title, style: const TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.stone900)),
-            if (devotionals.first.scripture != null)
-              Text(devotionals.first.scripture!, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFF3B82F6))),
+            Text(first.title, style: const TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.stone900)),
+            if (first.scripture != null)
+              Text(first.scripture!, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFF3B82F6))),
           ],
         ],
       ),

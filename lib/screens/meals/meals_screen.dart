@@ -5,7 +5,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Visibility;
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
@@ -2352,6 +2352,92 @@ class _MealPlanTabState extends State<_MealPlanTab> {
     );
   }
 
+  ShoppingList? _preferredGroceryList(AppProvider provider, String familyId) {
+    final lists = provider.db.lists.where((l) => l.familyId == familyId).toList();
+    for (final l in lists) {
+      final t = l.title.toLowerCase();
+      if (t.contains('grocer') || t.contains('shop')) return l;
+    }
+    return lists.isEmpty ? null : lists.first;
+  }
+
+  /// Add one planned meal's ingredients into Lists (merge into Groceries-like list or create).
+  Future<void> _addSingleMealIngredientsToLists(
+    BuildContext context,
+    MealPlanEntry meal,
+  ) async {
+    if (!_requireFamilyOwnerForTab(
+      context,
+      'Only the family owner can add ingredients to Lists.',
+    )) {
+      return;
+    }
+    final provider = context.read<AppProvider>();
+    final familyId = provider.activeFamily?.id ?? '';
+    if (familyId.isEmpty) return;
+    final userId = provider.activeUser?.id ?? '';
+    if (userId.isEmpty) return;
+
+    final lines = linesForSingleMeal(meal: meal, recipes: provider.db.recipes);
+    String displayName = meal.customMeal?.trim() ?? '';
+    if (displayName.isEmpty && meal.recipeId != null) {
+      for (final r in provider.db.recipes) {
+        if (r.id == meal.recipeId) {
+          displayName = r.title;
+          break;
+        }
+      }
+    }
+    if (displayName.isEmpty) displayName = 'This meal';
+
+    final List<ListItem> newItems;
+    if (lines.isEmpty) {
+      newItems = [
+        ListItem(id: const Uuid().v4(), text: 'Shop for: $displayName'),
+      ];
+    } else {
+      newItems = lines.map((l) {
+        final q = (l.quantity != null && l.quantity!.trim().isNotEmpty)
+            ? '${l.quantity!.trim()}${l.unit != null && l.unit!.trim().isNotEmpty ? ' ${l.unit!.trim()}' : ''}'
+            : null;
+        final text = (q != null && q.isNotEmpty) ? '$q ${l.name}' : l.name;
+        return ListItem(id: const Uuid().v4(), text: text);
+      }).toList();
+    }
+
+    final db = provider.db;
+    final existing = _preferredGroceryList(provider, familyId);
+    if (existing != null) {
+      final merged = [...existing.items, ...newItems];
+      final updated = existing.copyWith(items: merged);
+      final nextLists = db.lists.map((l) => l.id == existing.id ? updated : l).toList();
+      await provider.saveAndSync(
+        db.copyWith(lists: nextLists),
+        pushTableScope: {CloudSyncScope.lists},
+      );
+      if (context.mounted) {
+        _showSnack(context, 'Added ${newItems.length} items to "${existing.title}" in Lists');
+      }
+    } else {
+      final list = ShoppingList(
+        id: const Uuid().v4(),
+        familyId: familyId,
+        creatorId: userId,
+        title: 'Groceries',
+        items: newItems,
+        category: ListCategory.GROCERY,
+        visibility: Visibility.FAMILY,
+      );
+      await provider.saveAndSync(
+        db.copyWith(lists: [...db.lists, list]),
+        pushTableScope: {CloudSyncScope.lists},
+      );
+      if (context.mounted) {
+        _showSnack(context, 'Created "Groceries" in Lists with ${newItems.length} items');
+      }
+    }
+  }
+
   Future<void> _addWeekIngredientsToGrocery(BuildContext context) async {
     if (!_requireFamilyOwnerForTab(
       context,
@@ -2658,6 +2744,9 @@ class _MealPlanTabState extends State<_MealPlanTab> {
               onScheduleLeftovers: slotMeal != null
                   ? () => _showLeftoverTargetPicker(context, slotMeal)
                   : null,
+              onAddIngredientsToList: slotMeal != null
+                  ? () => _addSingleMealIngredientsToLists(context, slotMeal)
+                  : null,
             ),
           );
         }),
@@ -2718,6 +2807,7 @@ class _MealSlotCard extends StatelessWidget {
   final DateTime day;
   final VoidCallback? onRepeatWeekly;
   final VoidCallback? onScheduleLeftovers;
+  final VoidCallback? onAddIngredientsToList;
 
   const _MealSlotCard({
     required this.mealType,
@@ -2725,6 +2815,7 @@ class _MealSlotCard extends StatelessWidget {
     required this.day,
     this.onRepeatWeekly,
     this.onScheduleLeftovers,
+    this.onAddIngredientsToList,
   });
 
   @override
@@ -2889,6 +2980,16 @@ class _MealSlotCard extends StatelessWidget {
   }
 
   void _showMealOptions(BuildContext context, {required bool canManageMeal}) {
+    final provider = context.read<AppProvider>();
+    Recipe? linkedRecipe;
+    if (meal?.recipeId != null) {
+      for (final r in provider.db.recipes) {
+        if (r.id == meal!.recipeId) {
+          linkedRecipe = r;
+          break;
+        }
+      }
+    }
     final emoji = _mealTypeEmojis[mealType] ?? '🍽️';
     showModalBottomSheet(
       context: context,
@@ -2939,6 +3040,29 @@ class _MealSlotCard extends StatelessWidget {
                 onTap: () {
                   Navigator.pop(ctx);
                   _openAddMealSheet(context, mealType, day, existingMeal: meal);
+                },
+              ),
+            if (canManageMeal && onAddIngredientsToList != null)
+              ListTile(
+                leading: Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF16A34A).withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.playlist_add_check_rounded, size: 18, color: Color(0xFF16A34A)),
+                ),
+                title: const Text('Add ingredients to Lists', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600)),
+                subtitle: Text(
+                  linkedRecipe != null
+                      ? 'Merge into your grocery-style list (or create Groceries)'
+                      : 'Adds a reminder line (link a recipe for detailed ingredients)',
+                  style: const TextStyle(fontFamily: 'Inter', fontSize: 11),
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  onAddIngredientsToList!();
                 },
               ),
             ListTile(

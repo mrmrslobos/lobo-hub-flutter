@@ -27,6 +27,7 @@ import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
 import '../../widgets/huddle_subpage_scaffold.dart';
 import '../../widgets/subscription_modal.dart';
+import '../../utils/devotional_display_utils.dart';
 import '../../utils/debounce.dart';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -72,19 +73,20 @@ int _userDailyNotificationId(String userId) =>
     9910000 + (userId.hashCode.abs() % 900000);
 
 String _devotionalShareText(DevotionalEntry e) {
+  final d = devotionalEntryForDisplay(e);
   final buf = StringBuffer();
-  buf.writeln(e.title);
-  if (e.scripture != null && e.scripture!.trim().isNotEmpty) {
+  buf.writeln(d.title);
+  if (d.scripture != null && d.scripture!.trim().isNotEmpty) {
     buf.writeln();
-    buf.writeln(e.scripture);
+    buf.writeln(d.scripture);
   }
-  if (e.content != null && e.content!.trim().isNotEmpty) {
+  if (d.content != null && d.content!.trim().isNotEmpty) {
     buf.writeln();
-    buf.writeln(e.content);
+    buf.writeln(d.content);
   }
-  if (e.prayer != null && e.prayer!.trim().isNotEmpty) {
+  if (d.prayer != null && d.prayer!.trim().isNotEmpty) {
     buf.writeln();
-    buf.writeln('Prayer: ${e.prayer}');
+    buf.writeln('Prayer: ${d.prayer}');
   }
   buf.writeln();
   buf.writeln('Shared from ${AppConfig.appName}');
@@ -258,6 +260,8 @@ class _DevotionalScreenState extends State<DevotionalScreen>
   bool _dismissedAutoOpen = false;
   bool _deepLinkHandled = false;
   Set<String> _localDismissedDates = {};
+  /// Consecutive calendar days this device opened Devotional; updated once per day max.
+  int _visitStreak = 0;
 
   @override
   void initState() {
@@ -265,6 +269,9 @@ class _DevotionalScreenState extends State<DevotionalScreen>
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(() => setState(() {}));
     _loadDismissedDates();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_recordDevotionalVisitStreak());
+    });
   }
 
   Future<void> _loadDismissedDates() async {
@@ -371,6 +378,45 @@ class _DevotionalScreenState extends State<DevotionalScreen>
       );
     }
     if (_selectedEntry?.id == id) setState(() => _selectedEntry = null);
+  }
+
+  /// Visit streak for this screen (local device); not synced.
+  static const _kVisitStreakCount = 'devotional_visit_streak_count';
+  static const _kVisitStreakLastDay = 'devotional_visit_streak_last_yyyy_mm_dd';
+
+  Future<void> _recordDevotionalVisitStreak() async {
+    final prefs = await SharedPreferences.getInstance();
+    final now = DateTime.now();
+    final todayKey = DateFormat('yyyy-MM-dd').format(now);
+    final todayNorm = DateTime(now.year, now.month, now.day);
+    final lastKey = prefs.getString(_kVisitStreakLastDay);
+    var count = prefs.getInt(_kVisitStreakCount) ?? 0;
+
+    if (lastKey == todayKey) {
+      if (mounted) setState(() => _visitStreak = count);
+      return;
+    }
+
+    if (lastKey != null && lastKey.isNotEmpty) {
+      final lastDt = DateTime.tryParse(lastKey);
+      if (lastDt != null) {
+        final lastNorm = DateTime(lastDt.year, lastDt.month, lastDt.day);
+        final diff = todayNorm.difference(lastNorm).inDays;
+        if (diff == 1) {
+          count += 1;
+        } else {
+          count = 1;
+        }
+      } else {
+        count = 1;
+      }
+    } else {
+      count = 1;
+    }
+
+    await prefs.setInt(_kVisitStreakCount, count);
+    await prefs.setString(_kVisitStreakLastDay, todayKey);
+    if (mounted) setState(() => _visitStreak = count);
   }
 
   /// Track dismissed auto-devotional dates in SharedPreferences.
@@ -557,6 +603,47 @@ class _DevotionalScreenState extends State<DevotionalScreen>
             PageHeader(
               title: screenTitleForModulePath('/devotional'),
               subtitle: 'Reflect, pray, and grow as a family.',
+            ),
+
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: AppTheme.stone50,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppTheme.stone200),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _visitStreak >= 2
+                            ? '$_visitStreak-day visit streak — thanks for showing up.'
+                            : 'Welcome — take a quiet moment with today\'s reading.',
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          height: 1.35,
+                          color: AppTheme.stone700,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Family prompt: At dinner, invite everyone to share one thing they\'re grateful for from today.',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 13,
+                          height: 1.4,
+                          color: AppTheme.stone600.withValues(alpha: 0.95),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
 
             // ── Stat cards ──
@@ -987,9 +1074,10 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
               if (_showFavoritesOnly && !entry.isFavorited) return false;
               if (_searchQuery.isNotEmpty) {
                 final q = _searchQuery.toLowerCase();
-                if (!entry.title.toLowerCase().contains(q) &&
-                    !(entry.scripture?.toLowerCase().contains(q) ?? false) &&
-                    !(entry.content?.toLowerCase().contains(q) ?? false) &&
+                final d = devotionalEntryForDisplay(entry);
+                if (!d.title.toLowerCase().contains(q) &&
+                    !(d.scripture?.toLowerCase().contains(q) ?? false) &&
+                    !(d.content?.toLowerCase().contains(q) ?? false) &&
                     !entry.tags.any((t) => t.toLowerCase().contains(q))) {
                   return false;
                 }
@@ -1132,6 +1220,7 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
                         )
                       else
                         ...filtered.map((entry) {
+                          final display = devotionalEntryForDisplay(entry);
                           final provider = context.read<AppProvider>();
                           final userId = provider.activeUser?.id;
                           final isOwner = userId != null && provider.activeFamily?.ownerId == userId;
@@ -1163,7 +1252,7 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
                                   context: context,
                                   builder: (ctx) => AlertDialog(
                                     title: const Text('Delete Devotional'),
-                                    content: Text('Delete "${entry.title}"?'),
+                                    content: Text('Delete "${display.title}"?'),
                                     actions: [
                                       TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
                                       TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
@@ -1184,16 +1273,16 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      if (entry.scripture != null)
+                                      if (display.scripture != null)
                                         Text(
-                                          'BASED ON ${_extractRef(entry.scripture!).toUpperCase()}',
+                                          'BASED ON ${_extractRef(display.scripture!).toUpperCase()}',
                                           style: TextStyle(
                                             fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700,
                                             color: AppTheme.stone400, letterSpacing: 0.5,
                                           ),
                                         ),
-                                      if (entry.scripture != null) const SizedBox(height: 6),
-                                      Text(entry.title, style: TextStyle(
+                                      if (display.scripture != null) const SizedBox(height: 6),
+                                      Text(display.title, style: TextStyle(
                                         fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: AppTheme.stone900,
                                       ), maxLines: 2, overflow: TextOverflow.ellipsis),
                                       const SizedBox(height: 4),
@@ -1581,6 +1670,7 @@ class _EntryDetailView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final view = devotionalEntryForDisplay(entry);
     final app = context.watch<AppProvider>();
     final thoughtsForEntry =
         app.db.devotionalThoughts.where((t) => t.devotionalId == entry.id).toList();
@@ -1622,9 +1712,9 @@ class _EntryDetailView extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Scripture badge
-            if (entry.scripture != null) ...[
+            if (view.scripture != null) ...[
               Text(
-                'SCRIPTURE ROOT — ${_extractRef(entry.scripture!).toUpperCase()}',
+                'SCRIPTURE ROOT — ${_extractRef(view.scripture!).toUpperCase()}',
                 style: TextStyle(
                   fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700,
                   color: onSurf.withValues(alpha: 0.45), letterSpacing: 0.5,
@@ -1634,14 +1724,14 @@ class _EntryDetailView extends StatelessWidget {
             ],
 
             // Title
-            Text(entry.title, style: TextStyle(
+            Text(view.title, style: TextStyle(
               fontFamily: 'Inter', fontWeight: FontWeight.w900, fontSize: 26, color: onSurf,
               height: 1.2,
             )),
             const SizedBox(height: 12),
 
             // Scripture reference
-            if (entry.scripture != null) ...[
+            if (view.scripture != null) ...[
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 decoration: BoxDecoration(
@@ -1650,7 +1740,7 @@ class _EntryDetailView extends StatelessWidget {
                   border: Border.all(color: const Color(0xFFFDBA74)),
                 ),
                 child: SelectableText(
-                  '"${entry.scripture}"',
+                  '"${view.scripture}"',
                   style: TextStyle(
                     fontFamily: 'Inter', fontSize: 15, fontWeight: FontWeight.w600,
                     color: Color(0xFFEA580C), fontStyle: FontStyle.italic,
@@ -1662,7 +1752,7 @@ class _EntryDetailView extends StatelessWidget {
             ],
 
             // Content
-            if (entry.content != null) ...[
+            if (view.content != null) ...[
               Text(
                 'READING',
                 style: TextStyle(
@@ -1672,7 +1762,7 @@ class _EntryDetailView extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               SelectableText(
-                entry.content!,
+                view.content!,
                 style: TextStyle(
                   fontFamily: 'Inter', fontSize: 16, color: onSurf.withValues(alpha: 0.88), height: 1.65,
                 ),
@@ -1681,7 +1771,7 @@ class _EntryDetailView extends StatelessWidget {
             ],
 
             // Reflection prompts
-            if (entry.reflectionPrompts.isNotEmpty) ...[
+            if (view.reflectionPrompts.isNotEmpty) ...[
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -1703,7 +1793,7 @@ class _EntryDetailView extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    ...entry.reflectionPrompts.asMap().entries.map((e) {
+                    ...view.reflectionPrompts.asMap().entries.map((e) {
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 10),
                         child: Row(
@@ -1742,7 +1832,7 @@ class _EntryDetailView extends StatelessWidget {
             const SizedBox(height: 20),
 
             // Prayer
-            if (entry.prayer != null) ...[
+            if (view.prayer != null) ...[
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -1765,7 +1855,7 @@ class _EntryDetailView extends StatelessWidget {
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Text(
-                        '"${entry.prayer}"',
+                        '"${view.prayer}"',
                         style: TextStyle(
                           fontFamily: 'Inter', fontSize: 14, fontStyle: FontStyle.italic,
                           color: AppTheme.stone600, height: 1.5,
@@ -2181,7 +2271,9 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
   Widget build(BuildContext context) {
     final entries = _planEntries;
     final totalDays = entries.length;
-    final currentEntry = _currentDay < entries.length ? entries[_currentDay] : null;
+    final currentEntryRaw = _currentDay < entries.length ? entries[_currentDay] : null;
+    final currentEntry =
+        currentEntryRaw != null ? devotionalEntryForDisplay(currentEntryRaw) : null;
     final uid = widget.activeUserId;
     final thoughts = widget.thoughts;
     final completedCount = entries

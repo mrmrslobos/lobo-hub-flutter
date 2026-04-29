@@ -41,26 +41,81 @@ class AiService {
     return null;
   }
 
+  /// Extracts the first top-level `{ ... }` using brace depth (handles `}` inside strings).
+  static String? _extractFirstBalancedJsonObject(String s) {
+    final start = s.indexOf('{');
+    if (start < 0) return null;
+    var depth = 0;
+    var inString = false;
+    var escape = false;
+    for (var i = start; i < s.length; i++) {
+      final ch = s[i];
+      if (inString) {
+        if (escape) {
+          escape = false;
+          continue;
+        }
+        if (ch == r'\') {
+          escape = true;
+          continue;
+        }
+        if (ch == '"') {
+          inString = false;
+        }
+        continue;
+      }
+      if (ch == '"') {
+        inString = true;
+        continue;
+      }
+      if (ch == '{') {
+        depth++;
+      } else if (ch == '}') {
+        depth--;
+        if (depth == 0) return s.substring(start, i + 1);
+      }
+    }
+    return null;
+  }
+
   /// Parses a JSON object from LLM text that may include markdown fences
   /// or short preamble/epilogue. Returns null on failure.
   static Map<String, dynamic>? tryParseJsonObject(String raw) {
     var s = raw.trim();
     if (s.isEmpty) return null;
+    if (s.startsWith('\ufeff')) s = s.substring(1);
     s = _stripLlmJsonWrappers(s);
-    try {
-      final decoded = jsonDecode(s);
+    Map<String, dynamic>? decodeMap(Object? decoded) {
       if (decoded is Map<String, dynamic>) return decoded;
       if (decoded is Map) return Map<String, dynamic>.from(decoded);
+      return null;
+    }
+
+    try {
+      final decoded = jsonDecode(s);
+      final m = decodeMap(decoded);
+      if (m != null) return m;
+      if (decoded is String) {
+        final inner = decoded.trim();
+        if (inner.startsWith('{')) {
+          try {
+            final decodedInner = jsonDecode(inner);
+            final m2 = decodeMap(decodedInner);
+            if (m2 != null) return m2;
+          } catch (_) {}
+        }
+      }
     } catch (_) {}
-    final start = s.indexOf('{');
-    final end = s.lastIndexOf('}');
-    if (start >= 0 && end > start) {
+
+    final balanced = _extractFirstBalancedJsonObject(s);
+    if (balanced != null) {
       try {
-        final decoded = jsonDecode(s.substring(start, end + 1));
-        if (decoded is Map<String, dynamic>) return decoded;
-        if (decoded is Map) return Map<String, dynamic>.from(decoded);
+        final decoded = jsonDecode(balanced);
+        final m = decodeMap(decoded);
+        if (m != null) return m;
       } catch (_) {}
     }
+
     return null;
   }
 
@@ -352,12 +407,40 @@ Please provide:
     );
   }
 
+  /// Caps and formats prior turns for the copilot prompt (Phase 1–2 memory).
+  static String _formatCopilotHistory(List<Map<String, String>> history) {
+    if (history.isEmpty) return '';
+    const maxChars = 6000;
+    final lines = <String>[];
+    for (final m in history) {
+      final role = (m['role'] ?? 'user').trim();
+      final content = (m['content'] ?? '').trim();
+      if (content.isEmpty) continue;
+      lines.add('${role == 'assistant' ? 'Assistant' : 'User'}: $content');
+    }
+    if (lines.isEmpty) return '';
+    while (lines.join('\n').length > maxChars && lines.length > 2) {
+      lines.removeAt(0);
+      lines.removeAt(0);
+    }
+    return 'Prior conversation:\n${lines.join('\n')}\n\n';
+  }
+
   /// Family copilot: returns decoded `{ "reply", "actions" }` or null.
+  ///
+  /// [conversationHistory]: prior turns only (oldest first). Each map uses
+  /// keys `role` (`user` | `assistant`) and `content` (plain text).
   static Future<Map<String, dynamic>?> askCopilot({
     required String userMessage,
     required String familyId,
     required String contextBlock,
+    List<Map<String, String>> conversationHistory = const [],
+    bool preferShortReplies = false,
   }) async {
+    final historyBlock = _formatCopilotHistory(conversationHistory);
+    final brevity = preferShortReplies
+        ? 'The user may be listening via text-to-speech. Keep `reply` concise (1–3 short sentences) unless they asked for detail.\n'
+        : '';
     final prompt = '''
 You are the Family copilot for the Huddle app. The user describes what they need; you propose concrete actions the app can perform.
 
@@ -370,7 +453,13 @@ Allowed types and payloads:
 - create_task: title (string), notes?, due_date (ISO date yyyy-MM-DD), due_time (HH:mm), priority LOW|MEDIUM|HIGH, reminder_minutes?
 - create_event: title, start (ISO datetime), end (ISO datetime), location?, description?
 - create_shopping_list: title, items optional array of {text, quantity?}
-- add_list_items: list_id OR list_title_substring, items array of {text, quantity?}
+- add_list_items: list_id OR list_title_substring (matches existing list title, case-insensitive substring), items array of {text, quantity?}
+
+Shopping lists — be decisive and helpful:
+- If the user says "add X, Y, Z to shopping list", "groceries", "the list", etc., use add_list_items with list_title_substring matching an EXISTING list title from context (e.g. "grocery" → "Groceries").
+- If they name a store or trip ("from Bunnings", "Bunnings run", "hardware store"), prefer a list title that matches that store ("Bunnings"). If no such list exists in context, use create_shopping_list with that title and the items in one step.
+- You may combine: create_shopping_list when it is clearly a new themed list; add_list_items when a clear existing list matches.
+- Parse comma or "and"-separated items into separate entries in items[].
 - create_meal_plan_entry: date (yyyy-MM-DD), meal_type breakfast|lunch|dinner|snack, custom_meal (string)
 - create_chore: title, description?, points (int), frequency DAILY|WEEKLY
 
@@ -378,9 +467,15 @@ If the user asks for restaurant reservations, put a helpful reply and optionally
 
 If nothing applies, use empty actions.
 
+When it helps clarify next steps, end `reply` with one short follow-up question on its own last sentence (still keep `reply` concise overall).
+
+Ongoing conversation:
+- Use "Prior conversation" below to resolve follow-ups ("also add…", "same list", "yes", "the hardware one"). If they confirm an action in words, still output the right `actions` array; the app will ask them to tap confirm before saving.
+
+$brevity
 Context (read-only):
 $contextBlock
-
+$historyBlock
 User message:
 $userMessage
 ''';
