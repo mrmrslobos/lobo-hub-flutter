@@ -29,7 +29,6 @@ import '../../utils/module_disclaimer.dart';
 import '../../utils/dashboard_ai_suggestions_cache.dart';
 import '../../utils/devotional_display_utils.dart';
 import '../../config/module_config.dart';
-import '../../services/recent_routes_service.dart';
 import '../../widgets/all_tools_sheet.dart';
 import '../../widgets/huddle_module_scaffold.dart';
 import '../../widgets/huddle_subpage_scaffold.dart';
@@ -119,7 +118,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _aiHomeSuggestionsExpanded = false;
   /// Long monthly recap body hidden until opened.
   bool _monthlyNarrativeExpanded = false;
-  List<String> _recentModulePaths = [];
 
   /// Phase H — progressive disclosure for dense Home content below essentials.
   bool _showDashboardDeepSections = false;
@@ -131,8 +129,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _appProvider.addListener(_onAppProviderChanged);
     _lastProviderHasAI = _appProvider.hasAIAccess;
     _loadDismissedAnnouncement();
-    RecentRoutesService.version.addListener(_onRecentsVersionTick);
-    unawaited(_loadRecentModulePaths());
 
     // Restore in-memory cache instantly to avoid spinner on re-navigation
     final cacheKey = '${_appProvider.activeUser?.id}_${_appProvider.activeFamily?.id}';
@@ -172,19 +168,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   void dispose() {
-    RecentRoutesService.version.removeListener(_onRecentsVersionTick);
     _appProvider.removeListener(_onAppProviderChanged);
     super.dispose();
-  }
-
-  void _onRecentsVersionTick() {
-    unawaited(_loadRecentModulePaths());
-  }
-
-  Future<void> _loadRecentModulePaths() async {
-    final p = await RecentRoutesService.getPaths();
-    if (!mounted) return;
-    setState(() => _recentModulePaths = p);
   }
 
   void _onAppProviderChanged() {
@@ -284,7 +269,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final provider = context.read<AppProvider>();
     await provider.saveAndSync(provider.db);
     await _loadAISuggestions(forceRefresh: true);
-    await _loadRecentModulePaths();
   }
 
   Future<void> _loadMonthlySummary() async {
@@ -903,18 +887,16 @@ Return ONLY the JSON array, no markdown.''',
                   actionTodayCount,
                   upcomingEvents,
                 ),
-                _buildPlanChip(context, family),
                 _buildTrialBanner(context, family),
                 if (_startTipReady && !_startTipDismissed) _buildOnboardingHint(context, family.id),
                 _buildAnnouncementSection(context, provider, family),
+                _buildHomeQuickActions(context, family, user),
                 if (showTryAI) _buildTryAICard(context, provider, family),
                 if (hasNoCoreData) _buildEmptySetupHint(context, family, familyId),
-                _buildHomeQuickActions(context, family, user),
-                _buildRecentsRow(context, family),
+                RepaintBoundary(child: _buildAISuggestionsSection()),
                 _buildDashboardDeepSectionsToggle(context),
                 if (_showDashboardDeepSections) ...[
                   _buildBirthdaysSection(db, familyId, today),
-                  RepaintBoundary(child: _buildAISuggestionsSection()),
                   RepaintBoundary(child: _buildMonthlySummarySection()),
                   _buildStatsGrid(
                     tasksDue: tasksDueToday.length,
@@ -953,7 +935,7 @@ Return ONLY the JSON array, no markdown.''',
   // Builder methods
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Collapses birthdays, AI ideas, stats, and module summaries behind one affordance (Phase H).
+  /// Collapses birthdays, stats, and module summaries behind one affordance (Phase H).
   Widget _buildDashboardDeepSectionsToggle(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Padding(
@@ -987,7 +969,7 @@ Return ONLY the JSON array, no markdown.''',
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Birthdays, AI ideas, stats, devotionals, and activity summaries',
+                        'Birthdays, stats, devotionals, and activity summaries',
                         style: TextStyle(
                           fontFamily: 'Inter',
                           fontSize: 12,
@@ -1576,109 +1558,6 @@ Return ONLY the JSON array, no markdown.''',
               overflow: TextOverflow.ellipsis,
             ),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRecentsRow(BuildContext context, Family family) {
-    final visible = _recentModulePaths
-        .where((p) => isModulePathEnabledForFamily(p, family) && getModuleByPath(p) != null)
-        .take(5)
-        .toList();
-    if (visible.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Jump back in',
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontWeight: FontWeight.w800,
-              fontSize: 13,
-              color: AppTheme.stone500,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final p in visible)
-                ActionChip(
-                  avatar: Text(getModuleByPath(p)!.emoji, style: const TextStyle(fontSize: 16)),
-                  label: Text(
-                    getModuleByPath(p)!.name,
-                    style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 12),
-                  ),
-                  onPressed: () {
-                    HapticFeedback.lightImpact();
-                    context.go(p);
-                  },
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPlanChip(BuildContext context, Family family) {
-    String label;
-    switch (family.subscriptionTier) {
-      case SubscriptionTier.trial:
-        label = 'Plan: Free trial';
-        break;
-      case SubscriptionTier.base:
-        label = 'Plan: Base';
-        break;
-      case SubscriptionTier.ai:
-        label = 'Plan: AI';
-        break;
-      case SubscriptionTier.ai_family:
-        label = 'Plan: AI Family';
-        break;
-    }
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-      child: Material(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(12),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: () => context.go('/subscription'),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            child: Row(
-              children: [
-                Icon(Icons.workspace_premium_outlined, size: 18, color: Theme.of(context).colorScheme.primary),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
-                      color: Theme.of(context).colorScheme.onSurface,
-                    ),
-                  ),
-                ),
-                Text(
-                  'Manage',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontWeight: FontWeight.w600,
-                    fontSize: 12,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                ),
-                Icon(Icons.chevron_right_rounded, size: 18, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4)),
-              ],
-            ),
-          ),
         ),
       ),
     );

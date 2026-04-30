@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -88,17 +90,6 @@ void main() async {
     );
   }
 
-  // Initialize notification service
-  await NotificationService.init();
-
-  // Crashlytics after Firebase may have been initialized by notifications (FCM).
-  await CrashReportingService.init();
-
-  // Initialize purchase service if keys are provided
-  const iosKey = String.fromEnvironment('RC_IOS_KEY', defaultValue: '');
-  const androidKey = String.fromEnvironment('RC_ANDROID_KEY', defaultValue: '');
-  await PurchaseService.init(iosApiKey: iosKey, androidApiKey: androidKey);
-
   final dataProvider = DataProvider();
   final themeProvider = ThemeProvider();
   final authProvider = AuthProvider(dataProvider);
@@ -113,7 +104,18 @@ void main() async {
     themeProvider: themeProvider,
   );
 
-  await appProvider.initialize();
+  const iosKey = String.fromEnvironment('RC_IOS_KEY', defaultValue: '');
+  const androidKey = String.fromEnvironment('RC_ANDROID_KEY', defaultValue: '');
+
+  // Notifications / Firebase / IAP must not block the first frame (cold start UX).
+  void startDeferredBootstrap() {
+    unawaited(NotificationService.init());
+    unawaited(CrashReportingService.init());
+    unawaited(PurchaseService.init(iosApiKey: iosKey, androidApiKey: androidKey));
+    unawaited(appProvider.initialize());
+  }
+
+  scheduleMicrotask(startDeferredBootstrap);
 
   runApp(
     MultiProvider(
