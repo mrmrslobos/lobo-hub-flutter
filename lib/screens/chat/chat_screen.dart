@@ -353,6 +353,9 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     return Consumer<AppProvider>(
       builder: (context, provider, _) {
+        if (provider.activeUser == null || provider.activeFamily == null) {
+          return const ModuleFamilyLoadingScaffold();
+        }
         final familyId = provider.activeFamily?.id;
         final myId = provider.activeUser?.id;
 

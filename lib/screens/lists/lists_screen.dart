@@ -585,7 +585,7 @@ class _ListsScreenState extends State<ListsScreen> {
           // ── Page Header ──
           PageHeader(
             title: screenTitleForModulePath('/lists'),
-            subtitle: 'Shared shopping & to-do lists.',
+            subtitle: 'Shared lists everyone can update — groceries, packing, and chores.',
             actions: [
               ActionChipButton(
                 icon: Icons.add_rounded,

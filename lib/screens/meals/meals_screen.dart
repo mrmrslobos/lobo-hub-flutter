@@ -21,6 +21,7 @@ import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/huddle_page_layout.dart';
 import '../../widgets/huddle_subpage_scaffold.dart';
 import '../../services/ai_service.dart';
 import '../../services/locale_service.dart';
@@ -1341,6 +1342,9 @@ Return a JSON array of 7 objects, each with:
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
+    if (provider.activeUser == null || provider.activeFamily == null) {
+      return const ModuleFamilyLoadingScaffold();
+    }
     final familyId = provider.activeFamily?.id ?? '';
     final now = DateTime.now();
     final monday = now.subtract(Duration(days: now.weekday - 1));
@@ -1373,7 +1377,7 @@ Return a JSON array of 7 objects, each with:
               // ── Page Header ──
               PageHeader(
                 title: screenTitleForModulePath('/meals'),
-                subtitle: 'Plan nutrition and manage family recipes.',
+                subtitle: 'Plan meals together — this week’s slots and recipes in one place.',
                 actions: [
                   ActionChipButton(
                     icon: Icons.add_rounded,
@@ -1851,7 +1855,17 @@ Return a JSON array of 7 objects, each with:
               const _MealPlanTab(),
             ] else ...[
               // ── RECIPE BOX section ──
-              _RecipesTab(onCookMode: _openCookMode),
+              _RecipesTab(
+                onCookMode: _openCookMode,
+                onAddRecipe: () => showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                  ),
+                  builder: (_) => const _AddRecipeSheet(),
+                ),
+              ),
             ],
             ],
           ),
@@ -2566,13 +2580,13 @@ class _MealPlanTabState extends State<_MealPlanTab> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Section header
-        const Padding(
-          padding: EdgeInsets.fromLTRB(24, 16, 20, 10),
-          child: Text('DAILY PLANNER', style: TextStyle(
-            fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800,
-            color: AppTheme.stone400, letterSpacing: 1.2,
-          )),
+        // Section header — aligns with Home / Calendar “today & week” framing
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+          child: HuddleSectionHeader(
+            overline: 'This week',
+            title: 'Meal planner',
+          ),
         ),
         // Week navigation header
         Padding(
@@ -3766,7 +3780,12 @@ class _RecipePickerSheetState extends State<_RecipePickerSheet> {
 
 class _RecipesTab extends StatefulWidget {
   final void Function(Recipe recipe) onCookMode;
-  const _RecipesTab({required this.onCookMode});
+  final VoidCallback onAddRecipe;
+
+  const _RecipesTab({
+    required this.onCookMode,
+    required this.onAddRecipe,
+  });
 
   @override
   State<_RecipesTab> createState() => _RecipesTabState();
@@ -3861,16 +3880,13 @@ class _RecipesTabState extends State<_RecipesTab> {
         if (recipes.isEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: OnboardingCard(
-              emoji: '🍽️',
-              title: _query.isEmpty ? 'No Recipes Yet' : 'No Matches',
-              bullets: _query.isEmpty
-                  ? const [
-                      'Save family recipes in one place',
-                      'Import from URLs or generate with AI',
-                      'Add recipes to your weekly meal plan',
-                    ]
-                  : const ['Try a different search term'],
+            child: CatalogModuleEmptyState(
+              modulePath: '/meals',
+              title: _query.isEmpty ? 'No recipes yet' : 'No matches',
+              subtitle: _query.isEmpty ? null : 'Try a different search term',
+              actionLabel: _query.isEmpty ? 'Add recipe' : null,
+              onAction: _query.isEmpty ? widget.onAddRecipe : null,
+              compact: false,
             ),
           )
         else

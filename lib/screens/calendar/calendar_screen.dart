@@ -922,6 +922,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
   Widget build(BuildContext context) {
     return Consumer<AppProvider>(
       builder: (context, provider, _) {
+        if (provider.activeUser == null || provider.activeFamily == null) {
+          return const ModuleFamilyLoadingScaffold();
+        }
         final now = DateTime.now();
         final todayDate = DateTime(now.year, now.month, now.day);
         final selectedEvents = _eventsForDay(provider, _selectedDay);
@@ -957,7 +960,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
               // Page Header
               PageHeader(
                 title: screenTitleForModulePath('/calendar'),
-                subtitle: 'Stay in sync with your family.',
+                subtitle: 'Shared schedule with RSVPs — everyone sees who’s coming.',
                 actions: [
                   ActionChipButton(
                     icon: Icons.calendar_month_outlined,
@@ -2425,6 +2428,16 @@ class _EventCard extends StatelessWidget {
                                   onTap: () => onRsvp!(_EventRsvpChoice.clear),
                                 ),
                             ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Family members see responses here — updates sync for everyone.',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 11,
+                              height: 1.35,
+                              color: AppTheme.stone400.withValues(alpha: 0.95),
+                            ),
                           ),
                         ],
                       ],

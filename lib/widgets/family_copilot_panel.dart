@@ -519,8 +519,38 @@ class _FamilyCopilotPanelState extends State<FamilyCopilotPanel> {
 
   @override
   Widget build(BuildContext context) {
+    final provider = context.watch<AppProvider>();
     final cs = Theme.of(context).colorScheme;
     final inset = MediaQuery.viewInsetsOf(context).bottom;
+
+    if ((provider.activeUser == null || provider.activeFamily == null) &&
+        widget.layout == FamilyCopilotLayout.sheet) {
+      return Padding(
+        padding: EdgeInsets.only(bottom: inset),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            const SheetHandle(),
+            const SizedBox(height: 28),
+            SizedBox(
+              width: 28,
+              height: 28,
+              child: CircularProgressIndicator(strokeWidth: 2.5, color: cs.primary),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'Loading family…',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: cs.onSurface.withValues(alpha: 0.55),
+                    fontWeight: FontWeight.w500,
+                  ),
+            ),
+            const SizedBox(height: 28),
+          ],
+        ),
+      );
+    }
 
     return Padding(
       padding: EdgeInsets.only(bottom: inset),
@@ -576,8 +606,8 @@ class _FamilyCopilotPanelState extends State<FamilyCopilotPanel> {
               title: screenTitleForModulePath('/assistant'),
               titlePrefix: const AiGlyph(size: 24),
               subtitle:
-                  'Describe what you need — review actions before they are saved. '
-                  '${!kIsWeb ? 'Toggle the voice icon for hands-free replies.' : ''}',
+                  'Turn plain language into calendar updates, lists, and tasks — review each change before it saves. '
+                  '${!kIsWeb ? 'Toggle voice for hands-free replies.' : ''}',
               actions: [
                 if (!kIsWeb)
                   ActionChipButton(

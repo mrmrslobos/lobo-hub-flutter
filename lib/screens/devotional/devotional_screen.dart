@@ -1213,11 +1213,15 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
                       // Filtered entries list
                       if (filtered.isEmpty)
                         Padding(
-                          padding: const EdgeInsets.all(32),
-                          child: Center(child: Text(
-                            _showFavoritesOnly ? 'No favorited devotionals yet' : 'No matching devotionals',
-                            style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
-                          )),
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+                          child: CatalogModuleEmptyState(
+                            modulePath: '/devotional',
+                            title: _showFavoritesOnly ? 'No favorited devotionals yet' : 'No matching devotionals',
+                            subtitle: _showFavoritesOnly
+                                ? 'Save readings from the reader with the bookmark control.'
+                                : 'Try another word or clear favorites.',
+                            compact: false,
+                          ),
                         )
                       else
                         ...filtered.map((entry) {

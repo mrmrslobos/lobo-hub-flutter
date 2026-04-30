@@ -15,7 +15,7 @@ import '../../services/purchase_service.dart';
 import '../../utils/ai_family_household.dart';
 import '../../utils/user_facing_errors.dart';
 import '../../widgets/huddle_subpage_scaffold.dart';
-import '../../widgets/huddle_state_views.dart';
+import '../../widgets/huddle_page_layout.dart';
 
 // ─── Currency pricing data ──────────────────────────────────────────────────
 
@@ -130,7 +130,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       builder: (context, provider, _) {
         final family = provider.activeFamily;
         if (family == null) {
-          return const Scaffold(body: HuddleLoadingView(message: 'Loading…'));
+          return const ModuleFamilyLoadingScaffold();
         }
 
         final currentTier = family.subscriptionTier;

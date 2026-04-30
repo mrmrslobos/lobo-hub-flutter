@@ -661,7 +661,7 @@ class _PhotosScreenState extends State<PhotosScreen> {
             // ─── Header ───────────────────────────────────────────
             PageHeader(
               title: screenTitleForModulePath('/photos'),
-              subtitle: 'Your private family album & milestone moments',
+              subtitle: 'Your household album — only invited members see these.',
               actions: [
                 ActionChipButton(
                   icon: Icons.star_rounded,
@@ -774,6 +774,8 @@ class _PhotosScreenState extends State<PhotosScreen> {
                 _buildMilestonesTab(milestones, provider),
               ],
             ),
+
+            const FamilySyncPrivacyFootnote(),
           ],
         ),
       ),
@@ -786,16 +788,13 @@ class _PhotosScreenState extends State<PhotosScreen> {
     if (photos.isEmpty) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20),
-        child: OnboardingCard(
-          emoji: '\u{1F4F8}',
+        child: CatalogModuleEmptyState(
+          modulePath: '/photos',
           title: 'No photos yet',
-          bullets: [
-            'Share photos with your family',
-            'Capture and upload special moments',
-            'View and manage shared memories',
-          ],
-          actionLabel: 'Add Photo',
+          subtitle: 'Capture uploads everyone can react to — one album per household.',
+          actionLabel: 'Add photo',
           onAction: _pickAndAddPhoto,
+          compact: false,
         ),
       );
     }
@@ -912,16 +911,13 @@ class _PhotosScreenState extends State<PhotosScreen> {
     if (milestones.isEmpty) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20),
-        child: OnboardingCard(
-          emoji: '⭐',
+        child: CatalogModuleEmptyState(
+          modulePath: '/photos',
           title: 'No milestones yet',
-          bullets: [
-            'Record first steps, first words',
-            'Track school achievements',
-            'Celebrate family moments',
-          ],
-          actionLabel: 'Add Milestone',
+          subtitle: 'Celebrate wins — birthdays, first steps, and school moments.',
+          actionLabel: 'Add milestone',
           onAction: () => _showAddMilestone(),
+          compact: false,
         ),
       );
     }
