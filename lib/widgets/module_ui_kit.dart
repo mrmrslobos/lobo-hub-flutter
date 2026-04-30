@@ -7,6 +7,12 @@ import '../config/module_config.dart';
 import '../config/theme.dart';
 import 'common_widgets.dart';
 
+/// Phase I — skeleton row shapes for perceived loading quality.
+enum ModuleSkeletonStyle {
+  bars,
+  listRows,
+}
+
 /// Full-screen loading while user/family context is still hydrating.
 class ModuleFamilyLoadingScaffold extends StatelessWidget {
   const ModuleFamilyLoadingScaffold({super.key, this.semanticLabel});
@@ -33,9 +39,14 @@ class ModuleFamilyLoadingScaffold extends StatelessWidget {
               Text(
                 'Loading…',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: AppTheme.stone500,
+                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.45),
                       fontWeight: FontWeight.w500,
                     ),
+              ),
+              const SizedBox(height: 28),
+              SizedBox(
+                width: 300,
+                child: ModuleListSkeleton(rows: 4, indent: 0, style: ModuleSkeletonStyle.listRows),
               ),
             ],
           ),
@@ -110,14 +121,69 @@ class ModuleListSkeleton extends StatelessWidget {
     super.key,
     this.rows = 5,
     this.indent = 20,
+    this.style = ModuleSkeletonStyle.bars,
   });
 
   final int rows;
   final double indent;
+  final ModuleSkeletonStyle style;
 
   @override
   Widget build(BuildContext context) {
-    final base = Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.65);
+    final base = Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.72);
+    final soft = Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5);
+
+    if (style == ModuleSkeletonStyle.listRows) {
+      return Padding(
+        padding: EdgeInsets.symmetric(horizontal: indent),
+        child: Column(
+          children: [
+            for (var i = 0; i < rows; i++) ...[
+              if (i > 0) const SizedBox(height: 14),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: base,
+                      borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          height: 14,
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: base,
+                            borderRadius: BorderRadius.circular(7),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Container(
+                          height: 11,
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: soft,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      );
+    }
+
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: indent),
       child: Column(

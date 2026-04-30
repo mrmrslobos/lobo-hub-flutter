@@ -121,6 +121,8 @@ class _PhotosScreenState extends State<PhotosScreen> {
       return CachedNetworkImage(
         imageUrl: url,
         fit: fit,
+        fadeInDuration: const Duration(milliseconds: 200),
+        fadeOutDuration: const Duration(milliseconds: 120),
         placeholder: (_, __) => _photoPlaceholder(),
         errorWidget: (_, __, ___) => _photoPlaceholder(),
       );

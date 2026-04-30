@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../config/app_design_tokens.dart';
 import '../config/theme.dart';
 
 export 'module_ui_kit.dart';
@@ -50,17 +51,14 @@ class HuddleSectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tt = Theme.of(context).textTheme;
+    final cs = Theme.of(context).colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (overline != null && overline!.isNotEmpty) ...[
           Text(
             overline!.toUpperCase(),
-            style: tt.labelSmall?.copyWith(
-              letterSpacing: 0.8,
-              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.45),
-            ),
+            style: HuddleTypography.sectionRail(cs),
           ),
           const SizedBox(height: AppTheme.space2),
         ],
@@ -74,19 +72,13 @@ class HuddleSectionHeader extends StatelessWidget {
                   Text(
                     title,
                     style: titleStyle ??
-                        tt.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
+                        HuddleTypography.sectionTitle(cs),
                   ),
                   if (subtitle != null && subtitle!.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Text(
                       subtitle!,
-                      style: tt.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55),
-                        height: 1.35,
-                      ),
+                      style: HuddleTypography.sectionSubtitle(cs),
                     ),
                   ],
                 ],

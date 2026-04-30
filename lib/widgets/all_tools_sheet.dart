@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../config/app_design_tokens.dart';
 import '../config/module_config.dart';
 import '../config/user_module_pins.dart';
 import '../models/models.dart' show Family;
@@ -93,13 +94,7 @@ List<Widget> _groupTiles(BuildContext context, ModuleGroup g, Family family) {
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
       child: Text(
         g.label,
-        style: TextStyle(
-          fontFamily: 'Inter',
-          fontWeight: FontWeight.w800,
-          fontSize: 12,
-          letterSpacing: 0.4,
-          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.9),
-        ),
+        style: HuddleTypography.sheetGroupLabel(Theme.of(context).colorScheme),
       ),
     ),
     for (final m in items)

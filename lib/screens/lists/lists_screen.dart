@@ -1,4 +1,5 @@
 // lib/screens/lists/lists_screen.dart
+import 'dart:async' show unawaited;
 import 'dart:convert';
 import 'package:flutter/material.dart' hide Visibility;
 import 'package:flutter/services.dart';
@@ -7,6 +8,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../app.dart';
 
+import '../../config/app_design_tokens.dart';
 import '../../config/cloud_sync_scope.dart';
 import '../../config/module_config.dart';
 import '../../config/theme.dart';
@@ -31,6 +33,7 @@ class ListsScreen extends StatefulWidget {
 
 class _ListsScreenState extends State<ListsScreen> {
   ShoppingList? _selectedList;
+  bool _pullRefreshing = false;
 
   bool _canAccessList(ShoppingList list, String userId) {
     if (list.creatorId == userId) return true;
@@ -577,7 +580,14 @@ class _ListsScreenState extends State<ListsScreen> {
       appBar: const MainAppBar(),
       child: RefreshIndicator(
         color: AppTheme.primary,
-        onRefresh: () => pullCloudLatestWithHaptic(context),
+        onRefresh: () async {
+          setState(() => _pullRefreshing = true);
+          try {
+            await pullCloudLatestWithHaptic(context);
+          } finally {
+            if (mounted) setState(() => _pullRefreshing = false);
+          }
+        },
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: EdgeInsets.zero,
@@ -724,11 +734,11 @@ class _ListsScreenState extends State<ListsScreen> {
           const SizedBox(height: 20),
 
           // ── YOUR LISTS heading ──
-          const Padding(
-            padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
             child: Text(
               'YOUR LISTS',
-              style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1),
+              style: HuddleTypography.sectionRail(Theme.of(context).colorScheme),
             ),
           ),
 
@@ -744,15 +754,24 @@ class _ListsScreenState extends State<ListsScreen> {
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: AppTheme.stone100),
                 ),
-                child: CatalogModuleEmptyState(
-                  modulePath: '/lists',
-                  title: 'No lists yet',
-                  subtitle:
-                      'Shared or private lists for groceries, trips, chores — whatever your household tracks together.',
-                  compact: true,
-                  actionLabel: 'New list',
-                  onAction: _showNewListSheet,
-                ),
+                child: _pullRefreshing
+                    ? const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 20),
+                        child: ModuleListSkeleton(
+                          rows: 5,
+                          indent: 4,
+                          style: ModuleSkeletonStyle.listRows,
+                        ),
+                      )
+                    : CatalogModuleEmptyState(
+                        modulePath: '/lists',
+                        title: 'No lists yet',
+                        subtitle:
+                            'Shared or private lists for groceries, trips, chores — whatever your household tracks together.',
+                        compact: true,
+                        actionLabel: 'New list',
+                        onAction: _showNewListSheet,
+                      ),
               ),
             )
           else
@@ -1156,7 +1175,7 @@ class _AiCategorizationSheetState extends State<_AiCategorizationSheet> {
                       .toList();
                   await provider.saveAndSync(db.copyWith(shoppingLists: updatedLists),
                     pushTableScope: {CloudSyncScope.lists});
-                  if (provider.activeFamily != null) await provider.syncListsNow();
+                  if (provider.activeFamily != null) unawaited(provider.syncListsNow());
 
                   if (!context.mounted) return;
                   Navigator.pop(context);
@@ -1356,7 +1375,7 @@ class _ListDetailViewState extends State<_ListDetailView> {
     final updatedLists = db.shoppingLists.map((l) => l.id == widget.list.id ? updatedList : l).toList();
     await provider.saveAndSync(db.copyWith(shoppingLists: updatedLists),
                     pushTableScope: {CloudSyncScope.lists});
-    if (provider.activeFamily != null) await provider.syncListsNow();
+    if (provider.activeFamily != null) unawaited(provider.syncListsNow());
   }
 
   List<ListItem> _sortedItems(List<ListItem> items) {
@@ -1397,11 +1416,7 @@ class _ListDetailViewState extends State<_ListDetailView> {
           widget.list.title,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-                color: cs.onSurface,
-                fontSize: 16,
-              ),
+          style: HuddleTypography.sectionTitle(cs),
         ),
         actions: [
           PopupMenuButton<_ListSortMode>(
@@ -1810,7 +1825,7 @@ class _AiTextToChecklistSheetState extends State<_AiTextToChecklistSheet> {
       await provider.saveAndSync(
         db.copyWith(shoppingLists: [...db.shoppingLists, newList]),
         pushTableScope: {CloudSyncScope.lists});
-      if (provider.activeFamily != null) await provider.syncListsNow();
+      if (provider.activeFamily != null) unawaited(provider.syncListsNow());
 
       if (mounted) {
         Navigator.pop(context);

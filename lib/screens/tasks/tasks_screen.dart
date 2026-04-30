@@ -1,6 +1,7 @@
 // lib/screens/tasks/tasks_screen.dart
 // Task management screen for Huddle
 
+import 'dart:async' show unawaited;
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -47,6 +48,7 @@ class _TasksScreenState extends State<TasksScreen> {
   final _searchCtrl = TextEditingController();
   final _searchDebounce = Debouncer();
   bool _migratedLocalTaskFolders = false;
+  bool _pullRefreshing = false;
   static const _taskFoldersKeyPrefix = 'task_folders_';
 
   static const _folderNames = ['Home', 'Work', 'Personal', 'Shopping', 'AI Generated', 'Event'];
@@ -267,7 +269,7 @@ class _TasksScreenState extends State<TasksScreen> {
 
     await provider.saveAndSync(db.copyWith(tasks: tasks),
           pushTableScope: {CloudSyncScope.tasks});
-    if (provider.activeFamily != null) await provider.syncTasksNow();
+    if (provider.activeFamily != null) unawaited(provider.syncTasksNow());
     if (updated.completed) {
       NotificationService.cancelTaskReminder(task.id);
     }
@@ -302,7 +304,7 @@ class _TasksScreenState extends State<TasksScreen> {
     final tasks = db.tasks.where((t) => t.id != task.id).toList();
     await provider.saveAndSync(db.copyWith(tasks: tasks),
           pushTableScope: {CloudSyncScope.tasks});
-    if (provider.activeFamily != null) await provider.syncTasksNow();
+    if (provider.activeFamily != null) unawaited(provider.syncTasksNow());
     NotificationService.cancelTaskReminder(task.id);
   }
 
@@ -371,7 +373,14 @@ class _TasksScreenState extends State<TasksScreen> {
           appBar: const MainAppBar(),
           child: RefreshIndicator(
             color: AppTheme.primary,
-            onRefresh: () => pullCloudLatestWithHaptic(context),
+            onRefresh: () async {
+              setState(() => _pullRefreshing = true);
+              try {
+                await pullCloudLatestWithHaptic(context);
+              } finally {
+                if (mounted) setState(() => _pullRefreshing = false);
+              }
+            },
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: EdgeInsets.zero,
@@ -716,7 +725,16 @@ class _TasksScreenState extends State<TasksScreen> {
 
               // Task cards list
               if (tasks.isEmpty)
-                _buildEmptyState()
+                _pullRefreshing
+                    ? const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        child: ModuleListSkeleton(
+                          rows: 6,
+                          indent: 0,
+                          style: ModuleSkeletonStyle.listRows,
+                        ),
+                      )
+                    : _buildEmptyState()
               else
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1030,7 +1048,7 @@ class _AiBreakdownSheetState extends State<_AiBreakdownSheet> {
       await provider.saveAndSync(db.copyWith(tasks: updatedTasks),
           pushTableScope: {CloudSyncScope.tasks});
       if (!mounted) return;
-      if (provider.activeFamily != null) await provider.syncTasksNow();
+      if (provider.activeFamily != null) unawaited(provider.syncTasksNow());
 
       if (mounted) {
         Navigator.pop(context);
@@ -1672,7 +1690,7 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
         final tasks = db.tasks.map((t) => t.id == savedTask.id ? savedTask : t).toList();
         await provider.saveAndSync(db.copyWith(tasks: tasks),
           pushTableScope: {CloudSyncScope.tasks});
-        if (provider.activeFamily != null) await provider.syncTasksNow();
+        if (provider.activeFamily != null) unawaited(provider.syncTasksNow());
       } else {
         savedTask = Task(
           id: uuid.v4(),
@@ -1693,7 +1711,7 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
         final tasks = [...db.tasks, savedTask];
         await provider.saveAndSync(db.copyWith(tasks: tasks),
           pushTableScope: {CloudSyncScope.tasks});
-        if (provider.activeFamily != null) await provider.syncTasksNow();
+        if (provider.activeFamily != null) unawaited(provider.syncTasksNow());
 
         // Notify family about new shared task
         try {

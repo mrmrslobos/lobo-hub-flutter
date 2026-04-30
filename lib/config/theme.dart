@@ -68,10 +68,12 @@ class AppTheme {
       ),
       cardTheme: CardThemeData(
         color: surface,
-        elevation: 0,
+        elevation: 1,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.black.withValues(alpha: 0.06),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: const BorderSide(color: stone100),
+          borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+          side: BorderSide(color: stone200.withValues(alpha: 0.35)),
         ),
         margin: EdgeInsets.zero,
       ),
@@ -178,7 +180,7 @@ class AppTheme {
         behavior: SnackBarBehavior.floating,
       ),
       dialogTheme: DialogThemeData(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusXl)),
         backgroundColor: surface,
         titleTextStyle: const TextStyle(
           fontFamily: 'Inter',
@@ -195,10 +197,10 @@ class AppTheme {
         ),
         actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
       ),
-      bottomSheetTheme: const BottomSheetThemeData(
+      bottomSheetTheme: BottomSheetThemeData(
         backgroundColor: surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(AppTheme.radiusXl)),
         ),
         elevation: 8,
       ),
@@ -262,10 +264,12 @@ class AppTheme {
       ),
       cardTheme: CardThemeData(
         color: darkSurface,
-        elevation: 0,
+        elevation: 1,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.black.withValues(alpha: 0.5),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: const BorderSide(color: darkBorder),
+          borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+          side: BorderSide(color: darkBorder.withValues(alpha: 0.85)),
         ),
         margin: EdgeInsets.zero,
       ),
@@ -374,7 +378,7 @@ class AppTheme {
         behavior: SnackBarBehavior.floating,
       ),
       dialogTheme: DialogThemeData(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusXl)),
         backgroundColor: darkSurface,
         titleTextStyle: const TextStyle(
           fontFamily: 'Inter',
@@ -394,7 +398,7 @@ class AppTheme {
       bottomSheetTheme: const BottomSheetThemeData(
         backgroundColor: darkSurface,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(AppTheme.radiusXl)),
         ),
         elevation: 8,
       ),

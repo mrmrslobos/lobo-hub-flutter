@@ -1,6 +1,7 @@
 // lib/screens/meals/meals_screen.dart
 // Meal planning + recipe library screen for Huddle
 
+import 'dart:async' show unawaited;
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -755,7 +756,7 @@ Return a JSON array of 7 objects, each with:
         dbState,
         pushTableScope: CloudSyncScope.mealsPlannerBundle,
       );
-      if (provider.activeFamily != null) await provider.syncTasksNow();
+      if (provider.activeFamily != null) unawaited(provider.syncTasksNow());
 
       try {
         NotificationService.notifyFamilyActivityWithDb(

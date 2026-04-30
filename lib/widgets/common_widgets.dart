@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../config/app_config.dart';
+import '../config/app_design_tokens.dart';
 import '../config/module_config.dart';
 import '../config/theme.dart';
 import 'app_brand_mark.dart';
@@ -38,7 +39,8 @@ class SectionCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: color ?? Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(AppTheme.radiusLg),
-        border: Border.all(color: outline),
+        border: Border.all(color: outline.withValues(alpha: 0.45)),
+        boxShadow: HuddleElevation.cardRest(context),
       ),
       padding: padding ?? const EdgeInsets.all(AppTheme.space5),
       child: child,
@@ -47,7 +49,7 @@ class SectionCard extends StatelessWidget {
     if (onTap != null) {
       return InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(AppTheme.radiusLg),
         child: card,
       );
     }
@@ -652,13 +654,7 @@ class PageHeader extends StatelessWidget {
                 Expanded(
                   child: Text(
                     title,
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 28,
-                      fontWeight: FontWeight.w900,
-                      color: cs.onSurface,
-                      height: 1.2,
-                    ),
+                    style: HuddleTypography.moduleTitle(cs),
                   ),
                 ),
               ],
@@ -667,13 +663,7 @@ class PageHeader extends StatelessWidget {
               const SizedBox(height: 6),
               Text(
                 subtitle!,
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 14,
-                  fontWeight: FontWeight.w400,
-                  color: cs.onSurface.withValues(alpha: 0.55),
-                  height: 1.4,
-                ),
+                style: HuddleTypography.moduleSubtitle(cs),
               ),
             ],
             if (actions != null && actions!.isNotEmpty) ...[
@@ -787,12 +777,10 @@ class OnboardingCard extends StatelessWidget {
           const SizedBox(height: 14),
           Text(
             title,
-            style: const TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
-              color: AppTheme.stone900,
-            ),
+            style: HuddleTypography.sectionTitle(Theme.of(context).colorScheme).copyWith(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                ),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 14),
@@ -1037,12 +1025,10 @@ class _MainAppBarState extends State<MainAppBar> {
           const SizedBox(width: 8),
           Text(
             AppConfig.appName,
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontWeight: FontWeight.w800,
-              fontSize: 18,
-              color: cs.primary,
-            ),
+            style: HuddleTypography.chromeTitle(cs).copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: cs.primary,
+                ),
           ),
         ],
       ),

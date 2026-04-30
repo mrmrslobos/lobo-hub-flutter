@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../config/app_design_tokens.dart';
 import '../../config/cloud_sync_scope.dart';
 import '../../config/module_config.dart';
 import '../../config/theme.dart';
@@ -66,6 +67,7 @@ class _HabitsScreenState extends State<HabitsScreen> {
   final _searchCtrl = TextEditingController();
   final _searchDebounce = Debouncer();
   String _searchQuery = '';
+  bool _pullRefreshing = false;
 
   bool _canManageHabit(AppProvider provider, DailyHabit habit) {
     final userId = provider.activeUser?.id;
@@ -137,7 +139,14 @@ class _HabitsScreenState extends State<HabitsScreen> {
       appBar: const MainAppBar(),
       child: RefreshIndicator(
         color: AppTheme.primary,
-        onRefresh: () => pullCloudLatestWithHaptic(context),
+        onRefresh: () async {
+          setState(() => _pullRefreshing = true);
+          try {
+            await pullCloudLatestWithHaptic(context);
+          } finally {
+            if (mounted) setState(() => _pullRefreshing = false);
+          }
+        },
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.only(bottom: 32),
@@ -230,20 +239,29 @@ class _HabitsScreenState extends State<HabitsScreen> {
 
             // ─── Habit list ──────────────────────────────────────
             if (allHabits.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: OnboardingCard(
-                  emoji: '\u{1F3AF}',
-                  title: 'Start Tracking Habits',
-                  bullets: [
-                    'Build positive daily routines',
-                    'Track streaks and progress',
-                    'Share habits with family members',
-                  ],
-                  actionLabel: '+ Add Habit',
-                  onAction: () => _showAddHabitSheet(context, user, family, db, provider),
-                ),
-              )
+              _pullRefreshing
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 20),
+                      child: ModuleListSkeleton(
+                        rows: 5,
+                        indent: 4,
+                        style: ModuleSkeletonStyle.listRows,
+                      ),
+                    )
+                  : Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: OnboardingCard(
+                        emoji: '\u{1F3AF}',
+                        title: 'Start Tracking Habits',
+                        bullets: [
+                          'Build positive daily routines',
+                          'Track streaks and progress',
+                          'Share habits with family members',
+                        ],
+                        actionLabel: '+ Add Habit',
+                        onAction: () => _showAddHabitSheet(context, user, family, db, provider),
+                      ),
+                    )
             else if (habitsForUi.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -260,12 +278,12 @@ class _HabitsScreenState extends State<HabitsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Section header
-                    const Padding(
-                      padding: EdgeInsets.only(left: 4, bottom: 10),
-                      child: Text('TODAY\'S HABITS', style: TextStyle(
-                        fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800,
-                        color: AppTheme.stone400, letterSpacing: 1.1,
-                      )),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 4, bottom: 10),
+                      child: Text(
+                        'TODAY\'S HABITS',
+                        style: HuddleTypography.sectionRail(Theme.of(context).colorScheme),
+                      ),
                     ),
                     ...habitsForUi.map((habit) {
                       final isDone = todayCompletions.any((c) => c.habitId == habit.id);

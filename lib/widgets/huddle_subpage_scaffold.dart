@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../config/app_design_tokens.dart';
+
 /// How the [SubpageAppBar] leading control behaves.
 enum SubpageLeading {
   /// Standard back chevron; calls [onBack] or [Navigator.maybePop].
@@ -49,8 +51,8 @@ class SubpageAppBar extends StatelessWidget implements PreferredSizeWidget {
     final cs = Theme.of(context).colorScheme;
     final bg = backgroundColor ?? cs.surface;
     final fg = foregroundColor ?? cs.onSurface;
-    final titleStyle = Theme.of(context).appBarTheme.titleTextStyle ??
-        Theme.of(context).textTheme.titleLarge;
+    final titleStyle =
+        Theme.of(context).appBarTheme.titleTextStyle ?? HuddleTypography.chromeTitle(cs);
 
     void handleBack() {
       HapticFeedback.lightImpact();
@@ -92,10 +94,7 @@ class SubpageAppBar extends StatelessWidget implements PreferredSizeWidget {
                 title!,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: titleStyle?.copyWith(
-                  color: onBarFg,
-                  fontWeight: FontWeight.w700,
-                ),
+                style: titleStyle.copyWith(color: onBarFg),
               ));
 
     return AppBar(
