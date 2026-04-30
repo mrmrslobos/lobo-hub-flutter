@@ -121,6 +121,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _monthlyNarrativeExpanded = false;
   List<String> _recentModulePaths = [];
 
+  /// Phase H — progressive disclosure for dense Home content below essentials.
+  bool _showDashboardDeepSections = false;
+
   @override
   void initState() {
     super.initState();
@@ -908,32 +911,35 @@ Return ONLY the JSON array, no markdown.''',
                 if (hasNoCoreData) _buildEmptySetupHint(context, family, familyId),
                 _buildHomeQuickActions(context, family, user),
                 _buildRecentsRow(context, family),
-                _buildBirthdaysSection(db, familyId, today),
-                RepaintBoundary(child: _buildAISuggestionsSection()),
-                RepaintBoundary(child: _buildMonthlySummarySection()),
-                _buildStatsGrid(
-                  tasksDue: tasksDueToday.length,
-                  choresCompleted: choresCompletedToday,
-                  choresTotal: choresToday.length,
-                  eventsThisMonth: eventsThisMonth,
-                  spentThisMonth: spentThisMonth,
-                  habitsCompleted: habitsCompletedToday,
-                  habitsTotal: habitsToday.length,
-                ),
-                _buildEventCountdown(context, upcomingEvents),
-                _buildRecapCard(now),
-                _buildTodayFocus(context, todayFocusTasks, overdueTasks, provider),
-                _buildUpcomingEvents(context, upcomingEvents),
-                _buildActiveLists(context, activeLists),
-                _buildBudgetSnapshot(context, db, familyId, user.id, monthStart),
-                _buildPointsLeaderboard(db, familyId),
-                _buildTodayMeals(context, todayMealPlans),
-                _buildTodayChores(context, choresToday, choresCompletedToday),
-                _buildDevotional(context, todayDevotional),
-                _buildReadingPlan(context, readingPlans),
-                _buildPrayerWall(context, recentPrayer),
-                _buildFitness(context, recentFitness),
-                _buildOpenPolls(context, openPolls),
+                _buildDashboardDeepSectionsToggle(context),
+                if (_showDashboardDeepSections) ...[
+                  _buildBirthdaysSection(db, familyId, today),
+                  RepaintBoundary(child: _buildAISuggestionsSection()),
+                  RepaintBoundary(child: _buildMonthlySummarySection()),
+                  _buildStatsGrid(
+                    tasksDue: tasksDueToday.length,
+                    choresCompleted: choresCompletedToday,
+                    choresTotal: choresToday.length,
+                    eventsThisMonth: eventsThisMonth,
+                    spentThisMonth: spentThisMonth,
+                    habitsCompleted: habitsCompletedToday,
+                    habitsTotal: habitsToday.length,
+                  ),
+                  _buildEventCountdown(context, upcomingEvents),
+                  _buildRecapCard(now),
+                  _buildTodayFocus(context, todayFocusTasks, overdueTasks, provider),
+                  _buildUpcomingEvents(context, upcomingEvents),
+                  _buildActiveLists(context, activeLists),
+                  _buildBudgetSnapshot(context, db, familyId, user.id, monthStart),
+                  _buildPointsLeaderboard(db, familyId),
+                  _buildTodayMeals(context, todayMealPlans),
+                  _buildTodayChores(context, choresToday, choresCompletedToday),
+                  _buildDevotional(context, todayDevotional),
+                  _buildReadingPlan(context, readingPlans),
+                  _buildPrayerWall(context, recentPrayer),
+                  _buildFitness(context, recentFitness),
+                  _buildOpenPolls(context, openPolls),
+                ],
                 const SizedBox(height: 32),
               ],
             ),
@@ -946,6 +952,63 @@ Return ONLY the JSON array, no markdown.''',
   // ═══════════════════════════════════════════════════════════════════════════
   // Builder methods
   // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Collapses birthdays, AI ideas, stats, and module summaries behind one affordance (Phase H).
+  Widget _buildDashboardDeepSectionsToggle(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 10),
+      child: Material(
+        color: cs.surfaceContainerHighest.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () {
+            HapticFeedback.selectionClick();
+            setState(() => _showDashboardDeepSections = !_showDashboardDeepSections);
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _showDashboardDeepSections ? 'Hide extra home sections' : 'More on Home',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                          color: cs.onSurface,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Birthdays, AI ideas, stats, devotionals, and activity summaries',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 12,
+                          height: 1.3,
+                          color: cs.onSurface.withValues(alpha: 0.55),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  _showDashboardDeepSections ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+                  color: cs.primary,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   // ── Kids Dashboard (restricted member view) ────────────────────────────────
 

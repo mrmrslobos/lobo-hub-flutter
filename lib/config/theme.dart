@@ -126,6 +126,8 @@ class AppTheme {
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: primary,
+          minimumSize: const Size(44, 44),
+          tapTargetSize: MaterialTapTargetSize.padded,
           textStyle: const TextStyle(
             fontFamily: 'Inter',
             fontWeight: FontWeight.w600,
@@ -151,13 +153,19 @@ class AppTheme {
         iconTheme: const IconThemeData(color: stone700, size: 18),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         side: BorderSide.none,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       ),
       floatingActionButtonTheme: const FloatingActionButtonThemeData(
         backgroundColor: primary,
         foregroundColor: Colors.white,
         elevation: 2,
         shape: CircleBorder(),
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: IconButton.styleFrom(
+          minimumSize: const Size(44, 44),
+          tapTargetSize: MaterialTapTargetSize.padded,
+        ),
       ),
       dividerTheme: const DividerThemeData(
         color: stone100,
@@ -322,6 +330,8 @@ class AppTheme {
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: primaryDarkMode,
+          minimumSize: const Size(44, 44),
+          tapTargetSize: MaterialTapTargetSize.padded,
           textStyle: const TextStyle(
             fontFamily: 'Inter',
             fontWeight: FontWeight.w600,
@@ -347,13 +357,19 @@ class AppTheme {
         iconTheme: const IconThemeData(color: Color(0xFFD6D3D1), size: 18),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         side: BorderSide.none,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       ),
       floatingActionButtonTheme: const FloatingActionButtonThemeData(
         backgroundColor: primaryDarkMode,
         foregroundColor: Colors.white,
         elevation: 2,
         shape: CircleBorder(),
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: IconButton.styleFrom(
+          minimumSize: const Size(44, 44),
+          tapTargetSize: MaterialTapTargetSize.padded,
+        ),
       ),
       dividerTheme: const DividerThemeData(
         color: darkBorder,

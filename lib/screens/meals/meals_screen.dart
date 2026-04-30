@@ -3963,6 +3963,8 @@ class _RecipeCard extends StatelessWidget {
                   ? CachedNetworkImage(
                       imageUrl: recipe.imageUrl!,
                       fit: BoxFit.cover,
+                      fadeInDuration: const Duration(milliseconds: 200),
+                      fadeOutDuration: const Duration(milliseconds: 120),
                       errorWidget: (_, __, ___) => _EmojiPlaceholder(emoji),
                       placeholder: (_, __) => Container(
                         color: AppTheme.stone100,
@@ -4124,6 +4126,8 @@ class _RecipeDetailSheet extends StatelessWidget {
                           ? CachedNetworkImage(
                               imageUrl: recipe.imageUrl!,
                               fit: BoxFit.cover,
+                              fadeInDuration: const Duration(milliseconds: 220),
+                              fadeOutDuration: const Duration(milliseconds: 140),
                               errorWidget: (_, __, ___) => _EmojiPlaceholder(_recipeEmoji(recipe)),
                             )
                           : _EmojiPlaceholder(_recipeEmoji(recipe)),

@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../config/app_config.dart';
+import '../../config/app_design_tokens.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
@@ -155,10 +156,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             titleWidget: Text(
               'Choose Your Plan',
               textAlign: TextAlign.center,
-              style: Theme.of(context).appBarTheme.titleTextStyle?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: cs.onSurface,
-                  ),
+              style: HuddleTypography.chromeTitle(cs).copyWith(fontWeight: FontWeight.w800),
             ),
             actions: [
               if (!kIsWeb && PurchaseService.isConfigured)
@@ -189,6 +187,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           body: ListView(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
             children: [
+              Text(
+                'Essentials covers daily coordination; AI adds generation and coaching. Change or cancel anytime.',
+                style: HuddleTypography.sheetCaption(cs, 0.58),
+              ),
+              const SizedBox(height: 18),
+
               // Trial banner
               if (isOnTrial)
                 Container(

@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 
+import 'config/huddle_motion.dart';
 import 'config/theme.dart';
 import 'config/app_config.dart';
 import 'providers/app_provider.dart';
@@ -42,20 +43,28 @@ import 'screens/habits/habits_screen.dart';
 import 'screens/subscription/subscription_screen.dart';
 import 'screens/assistant/assistant_screen.dart';
 
-/// Subtle cross-fade when switching top-level / shell routes.
+/// Cross-fade plus slight vertical drift when switching top-level / shell routes (Phase G).
 Page<void> _huddlePage(GoRouterState state, Widget child) {
   return CustomTransitionPage<void>(
     key: state.pageKey,
     child: child,
-    transitionDuration: const Duration(milliseconds: 220),
-    reverseTransitionDuration: const Duration(milliseconds: 200),
+    transitionDuration: HuddleMotion.routeForward,
+    reverseTransitionDuration: HuddleMotion.routeReverse,
     transitionsBuilder: (context, animation, _, child) {
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: HuddleMotion.routeCurve,
+        reverseCurve: HuddleMotion.routeReverseCurve,
+      );
       return FadeTransition(
-        opacity: CurvedAnimation(
-          parent: animation,
-          curve: Curves.easeOutCubic,
+        opacity: curved,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: HuddleMotion.routeSlideBegin,
+            end: Offset.zero,
+          ).animate(curved),
+          child: child,
         ),
-        child: child,
       );
     },
   );

@@ -15,6 +15,7 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 
+import '../config/app_design_tokens.dart';
 import '../config/cloud_sync_scope.dart';
 import '../config/module_config.dart';
 import '../config/theme.dart';
@@ -26,6 +27,7 @@ import '../services/copilot_action_applier.dart';
 import 'ai_affordance.dart';
 import 'common_widgets.dart';
 import 'huddle_sheet.dart';
+import 'module_ui_kit.dart';
 import 'subscription_modal.dart';
 
 const _uuid = Uuid();
@@ -643,12 +645,18 @@ class _FamilyCopilotPanelState extends State<FamilyCopilotPanel> {
               itemCount: _turns.length + (_loading ? 1 : 0),
               itemBuilder: (context, i) {
                 if (_loading && i == _turns.length) {
-                  return const Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Center(child: CircularProgressIndicator()),
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
+                    child: ModuleListSkeleton(
+                      rows: 4,
+                      indent: 0,
+                      style: ModuleSkeletonStyle.listRows,
+                    ),
                   );
                 }
                 final t = _turns[i];
+                final hasProposal =
+                    !t.user && t.pendingActions != null && t.pendingActions!.isNotEmpty;
                 return Align(
                   alignment: t.user ? Alignment.centerRight : Alignment.centerLeft,
                   child: Container(
@@ -660,17 +668,39 @@ class _FamilyCopilotPanelState extends State<FamilyCopilotPanel> {
                     decoration: BoxDecoration(
                       color: t.user
                           ? AppTheme.primary.withValues(alpha: 0.12)
-                          : AppTheme.stone100,
+                          : hasProposal
+                              ? cs.primaryContainer.withValues(alpha: 0.42)
+                              : cs.surfaceContainerHighest.withValues(alpha: 0.72),
                       borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: AppTheme.stone200),
-                    ),
-                    child: Text(
-                      t.text,
-                      style: const TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 15,
-                        height: 1.35,
+                      border: Border.all(
+                        color: t.user
+                            ? AppTheme.primary.withValues(alpha: 0.22)
+                            : hasProposal
+                                ? cs.primary.withValues(alpha: 0.42)
+                                : cs.outline.withValues(alpha: 0.35),
+                        width: hasProposal ? 1.5 : 1,
                       ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (hasProposal) ...[
+                          Text(
+                            'PROPOSED UPDATES',
+                            style: HuddleTypography.sectionRail(cs, 0.55),
+                          ),
+                          const SizedBox(height: 6),
+                        ],
+                        Text(
+                          t.text,
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 15,
+                            height: 1.35,
+                            color: cs.onSurface.withValues(alpha: t.user ? 0.92 : 1),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 );
