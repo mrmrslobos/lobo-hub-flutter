@@ -23,6 +23,7 @@ class _ConnectivityWrapperState extends State<ConnectivityWrapper> {
   final Connectivity _connectivity = Connectivity();
   StreamSubscription<List<ConnectivityResult>>? _sub;
   bool _isOffline = false;
+  Timer? _emptyResultsRecheckTimer;
 
   @override
   void initState() {
@@ -39,6 +40,19 @@ class _ConnectivityWrapperState extends State<ConnectivityWrapper> {
   }
 
   void _onChanged(List<ConnectivityResult> results) {
+    _emptyResultsRecheckTimer?.cancel();
+    // Empty lists can appear during WiFi→cellular transitions. [Iterable.every]
+    // is true for empty iterables in Dart, which previously forced "offline".
+    // Strict: treat empty as unknown — keep banner state until we get a non-empty
+    // snapshot (here after debounced [checkConnectivity]).
+    if (results.isEmpty) {
+      _emptyResultsRecheckTimer = Timer(const Duration(milliseconds: 400), () {
+        if (!mounted) return;
+        unawaited(_recheckConnectivity());
+      });
+      return;
+    }
+
     final offline = results.every((r) => r == ConnectivityResult.none);
     if (offline != _isOffline) {
       if (!mounted) return;
@@ -46,8 +60,17 @@ class _ConnectivityWrapperState extends State<ConnectivityWrapper> {
     }
   }
 
+  Future<void> _recheckConnectivity() async {
+    try {
+      final fresh = await _connectivity.checkConnectivity();
+      if (!mounted) return;
+      _onChanged(fresh);
+    } catch (_) {}
+  }
+
   @override
   void dispose() {
+    _emptyResultsRecheckTimer?.cancel();
     _sub?.cancel();
     super.dispose();
   }
