@@ -13,6 +13,9 @@
         </intent>
     </queries>
 
+    <!-- Speech recognition (Family copilot / Ask Huddle) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+
     <!-- Network -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>

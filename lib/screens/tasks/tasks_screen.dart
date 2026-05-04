@@ -1,6 +1,7 @@
 // lib/screens/tasks/tasks_screen.dart
 // Task management screen for Huddle
 
+import 'dart:async' show unawaited;
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -21,6 +22,8 @@ import '../../services/notification_service.dart';
 import '../../services/reminder_enqueue_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/huddle_page_layout.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/debounce.dart';
 
@@ -45,6 +48,7 @@ class _TasksScreenState extends State<TasksScreen> {
   final _searchCtrl = TextEditingController();
   final _searchDebounce = Debouncer();
   bool _migratedLocalTaskFolders = false;
+  bool _pullRefreshing = false;
   static const _taskFoldersKeyPrefix = 'task_folders_';
 
   static const _folderNames = ['Home', 'Work', 'Personal', 'Shopping', 'AI Generated', 'Event'];
@@ -265,7 +269,7 @@ class _TasksScreenState extends State<TasksScreen> {
 
     await provider.saveAndSync(db.copyWith(tasks: tasks),
           pushTableScope: {CloudSyncScope.tasks});
-    if (provider.activeFamily != null) await provider.syncTasksNow();
+    if (provider.activeFamily != null) unawaited(provider.syncTasksNow());
     if (updated.completed) {
       NotificationService.cancelTaskReminder(task.id);
     }
@@ -300,7 +304,7 @@ class _TasksScreenState extends State<TasksScreen> {
     final tasks = db.tasks.where((t) => t.id != task.id).toList();
     await provider.saveAndSync(db.copyWith(tasks: tasks),
           pushTableScope: {CloudSyncScope.tasks});
-    if (provider.activeFamily != null) await provider.syncTasksNow();
+    if (provider.activeFamily != null) unawaited(provider.syncTasksNow());
     NotificationService.cancelTaskReminder(task.id);
   }
 
@@ -331,6 +335,9 @@ class _TasksScreenState extends State<TasksScreen> {
   Widget build(BuildContext context) {
     return Consumer<AppProvider>(
       builder: (context, provider, _) {
+        if (provider.activeUser == null || provider.activeFamily == null) {
+          return const ModuleFamilyLoadingScaffold();
+        }
         final tasks = _filteredTasks(provider);
         final family = provider.currentFamily;
         final familyId = family?.id;
@@ -360,12 +367,20 @@ class _TasksScreenState extends State<TasksScreen> {
         final totalTasks = provider.db.tasks.where((t) => t.familyId == familyId).length;
         final completedCount = doneTasks.length;
 
-        return Scaffold(
+        return HuddleModuleScaffold(
+          modulePath: '/tasks',
           drawer: const AppDrawer(),
           appBar: const MainAppBar(),
-          body: RefreshIndicator(
+          child: RefreshIndicator(
             color: AppTheme.primary,
-            onRefresh: () => pullCloudLatestWithHaptic(context),
+            onRefresh: () async {
+              setState(() => _pullRefreshing = true);
+              try {
+                await pullCloudLatestWithHaptic(context);
+              } finally {
+                if (mounted) setState(() => _pullRefreshing = false);
+              }
+            },
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: EdgeInsets.zero,
@@ -377,8 +392,7 @@ class _TasksScreenState extends State<TasksScreen> {
               ),
 
               // Quick stats row
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+              HuddlePagePadding(
                 child: Row(
                   children: [
                     _StatCard(
@@ -407,8 +421,8 @@ class _TasksScreenState extends State<TasksScreen> {
               const SizedBox(height: 16),
 
               // Progress bar
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
+              HuddlePagePadding(
+                horizontal: 20,
                 child: Column(
                   children: [
                     Row(
@@ -441,8 +455,7 @@ class _TasksScreenState extends State<TasksScreen> {
               const SizedBox(height: 20),
 
               // Add task + AI planner row
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+              HuddlePagePadding(
                 child: Row(
                   children: [
                     Expanded(
@@ -497,8 +510,7 @@ class _TasksScreenState extends State<TasksScreen> {
               const SizedBox(height: 20),
 
               // Search bar
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+              HuddlePagePadding(
                 child: TextField(
                   controller: _searchCtrl,
                   onChanged: (v) {
@@ -533,8 +545,7 @@ class _TasksScreenState extends State<TasksScreen> {
               const SizedBox(height: 14),
 
               // Filter chips
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+              HuddlePagePadding(
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
@@ -556,17 +567,17 @@ class _TasksScreenState extends State<TasksScreen> {
               ),
               const SizedBox(height: 14),
 
-              // FOLDERS section
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: const Text(
-                  'FOLDERS',
-                  style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1),
+              // Folders
+              HuddlePagePadding(
+                horizontal: 20,
+                child: HuddleSectionHeader(
+                  overline: 'Organize',
+                  title: 'Folders',
+                  subtitle: 'Tap a folder to filter your list.',
                 ),
               ),
               const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+              HuddlePagePadding(
                 child: Container(
                   decoration: BoxDecoration(
                     color: Colors.white,
@@ -615,18 +626,18 @@ class _TasksScreenState extends State<TasksScreen> {
               ),
               const SizedBox(height: 20),
 
-              // TEAM section
+              // Team
               if (members.length > 1) ...[
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: const Text(
-                    'TEAM',
-                    style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1),
+                HuddlePagePadding(
+                  horizontal: 20,
+                  child: HuddleSectionHeader(
+                    overline: 'People',
+                    title: 'Team',
+                    subtitle: 'Filter tasks by family member.',
                   ),
                 ),
                 const SizedBox(height: 8),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                HuddlePagePadding(
                   child: Container(
                     decoration: BoxDecoration(
                       color: Colors.white,
@@ -695,28 +706,35 @@ class _TasksScreenState extends State<TasksScreen> {
                 const SizedBox(height: 20),
               ],
 
-              // Section header for task list
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Row(
-                  children: [
-                    Text(
-                      _filter == _TaskFilter.done ? 'COMPLETED' : 'TASKS',
-                      style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      '${tasks.length}',
-                      style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.stone300),
-                    ),
-                  ],
+              // Task list
+              HuddlePagePadding(
+                horizontal: 20,
+                child: HuddleSectionHeader(
+                  overline: _filter == _TaskFilter.done ? 'Completed' : 'List',
+                  title: _filter == _TaskFilter.done ? 'Done tasks' : 'Your tasks',
+                  trailing: Text(
+                    '${tasks.length}',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.stone300,
+                        ),
+                  ),
                 ),
               ),
               const SizedBox(height: 10),
 
               // Task cards list
               if (tasks.isEmpty)
-                _buildEmptyState()
+                _pullRefreshing
+                    ? const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        child: ModuleListSkeleton(
+                          rows: 6,
+                          indent: 0,
+                          style: ModuleSkeletonStyle.listRows,
+                        ),
+                      )
+                    : _buildEmptyState()
               else
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -751,70 +769,45 @@ class _TasksScreenState extends State<TasksScreen> {
   }
 
   Widget _buildEmptyState() {
-    IconData icon;
     String title;
     String subtitle;
 
     switch (_filter) {
       case _TaskFilter.done:
-        icon = Icons.check_circle_outline_rounded;
         title = 'No completed tasks yet';
         subtitle = 'Tasks you complete will appear here';
       case _TaskFilter.today:
-        icon = Icons.today_rounded;
         title = 'Nothing due today';
         subtitle = 'Enjoy your free time!';
       case _TaskFilter.highPriority:
-        icon = Icons.flag_outlined;
         title = 'No urgent tasks';
         subtitle = 'All high-priority items are handled';
       case _TaskFilter.mine:
-        icon = Icons.person_outline_rounded;
         title = 'No tasks assigned to you';
         subtitle = 'Create a task or ask someone to assign one';
       case _TaskFilter.others:
-        icon = Icons.people_outline_rounded;
         title = 'No tasks from others';
         subtitle = 'Tasks assigned to family members show here';
       case _TaskFilter.all:
-        icon = Icons.task_alt_rounded;
         title = 'All clear!';
         subtitle = 'Tap "New Task" to add something';
     }
 
     if (_searchQuery.isNotEmpty) {
-      icon = Icons.search_off_rounded;
       title = 'No matching tasks';
       subtitle = 'Try a different search term';
     }
 
+    final canAdd = _searchQuery.isEmpty && _filter != _TaskFilter.done;
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 32),
-      child: Center(
-        child: Column(
-          children: [
-            Container(
-              width: 64,
-              height: 64,
-              decoration: BoxDecoration(
-                color: AppTheme.stone50,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, size: 32, color: AppTheme.stone300),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              title,
-              style: const TextStyle(fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w600, color: AppTheme.stone600),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
+      padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 16),
+      child: CatalogModuleEmptyState(
+        modulePath: '/tasks',
+        title: title,
+        subtitle: subtitle,
+        actionLabel: canAdd ? 'New task' : null,
+        onAction: canAdd ? () => _showAddTaskSheet(context) : null,
       ),
     );
   }
@@ -1055,7 +1048,7 @@ class _AiBreakdownSheetState extends State<_AiBreakdownSheet> {
       await provider.saveAndSync(db.copyWith(tasks: updatedTasks),
           pushTableScope: {CloudSyncScope.tasks});
       if (!mounted) return;
-      if (provider.activeFamily != null) await provider.syncTasksNow();
+      if (provider.activeFamily != null) unawaited(provider.syncTasksNow());
 
       if (mounted) {
         Navigator.pop(context);
@@ -1697,7 +1690,7 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
         final tasks = db.tasks.map((t) => t.id == savedTask.id ? savedTask : t).toList();
         await provider.saveAndSync(db.copyWith(tasks: tasks),
           pushTableScope: {CloudSyncScope.tasks});
-        if (provider.activeFamily != null) await provider.syncTasksNow();
+        if (provider.activeFamily != null) unawaited(provider.syncTasksNow());
       } else {
         savedTask = Task(
           id: uuid.v4(),
@@ -1718,7 +1711,7 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
         final tasks = [...db.tasks, savedTask];
         await provider.saveAndSync(db.copyWith(tasks: tasks),
           pushTableScope: {CloudSyncScope.tasks});
-        if (provider.activeFamily != null) await provider.syncTasksNow();
+        if (provider.activeFamily != null) unawaited(provider.syncTasksNow());
 
         // Notify family about new shared task
         try {

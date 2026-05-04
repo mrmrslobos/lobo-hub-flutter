@@ -2,7 +2,9 @@
 // Calendar screen for Huddle
 
 import 'dart:convert';
+import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart' hide Visibility;
 import 'package:geocoding/geocoding.dart';
 import 'package:http/http.dart' as http;
@@ -29,12 +31,33 @@ import '../../services/outlook_calendar_edge_service.dart';
 import '../../services/weather_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/huddle_page_layout.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/debounce.dart';
 import '../../utils/cloud_pull.dart';
 import '../../utils/user_facing_errors.dart';
 
 enum _EventRsvpChoice { yes, no, maybe, clear }
+
+/// One extracted event row in the flyer preview sheet (before saving).
+class _FlyerEventDraft {
+  bool selected;
+  String title;
+  DateTime start;
+  DateTime end;
+  String location;
+  String description;
+
+  _FlyerEventDraft({
+    required this.selected,
+    required this.title,
+    required this.start,
+    required this.end,
+    required this.location,
+    required this.description,
+  });
+}
 
 // ─── CalendarScreen ───────────────────────────────────────────────────────────
 
@@ -487,14 +510,49 @@ class _CalendarScreenState extends State<CalendarScreen> {
     }
   }
 
+  Future<XFile?> _pickFlyerImage() async {
+    final picker = ImagePicker();
+    if (kIsWeb) {
+      return picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 3200,
+        imageQuality: 92,
+      );
+    }
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Take photo'),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Choose from library'),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null || !mounted) return null;
+    return picker.pickImage(
+      source: source,
+      maxWidth: 3200,
+      imageQuality: 92,
+    );
+  }
+
   Future<void> _scanFlyerForEvents() async {
     if (SubscriptionModal.guardAI(context, kind: AiPaywallKind.calendar)) return;
-    final picker = ImagePicker();
-    final img = await picker.pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 1600,
-      imageQuality: 82,
-    );
+    final img = await _pickFlyerImage();
     if (img == null || !mounted) return;
 
     setState(() => _isSyncing = true);
@@ -517,7 +575,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
       if (!mounted) return;
       if (decoded == null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not read this image. Try a clearer photo.')),
+          const SnackBar(
+            content: Text(
+              'We could not read a response from the flyer scan. Check your connection, try again, or use Take photo / a full-resolution image from your library.',
+            ),
+          ),
         );
         return;
       }
@@ -529,7 +591,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
         return;
       }
 
-      final newEvents = <CalendarEvent>[];
+      final drafts = <_FlyerEventDraft>[];
       for (final item in rawList) {
         if (item is! Map) continue;
         final m = Map<String, dynamic>.from(item);
@@ -537,18 +599,73 @@ class _CalendarScreenState extends State<CalendarScreen> {
         final start = DateTime.tryParse(m['start']?.toString() ?? '') ?? DateTime.now();
         var end = DateTime.tryParse(m['end']?.toString() ?? '') ?? start.add(const Duration(hours: 1));
         if (!end.isAfter(start)) end = start.add(const Duration(hours: 1));
-        final desc = [m['description']?.toString(), 'Imported from flyer scan'].whereType<String>().where((s) => s.isNotEmpty).join('\n\n');
+        drafts.add(_FlyerEventDraft(
+          selected: true,
+          title: title,
+          start: start,
+          end: end,
+          location: m['location']?.toString() ?? '',
+          description: m['description']?.toString() ?? '',
+        ));
+      }
+
+      if (drafts.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No usable events to preview.')),
+        );
+        return;
+      }
+
+      if (!mounted) return;
+      setState(() => _isSyncing = false);
+
+      final confirmed = await showModalBottomSheet<List<_FlyerEventDraft>?>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (ctx) => _FlyerEventsPreviewSheet(
+          imageBytes: bytes,
+          drafts: drafts,
+        ),
+      );
+
+      if (!mounted || confirmed == null) return;
+
+      setState(() => _isSyncing = true);
+      final newEvents = <CalendarEvent>[];
+      for (final d in confirmed) {
+        if (!d.selected) continue;
+        final title = d.title.trim().isEmpty ? 'Event' : d.title.trim();
+        var end = d.end;
+        if (!end.isAfter(d.start)) end = d.start.add(const Duration(hours: 1));
+        final loc = d.location.trim();
+        final desc = [d.description.trim(), 'Imported from flyer scan']
+            .where((s) => s.isNotEmpty)
+            .join('\n\n');
+        final description = desc.isEmpty ? 'Imported from flyer scan' : desc;
         newEvents.add(CalendarEvent(
           id: const Uuid().v4(),
           familyId: family.id,
           creatorId: user.id,
           title: title,
-          description: desc,
-          location: m['location']?.toString(),
-          start: start,
+          description: description,
+          location: loc.isEmpty ? null : loc,
+          start: d.start,
           end: end,
           visibility: Visibility.FAMILY,
         ));
+      }
+
+      if (newEvents.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No events selected.')),
+          );
+        }
+        return;
       }
 
       final db = provider.db;
@@ -805,6 +922,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
   Widget build(BuildContext context) {
     return Consumer<AppProvider>(
       builder: (context, provider, _) {
+        if (provider.activeUser == null || provider.activeFamily == null) {
+          return const ModuleFamilyLoadingScaffold();
+        }
         final now = DateTime.now();
         final todayDate = DateTime(now.year, now.month, now.day);
         final selectedEvents = _eventsForDay(provider, _selectedDay);
@@ -826,10 +946,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
             .toList()
           ..sort((a, b) => a.startDate.compareTo(b.startDate));
 
-        return Scaffold(
+        return HuddleModuleScaffold(
+          modulePath: '/calendar',
           drawer: const AppDrawer(),
           appBar: const MainAppBar(),
-          body: RefreshIndicator(
+          child: RefreshIndicator(
             color: AppTheme.primary,
             onRefresh: () => pullCloudLatestWithHaptic(context),
             child: ListView(
@@ -839,7 +960,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
               // Page Header
               PageHeader(
                 title: screenTitleForModulePath('/calendar'),
-                subtitle: 'Stay in sync with your family.',
+                subtitle: 'Shared schedule with RSVPs — everyone sees who’s coming.',
                 actions: [
                   ActionChipButton(
                     icon: Icons.calendar_month_outlined,
@@ -1496,23 +1617,20 @@ class _CalendarScreenState extends State<CalendarScreen> {
               const SizedBox(height: 20),
 
               // Selected day events
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
-                child: Row(
-                  children: [
-                    Text(
-                      isSameDay(_selectedDay, DateTime.now())
-                          ? 'TODAY'
-                          : DateFormat('EEEE, MMM d').format(_selectedDay).toUpperCase(),
-                      style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1),
-                    ),
-                    const SizedBox(width: 8),
-                    if (selectedEvents.isNotEmpty)
-                      Text(
-                        '${selectedEvents.length}',
-                        style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.stone300),
-                      ),
-                  ],
+              HuddlePagePadding(
+                horizontal: 20,
+                child: HuddleSectionHeader(
+                  overline: isSameDay(_selectedDay, todayDate) ? 'Today' : 'Selected',
+                  title: DateFormat('EEEE, MMMM d').format(_selectedDay),
+                  trailing: selectedEvents.isNotEmpty
+                      ? Text(
+                          '${selectedEvents.length}',
+                          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.stone300,
+                              ),
+                        )
+                      : null,
                 ),
               ),
               const SizedBox(height: 8),
@@ -1528,8 +1646,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(color: AppTheme.stone100),
                         ),
-                        child: EmptyState(
-                          emoji: '📅',
+                        child: CatalogModuleEmptyState(
+                          modulePath: '/calendar',
                           title: 'Nothing scheduled',
                           subtitle:
                               'Add an event for this day, or connect a calendar above.',
@@ -1558,20 +1676,18 @@ class _CalendarScreenState extends State<CalendarScreen> {
               // Upcoming events
               if (upcomingEvents.isNotEmpty) ...[
                 const SizedBox(height: 20),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Row(
-                    children: [
-                      const Text(
-                        'COMING UP',
-                        style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '${upcomingEvents.length}',
-                        style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.stone300),
-                      ),
-                    ],
+                HuddlePagePadding(
+                  horizontal: 20,
+                  child: HuddleSectionHeader(
+                    overline: 'This week',
+                    title: 'Coming up',
+                    trailing: Text(
+                      '${upcomingEvents.length}',
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.stone300,
+                          ),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -1724,6 +1840,217 @@ class _CalendarScreenState extends State<CalendarScreen> {
             const Icon(Icons.chevron_right_rounded, size: 20, color: AppTheme.stone300),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _FlyerEventsPreviewSheet extends StatefulWidget {
+  const _FlyerEventsPreviewSheet({
+    required this.imageBytes,
+    required this.drafts,
+  });
+
+  final Uint8List imageBytes;
+  final List<_FlyerEventDraft> drafts;
+
+  @override
+  State<_FlyerEventsPreviewSheet> createState() => _FlyerEventsPreviewSheetState();
+}
+
+class _FlyerEventsPreviewSheetState extends State<_FlyerEventsPreviewSheet> {
+  late List<_FlyerEventDraft> _rows;
+  final List<TextEditingController> _titleCtrls = [];
+  final List<TextEditingController> _locCtrls = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _rows = widget.drafts
+        .map(
+          (d) => _FlyerEventDraft(
+            selected: d.selected,
+            title: d.title,
+            start: d.start,
+            end: d.end,
+            location: d.location,
+            description: d.description,
+          ),
+        )
+        .toList();
+    for (final r in _rows) {
+      _titleCtrls.add(TextEditingController(text: r.title));
+      _locCtrls.add(TextEditingController(text: r.location));
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final c in _titleCtrls) {
+      c.dispose();
+    }
+    for (final c in _locCtrls) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  void _syncControllersToRows() {
+    for (var i = 0; i < _rows.length; i++) {
+      _rows[i].title = _titleCtrls[i].text;
+      _rows[i].location = _locCtrls[i].text;
+    }
+  }
+
+  List<_FlyerEventDraft> _collectRows() {
+    _syncControllersToRows();
+    return _rows;
+  }
+
+  String _rangeLabel(_FlyerEventDraft d) {
+    final a = DateFormat.yMMMd().add_jm().format(d.start);
+    final b = DateFormat.jm().format(d.end);
+    return '$a – $b';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: DraggableScrollableSheet(
+        expand: false,
+        minChildSize: 0.45,
+        initialChildSize: 0.88,
+        maxChildSize: 0.95,
+        builder: (ctx, scrollCtrl) {
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Review flyer events',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w800,
+                          fontSize: 17,
+                          color: Theme.of(context).colorScheme.onSurface,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.memory(
+                    widget.imageBytes,
+                    height: 120,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Text(
+                  'Uncheck any row you do not want on the calendar. You can edit titles and locations.',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: ListView.builder(
+                  controller: scrollCtrl,
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  itemCount: _rows.length,
+                  itemBuilder: (ctx, i) {
+                    final r = _rows[i];
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(4, 4, 8, 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            CheckboxListTile(
+                              contentPadding: EdgeInsets.zero,
+                              value: r.selected,
+                              onChanged: (v) => setState(() => r.selected = v ?? false),
+                              controlAffinity: ListTileControlAffinity.leading,
+                              title: TextField(
+                                controller: _titleCtrls[i],
+                                style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15),
+                                decoration: const InputDecoration(
+                                  hintText: 'Event title',
+                                  isDense: true,
+                                  border: InputBorder.none,
+                                ),
+                              ),
+                              subtitle: Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(
+                                  _rangeLabel(r),
+                                  style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone600),
+                                ),
+                              ),
+                            ),
+                            if (r.description.trim().isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(left: 52, bottom: 6),
+                                child: Text(
+                                  r.description.trim(),
+                                  maxLines: 3,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
+                                ),
+                              ),
+                            Padding(
+                              padding: const EdgeInsets.only(left: 52),
+                              child: TextField(
+                                controller: _locCtrls[i],
+                                decoration: const InputDecoration(
+                                  labelText: 'Location',
+                                  isDense: true,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                  child: FilledButton(
+                    onPressed: () {
+                      Navigator.pop(context, _collectRows());
+                    },
+                    child: const Text('Add selected to calendar'),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -2101,6 +2428,16 @@ class _EventCard extends StatelessWidget {
                                   onTap: () => onRsvp!(_EventRsvpChoice.clear),
                                 ),
                             ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Family members see responses here — updates sync for everyone.',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 11,
+                              height: 1.35,
+                              color: AppTheme.stone400.withValues(alpha: 0.95),
+                            ),
                           ),
                         ],
                       ],

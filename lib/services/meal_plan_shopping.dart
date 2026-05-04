@@ -78,3 +78,34 @@ List<MealShoppingLine> linesFromMealPlans({
   }
   return consolidateShoppingLines(lines);
 }
+
+/// Ingredients for one planned meal (recipe-linked), scaled by servings.
+List<MealShoppingLine> linesForSingleMeal({
+  required MealPlanEntry meal,
+  required List<Recipe> recipes,
+}) {
+  final rid = meal.recipeId;
+  if (rid == null || rid.isEmpty) return const [];
+  Recipe? recipe;
+  for (final r in recipes) {
+    if (r.id == rid) {
+      recipe = r;
+      break;
+    }
+  }
+  if (recipe == null) return const [];
+  final mult = (meal.servings != null && meal.servings! > 0 && recipe.servings > 0)
+      ? meal.servings! / recipe.servings
+      : 1.0;
+  final lines = <MealShoppingLine>[];
+  for (final ing in recipe.ingredients) {
+    final q = double.tryParse(ing.quantity ?? '');
+    final scaled = (q != null) ? (q * mult).toString() : ing.quantity;
+    lines.add(MealShoppingLine(
+      name: ing.name,
+      quantity: scaled,
+      unit: ing.unit,
+    ));
+  }
+  return consolidateShoppingLines(lines);
+}

@@ -1,15 +1,20 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart' hide Visibility;
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../config/app_config.dart';
+import '../config/app_design_tokens.dart';
 import '../config/module_config.dart';
 import '../config/theme.dart';
 import 'app_brand_mark.dart';
 import '../models/models.dart';
 import '../providers/app_provider.dart';
+import '../services/recent_routes_service.dart';
 import '../services/supabase_service.dart';
+import 'huddle_sheet.dart';
 import '../utils/sync_format.dart';
 
 // ─── Rounded Section Card ───────────────────────────────────────────────────
@@ -34,7 +39,8 @@ class SectionCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: color ?? Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(AppTheme.radiusLg),
-        border: Border.all(color: outline),
+        border: Border.all(color: outline.withValues(alpha: 0.45)),
+        boxShadow: HuddleElevation.cardRest(context),
       ),
       padding: padding ?? const EdgeInsets.all(AppTheme.space5),
       child: child,
@@ -43,7 +49,7 @@ class SectionCard extends StatelessWidget {
     if (onTap != null) {
       return InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(AppTheme.radiusLg),
         child: card,
       );
     }
@@ -157,12 +163,11 @@ class PriorityBadge extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: TextStyle(
-          color: color,
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          fontFamily: 'Inter',
-        ),
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w800,
+              fontSize: 11,
+            ),
       ),
     );
   }
@@ -615,12 +620,15 @@ class PageHeader extends StatelessWidget {
   final String title;
   final String? subtitle;
   final List<Widget>? actions;
+  /// Optional leading badge (e.g. [AiGlyph]) on the title row.
+  final Widget? titlePrefix;
 
   const PageHeader({
     super.key,
     required this.title,
     this.subtitle,
     this.actions,
+    this.titlePrefix,
   });
 
   @override
@@ -633,27 +641,29 @@ class PageHeader extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              title,
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 28,
-                fontWeight: FontWeight.w900,
-                color: cs.onSurface,
-                height: 1.2,
-              ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (titlePrefix != null) ...[
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: titlePrefix!,
+                  ),
+                  const SizedBox(width: 10),
+                ],
+                Expanded(
+                  child: Text(
+                    title,
+                    style: HuddleTypography.moduleTitle(cs),
+                  ),
+                ),
+              ],
             ),
             if (subtitle != null) ...[
               const SizedBox(height: 6),
               Text(
                 subtitle!,
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 14,
-                  fontWeight: FontWeight.w400,
-                  color: cs.onSurface.withValues(alpha: 0.55),
-                  height: 1.4,
-                ),
+                style: HuddleTypography.moduleSubtitle(cs),
               ),
             ],
             if (actions != null && actions!.isNotEmpty) ...[
@@ -700,7 +710,10 @@ class ActionChipButton extends StatelessWidget {
       button: true,
       label: label,
       child: GestureDetector(
-        onTap: onTap,
+        onTap: () {
+          HapticFeedback.selectionClick();
+          onTap();
+        },
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: BoxDecoration(
@@ -767,12 +780,10 @@ class OnboardingCard extends StatelessWidget {
           const SizedBox(height: 14),
           Text(
             title,
-            style: const TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
-              color: AppTheme.stone900,
-            ),
+            style: HuddleTypography.sectionTitle(Theme.of(context).colorScheme).copyWith(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                ),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 14),
@@ -815,112 +826,97 @@ class OnboardingCard extends StatelessWidget {
 }
 
 // ─── Primary shell app bar (title uses [AppConfig.appName]) ─────────────────
-class MainAppBar extends StatelessWidget implements PreferredSizeWidget {
+void _openMainAppBarJumpTo(BuildContext context) {
+  final q = ValueNotifier<String>('');
+  showHuddleDraggableScrollableSheet<void>(
+    context: context,
+    builder: (ctx, scrollCtrl) {
+      return Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+            child: ValueListenableBuilder<String>(
+              valueListenable: q,
+              builder: (_, query, __) {
+                return TextField(
+                  autofocus: true,
+                  onChanged: (v) => q.value = v,
+                  decoration: InputDecoration(
+                    hintText: 'Jump to a screen…',
+                    prefixIcon: const Icon(Icons.search_rounded),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                    isDense: true,
+                  ),
+                );
+              },
+            ),
+          ),
+          Expanded(
+            child: ValueListenableBuilder<String>(
+              valueListenable: q,
+              builder: (_, query, __) {
+                final qq = query.trim().toLowerCase();
+                final items = <({String path, String name, String emoji, String group})>[];
+                for (final g in moduleGroups) {
+                  for (final m in g.modules) {
+                    items.add((path: m.path, name: m.name, emoji: m.emoji, group: g.label));
+                  }
+                }
+                for (final m in accountJumpModules) {
+                  items.add((path: m.path, name: m.name, emoji: m.emoji, group: 'Account'));
+                }
+                final filtered = qq.isEmpty
+                    ? items
+                    : items
+                        .where((e) =>
+                            e.name.toLowerCase().contains(qq) ||
+                            e.path.toLowerCase().contains(qq) ||
+                            e.group.toLowerCase().contains(qq))
+                        .toList();
+                return ListView.builder(
+                  controller: scrollCtrl,
+                  padding: const EdgeInsets.fromLTRB(8, 0, 8, 24),
+                  itemCount: filtered.length,
+                  itemBuilder: (_, i) {
+                    final e = filtered[i];
+                    return ListTile(
+                      leading: Text(e.emoji, style: const TextStyle(fontSize: 22)),
+                      title: Text(e.name, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+                      subtitle: Text('${e.group} · ${e.path}', style: const TextStyle(fontFamily: 'Inter', fontSize: 11)),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        unawaited(RecentRoutesService.recordPath(e.path));
+                        context.go(e.path);
+                      },
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+class MainAppBar extends StatefulWidget implements PreferredSizeWidget {
   final VoidCallback? onMenuTap;
   final List<Widget>? actions;
 
   const MainAppBar({super.key, this.onMenuTap, this.actions});
 
-  void _openJumpTo(BuildContext context) {
-    final q = ValueNotifier<String>('');
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        return DraggableScrollableSheet(
-          initialChildSize: 0.55,
-          minChildSize: 0.35,
-          maxChildSize: 0.92,
-          expand: false,
-          builder: (_, scrollCtrl) {
-            return Container(
-              decoration: BoxDecoration(
-                color: Theme.of(ctx).colorScheme.surface,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-              ),
-              child: Column(
-                children: [
-                  const SizedBox(height: 10),
-                  Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Theme.of(ctx).dividerColor,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                    child: ValueListenableBuilder<String>(
-                      valueListenable: q,
-                      builder: (_, query, __) {
-                        return TextField(
-                          autofocus: true,
-                          onChanged: (v) => q.value = v,
-                          decoration: InputDecoration(
-                            hintText: 'Jump to a screen…',
-                            prefixIcon: const Icon(Icons.search_rounded),
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                            isDense: true,
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  Expanded(
-                    child: ValueListenableBuilder<String>(
-                      valueListenable: q,
-                      builder: (_, query, __) {
-                        final qq = query.trim().toLowerCase();
-                        final items = <({String path, String name, String emoji, String group})>[];
-                        for (final g in moduleGroups) {
-                          for (final m in g.modules) {
-                            items.add((path: m.path, name: m.name, emoji: m.emoji, group: g.label));
-                          }
-                        }
-                        for (final m in accountJumpModules) {
-                          items.add((path: m.path, name: m.name, emoji: m.emoji, group: 'Account'));
-                        }
-                        final filtered = qq.isEmpty
-                            ? items
-                            : items
-                                .where((e) =>
-                                    e.name.toLowerCase().contains(qq) ||
-                                    e.path.toLowerCase().contains(qq) ||
-                                    e.group.toLowerCase().contains(qq))
-                                .toList();
-                        return ListView.builder(
-                          controller: scrollCtrl,
-                          padding: const EdgeInsets.fromLTRB(8, 0, 8, 24),
-                          itemCount: filtered.length,
-                          itemBuilder: (_, i) {
-                            final e = filtered[i];
-                            return ListTile(
-                              leading: Text(e.emoji, style: const TextStyle(fontSize: 22)),
-                              title: Text(e.name, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
-                              subtitle: Text('${e.group} · ${e.path}', style: const TextStyle(fontFamily: 'Inter', fontSize: 11)),
-                              onTap: () {
-                                Navigator.pop(ctx);
-                                context.go(e.path);
-                              },
-                            );
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
   @override
   Size get preferredSize => const Size.fromHeight(56);
+
+  @override
+  State<MainAppBar> createState() => _MainAppBarState();
+}
+
+class _MainAppBarState extends State<MainAppBar> {
+  bool _prevIsSyncing = false;
+  bool _showSyncedCheck = false;
+  int _checkFlashId = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -928,52 +924,86 @@ class MainAppBar extends StatelessWidget implements PreferredSizeWidget {
     final onSurf = cs.onSurface;
     final provider = context.watch<AppProvider>();
     final showSync = SupabaseService.isConfigured && provider.isAuthenticated;
+    final syncing = provider.isSyncing;
+    final err = provider.lastSyncError;
+    final hasErr = err != null && err.isNotEmpty;
+
+    if (_prevIsSyncing && !syncing && !hasErr) {
+      _checkFlashId++;
+      final id = _checkFlashId;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || id != _checkFlashId) return;
+        setState(() => _showSyncedCheck = true);
+        Future<void>.delayed(const Duration(milliseconds: 1500), () {
+          if (mounted && id == _checkFlashId) {
+            setState(() => _showSyncedCheck = false);
+          }
+        });
+      });
+    } else if (hasErr && _showSyncedCheck) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _showSyncedCheck = false);
+      });
+    }
+    _prevIsSyncing = syncing;
 
     String syncTooltip() {
-      if (provider.isSyncing) return 'Syncing…';
-      final err = provider.lastSyncError;
-      if (err != null && err.isNotEmpty) {
-        return 'Sync failed — tap to retry';
-      }
+      if (syncing) return 'Syncing…';
+      if (_showSyncedCheck) return 'Synced with cloud';
+      if (hasErr) return 'Sync failed — tap to retry';
       final at = provider.lastSuccessfulSyncAt;
       if (at != null) return formatRelativeSyncTime(at);
       return 'Pull latest from cloud';
+    }
+
+    Widget buildSyncButtonIcon() {
+      if (syncing) {
+        return SizedBox(
+          width: 22,
+          height: 22,
+          child: CircularProgressIndicator(
+            strokeWidth: 2.2,
+            color: cs.primary,
+          ),
+        );
+      }
+      if (_showSyncedCheck && !hasErr) {
+        return Icon(
+          Icons.check_rounded,
+          size: 24,
+          color: AppTheme.success,
+        );
+      }
+      if (hasErr) {
+        return Icon(
+          Icons.cloud_off_outlined,
+          color: AppTheme.error.withValues(alpha: 0.9),
+        );
+      }
+      return Icon(
+        Icons.sync_rounded,
+        color: onSurf.withValues(alpha: 0.85),
+      );
     }
 
     final mergedActions = <Widget>[
       if (showSync)
         IconButton(
           tooltip: syncTooltip(),
-          onPressed: provider.isSyncing
+          onPressed: syncing
               ? null
               : () {
                   HapticFeedback.lightImpact();
-                  provider.refreshFromCloud();
+                  unawaited(provider.refreshFromCloud());
                 },
-          icon: provider.isSyncing
-              ? SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: cs.primary,
-                  ),
-                )
-              : Icon(
-                  provider.lastSyncError != null && provider.lastSyncError!.isNotEmpty
-                      ? Icons.cloud_off_outlined
-                      : Icons.sync_rounded,
-                  color: provider.lastSyncError != null && provider.lastSyncError!.isNotEmpty
-                      ? AppTheme.error.withValues(alpha: 0.9)
-                      : onSurf.withValues(alpha: 0.85),
-                ),
+          icon: buildSyncButtonIcon(),
         ),
       IconButton(
         tooltip: 'Jump to',
         icon: Icon(Icons.search_rounded, color: onSurf.withValues(alpha: 0.85)),
-        onPressed: () => _openJumpTo(context),
+        onPressed: () => _openMainAppBarJumpTo(context),
       ),
-      ...?actions,
+      ...?widget.actions,
     ];
     return AppBar(
       backgroundColor: cs.surface,
@@ -982,7 +1012,7 @@ class MainAppBar extends StatelessWidget implements PreferredSizeWidget {
       scrolledUnderElevation: 0,
       leading: IconButton(
         icon: Icon(Icons.menu_rounded, color: onSurf.withValues(alpha: 0.8)),
-        onPressed: onMenuTap ?? () => Scaffold.of(context).openDrawer(),
+        onPressed: widget.onMenuTap ?? () => Scaffold.of(context).openDrawer(),
       ),
       title: Row(
         mainAxisSize: MainAxisSize.min,
@@ -998,12 +1028,10 @@ class MainAppBar extends StatelessWidget implements PreferredSizeWidget {
           const SizedBox(width: 8),
           Text(
             AppConfig.appName,
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontWeight: FontWeight.w800,
-              fontSize: 18,
-              color: cs.primary,
-            ),
+            style: HuddleTypography.chromeTitle(cs).copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: cs.primary,
+                ),
           ),
         ],
       ),

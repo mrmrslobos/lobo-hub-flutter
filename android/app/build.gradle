@@ -29,6 +29,8 @@ if (keystorePropertiesFile.exists()) {
 
 android {
     namespace 'com.opensolutions.huddle'
+    // speech_to_text etc.; use a *complete* side-by-side NDK (28.2 was partial: only .installer)
+    ndkVersion = "29.0.14206865"
     compileSdkVersion 36
 
     defaultConfig {

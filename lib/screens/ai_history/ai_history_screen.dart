@@ -12,6 +12,8 @@ import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/module_ui_kit.dart';
 import '../../utils/debounce.dart';
 
 class AIHistoryScreen extends StatefulWidget {
@@ -123,7 +125,7 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
     final user = provider.activeUser;
     final family = provider.activeFamily;
     if (user == null || family == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const ModuleFamilyLoadingScaffold();
     }
 
     final allEntries = provider.db.aiHistory
@@ -147,11 +149,12 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
           .toList();
     }
 
-    return Scaffold(
+    return HuddleModuleScaffold(
+      modulePath: '/ai-history',
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),
-      body: SingleChildScrollView(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,

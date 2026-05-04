@@ -27,26 +27,95 @@ class AiService {
     return t;
   }
 
+  /// Parses flyer-vision responses: root object, or a bare JSON array of events.
+  static Map<String, dynamic>? tryParseFlyerVisionJson(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return null;
+    final asObj = tryParseJsonObject(raw);
+    if (asObj != null) return asObj;
+    try {
+      var s = raw.trim();
+      s = _stripLlmJsonWrappers(s);
+      final decoded = jsonDecode(s);
+      if (decoded is List) return {'events': decoded};
+    } catch (_) {}
+    return null;
+  }
+
+  /// Extracts the first top-level `{ ... }` using brace depth (handles `}` inside strings).
+  static String? _extractFirstBalancedJsonObject(String s) {
+    final start = s.indexOf('{');
+    if (start < 0) return null;
+    var depth = 0;
+    var inString = false;
+    var escape = false;
+    for (var i = start; i < s.length; i++) {
+      final ch = s[i];
+      if (inString) {
+        if (escape) {
+          escape = false;
+          continue;
+        }
+        if (ch == r'\') {
+          escape = true;
+          continue;
+        }
+        if (ch == '"') {
+          inString = false;
+        }
+        continue;
+      }
+      if (ch == '"') {
+        inString = true;
+        continue;
+      }
+      if (ch == '{') {
+        depth++;
+      } else if (ch == '}') {
+        depth--;
+        if (depth == 0) return s.substring(start, i + 1);
+      }
+    }
+    return null;
+  }
+
   /// Parses a JSON object from LLM text that may include markdown fences
   /// or short preamble/epilogue. Returns null on failure.
   static Map<String, dynamic>? tryParseJsonObject(String raw) {
     var s = raw.trim();
     if (s.isEmpty) return null;
+    if (s.startsWith('\ufeff')) s = s.substring(1);
     s = _stripLlmJsonWrappers(s);
-    try {
-      final decoded = jsonDecode(s);
+    Map<String, dynamic>? decodeMap(Object? decoded) {
       if (decoded is Map<String, dynamic>) return decoded;
       if (decoded is Map) return Map<String, dynamic>.from(decoded);
+      return null;
+    }
+
+    try {
+      final decoded = jsonDecode(s);
+      final m = decodeMap(decoded);
+      if (m != null) return m;
+      if (decoded is String) {
+        final inner = decoded.trim();
+        if (inner.startsWith('{')) {
+          try {
+            final decodedInner = jsonDecode(inner);
+            final m2 = decodeMap(decodedInner);
+            if (m2 != null) return m2;
+          } catch (_) {}
+        }
+      }
     } catch (_) {}
-    final start = s.indexOf('{');
-    final end = s.lastIndexOf('}');
-    if (start >= 0 && end > start) {
+
+    final balanced = _extractFirstBalancedJsonObject(s);
+    if (balanced != null) {
       try {
-        final decoded = jsonDecode(s.substring(start, end + 1));
-        if (decoded is Map<String, dynamic>) return decoded;
-        if (decoded is Map) return Map<String, dynamic>.from(decoded);
+        final decoded = jsonDecode(balanced);
+        final m = decodeMap(decoded);
+        if (m != null) return m;
       } catch (_) {}
     }
+
     return null;
   }
 
@@ -110,6 +179,15 @@ class AiService {
       return data != null ? jsonEncode(data) : null;
     } on AINotAvailableException {
       rethrow;
+    } on FunctionException catch (e) {
+      if (e.status == 402) {
+        final d = e.details;
+        if (d is Map && d['error'] == 'subscription_required') {
+          throw const AINotAvailableException();
+        }
+      }
+      debugPrint('[AiService] ask() FunctionException status=${e.status} details=${e.details}');
+      return null;
     } catch (e, st) {
       final msg = e.toString();
       if (msg.contains('402') || msg.contains('subscription_required')) {
@@ -329,12 +407,40 @@ Please provide:
     );
   }
 
+  /// Caps and formats prior turns for the copilot prompt (Phase 1–2 memory).
+  static String _formatCopilotHistory(List<Map<String, String>> history) {
+    if (history.isEmpty) return '';
+    const maxChars = 6000;
+    final lines = <String>[];
+    for (final m in history) {
+      final role = (m['role'] ?? 'user').trim();
+      final content = (m['content'] ?? '').trim();
+      if (content.isEmpty) continue;
+      lines.add('${role == 'assistant' ? 'Assistant' : 'User'}: $content');
+    }
+    if (lines.isEmpty) return '';
+    while (lines.join('\n').length > maxChars && lines.length > 2) {
+      lines.removeAt(0);
+      lines.removeAt(0);
+    }
+    return 'Prior conversation:\n${lines.join('\n')}\n\n';
+  }
+
   /// Family copilot: returns decoded `{ "reply", "actions" }` or null.
+  ///
+  /// [conversationHistory]: prior turns only (oldest first). Each map uses
+  /// keys `role` (`user` | `assistant`) and `content` (plain text).
   static Future<Map<String, dynamic>?> askCopilot({
     required String userMessage,
     required String familyId,
     required String contextBlock,
+    List<Map<String, String>> conversationHistory = const [],
+    bool preferShortReplies = false,
   }) async {
+    final historyBlock = _formatCopilotHistory(conversationHistory);
+    final brevity = preferShortReplies
+        ? 'The user may be listening via text-to-speech. Keep `reply` concise (1–3 short sentences) unless they asked for detail.\n'
+        : '';
     final prompt = '''
 You are the Family copilot for the Huddle app. The user describes what they need; you propose concrete actions the app can perform.
 
@@ -347,7 +453,13 @@ Allowed types and payloads:
 - create_task: title (string), notes?, due_date (ISO date yyyy-MM-DD), due_time (HH:mm), priority LOW|MEDIUM|HIGH, reminder_minutes?
 - create_event: title, start (ISO datetime), end (ISO datetime), location?, description?
 - create_shopping_list: title, items optional array of {text, quantity?}
-- add_list_items: list_id OR list_title_substring, items array of {text, quantity?}
+- add_list_items: list_id OR list_title_substring (matches existing list title, case-insensitive substring), items array of {text, quantity?}
+
+Shopping lists — be decisive and helpful:
+- If the user says "add X, Y, Z to shopping list", "groceries", "the list", etc., use add_list_items with list_title_substring matching an EXISTING list title from context (e.g. "grocery" → "Groceries").
+- If they name a store or trip ("from Bunnings", "Bunnings run", "hardware store"), prefer a list title that matches that store ("Bunnings"). If no such list exists in context, use create_shopping_list with that title and the items in one step.
+- You may combine: create_shopping_list when it is clearly a new themed list; add_list_items when a clear existing list matches.
+- Parse comma or "and"-separated items into separate entries in items[].
 - create_meal_plan_entry: date (yyyy-MM-DD), meal_type breakfast|lunch|dinner|snack, custom_meal (string)
 - create_chore: title, description?, points (int), frequency DAILY|WEEKLY
 
@@ -355,9 +467,15 @@ If the user asks for restaurant reservations, put a helpful reply and optionally
 
 If nothing applies, use empty actions.
 
+When it helps clarify next steps, end `reply` with one short follow-up question on its own last sentence (still keep `reply` concise overall).
+
+Ongoing conversation:
+- Use "Prior conversation" below to resolve follow-ups ("also add…", "same list", "yes", "the hardware one"). If they confirm an action in words, still output the right `actions` array; the app will ask them to tap confirm before saving.
+
+$brevity
 Context (read-only):
 $contextBlock
-
+$historyBlock
 User message:
 $userMessage
 ''';
@@ -384,17 +502,25 @@ $userMessage
     required String imageBase64,
     String mimeType = 'image/jpeg',
   }) async {
-    const prompt = '''
-Analyze this image (flyer, invitation, or schedule). Extract every distinct dated event you can read.
+    final y = DateTime.now().year;
+    final prompt = '''
+You are transcribing a photo of a flyer, invitation, school handout, sports schedule, or church bulletin.
 
-Return ONLY valid JSON:
+Rules:
+- Extract EVERY event that has a date or date+time, even if text is small, angled, or busy in the background.
+- Do NOT refuse or apologize for "blur" or quality—do your best with whatever is visible.
+- If the year is missing, assume the NEXT occurrence of that month/day is in the current calendar year ($y); if that date is already past this year, use ${y + 1}.
+- If only a date is given (no time), use 09:00 local as start and 10:00 as end unless the flyer states otherwise.
+- If only "doors at 6 / show at 7", use those times.
+- Put venue/address/room in "location", extra notes in "description".
+
+Return ONLY valid JSON (no markdown, no commentary):
 {"events":[{"title":"string","start":"ISO 8601 datetime","end":"ISO 8601 datetime","location":"string or empty","description":"string or empty"}]}
 
-If there are no events, return {"events":[]}.
-Use reasonable duration (e.g. 1 hour) if only a start time is visible.
+If there are truly no schedulable events, return {"events":[]}.
 ''';
     try {
-      final raw = await ask(
+      String? raw = await ask(
         prompt: prompt,
         feature: 'ai_events_vision',
         familyId: familyId,
@@ -402,10 +528,75 @@ Use reasonable duration (e.g. 1 hour) if only a start time is visible.
         imageBase64: imageBase64,
         imageMimeType: mimeType,
       );
-      if (raw == null) return null;
-      return tryParseJsonObject(raw);
+      var parsed = tryParseFlyerVisionJson(raw);
+      if (parsed != null) return parsed;
+
+      // JSON mode + vision occasionally returns empty or non-JSON; retry plain text.
+      debugPrint('[AiService] extractEventsFromImage: JSON mode parse failed, retrying without responseMimeType');
+      raw = await ask(
+        prompt: '$prompt\n\nReturn the JSON object only, nothing else.',
+        feature: 'ai_events_vision',
+        familyId: familyId,
+        imageBase64: imageBase64,
+        imageMimeType: mimeType,
+      );
+      parsed = tryParseFlyerVisionJson(raw);
+      if (parsed == null && raw != null && raw.length > 2) {
+        debugPrint('[AiService] extractEventsFromImage raw sample: ${raw.substring(0, raw.length > 400 ? 400 : raw.length)}');
+      }
+      return parsed;
     } catch (e, st) {
       debugPrint('[AiService] extractEventsFromImage error: $e\n$st');
+      return null;
+    }
+  }
+
+  /// Vision: identify food items visible in a fridge / pantry / shelf photo.
+  /// Returns `{"items":[{"name","quantity?","unit?"},...]}` or null.
+  static Future<Map<String, dynamic>?> extractPantryItemsFromImage({
+    required String familyId,
+    required String imageBase64,
+    String mimeType = 'image/jpeg',
+  }) async {
+    final prompt = '''
+You are helping a family meal-planning app. Look at this photo of a refrigerator, pantry shelf, or food storage.
+
+Identify edible ingredients you can reasonably see or infer (produce, dairy, proteins, jars, packages with readable labels, eggs, etc.).
+- Use clear generic names (e.g. "Greek yogurt", "cheddar cheese", "baby carrots").
+- If quantity is unclear, omit quantity and unit or use a rough guess (e.g. "1" "bunch" for herbs).
+- Skip non-food items (containers without identifiable food, empty shelves).
+- Limit to at most 40 items; prefer the most useful for cooking.
+
+Return ONLY valid JSON (no markdown):
+{"items":[{"name":"string","quantity":"string optional","unit":"string optional"}]}
+
+If nothing usable is visible, return {"items":[]}.
+''';
+    try {
+      String? raw = await ask(
+        prompt: prompt,
+        feature: 'ai_recipes',
+        familyId: familyId,
+        responseMimeType: 'application/json',
+        imageBase64: imageBase64,
+        imageMimeType: mimeType,
+      );
+      var parsed = raw != null ? tryParseJsonObject(raw) : null;
+      if (parsed != null && parsed['items'] is List) return parsed;
+
+      debugPrint('[AiService] extractPantryItemsFromImage: JSON mode parse failed, retrying without responseMimeType');
+      raw = await ask(
+        prompt: '$prompt\n\nReturn the JSON object only, nothing else.',
+        feature: 'ai_recipes',
+        familyId: familyId,
+        imageBase64: imageBase64,
+        imageMimeType: mimeType,
+      );
+      parsed = raw != null ? tryParseJsonObject(raw) : null;
+      if (parsed != null && parsed['items'] is List) return parsed;
+      return null;
+    } catch (e, st) {
+      debugPrint('[AiService] extractPantryItemsFromImage error: $e\n$st');
       return null;
     }
   }

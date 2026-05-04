@@ -17,6 +17,9 @@ import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/module_ui_kit.dart';
+import '../../widgets/huddle_subpage_scaffold.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/debounce.dart';
 import '../../utils/budget_envelope.dart' show
@@ -533,9 +536,10 @@ class _BudgetScreenState extends State<BudgetScreen> {
       context: context,
       builder: (ctx) => Dialog.fullscreen(
         child: Scaffold(
-          appBar: AppBar(
-            title: const Text('Finance Report', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700)),
-            leading: IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+          appBar: SubpageAppBar(
+            title: 'Finance Report',
+            leading: SubpageLeading.close,
+            onBack: () => Navigator.pop(ctx),
           ),
           body: ListView(
             padding: const EdgeInsets.all(20),
@@ -714,7 +718,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
     final user = provider.activeUser;
     final family = provider.activeFamily;
     if (user == null || family == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const ModuleFamilyLoadingScaffold();
     }
 
     final userId = user.id;
@@ -769,11 +773,12 @@ class _BudgetScreenState extends State<BudgetScreen> {
     }
     shown.sort((a, b) => b.date.compareTo(a.date));
 
-    return Scaffold(
+    return HuddleModuleScaffold(
+      modulePath: '/budget',
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),
-      body: ListView(
+      child: ListView(
         padding: const EdgeInsets.only(bottom: 32),
         children: [
           // ─── Page Header ───────────────────────────────────────────────
@@ -1354,6 +1359,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
               ]),
             ),
           ),
+          const FamilySyncPrivacyFootnote(),
         ],
       ),
     );
@@ -3113,9 +3119,9 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
                 const Text('CURRENT CATEGORIES', style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.0, color: AppTheme.stone400)),
                 const SizedBox(height: 8),
                 if (categories.isEmpty)
-                  const EmptyState(
+                  CatalogModuleEmptyState(
                     compact: true,
-                    emoji: '💰',
+                    modulePath: '/budget',
                     emojiSize: 40,
                     title: 'No categories yet',
                     subtitle:

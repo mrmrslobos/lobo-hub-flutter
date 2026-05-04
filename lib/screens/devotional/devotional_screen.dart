@@ -24,7 +24,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/module_ui_kit.dart';
+import '../../widgets/huddle_subpage_scaffold.dart';
 import '../../widgets/subscription_modal.dart';
+import '../../utils/devotional_display_utils.dart';
 import '../../utils/debounce.dart';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -70,19 +74,20 @@ int _userDailyNotificationId(String userId) =>
     9910000 + (userId.hashCode.abs() % 900000);
 
 String _devotionalShareText(DevotionalEntry e) {
+  final d = devotionalEntryForDisplay(e);
   final buf = StringBuffer();
-  buf.writeln(e.title);
-  if (e.scripture != null && e.scripture!.trim().isNotEmpty) {
+  buf.writeln(d.title);
+  if (d.scripture != null && d.scripture!.trim().isNotEmpty) {
     buf.writeln();
-    buf.writeln(e.scripture);
+    buf.writeln(d.scripture);
   }
-  if (e.content != null && e.content!.trim().isNotEmpty) {
+  if (d.content != null && d.content!.trim().isNotEmpty) {
     buf.writeln();
-    buf.writeln(e.content);
+    buf.writeln(d.content);
   }
-  if (e.prayer != null && e.prayer!.trim().isNotEmpty) {
+  if (d.prayer != null && d.prayer!.trim().isNotEmpty) {
     buf.writeln();
-    buf.writeln('Prayer: ${e.prayer}');
+    buf.writeln('Prayer: ${d.prayer}');
   }
   buf.writeln();
   buf.writeln('Shared from ${AppConfig.appName}');
@@ -256,6 +261,8 @@ class _DevotionalScreenState extends State<DevotionalScreen>
   bool _dismissedAutoOpen = false;
   bool _deepLinkHandled = false;
   Set<String> _localDismissedDates = {};
+  /// Consecutive calendar days this device opened Devotional; updated once per day max.
+  int _visitStreak = 0;
 
   @override
   void initState() {
@@ -263,6 +270,9 @@ class _DevotionalScreenState extends State<DevotionalScreen>
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(() => setState(() {}));
     _loadDismissedDates();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_recordDevotionalVisitStreak());
+    });
   }
 
   Future<void> _loadDismissedDates() async {
@@ -371,6 +381,45 @@ class _DevotionalScreenState extends State<DevotionalScreen>
     if (_selectedEntry?.id == id) setState(() => _selectedEntry = null);
   }
 
+  /// Visit streak for this screen (local device); not synced.
+  static const _kVisitStreakCount = 'devotional_visit_streak_count';
+  static const _kVisitStreakLastDay = 'devotional_visit_streak_last_yyyy_mm_dd';
+
+  Future<void> _recordDevotionalVisitStreak() async {
+    final prefs = await SharedPreferences.getInstance();
+    final now = DateTime.now();
+    final todayKey = DateFormat('yyyy-MM-dd').format(now);
+    final todayNorm = DateTime(now.year, now.month, now.day);
+    final lastKey = prefs.getString(_kVisitStreakLastDay);
+    var count = prefs.getInt(_kVisitStreakCount) ?? 0;
+
+    if (lastKey == todayKey) {
+      if (mounted) setState(() => _visitStreak = count);
+      return;
+    }
+
+    if (lastKey != null && lastKey.isNotEmpty) {
+      final lastDt = DateTime.tryParse(lastKey);
+      if (lastDt != null) {
+        final lastNorm = DateTime(lastDt.year, lastDt.month, lastDt.day);
+        final diff = todayNorm.difference(lastNorm).inDays;
+        if (diff == 1) {
+          count += 1;
+        } else {
+          count = 1;
+        }
+      } else {
+        count = 1;
+      }
+    } else {
+      count = 1;
+    }
+
+    await prefs.setInt(_kVisitStreakCount, count);
+    await prefs.setString(_kVisitStreakLastDay, todayKey);
+    if (mounted) setState(() => _visitStreak = count);
+  }
+
   /// Track dismissed auto-devotional dates in SharedPreferences.
   static const _dismissedKey = 'dismissed_auto_devotional_dates';
 
@@ -397,7 +446,7 @@ class _DevotionalScreenState extends State<DevotionalScreen>
     final provider = context.watch<AppProvider>();
     final family = provider.activeFamily;
     if (family == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const ModuleFamilyLoadingScaffold();
     }
 
     final uid = provider.activeUser?.id;
@@ -541,11 +590,12 @@ class _DevotionalScreenState extends State<DevotionalScreen>
     // ── Computed stats ──
     final favCount = entries.where((e) => e.isFavorited).length;
 
-    return Scaffold(
+    return HuddleModuleScaffold(
+      modulePath: '/devotional',
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),
-      body: SingleChildScrollView(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -554,6 +604,47 @@ class _DevotionalScreenState extends State<DevotionalScreen>
             PageHeader(
               title: screenTitleForModulePath('/devotional'),
               subtitle: 'Reflect, pray, and grow as a family.',
+            ),
+
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: AppTheme.stone50,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppTheme.stone200),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _visitStreak >= 2
+                            ? '$_visitStreak-day visit streak — thanks for showing up.'
+                            : 'Welcome — take a quiet moment with today\'s reading.',
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          height: 1.35,
+                          color: AppTheme.stone700,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Family prompt: At dinner, invite everyone to share one thing they\'re grateful for from today.',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 13,
+                          height: 1.4,
+                          color: AppTheme.stone600.withValues(alpha: 0.95),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
 
             // ── Stat cards ──
@@ -984,9 +1075,10 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
               if (_showFavoritesOnly && !entry.isFavorited) return false;
               if (_searchQuery.isNotEmpty) {
                 final q = _searchQuery.toLowerCase();
-                if (!entry.title.toLowerCase().contains(q) &&
-                    !(entry.scripture?.toLowerCase().contains(q) ?? false) &&
-                    !(entry.content?.toLowerCase().contains(q) ?? false) &&
+                final d = devotionalEntryForDisplay(entry);
+                if (!d.title.toLowerCase().contains(q) &&
+                    !(d.scripture?.toLowerCase().contains(q) ?? false) &&
+                    !(d.content?.toLowerCase().contains(q) ?? false) &&
                     !entry.tags.any((t) => t.toLowerCase().contains(q))) {
                   return false;
                 }
@@ -1012,7 +1104,7 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
                         children: [
                           Icon(Icons.menu_book_outlined, size: 18, color: AppTheme.stone500),
                           const SizedBox(width: 8),
-                          Text(_showFavoritesOnly ? 'Favorites' : 'Past Readings', style: const TextStyle(
+                          Text(_showFavoritesOnly ? 'Favorites' : 'Past Readings', style: TextStyle(
                             fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: AppTheme.stone900,
                           )),
                           const SizedBox(width: 8),
@@ -1022,7 +1114,7 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
                               color: AppTheme.stone100,
                               borderRadius: BorderRadius.circular(10),
                             ),
-                            child: Text('${pastEntries.length}', style: const TextStyle(
+                            child: Text('${pastEntries.length}', style: TextStyle(
                               fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 12, color: AppTheme.stone500,
                             )),
                           ),
@@ -1058,7 +1150,7 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
                           },
                           decoration: InputDecoration(
                             hintText: 'Search devotionals...',
-                            hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
+                            hintStyle: TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
                             prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
                             suffixIcon: _searchQuery.isNotEmpty
                                 ? IconButton(
@@ -1111,7 +1203,7 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
                               ),
                             ),
                             const Spacer(),
-                            Text('${filtered.length} result${filtered.length == 1 ? '' : 's'}', style: const TextStyle(
+                            Text('${filtered.length} result${filtered.length == 1 ? '' : 's'}', style: TextStyle(
                               fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400,
                             )),
                           ],
@@ -1121,14 +1213,19 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
                       // Filtered entries list
                       if (filtered.isEmpty)
                         Padding(
-                          padding: const EdgeInsets.all(32),
-                          child: Center(child: Text(
-                            _showFavoritesOnly ? 'No favorited devotionals yet' : 'No matching devotionals',
-                            style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
-                          )),
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+                          child: CatalogModuleEmptyState(
+                            modulePath: '/devotional',
+                            title: _showFavoritesOnly ? 'No favorited devotionals yet' : 'No matching devotionals',
+                            subtitle: _showFavoritesOnly
+                                ? 'Save readings from the reader with the bookmark control.'
+                                : 'Try another word or clear favorites.',
+                            compact: false,
+                          ),
                         )
                       else
                         ...filtered.map((entry) {
+                          final display = devotionalEntryForDisplay(entry);
                           final provider = context.read<AppProvider>();
                           final userId = provider.activeUser?.id;
                           final isOwner = userId != null && provider.activeFamily?.ownerId == userId;
@@ -1160,7 +1257,7 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
                                   context: context,
                                   builder: (ctx) => AlertDialog(
                                     title: const Text('Delete Devotional'),
-                                    content: Text('Delete "${entry.title}"?'),
+                                    content: Text('Delete "${display.title}"?'),
                                     actions: [
                                       TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
                                       TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppTheme.error))),
@@ -1181,22 +1278,22 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      if (entry.scripture != null)
+                                      if (display.scripture != null)
                                         Text(
-                                          'BASED ON ${_extractRef(entry.scripture!).toUpperCase()}',
-                                          style: const TextStyle(
+                                          'BASED ON ${_extractRef(display.scripture!).toUpperCase()}',
+                                          style: TextStyle(
                                             fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700,
                                             color: AppTheme.stone400, letterSpacing: 0.5,
                                           ),
                                         ),
-                                      if (entry.scripture != null) const SizedBox(height: 6),
-                                      Text(entry.title, style: const TextStyle(
+                                      if (display.scripture != null) const SizedBox(height: 6),
+                                      Text(display.title, style: TextStyle(
                                         fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: AppTheme.stone900,
                                       ), maxLines: 2, overflow: TextOverflow.ellipsis),
                                       const SizedBox(height: 4),
                                       Text(
                                         DateFormat('MMM d, yyyy').format(entry.date),
-                                        style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
+                                        style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
                                       ),
                                       const SizedBox(height: 8),
                                       Row(
@@ -1518,13 +1615,13 @@ For each entry's "discussion" field, provide one substantive personal reflection
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(plan.title, style: const TextStyle(
+                      Text(plan.title, style: TextStyle(
                         fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: AppTheme.stone900,
                       ), maxLines: 2, overflow: TextOverflow.ellipsis),
                       const SizedBox(height: 4),
                       Text(
                         '$totalDays days  \u00B7  ${DateFormat('MMM d').format(plan.createdAt)}',
-                        style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
+                        style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
                       ),
                       const SizedBox(height: 10),
                       ClipRRect(
@@ -1539,7 +1636,7 @@ For each entry's "discussion" field, provide one substantive personal reflection
                       const SizedBox(height: 6),
                       Text(
                         '$completedDays/$totalDays days  \u00B7  ${(progress * 100).round()}%',
-                        style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400),
+                        style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400),
                       ),
                     ],
                   ),
@@ -1578,6 +1675,7 @@ class _EntryDetailView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final view = devotionalEntryForDisplay(entry);
     final app = context.watch<AppProvider>();
     final thoughtsForEntry =
         app.db.devotionalThoughts.where((t) => t.devotionalId == entry.id).toList();
@@ -1586,15 +1684,8 @@ class _EntryDetailView extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final onSurf = cs.onSurface;
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: cs.surface,
-        foregroundColor: cs.onSurface,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded, color: cs.onSurface.withValues(alpha: 0.85)),
-          onPressed: onBack,
-        ),
+      appBar: SubpageAppBar(
+        onBack: onBack,
         actions: [
           IconButton(
             icon: Icon(Icons.share_rounded, color: onSurf.withValues(alpha: 0.55)),
@@ -1626,9 +1717,9 @@ class _EntryDetailView extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Scripture badge
-            if (entry.scripture != null) ...[
+            if (view.scripture != null) ...[
               Text(
-                'SCRIPTURE ROOT — ${_extractRef(entry.scripture!).toUpperCase()}',
+                'SCRIPTURE ROOT — ${_extractRef(view.scripture!).toUpperCase()}',
                 style: TextStyle(
                   fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700,
                   color: onSurf.withValues(alpha: 0.45), letterSpacing: 0.5,
@@ -1638,14 +1729,14 @@ class _EntryDetailView extends StatelessWidget {
             ],
 
             // Title
-            Text(entry.title, style: TextStyle(
+            Text(view.title, style: TextStyle(
               fontFamily: 'Inter', fontWeight: FontWeight.w900, fontSize: 26, color: onSurf,
               height: 1.2,
             )),
             const SizedBox(height: 12),
 
             // Scripture reference
-            if (entry.scripture != null) ...[
+            if (view.scripture != null) ...[
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 decoration: BoxDecoration(
@@ -1654,8 +1745,8 @@ class _EntryDetailView extends StatelessWidget {
                   border: Border.all(color: const Color(0xFFFDBA74)),
                 ),
                 child: SelectableText(
-                  '"${entry.scripture}"',
-                  style: const TextStyle(
+                  '"${view.scripture}"',
+                  style: TextStyle(
                     fontFamily: 'Inter', fontSize: 15, fontWeight: FontWeight.w600,
                     color: Color(0xFFEA580C), fontStyle: FontStyle.italic,
                     height: 1.45,
@@ -1666,7 +1757,7 @@ class _EntryDetailView extends StatelessWidget {
             ],
 
             // Content
-            if (entry.content != null) ...[
+            if (view.content != null) ...[
               Text(
                 'READING',
                 style: TextStyle(
@@ -1676,7 +1767,7 @@ class _EntryDetailView extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               SelectableText(
-                entry.content!,
+                view.content!,
                 style: TextStyle(
                   fontFamily: 'Inter', fontSize: 16, color: onSurf.withValues(alpha: 0.88), height: 1.65,
                 ),
@@ -1685,7 +1776,7 @@ class _EntryDetailView extends StatelessWidget {
             ],
 
             // Reflection prompts
-            if (entry.reflectionPrompts.isNotEmpty) ...[
+            if (view.reflectionPrompts.isNotEmpty) ...[
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -1707,7 +1798,7 @@ class _EntryDetailView extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    ...entry.reflectionPrompts.asMap().entries.map((e) {
+                    ...view.reflectionPrompts.asMap().entries.map((e) {
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 10),
                         child: Row(
@@ -1715,13 +1806,13 @@ class _EntryDetailView extends StatelessWidget {
                           children: [
                             Text(
                               'Q${e.key + 1}. ',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontFamily: 'Inter', fontWeight: FontWeight.w700,
                                 fontSize: 14, color: Color(0xFFEC4899),
                               ),
                             ),
                             Expanded(
-                              child: Text(e.value, style: const TextStyle(
+                              child: Text(e.value, style: TextStyle(
                                 fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone700, height: 1.4,
                               )),
                             ),
@@ -1746,7 +1837,7 @@ class _EntryDetailView extends StatelessWidget {
             const SizedBox(height: 20),
 
             // Prayer
-            if (entry.prayer != null) ...[
+            if (view.prayer != null) ...[
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -1769,8 +1860,8 @@ class _EntryDetailView extends StatelessWidget {
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Text(
-                        '"${entry.prayer}"',
-                        style: const TextStyle(
+                        '"${view.prayer}"',
+                        style: TextStyle(
                           fontFamily: 'Inter', fontSize: 14, fontStyle: FontStyle.italic,
                           color: AppTheme.stone600, height: 1.5,
                         ),
@@ -1946,7 +2037,7 @@ class _DevotionalThoughtsSection extends StatefulWidget {
 
 class _DevotionalThoughtsSectionState extends State<_DevotionalThoughtsSection> {
   late TextEditingController _controller;
-  final _debounce = Debouncer(duration: const Duration(milliseconds: 650));
+  final _debounce = Debouncer(duration: const Duration(milliseconds: 1200));
 
   DevotionalThought? _myThought() {
     final uid = widget.activeUserId;
@@ -2044,7 +2135,7 @@ class _DevotionalThoughtsSectionState extends State<_DevotionalThoughtsSection> 
             shared
                 ? 'Saved with this devotional. When it is shared with your home, everyone can read the reflections below.'
                 : 'Only you can see this devotional and your notes.',
-            style: const TextStyle(
+            style: TextStyle(
               fontFamily: 'Inter',
               fontSize: 12,
               color: AppTheme.stone500,
@@ -2106,7 +2197,7 @@ class _DevotionalThoughtsSectionState extends State<_DevotionalThoughtsSection> 
                     children: [
                       Text(
                         _displayName(t.userId),
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontFamily: 'Inter',
                           fontWeight: FontWeight.w700,
                           fontSize: 12,
@@ -2116,7 +2207,7 @@ class _DevotionalThoughtsSectionState extends State<_DevotionalThoughtsSection> 
                       const SizedBox(height: 6),
                       Text(
                         t.body,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontFamily: 'Inter',
                           fontSize: 13,
                           color: AppTheme.stone600,
@@ -2185,24 +2276,18 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
   Widget build(BuildContext context) {
     final entries = _planEntries;
     final totalDays = entries.length;
-    final currentEntry = _currentDay < entries.length ? entries[_currentDay] : null;
+    final currentEntryRaw = _currentDay < entries.length ? entries[_currentDay] : null;
+    final currentEntry =
+        currentEntryRaw != null ? devotionalEntryForDisplay(currentEntryRaw) : null;
     final uid = widget.activeUserId;
     final thoughts = widget.thoughts;
     final completedCount = entries
         .where((e) => _entryHasPersonalPrayer(e, uid, thoughts))
         .length;
 
-    final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: cs.surface,
-        foregroundColor: cs.onSurface,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded, color: cs.onSurface.withValues(alpha: 0.85)),
-          onPressed: widget.onBack,
-        ),
+      appBar: SubpageAppBar(
+        onBack: widget.onBack,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
@@ -2223,7 +2308,7 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: Text(widget.plan.title, style: const TextStyle(
+                  child: Text(widget.plan.title, style: TextStyle(
                     fontFamily: 'Inter', fontWeight: FontWeight.w900, fontSize: 24, color: AppTheme.stone900,
                     height: 1.2,
                   )),
@@ -2243,7 +2328,7 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
                       ),
                       Text(
                         '$completedCount/$totalDays',
-                        style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.stone600),
+                        style: TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.stone600),
                       ),
                     ],
                   ),
@@ -2252,7 +2337,7 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
             ),
             const SizedBox(height: 6),
             if (widget.plan.description.isNotEmpty)
-              Text(widget.plan.description, style: const TextStyle(
+              Text(widget.plan.description, style: TextStyle(
                 fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone500, height: 1.4,
               )),
             const SizedBox(height: 20),
@@ -2294,12 +2379,12 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
 
             // Current day content
             if (currentEntry != null) ...[
-              Text('DAY ${_currentDay + 1} OF $totalDays', style: const TextStyle(
+              Text('DAY ${_currentDay + 1} OF $totalDays', style: TextStyle(
                 fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700,
                 color: AppTheme.primary, letterSpacing: 0.5,
               )),
               const SizedBox(height: 8),
-              Text(currentEntry.title, style: const TextStyle(
+              Text(currentEntry.title, style: TextStyle(
                 fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 22, color: AppTheme.stone900,
               )),
               const SizedBox(height: 12),
@@ -2324,7 +2409,7 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
                       const SizedBox(height: 6),
                       Text(
                         '"${currentEntry.scripture}"',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontFamily: 'Inter', fontSize: 15, fontWeight: FontWeight.w600,
                           color: Color(0xFFEA580C), fontStyle: FontStyle.italic,
                         ),
@@ -2341,7 +2426,7 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
                   color: AppTheme.stone400, letterSpacing: 0.5,
                 )),
                 const SizedBox(height: 8),
-                Text(currentEntry.content!, style: const TextStyle(
+                Text(currentEntry.content!, style: TextStyle(
                   fontFamily: 'Inter', fontSize: 15, color: AppTheme.stone700, height: 1.6,
                 )),
                 const SizedBox(height: 20),
@@ -2367,7 +2452,7 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
                       const SizedBox(height: 10),
                       ...currentEntry.reflectionPrompts.map((q) => Padding(
                         padding: const EdgeInsets.only(bottom: 8),
-                        child: Text(q, style: const TextStyle(
+                        child: Text(q, style: TextStyle(
                           fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone700, height: 1.4,
                         )),
                       )),
@@ -2427,7 +2512,7 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
                         _showSnack(context, 'Day ${_currentDay + 1} complete!');
                       },
                       icon: const Icon(Icons.check_rounded, size: 18),
-                      label: Text('Mark Day ${_currentDay + 1}\nComplete', textAlign: TextAlign.center, style: const TextStyle(fontSize: 13, height: 1.3)),
+                      label: Text('Mark Day ${_currentDay + 1}\nComplete', textAlign: TextAlign.center, style: TextStyle(fontSize: 13, height: 1.3)),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppTheme.primary,
                         foregroundColor: Colors.white,
@@ -2685,7 +2770,7 @@ class _DailyDevotionalCardState extends State<_DailyDevotionalCard> {
                           const SizedBox(width: 8),
                           Text(
                             formattedTime,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontFamily: 'Inter',
                               fontWeight: FontWeight.w700,
                               fontSize: 14,
@@ -2952,7 +3037,7 @@ class _AiFeatureCard extends StatelessWidget {
               child: Icon(icon, size: 16, color: Colors.white),
             ),
             const SizedBox(width: 10),
-            Text(title, style: const TextStyle(
+            Text(title, style: TextStyle(
               fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white,
             )),
           ]),
@@ -2966,10 +3051,10 @@ class _AiFeatureCard extends StatelessWidget {
             child: TextField(
               controller: controller,
               onChanged: onTextChanged,
-              style: const TextStyle(color: Colors.white, fontFamily: 'Inter', fontSize: 14),
+              style: TextStyle(color: Colors.white, fontFamily: 'Inter', fontSize: 14),
               decoration: InputDecoration(
                 hintText: hintText,
-                hintStyle: const TextStyle(color: Colors.white54, fontFamily: 'Inter'),
+                hintStyle: TextStyle(color: Colors.white54, fontFamily: 'Inter'),
                 border: InputBorder.none,
                 contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 filled: false,
@@ -3064,7 +3149,7 @@ class _MiniStat extends StatelessWidget {
                   Text(value, style: TextStyle(
                     fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w900, color: iconColor,
                   )),
-                  Text(label, style: const TextStyle(
+                  Text(label, style: TextStyle(
                     fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w500, color: AppTheme.stone400,
                   )),
                 ],

@@ -1,4 +1,5 @@
 // lib/screens/lists/lists_screen.dart
+import 'dart:async' show unawaited;
 import 'dart:convert';
 import 'package:flutter/material.dart' hide Visibility;
 import 'package:flutter/services.dart';
@@ -7,6 +8,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../app.dart';
 
+import '../../config/app_design_tokens.dart';
 import '../../config/cloud_sync_scope.dart';
 import '../../config/module_config.dart';
 import '../../config/theme.dart';
@@ -16,6 +18,9 @@ import '../../services/ai_service.dart';
 import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/module_ui_kit.dart';
+import '../../widgets/huddle_subpage_scaffold.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/cloud_pull.dart';
 
@@ -28,6 +33,7 @@ class ListsScreen extends StatefulWidget {
 
 class _ListsScreenState extends State<ListsScreen> {
   ShoppingList? _selectedList;
+  bool _pullRefreshing = false;
 
   bool _canAccessList(ShoppingList list, String userId) {
     if (list.creatorId == userId) return true;
@@ -62,6 +68,31 @@ class _ListsScreenState extends State<ListsScreen> {
   Future<void> _saveShoppingLists(AppProvider provider, AppDB nextDb) async {
     await provider.saveAndSync(nextDb,
         pushTableScope: {CloudSyncScope.lists});
+  }
+
+  /// Opens an existing list or creates one when the title matches case-insensitively.
+  Future<void> _openOrCreateQuickList(String title) async {
+    final t = title.trim();
+    if (t.isEmpty) return;
+    final provider = context.read<AppProvider>();
+    final familyId = provider.activeFamily?.id;
+    final uid = provider.activeUser?.id;
+    if (familyId == null || uid == null) return;
+    final lower = t.toLowerCase();
+    ShoppingList? match;
+    for (final l in provider.db.shoppingLists) {
+      if (l.familyId != familyId) continue;
+      if (!_canAccessList(l, uid)) continue;
+      if (l.title.toLowerCase() == lower) {
+        match = l;
+        break;
+      }
+    }
+    if (match != null) {
+      setState(() => _selectedList = match);
+      return;
+    }
+    await _createList(t);
   }
 
   Future<void> _createList(String name, {Visibility visibility = Visibility.FAMILY, List<String> sharedWith = const []}) async {
@@ -501,7 +532,7 @@ class _ListsScreenState extends State<ListsScreen> {
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
     final family = provider.activeFamily;
-    if (family == null) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (family == null) return const ModuleFamilyLoadingScaffold();
 
     final currentUserId = provider.activeUser?.id;
     final lists = provider.db.shoppingLists
@@ -542,13 +573,21 @@ class _ListsScreenState extends State<ListsScreen> {
     final totalItems = lists.fold<int>(0, (s, l) => s + l.items.length);
     final checkedItems = lists.fold<int>(0, (s, l) => s + l.items.where((i) => i.checked).length);
 
-    return Scaffold(
+    return HuddleModuleScaffold(
+      modulePath: '/lists',
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),
-      body: RefreshIndicator(
+      child: RefreshIndicator(
         color: AppTheme.primary,
-        onRefresh: () => pullCloudLatestWithHaptic(context),
+        onRefresh: () async {
+          setState(() => _pullRefreshing = true);
+          try {
+            await pullCloudLatestWithHaptic(context);
+          } finally {
+            if (mounted) setState(() => _pullRefreshing = false);
+          }
+        },
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: EdgeInsets.zero,
@@ -556,7 +595,7 @@ class _ListsScreenState extends State<ListsScreen> {
           // ── Page Header ──
           PageHeader(
             title: screenTitleForModulePath('/lists'),
-            subtitle: 'Shared shopping & to-do lists.',
+            subtitle: 'Shared lists everyone can update — groceries, packing, and chores.',
             actions: [
               ActionChipButton(
                 icon: Icons.add_rounded,
@@ -565,6 +604,34 @@ class _ListsScreenState extends State<ListsScreen> {
                 isPrimary: true,
               ),
             ],
+          ),
+
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  ActionChip(
+                    label: const Text('Groceries'),
+                    avatar: const Icon(Icons.shopping_cart_outlined, size: 18),
+                    onPressed: () => _openOrCreateQuickList('Groceries'),
+                  ),
+                  const SizedBox(width: 8),
+                  ActionChip(
+                    label: const Text('Hardware'),
+                    avatar: const Icon(Icons.hardware_outlined, size: 18),
+                    onPressed: () => _openOrCreateQuickList('Hardware'),
+                  ),
+                  const SizedBox(width: 8),
+                  ActionChip(
+                    label: const Text('Costco run'),
+                    avatar: const Icon(Icons.storefront_outlined, size: 18),
+                    onPressed: () => _openOrCreateQuickList('Costco run'),
+                  ),
+                ],
+              ),
+            ),
           ),
 
           // ── Stat Cards ──
@@ -667,11 +734,11 @@ class _ListsScreenState extends State<ListsScreen> {
           const SizedBox(height: 20),
 
           // ── YOUR LISTS heading ──
-          const Padding(
-            padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
             child: Text(
               'YOUR LISTS',
-              style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.stone400, letterSpacing: 1.1),
+              style: HuddleTypography.sectionRail(Theme.of(context).colorScheme),
             ),
           ),
 
@@ -687,16 +754,24 @@ class _ListsScreenState extends State<ListsScreen> {
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: AppTheme.stone100),
                 ),
-                child: EmptyState(
-                  compact: true,
-                  emoji: '📝',
-                  emojiSize: 44,
-                  title: 'No lists yet',
-                  subtitle:
-                      'Shared or private lists for groceries, trips, chores — whatever your household tracks together.',
-                  actionLabel: 'New list',
-                  onAction: _showNewListSheet,
-                ),
+                child: _pullRefreshing
+                    ? const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 20),
+                        child: ModuleListSkeleton(
+                          rows: 5,
+                          indent: 4,
+                          style: ModuleSkeletonStyle.listRows,
+                        ),
+                      )
+                    : CatalogModuleEmptyState(
+                        modulePath: '/lists',
+                        title: 'No lists yet',
+                        subtitle:
+                            'Shared or private lists for groceries, trips, chores — whatever your household tracks together.',
+                        compact: true,
+                        actionLabel: 'New list',
+                        onAction: _showNewListSheet,
+                      ),
               ),
             )
           else
@@ -1100,7 +1175,7 @@ class _AiCategorizationSheetState extends State<_AiCategorizationSheet> {
                       .toList();
                   await provider.saveAndSync(db.copyWith(shoppingLists: updatedLists),
                     pushTableScope: {CloudSyncScope.lists});
-                  if (provider.activeFamily != null) await provider.syncListsNow();
+                  if (provider.activeFamily != null) unawaited(provider.syncListsNow());
 
                   if (!context.mounted) return;
                   Navigator.pop(context);
@@ -1300,7 +1375,7 @@ class _ListDetailViewState extends State<_ListDetailView> {
     final updatedLists = db.shoppingLists.map((l) => l.id == widget.list.id ? updatedList : l).toList();
     await provider.saveAndSync(db.copyWith(shoppingLists: updatedLists),
                     pushTableScope: {CloudSyncScope.lists});
-    if (provider.activeFamily != null) await provider.syncListsNow();
+    if (provider.activeFamily != null) unawaited(provider.syncListsNow());
   }
 
   List<ListItem> _sortedItems(List<ListItem> items) {
@@ -1335,20 +1410,14 @@ class _ListDetailViewState extends State<_ListDetailView> {
 
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: cs.surface,
-        foregroundColor: cs.onSurface,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded, color: cs.onSurface.withValues(alpha: 0.85)),
-          onPressed: widget.onBack,
+      appBar: SubpageAppBar(
+        onBack: widget.onBack,
+        titleWidget: Text(
+          widget.list.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: HuddleTypography.sectionTitle(cs),
         ),
-        title: Text(widget.list.title, style: TextStyle(
-          fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: cs.onSurface,
-        )),
-        centerTitle: false,
-        titleSpacing: 0,
         actions: [
           PopupMenuButton<_ListSortMode>(
             tooltip: 'Sort items',
@@ -1756,7 +1825,7 @@ class _AiTextToChecklistSheetState extends State<_AiTextToChecklistSheet> {
       await provider.saveAndSync(
         db.copyWith(shoppingLists: [...db.shoppingLists, newList]),
         pushTableScope: {CloudSyncScope.lists});
-      if (provider.activeFamily != null) await provider.syncListsNow();
+      if (provider.activeFamily != null) unawaited(provider.syncListsNow());
 
       if (mounted) {
         Navigator.pop(context);

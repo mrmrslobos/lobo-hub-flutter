@@ -3,6 +3,7 @@
 
 // ignore_for_file: avoid_catches_without_on_clauses
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart' hide Visibility;
@@ -13,8 +14,10 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../config/app_config.dart';
 import '../../config/cloud_sync_scope.dart';
 import '../../config/theme.dart';
+import '../../config/user_module_pins.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
@@ -24,7 +27,12 @@ import '../../widgets/common_widgets.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/module_disclaimer.dart';
 import '../../utils/dashboard_ai_suggestions_cache.dart';
+import '../../utils/devotional_display_utils.dart';
 import '../../config/module_config.dart';
+import '../../widgets/all_tools_sheet.dart';
+import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/huddle_subpage_scaffold.dart';
+import '../../widgets/huddle_page_layout.dart';
 import '../onboarding/welcome_module_tour_screen.dart';
 
 // ─── AI Suggestion model ─────────────────────────────────────────────────────
@@ -63,14 +71,6 @@ class _TryAIFeature {
     required this.route,
     required this.color,
   });
-}
-
-class _QuickAction {
-  final IconData icon;
-  final String label;
-  final Color color;
-  final VoidCallback onTap;
-  const _QuickAction(this.icon, this.label, this.color, this.onTap);
 }
 
 // ─── Dashboard Screen ────────────────────────────────────────────────────────
@@ -113,6 +113,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _fetchedGeminiSuggestions = false;
   bool? _lastProviderHasAI;
   late final AppProvider _appProvider;
+
+  /// Show full AI suggestion list on Home (default: first two only).
+  bool _aiHomeSuggestionsExpanded = false;
+  /// Long monthly recap body hidden until opened.
+  bool _monthlyNarrativeExpanded = false;
+
+  /// Phase H — progressive disclosure for dense Home content below essentials.
+  bool _showDashboardDeepSections = false;
 
   @override
   void initState() {
@@ -341,7 +349,11 @@ Return a JSON object:
       final decoded = jsonDecode(cleaned);
       if (!mounted) return;
       if (decoded is Map<String, dynamic>) {
-        setState(() { _monthlySummary = decoded; _monthlySummaryLoading = false; });
+        setState(() {
+          _monthlySummary = decoded;
+          _monthlySummaryLoading = false;
+          _monthlyNarrativeExpanded = true;
+        });
       } else {
         setState(() => _monthlySummaryLoading = false);
       }
@@ -738,9 +750,7 @@ Return ONLY the JSON array, no markdown.''',
         final family = provider.activeFamily;
 
         if (user == null || family == null) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
+          return const ModuleFamilyLoadingScaffold();
         }
 
         final db = provider.db;
@@ -852,51 +862,66 @@ Return ONLY the JSON array, no markdown.''',
           return _buildKidsDashboard(context, provider, user, family, db, familyId, today, choresToday, choresCompletedToday, todayMealPlans, tasksDueToday);
         }
 
-        return Scaffold(
+        final showTryAI =
+            !family.welcomeDismissed && !(_startTipReady && !_startTipDismissed);
+        final hasNoCoreData = db.tasks.where((t) => t.familyId == familyId).isEmpty &&
+            db.events.where((e) => e.familyId == familyId).isEmpty;
+        final actionTodayCount = todayFocusTasks.length + overdueTasks.length;
+
+        return HuddleModuleScaffold(
+          modulePath: '/',
           drawer: const AppDrawer(),
           // backgroundColor handled by theme
           appBar: const MainAppBar(),
-          body: RefreshIndicator(
+          child: RefreshIndicator(
             onRefresh: _onRefresh,
             color: AppTheme.primary,
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: EdgeInsets.zero,
               children: [
-                _buildHeroSection(family),
-                _buildPlanChip(context, family),
+                _buildTodayAtAGlance(
+                  context,
+                  user,
+                  family,
+                  actionTodayCount,
+                  upcomingEvents,
+                ),
                 _buildTrialBanner(context, family),
                 if (_startTipReady && !_startTipDismissed) _buildOnboardingHint(context, family.id),
-                _buildActionButtons(context),
                 _buildAnnouncementSection(context, provider, family),
-                if (!family.welcomeDismissed)
-                  _buildTryAICard(context, provider, family),
-                _buildBirthdaysSection(db, familyId, today),
+                _buildHomeQuickActions(context, family, user),
+                if (showTryAI) _buildTryAICard(context, provider, family),
+                if (hasNoCoreData) _buildEmptySetupHint(context, family, familyId),
                 RepaintBoundary(child: _buildAISuggestionsSection()),
-                RepaintBoundary(child: _buildMonthlySummarySection()),
-                _buildStatsGrid(
-                  tasksDue: tasksDueToday.length,
-                  choresCompleted: choresCompletedToday,
-                  choresTotal: choresToday.length,
-                  eventsThisMonth: eventsThisMonth,
-                  spentThisMonth: spentThisMonth,
-                  habitsCompleted: habitsCompletedToday,
-                  habitsTotal: habitsToday.length,
-                ),
-                _buildEventCountdown(context, upcomingEvents),
-                _buildRecapCard(now),
-                _buildTodayFocus(context, todayFocusTasks, overdueTasks, provider),
-                _buildUpcomingEvents(context, upcomingEvents),
-                _buildActiveLists(context, activeLists),
-                _buildBudgetSnapshot(context, db, familyId, user.id, monthStart),
-                _buildPointsLeaderboard(db, familyId),
-                _buildTodayMeals(context, todayMealPlans),
-                _buildTodayChores(context, choresToday, choresCompletedToday),
-                _buildDevotional(context, todayDevotional),
-                _buildReadingPlan(context, readingPlans),
-                _buildPrayerWall(context, recentPrayer),
-                _buildFitness(context, recentFitness),
-                _buildOpenPolls(context, openPolls),
+                _buildDashboardDeepSectionsToggle(context),
+                if (_showDashboardDeepSections) ...[
+                  _buildBirthdaysSection(db, familyId, today),
+                  RepaintBoundary(child: _buildMonthlySummarySection()),
+                  _buildStatsGrid(
+                    tasksDue: tasksDueToday.length,
+                    choresCompleted: choresCompletedToday,
+                    choresTotal: choresToday.length,
+                    eventsThisMonth: eventsThisMonth,
+                    spentThisMonth: spentThisMonth,
+                    habitsCompleted: habitsCompletedToday,
+                    habitsTotal: habitsToday.length,
+                  ),
+                  _buildEventCountdown(context, upcomingEvents),
+                  _buildRecapCard(now),
+                  _buildTodayFocus(context, todayFocusTasks, overdueTasks, provider),
+                  _buildUpcomingEvents(context, upcomingEvents),
+                  _buildActiveLists(context, activeLists),
+                  _buildBudgetSnapshot(context, db, familyId, user.id, monthStart),
+                  _buildPointsLeaderboard(db, familyId),
+                  _buildTodayMeals(context, todayMealPlans),
+                  _buildTodayChores(context, choresToday, choresCompletedToday),
+                  _buildDevotional(context, todayDevotional),
+                  _buildReadingPlan(context, readingPlans),
+                  _buildPrayerWall(context, recentPrayer),
+                  _buildFitness(context, recentFitness),
+                  _buildOpenPolls(context, openPolls),
+                ],
                 const SizedBox(height: 32),
               ],
             ),
@@ -909,6 +934,63 @@ Return ONLY the JSON array, no markdown.''',
   // ═══════════════════════════════════════════════════════════════════════════
   // Builder methods
   // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Collapses birthdays, stats, and module summaries behind one affordance (Phase H).
+  Widget _buildDashboardDeepSectionsToggle(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 10),
+      child: Material(
+        color: cs.surfaceContainerHighest.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () {
+            HapticFeedback.selectionClick();
+            setState(() => _showDashboardDeepSections = !_showDashboardDeepSections);
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _showDashboardDeepSections ? 'Hide extra home sections' : 'More on Home',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                          color: cs.onSurface,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Birthdays, stats, devotionals, and activity summaries',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 12,
+                          height: 1.3,
+                          color: cs.onSurface.withValues(alpha: 0.55),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  _showDashboardDeepSections ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+                  color: cs.primary,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   // ── Kids Dashboard (restricted member view) ────────────────────────────────
 
@@ -951,17 +1033,24 @@ Return ONLY the JSON array, no markdown.''',
     final myChoresCompleted = myChores.where((c) => completedChoreIds.contains(c.id)).length;
 
     return Scaffold(
-      // backgroundColor handled by theme
-      appBar: AppBar(
-        backgroundColor: AppTheme.surface,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        title: Row(mainAxisSize: MainAxisSize.min, children: [
-          Text(String.fromCharCode(0x2728), style: const TextStyle(fontSize: 18)),
-          const SizedBox(width: 6),
-          const Text('Huddle', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.primary)),
-        ]),
-        centerTitle: false,
+      appBar: SubpageAppBar(
+        titleWidget: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(String.fromCharCode(0x2728), style: const TextStyle(fontSize: 18)),
+            const SizedBox(width: 6),
+            Text(
+              AppConfig.appName,
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontWeight: FontWeight.w800,
+                fontSize: 18,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+          ],
+        ),
+        leading: SubpageLeading.none,
         actions: [
           if (provider.isSyncing)
             const Padding(
@@ -981,13 +1070,17 @@ Return ONLY the JSON array, no markdown.''',
           padding: const EdgeInsets.only(bottom: 32),
           children: [
             // Greeting
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Hey $firstName! \u{1F44B}', style: const TextStyle(fontFamily: 'Inter', fontSize: 28, fontWeight: FontWeight.w900, color: AppTheme.stone900)),
-                const SizedBox(height: 4),
-                Text("It's $dayName, $monthDay. Here's your day.", style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone500)),
-              ]),
+            HuddlePagePadding(
+              horizontal: 20,
+              vertical: 24,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Hey $firstName! \u{1F44B}', style: const TextStyle(fontFamily: 'Inter', fontSize: 28, fontWeight: FontWeight.w900, color: AppTheme.stone900)),
+                  const SizedBox(height: 4),
+                  Text("It's $dayName, $monthDay. Here's your day.", style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone500)),
+                ],
+              ),
             ),
             const SizedBox(height: 20),
 
@@ -1181,10 +1274,21 @@ Return ONLY the JSON array, no markdown.''',
     );
   }
 
-  Widget _buildHeroSection(Family family) {
+  /// “Today” hero: one glance at schedule + load for the day.
+  Widget _buildTodayAtAGlance(
+    BuildContext context,
+    User user,
+    Family family,
+    int taskActionCount,
+    List<CalendarEvent> upcomingWeek,
+  ) {
     final now = DateTime.now();
     final dayName = DateFormat('EEEE').format(now);
     final monthDay = DateFormat('MMMM d').format(now);
+    final userFirst = user.name.trim().isEmpty
+        ? 'there'
+        : user.name.split(RegExp(r'\s+')).first;
+    final fam = family.name.trim();
     final day = now.day;
     String suffix = 'th';
     if (day % 100 < 11 || day % 100 > 13) {
@@ -1194,79 +1298,266 @@ Return ONLY the JSON array, no markdown.''',
         case 3: suffix = 'rd'; break;
       }
     }
+    final next = upcomingWeek.isNotEmpty ? upcomingWeek.first : null;
+    final timeFmt = DateFormat("EEE, MMM d '·' h:mm a");
+    String subtitle;
+    if (next != null) {
+      subtitle = 'Next: ${next.title} — ${timeFmt.format(next.start)}';
+    } else if (taskActionCount > 0) {
+      subtitle =
+          '$taskActionCount thing${taskActionCount == 1 ? '' : 's'} on your list today';
+    } else {
+      subtitle = 'Nothing urgent on the calendar — a good moment to breathe.';
+    }
+    final String welcomeTitle = fam.isEmpty
+        ? 'Hey, $userFirst — $dayName, $monthDay$suffix'
+        : 'Hey, $userFirst · $fam — $dayName, $monthDay$suffix';
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Hey ${family.name}!',
-            style: const TextStyle(fontFamily: 'Inter', fontSize: 28, fontWeight: FontWeight.w900, color: AppTheme.stone900),
+      padding: const EdgeInsets.fromLTRB(20, 22, 20, 0),
+      child: Material(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () {
+            if (next != null) {
+              context.go('/calendar');
+            } else if (taskActionCount > 0) {
+              context.go('/tasks');
+            } else {
+              context.go('/calendar');
+            }
+            HapticFeedback.lightImpact();
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.wb_sunny_outlined,
+                  size: 30,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'TODAY',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1.15,
+                          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.72),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        welcomeTitle,
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.stone900,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 13,
+                          height: 1.35,
+                          color: AppTheme.stone600.withValues(alpha: 0.95),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Tasks, meals, and lists stay scoped to your household.',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 11,
+                          height: 1.35,
+                          color: AppTheme.stone500.withValues(alpha: 0.92),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: AppTheme.stone400,
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            "It's $dayName, $monthDay$suffix. Here's your family at a glance.",
-            style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone500),
-          ),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildPlanChip(BuildContext context, Family family) {
-    String label;
-    switch (family.subscriptionTier) {
-      case SubscriptionTier.trial:
-        label = 'Plan: Free trial';
-        break;
-      case SubscriptionTier.base:
-        label = 'Plan: Base';
-        break;
-      case SubscriptionTier.ai:
-        label = 'Plan: AI';
-        break;
-      case SubscriptionTier.ai_family:
-        label = 'Plan: AI Family';
-        break;
-    }
+  /// First-run hint when the family has no tasks and no events yet.
+  Widget _buildEmptySetupHint(BuildContext context, Family family, String familyId) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-      child: Material(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(12),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: () => context.go('/subscription'),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            child: Row(
-              children: [
-                Icon(Icons.workspace_premium_outlined, size: 18, color: Theme.of(context).colorScheme.primary),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
-                      color: Theme.of(context).colorScheme.onSurface,
-                    ),
-                  ),
-                ),
-                Text(
-                  'Manage',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontWeight: FontWeight.w600,
-                    fontSize: 12,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                ),
-                Icon(Icons.chevron_right_rounded, size: 18, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4)),
-              ],
+      child: SectionCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Start in one place',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontWeight: FontWeight.w800,
+                fontSize: 15,
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Add a calendar event or a task so {name} can show what’s next here.'
+                  .replaceAll('{name}', AppConfig.appName),
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 13,
+                height: 1.35,
+                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.62),
+              ),
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: () => context.go('/calendar'),
+              icon: const Icon(Icons.event_available_rounded, size: 20),
+              label: const Text('Add your first event', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Essentials and/or [User] pins + All tools.
+  Widget _buildHomeQuickActions(BuildContext context, Family family, User user) {
+    final paths = resolvedDashboardQuickPaths(family, user);
+    final hasPins = pinnedModulePathsFromUser(user).isNotEmpty;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (hasPins)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+            child: Text(
+              'Favorites',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontWeight: FontWeight.w800,
+                fontSize: 12,
+                letterSpacing: 0.2,
+                color: AppTheme.stone500,
+              ),
             ),
           ),
+        SizedBox(
+          height: 90,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: EdgeInsets.fromLTRB(20, hasPins ? 8 : 16, 20, 0),
+            itemCount: paths.length + 1,
+            separatorBuilder: (_, __) => const SizedBox(width: 12),
+            itemBuilder: (_, i) {
+              if (i == paths.length) {
+                return _homeQuickCell(
+                  icon: Icons.grid_view_rounded,
+                  label: 'All tools',
+                  color: const Color(0xFF64748B),
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    showAllToolsBottomSheet(context, family: family);
+                  },
+                );
+              }
+              final path = paths[i];
+              final info = getModuleByPath(path);
+              final label = info?.name ?? path;
+              final color = _homeQuickColor(path);
+              final icon = _homeQuickIcon(path);
+              return _homeQuickCell(
+                icon: icon,
+                label: label,
+                color: color,
+                onTap: () {
+                  HapticFeedback.lightImpact();
+                  context.go(path);
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Color _homeQuickColor(String path) {
+    switch (path) {
+      case '/assistant': return const Color(0xFF7C3AED);
+      case '/tasks': return const Color(0xFF6366F1);
+      case '/calendar': return const Color(0xFFF59E0B);
+      case '/meals': return const Color(0xFF10B981);
+      case '/lists': return const Color(0xFF0EA5E9);
+      case '/chores': return const Color(0xFF14B8A6);
+      case '/rewards': return const Color(0xFFEC4899);
+      case '/habits': return const Color(0xFF8B5CF6);
+      default: return AppTheme.primary;
+    }
+  }
+
+  IconData _homeQuickIcon(String path) {
+    switch (path) {
+      case '/assistant': return Icons.auto_awesome_rounded;
+      case '/tasks': return Icons.check_circle_outline_rounded;
+      case '/calendar': return Icons.event_rounded;
+      case '/meals': return Icons.restaurant_rounded;
+      case '/lists': return Icons.checklist_rounded;
+      case '/chores': return Icons.assignment_turned_in_rounded;
+      case '/rewards': return Icons.card_giftcard_rounded;
+      case '/habits': return Icons.track_changes_rounded;
+      default: return Icons.apps_rounded;
+    }
+  }
+
+  Widget _homeQuickCell({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: SizedBox(
+        width: 70,
+        child: Column(
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(icon, size: 22, color: color),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.stone600),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
         ),
       ),
     );
@@ -1385,58 +1676,6 @@ Return ONLY the JSON array, no markdown.''',
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildActionButtons(BuildContext context) {
-    final actions = [
-      _QuickAction(Icons.auto_awesome_rounded, 'Copilot', const Color(0xFF7C3AED), () => context.go('/assistant')),
-      _QuickAction(Icons.add_rounded, 'Add Task', const Color(0xFF6366F1), () => context.go('/tasks')),
-      _QuickAction(Icons.restaurant_rounded, 'Meal Plan', const Color(0xFF10B981), () => context.go('/meals')),
-      _QuickAction(Icons.shopping_cart_rounded, 'Shopping', const Color(0xFF0EA5E9), () => context.go('/lists')),
-      _QuickAction(Icons.event_rounded, 'New Event', const Color(0xFFF59E0B), () => context.go('/calendar')),
-      _QuickAction(Icons.menu_book_rounded, 'Devotional', const Color(0xFF8B5CF6), () => context.go('/devotional')),
-      _QuickAction(Icons.trending_up_rounded, 'Finances', const Color(0xFF16A34A), () => context.go('/budget')),
-    ];
-
-    return SizedBox(
-      height: 88,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-        itemCount: actions.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 12),
-        itemBuilder: (_, i) {
-          final a = actions[i];
-          return GestureDetector(
-            onTap: () { HapticFeedback.lightImpact(); a.onTap(); },
-            child: SizedBox(
-              width: 68,
-              child: Column(
-                children: [
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: a.color.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Icon(a.icon, size: 22, color: a.color),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    a.label,
-                    style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.stone600),
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
       ),
     );
   }
@@ -1587,13 +1826,24 @@ Return ONLY the JSON array, no markdown.''',
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 8, 0),
-              child: Row(
+              child:             Row(
                 children: [
-                  const Icon(Icons.waving_hand_rounded, color: Colors.white, size: 20),
+                  const Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 22),
                   const SizedBox(width: 8),
+                  const Text(
+                    'AI',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 13,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
                   const Expanded(
                     child: Text(
-                      'Try our AI-powered features',
+                      'Try smart features',
                       style: TextStyle(
                         fontFamily: 'Inter',
                         fontSize: 15,
@@ -1749,7 +1999,7 @@ Return ONLY the JSON array, no markdown.''',
               const Expanded(child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('AI Suggestions', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 15, color: Color(0xFF92400E))),
+                  Text('Family AI suggestions', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w800, fontSize: 15, color: Color(0xFF92400E))),
                   Text('Powered by Gemini', style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: Color(0xFFD97706))),
                 ],
               )),
@@ -1785,18 +2035,51 @@ Return ONLY the JSON array, no markdown.''',
                 ]),
               )
             else
-              ..._suggestions.asMap().entries.map((entry) {
-                final idx = entry.key;
-                final s = entry.value;
-                return Padding(
-                  padding: EdgeInsets.only(top: idx > 0 ? 10 : 0),
-                  child: _buildSuggestionCard(s, idx),
-                );
-              }),
+              ..._buildVisibleSuggestionRows(),
+            if (!_suggestionsLoading && _suggestions.length > 2)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Center(
+                  child: TextButton(
+                    onPressed: () {
+                      HapticFeedback.lightImpact();
+                      setState(() => _aiHomeSuggestionsExpanded = !_aiHomeSuggestionsExpanded);
+                    },
+                    child: Text(
+                      _aiHomeSuggestionsExpanded
+                          ? 'Show fewer'
+                          : 'Show all (${_suggestions.length})',
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                        color: Color(0xFFB45309),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
     );
+  }
+
+  List<Widget> _buildVisibleSuggestionRows() {
+    final rows = <Widget>[];
+    final limit = _aiHomeSuggestionsExpanded || _suggestions.length <= 2
+        ? _suggestions.length
+        : 2;
+    for (var i = 0; i < limit; i++) {
+      final s = _suggestions[i];
+      rows.add(
+        Padding(
+          padding: EdgeInsets.only(top: i > 0 ? 10 : 0),
+          child: _buildSuggestionCard(s, i),
+        ),
+      );
+    }
+    return rows;
   }
 
   Widget _buildSuggestionCard(_AISuggestion s, int index) {
@@ -1903,45 +2186,69 @@ Return ONLY the JSON array, no markdown.''',
             if (_monthlySummary != null) ...[
               const SizedBox(height: 12),
               Text(_monthlySummary!['headline']?.toString() ?? '', style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16, color: Colors.white)),
-              const SizedBox(height: 10),
-              if (_monthlySummary!['highlights'] is List)
-                ...(_monthlySummary!['highlights'] as List).map((h) {
-                  final icon = h is Map ? (h['icon']?.toString() ?? '') : '';
-                  final text = h is Map ? (h['text']?.toString() ?? '') : h.toString();
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text('$icon ', style: const TextStyle(fontSize: 14)),
-                      Expanded(child: Text(text, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: Colors.white70))),
-                    ]),
-                  );
-                }),
-              if (_monthlySummary!['encouragement'] != null) ...[
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(12)),
-                  child: Text(_monthlySummary!['encouragement'].toString(), style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: Colors.white, fontStyle: FontStyle.italic)),
-                ),
-              ],
-              if (_monthlySummary!['faithNote'] != null) ...[
-                const SizedBox(height: 8),
-                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Text('\u{1F4D6} ', style: TextStyle(fontSize: 14)),
-                  Expanded(child: Text(_monthlySummary!['faithNote'].toString(), style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white60))),
-                ]),
-              ],
-              if (_monthlySummary!['areasToFocus'] is List) ...[
-                const SizedBox(height: 8),
-                const Text('Focus Areas', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12, color: Colors.white54)),
-                const SizedBox(height: 4),
-                ...(_monthlySummary!['areasToFocus'] as List).map((a) => Padding(
-                  padding: const EdgeInsets.only(bottom: 2),
-                  child: Row(children: [
-                    Container(width: 5, height: 5, margin: const EdgeInsets.only(right: 8), decoration: const BoxDecoration(color: Colors.white54, shape: BoxShape.circle)),
-                    Expanded(child: Text(a.toString(), style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white70))),
+              if (_monthlyNarrativeExpanded) ...[
+                const SizedBox(height: 10),
+                if (_monthlySummary!['highlights'] is List)
+                  ...(_monthlySummary!['highlights'] as List).map((h) {
+                    final icon = h is Map ? (h['icon']?.toString() ?? '') : '';
+                    final text = h is Map ? (h['text']?.toString() ?? '') : h.toString();
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('$icon ', style: const TextStyle(fontSize: 14)),
+                        Expanded(child: Text(text, style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: Colors.white70))),
+                      ]),
+                    );
+                  }),
+                if (_monthlySummary!['encouragement'] != null) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(12)),
+                    child: Text(_monthlySummary!['encouragement'].toString(), style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: Colors.white, fontStyle: FontStyle.italic)),
+                  ),
+                ],
+                if (_monthlySummary!['faithNote'] != null) ...[
+                  const SizedBox(height: 8),
+                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Text('\u{1F4D6} ', style: TextStyle(fontSize: 14)),
+                    Expanded(child: Text(_monthlySummary!['faithNote'].toString(), style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white60))),
                   ]),
-                )),
+                ],
+                if (_monthlySummary!['areasToFocus'] is List) ...[
+                  const SizedBox(height: 8),
+                  const Text('Focus Areas', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12, color: Colors.white54)),
+                  const SizedBox(height: 4),
+                  ...(_monthlySummary!['areasToFocus'] as List).map((a) => Padding(
+                    padding: const EdgeInsets.only(bottom: 2),
+                    child: Row(children: [
+                      Container(width: 5, height: 5, margin: const EdgeInsets.only(right: 8), decoration: const BoxDecoration(color: Colors.white54, shape: BoxShape.circle)),
+                      Expanded(child: Text(a.toString(), style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.white70))),
+                    ]),
+                  )),
+                ],
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    onPressed: () {
+                      HapticFeedback.lightImpact();
+                      setState(() => _monthlyNarrativeExpanded = false);
+                    },
+                    child: const Text('Show less', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12, color: Colors.white70)),
+                  ),
+                ),
+              ] else ...[
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    onPressed: () {
+                      HapticFeedback.lightImpact();
+                      setState(() => _monthlyNarrativeExpanded = true);
+                    },
+                    child: const Text('Show full recap', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12, color: Colors.white)),
+                  ),
+                ),
               ],
             ] else if (!_monthlySummaryLoading)
               const Padding(
@@ -2224,6 +2531,8 @@ Return ONLY the JSON array, no markdown.''',
   }
 
   Widget _buildDevotional(BuildContext context, List<DevotionalEntry> devotionals) {
+    final first =
+        devotionals.isEmpty ? null : devotionalEntryForDisplay(devotionals.first);
     return Container(
       margin: const EdgeInsets.fromLTRB(20, 14, 20, 0),
       padding: const EdgeInsets.all(16),
@@ -2244,9 +2553,9 @@ Return ONLY the JSON array, no markdown.''',
           ]),
           const SizedBox(height: 8),
           if (devotionals.isEmpty)
-            EmptyState(
+            CatalogModuleEmptyState(
               compact: true,
-              emoji: '📖',
+              modulePath: '/devotional',
               emojiSize: 36,
               title: 'No devotionals yet',
               subtitle: 'Open Devotional to read, save favorites, or get today\'s reading.',
@@ -2254,11 +2563,11 @@ Return ONLY the JSON array, no markdown.''',
               onAction: () => context.go('/devotional'),
             )
           else ...[
-            Text(DateFormat('MMM d').format(devotionals.first.date).toUpperCase(), style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.5, color: Color(0xFF3B82F6))),
+            Text(DateFormat('MMM d').format(first!.date).toUpperCase(), style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.5, color: Color(0xFF3B82F6))),
             const SizedBox(height: 4),
-            Text(devotionals.first.title, style: const TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.stone900)),
-            if (devotionals.first.scripture != null)
-              Text(devotionals.first.scripture!, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFF3B82F6))),
+            Text(first.title, style: const TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.stone900)),
+            if (first.scripture != null)
+              Text(first.scripture!, style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFF3B82F6))),
           ],
         ],
       ),

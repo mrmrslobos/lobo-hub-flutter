@@ -9,7 +9,6 @@ import 'package:provider/provider.dart';
 import '../config/theme.dart';
 import '../providers/app_provider.dart';
 import '../services/supabase_service.dart';
-import '../utils/sync_format.dart';
 import '../utils/user_facing_errors.dart';
 
 class ConnectivityWrapper extends StatefulWidget {
@@ -24,6 +23,7 @@ class _ConnectivityWrapperState extends State<ConnectivityWrapper> {
   final Connectivity _connectivity = Connectivity();
   StreamSubscription<List<ConnectivityResult>>? _sub;
   bool _isOffline = false;
+  Timer? _emptyResultsRecheckTimer;
 
   @override
   void initState() {
@@ -40,6 +40,19 @@ class _ConnectivityWrapperState extends State<ConnectivityWrapper> {
   }
 
   void _onChanged(List<ConnectivityResult> results) {
+    _emptyResultsRecheckTimer?.cancel();
+    // Empty lists can appear during WiFi→cellular transitions. [Iterable.every]
+    // is true for empty iterables in Dart, which previously forced "offline".
+    // Strict: treat empty as unknown — keep banner state until we get a non-empty
+    // snapshot (here after debounced [checkConnectivity]).
+    if (results.isEmpty) {
+      _emptyResultsRecheckTimer = Timer(const Duration(milliseconds: 400), () {
+        if (!mounted) return;
+        unawaited(_recheckConnectivity());
+      });
+      return;
+    }
+
     final offline = results.every((r) => r == ConnectivityResult.none);
     if (offline != _isOffline) {
       if (!mounted) return;
@@ -47,8 +60,17 @@ class _ConnectivityWrapperState extends State<ConnectivityWrapper> {
     }
   }
 
+  Future<void> _recheckConnectivity() async {
+    try {
+      final fresh = await _connectivity.checkConnectivity();
+      if (!mounted) return;
+      _onChanged(fresh);
+    } catch (_) {}
+  }
+
   @override
   void dispose() {
+    _emptyResultsRecheckTimer?.cancel();
     _sub?.cancel();
     super.dispose();
   }
@@ -73,17 +95,10 @@ class _ConnectivityWrapperState extends State<ConnectivityWrapper> {
                 onDismiss: provider.clearSyncError,
               );
             }
-            final at = provider.lastSuccessfulSyncAt;
-            if (at != null) {
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _LastSyncedBar(at: at),
-                  _LocalSaveFlash(persistAt: provider.lastLocalPersistAt),
-                ],
-              );
-            }
-            return _LocalSaveFlash(persistAt: provider.lastLocalPersistAt);
+            // No “saved on device” or “last synced” rows here — that caused layout
+            // jumps while typing. Sync state is: purple line while syncing, app bar
+            // icon (spinner → check) when done. See [MainAppBar].
+            return const SizedBox.shrink();
           },
         ),
         Expanded(child: widget.child),
@@ -133,50 +148,10 @@ class _SyncIndicator extends StatelessWidget {
   Widget build(BuildContext context) {
     return Semantics(
       label: 'Syncing with cloud',
-      child: Container(
-        width: double.infinity,
-        height: 2,
-        color: Colors.transparent,
-        child: const LinearProgressIndicator(
-          backgroundColor: Colors.transparent,
-          valueColor: AlwaysStoppedAnimation(AppTheme.primary),
-        ),
-      ),
-    );
-  }
-}
-
-class _LastSyncedBar extends StatelessWidget {
-  final DateTime at;
-  const _LastSyncedBar({required this.at});
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final label = formatRelativeSyncTime(at);
-    return Material(
-      color: cs.surfaceContainerHighest.withValues(alpha: 0.55),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: AppTheme.space5, vertical: AppTheme.space2),
-        child: Row(
-          children: [
-            Icon(Icons.cloud_done_outlined, size: 14, color: cs.onSurfaceVariant),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  color: cs.onSurfaceVariant,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
+      child: const LinearProgressIndicator(
+        minHeight: 2,
+        backgroundColor: Colors.transparent,
+        valueColor: AlwaysStoppedAnimation(AppTheme.primary),
       ),
     );
   }
@@ -309,66 +284,6 @@ class _SyncErrorBannerState extends State<_SyncErrorBanner> {
                       child: const Text('Retry sync'),
                     ),
                   ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Brief confirmation that the latest edit is stored on-device (between cloud syncs).
-class _LocalSaveFlash extends StatefulWidget {
-  final DateTime? persistAt;
-
-  const _LocalSaveFlash({required this.persistAt});
-
-  @override
-  State<_LocalSaveFlash> createState() => _LocalSaveFlashState();
-}
-
-class _LocalSaveFlashState extends State<_LocalSaveFlash> {
-  bool _visible = false;
-  DateTime? _lastSeen;
-
-  @override
-  void didUpdateWidget(covariant _LocalSaveFlash oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    final t = widget.persistAt;
-    if (t != null && t != _lastSeen) {
-      _lastSeen = t;
-      setState(() => _visible = true);
-      Future<void>.delayed(const Duration(milliseconds: 2200), () {
-        if (mounted && widget.persistAt == t) {
-          setState(() => _visible = false);
-        }
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!_visible) return const SizedBox.shrink();
-    final cs = Theme.of(context).colorScheme;
-    return Semantics(
-      label: 'Saved on this device',
-      child: Material(
-        color: const Color(0xFF16A34A).withValues(alpha: 0.1),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-          child: Row(
-            children: [
-              Icon(Icons.check_circle_outline_rounded, size: 14, color: cs.primary),
-              const SizedBox(width: 6),
-              Text(
-                'Saved on this device',
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: cs.onSurface.withValues(alpha: 0.75),
                 ),
               ),
             ],

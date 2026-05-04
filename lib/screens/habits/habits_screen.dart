@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../config/app_design_tokens.dart';
 import '../../config/cloud_sync_scope.dart';
 import '../../config/module_config.dart';
 import '../../config/theme.dart';
@@ -12,6 +13,8 @@ import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/module_ui_kit.dart';
 import '../../utils/debounce.dart';
 import '../../utils/cloud_pull.dart';
 
@@ -64,6 +67,7 @@ class _HabitsScreenState extends State<HabitsScreen> {
   final _searchCtrl = TextEditingController();
   final _searchDebounce = Debouncer();
   String _searchQuery = '';
+  bool _pullRefreshing = false;
 
   bool _canManageHabit(AppProvider provider, DailyHabit habit) {
     final userId = provider.activeUser?.id;
@@ -97,7 +101,7 @@ class _HabitsScreenState extends State<HabitsScreen> {
     final db = provider.db;
 
     if (user == null || family == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const ModuleFamilyLoadingScaffold();
     }
 
     final today = DateTime.now();
@@ -128,13 +132,21 @@ class _HabitsScreenState extends State<HabitsScreen> {
       if (s > bestStreak) bestStreak = s;
     }
 
-    return Scaffold(
+    return HuddleModuleScaffold(
+      modulePath: '/habits',
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),
-      body: RefreshIndicator(
+      child: RefreshIndicator(
         color: AppTheme.primary,
-        onRefresh: () => pullCloudLatestWithHaptic(context),
+        onRefresh: () async {
+          setState(() => _pullRefreshing = true);
+          try {
+            await pullCloudLatestWithHaptic(context);
+          } finally {
+            if (mounted) setState(() => _pullRefreshing = false);
+          }
+        },
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.only(bottom: 32),
@@ -202,7 +214,7 @@ class _HabitsScreenState extends State<HabitsScreen> {
                   },
                   decoration: InputDecoration(
                     hintText: 'Search habits…',
-                    hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
+                    hintStyle: TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
                     prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.stone400),
                     suffixIcon: _searchQuery.isNotEmpty
                         ? IconButton(
@@ -227,25 +239,34 @@ class _HabitsScreenState extends State<HabitsScreen> {
 
             // ─── Habit list ──────────────────────────────────────
             if (allHabits.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: OnboardingCard(
-                  emoji: '\u{1F3AF}',
-                  title: 'Start Tracking Habits',
-                  bullets: [
-                    'Build positive daily routines',
-                    'Track streaks and progress',
-                    'Share habits with family members',
-                  ],
-                  actionLabel: '+ Add Habit',
-                  onAction: () => _showAddHabitSheet(context, user, family, db, provider),
-                ),
-              )
+              _pullRefreshing
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 20),
+                      child: ModuleListSkeleton(
+                        rows: 5,
+                        indent: 4,
+                        style: ModuleSkeletonStyle.listRows,
+                      ),
+                    )
+                  : Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: OnboardingCard(
+                        emoji: '\u{1F3AF}',
+                        title: 'Start Tracking Habits',
+                        bullets: [
+                          'Build positive daily routines',
+                          'Track streaks and progress',
+                          'Share habits with family members',
+                        ],
+                        actionLabel: '+ Add Habit',
+                        onAction: () => _showAddHabitSheet(context, user, family, db, provider),
+                      ),
+                    )
             else if (habitsForUi.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: EmptyState(
-                  emoji: '🔍',
+                child: CatalogModuleEmptyState(
+                  modulePath: '/habits',
                   title: 'No matching habits',
                   subtitle: 'Try a different search term',
                 ),
@@ -257,12 +278,12 @@ class _HabitsScreenState extends State<HabitsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Section header
-                    const Padding(
-                      padding: EdgeInsets.only(left: 4, bottom: 10),
-                      child: Text('TODAY\'S HABITS', style: TextStyle(
-                        fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800,
-                        color: AppTheme.stone400, letterSpacing: 1.1,
-                      )),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 4, bottom: 10),
+                      child: Text(
+                        'TODAY\'S HABITS',
+                        style: HuddleTypography.sectionRail(Theme.of(context).colorScheme),
+                      ),
                     ),
                     ...habitsForUi.map((habit) {
                       final isDone = todayCompletions.any((c) => c.habitId == habit.id);
@@ -401,16 +422,16 @@ class _HabitsScreenState extends State<HabitsScreen> {
                     color: AppTheme.primary.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(11),
                   ),
-                  child: Center(child: Text(habit.emoji, style: const TextStyle(fontSize: 20))),
+                  child: Center(child: Text(habit.emoji, style: TextStyle(fontSize: 20))),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(habit.title, style: const TextStyle(fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.stone900)),
+                    Text(habit.title, style: TextStyle(fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.stone900)),
                     if (habit.frequency != null)
                       Text(
                         habit.frequency!.substring(0, 1).toUpperCase() + habit.frequency!.substring(1),
-                        style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
+                        style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
                       ),
                   ]),
                 ),
@@ -462,7 +483,7 @@ class _HabitsScreenState extends State<HabitsScreen> {
                     ]),
                     content: Text(
                       'Delete "${habit.title}" and all its history? This cannot be undone.',
-                      style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone600),
+                      style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone600),
                     ),
                     actions: [
                       TextButton(
@@ -565,10 +586,10 @@ class _MiniStat extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(value, style: const TextStyle(
+                Text(value, style: TextStyle(
                   fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.stone800,
                 )),
-                Text(label, style: const TextStyle(
+                Text(label, style: TextStyle(
                   fontFamily: 'Inter', fontSize: 9, fontWeight: FontWeight.w600, color: AppTheme.stone400,
                 )),
               ],
@@ -617,7 +638,7 @@ class _ProgressCard extends StatelessWidget {
                   color: Colors.white.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Text('$completed / $total', style: const TextStyle(
+                child: Text('$completed / $total', style: TextStyle(
                   fontFamily: 'Inter', color: Colors.white, fontWeight: FontWeight.w800, fontSize: 14,
                 )),
               ),
@@ -694,7 +715,7 @@ class _HabitCard extends StatelessWidget {
                     : AppTheme.stone50,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Center(child: Text(habit.emoji, style: const TextStyle(fontSize: 22))),
+              child: Center(child: Text(habit.emoji, style: TextStyle(fontSize: 22))),
             ),
             const SizedBox(width: 12),
 
@@ -716,7 +737,7 @@ class _HabitCard extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       habit.description!,
-                      style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
+                      style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone500),
                       maxLines: 1, overflow: TextOverflow.ellipsis,
                     ),
                   ],
@@ -732,7 +753,7 @@ class _HabitCard extends StatelessWidget {
                         child: Row(mainAxisSize: MainAxisSize.min, children: [
                           const Text('\u{1F525}', style: TextStyle(fontSize: 10)),
                           const SizedBox(width: 3),
-                          Text('$streak day${streak == 1 ? '' : 's'}', style: const TextStyle(
+                          Text('$streak day${streak == 1 ? '' : 's'}', style: TextStyle(
                             fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFFF59E0B),
                           )),
                         ]),
@@ -759,7 +780,7 @@ class _HabitCard extends StatelessWidget {
                     if (habit.targetValue != null && habit.targetUnit != null)
                       Text(
                         '${habit.targetValue} ${habit.targetUnit}',
-                        style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400),
+                        style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400),
                       ),
                   ]),
                 ],
@@ -900,7 +921,7 @@ class _AddHabitSheetState extends State<_AddHabitSheet> {
                     const SizedBox(width: 10),
                     Text(
                       _isEditing ? 'Edit Habit' : 'New Habit',
-                      style: const TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.stone900),
+                      style: TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.stone900),
                     ),
                   ]),
                   const SizedBox(height: 20),
@@ -1002,7 +1023,7 @@ class _AddHabitSheetState extends State<_AddHabitSheet> {
                           ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(Colors.white)))
                           : Text(
                               _isEditing ? 'Save Changes' : 'Add Habit',
-                              style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15),
+                              style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15),
                             ),
                     ),
                   ),
@@ -1022,7 +1043,7 @@ class _AddHabitSheetState extends State<_AddHabitSheet> {
       textCapitalization: keyboardType == TextInputType.text ? TextCapitalization.sentences : TextCapitalization.none,
       decoration: InputDecoration(
         hintText: hint,
-        hintStyle: const TextStyle(color: AppTheme.stone300, fontFamily: 'Inter', fontSize: 14),
+        hintStyle: TextStyle(color: AppTheme.stone300, fontFamily: 'Inter', fontSize: 14),
         filled: true,
         fillColor: AppTheme.stone50,
         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -1078,7 +1099,7 @@ class _EmojiPicker extends StatelessWidget {
                 width: isSelected ? 2 : 1,
               ),
             ),
-            child: Center(child: Text(emoji, style: const TextStyle(fontSize: 18))),
+            child: Center(child: Text(emoji, style: TextStyle(fontSize: 18))),
           ),
         );
       },

@@ -22,6 +22,10 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Huddle uses the microphone so you can speak requests to Ask Huddle.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Huddle uses on-device speech recognition to turn your voice into text for Ask Huddle.</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UISupportedInterfaceOrientations</key>

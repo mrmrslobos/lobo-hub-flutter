@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../config/theme.dart';
+import 'ai_affordance.dart';
 import '../models/models.dart';
 import '../providers/app_provider.dart';
 import '../services/ai_service.dart';
@@ -71,7 +72,7 @@ const _paywallCopy = <AiPaywallKind, _PaywallCopy>{
       'Same account works across tasks, meals, budget, and more',
       'Cancel anytime from your store settings',
       'Kids’ data stays under your family’s control',
-      'Optional AI Family plan for larger households',
+      'Optional AI Family plan for up to 2 adults + 2 under-16',
     ],
   ),
   AiPaywallKind.tasks: _PaywallCopy(
@@ -219,20 +220,27 @@ class SubscriptionModal extends StatelessWidget {
           const Text('👑', style: TextStyle(fontSize: 48)),
           const SizedBox(height: 16),
 
-          const Text(
-            'Upgrade for AI',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: AppTheme.stone900,
-            ),
-            textAlign: TextAlign.center,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: const [
+              AiGlyph(size: 26),
+              SizedBox(width: 8),
+              Text(
+                'Upgrade for AI',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.stone900,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
 
           Text(
             copy.subtitle,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 15,
               height: 1.35,
               color: AppTheme.stone600,
@@ -272,7 +280,7 @@ class SubscriptionModal extends StatelessWidget {
                   ),
                   child: Text(
                     cta,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
                     ),
@@ -335,7 +343,7 @@ class _FeatureList extends StatelessWidget {
                       Expanded(
                         child: Text(
                           f,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 14,
                             color: AppTheme.stone900,
                             height: 1.4,
@@ -405,7 +413,7 @@ class UpgradePrompt extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   'Upgrade to unlock $feature',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 13,
                     color: AppTheme.stone700,
                   ),

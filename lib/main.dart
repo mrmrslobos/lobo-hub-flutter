@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -13,8 +16,49 @@ import 'services/crash_reporting_service.dart';
 import 'services/notification_service.dart';
 import 'services/purchase_service.dart';
 
+/// Replace Flutter’s default red error panels in release/profile with a calm fallback (Phase E).
+void _configureProductionErrorPresentation() {
+  ErrorWidget.builder = (FlutterErrorDetails details) {
+    if (kDebugMode) {
+      return ErrorWidget(details.exception);
+    }
+    return const Material(
+      child: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.widgets_outlined, size: 44, color: Color(0xFF94A3B8)),
+                SizedBox(height: 14),
+                Text(
+                  'Something went wrong',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF334155),
+                  ),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'Try going back or reopening this screen.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  };
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  _configureProductionErrorPresentation();
 
   // Set preferred orientations
   await SystemChrome.setPreferredOrientations([
@@ -46,17 +90,6 @@ void main() async {
     );
   }
 
-  // Initialize notification service
-  await NotificationService.init();
-
-  // Crashlytics after Firebase may have been initialized by notifications (FCM).
-  await CrashReportingService.init();
-
-  // Initialize purchase service if keys are provided
-  const iosKey = String.fromEnvironment('RC_IOS_KEY', defaultValue: '');
-  const androidKey = String.fromEnvironment('RC_ANDROID_KEY', defaultValue: '');
-  await PurchaseService.init(iosApiKey: iosKey, androidApiKey: androidKey);
-
   final dataProvider = DataProvider();
   final themeProvider = ThemeProvider();
   final authProvider = AuthProvider(dataProvider);
@@ -71,7 +104,18 @@ void main() async {
     themeProvider: themeProvider,
   );
 
-  await appProvider.initialize();
+  const iosKey = String.fromEnvironment('RC_IOS_KEY', defaultValue: '');
+  const androidKey = String.fromEnvironment('RC_ANDROID_KEY', defaultValue: '');
+
+  // Notifications / Firebase / IAP must not block the first frame (cold start UX).
+  void startDeferredBootstrap() {
+    unawaited(NotificationService.init());
+    unawaited(CrashReportingService.init());
+    unawaited(PurchaseService.init(iosApiKey: iosKey, androidApiKey: androidKey));
+    unawaited(appProvider.initialize());
+  }
+
+  scheduleMicrotask(startDeferredBootstrap);
 
   runApp(
     MultiProvider(

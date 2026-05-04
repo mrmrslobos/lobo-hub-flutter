@@ -84,7 +84,7 @@ class AuthProvider extends ChangeNotifier {
     String email,
     String? displayName,
   ) async {
-    await SupabaseService.claimOwnedFamilies();
+    unawaited(SupabaseService.claimOwnedFamilies());
 
     var user = dataProvider.db.users.firstWhereOrNull((u) => u.id == userId);
 
@@ -98,7 +98,14 @@ class AuthProvider extends ChangeNotifier {
     }
 
     List<Map<String, dynamic>> cloudMemberRows = [];
-    if (SupabaseService.isConfigured) {
+    final dbSnapshot = dataProvider.db;
+    final bool localLooksComplete = user != null &&
+        knownFamilyId != null &&
+        dbSnapshot.families.any((f) => f.id == knownFamilyId) &&
+        dbSnapshot.familyMembers
+            .any((m) => m.userId == userId && m.familyId == knownFamilyId);
+
+    if (!localLooksComplete && SupabaseService.isConfigured) {
       try {
         final memberships = await SupabaseService.client
             .from('family_members')
@@ -133,14 +140,21 @@ class AuthProvider extends ChangeNotifier {
 
     if (knownFamilyId != null && SupabaseService.isConfigured) {
       try {
-        final famRow = await SupabaseService.client
-            .from('families')
-            .select('join_code')
-            .eq('id', knownFamilyId)
-            .maybeSingle();
-        final jc = famRow != null ? famRow['join_code'] as String? : null;
-        if (jc != null && jc.isNotEmpty) {
-          await FieldEncryption.init(knownFamilyId, jc);
+        final famLocal =
+            dataProvider.db.families.firstWhereOrNull((f) => f.id == knownFamilyId);
+        final jcLocal = famLocal?.joinCode;
+        if (jcLocal != null && jcLocal.isNotEmpty) {
+          await FieldEncryption.init(knownFamilyId, jcLocal);
+        } else {
+          final famRow = await SupabaseService.client
+              .from('families')
+              .select('join_code')
+              .eq('id', knownFamilyId)
+              .maybeSingle();
+          final jc = famRow != null ? famRow['join_code'] as String? : null;
+          if (jc != null && jc.isNotEmpty) {
+            await FieldEncryption.init(knownFamilyId, jc);
+          }
         }
       } catch (e) {
         debugPrint('[AuthProvider] join_code fetch: $e');
@@ -183,6 +197,13 @@ class AuthProvider extends ChangeNotifier {
   }) async {
     if (familyId.isEmpty) return;
 
+    final db = dataProvider.db;
+    final hasFam = db.families.any((f) => f.id == familyId);
+    final hasMem =
+        db.familyMembers.any((m) => m.userId == userId && m.familyId == familyId);
+    final hasUser = db.users.any((u) => u.id == userId);
+    if (hasFam && hasMem && hasUser) return;
+
     var rowsForFamily =
         membershipRowsForUser.where((r) => r['family_id']?.toString() == familyId).toList();
     if (rowsForFamily.isEmpty && SupabaseService.isConfigured) {
@@ -198,13 +219,6 @@ class AuthProvider extends ChangeNotifier {
       }
     }
     if (rowsForFamily.isEmpty) return;
-
-    final db = dataProvider.db;
-    final hasFam = db.families.any((f) => f.id == familyId);
-    final hasMem =
-        db.familyMembers.any((m) => m.userId == userId && m.familyId == familyId);
-    final hasUser = db.users.any((u) => u.id == userId);
-    if (hasFam && hasMem && hasUser) return;
 
     try {
       Family? family;

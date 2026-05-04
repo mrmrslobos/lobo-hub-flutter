@@ -13,6 +13,8 @@ import '../../providers/app_provider.dart';
 import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/module_ui_kit.dart';
 import '../../utils/debounce.dart';
 
 // ─── Icon & Color palettes for chore creation ────────────────────────────────
@@ -326,18 +328,18 @@ class _ChoresScreenState extends State<ChoresScreen> {
                       borderRadius: BorderRadius.circular(10),
                     ),
                     alignment: Alignment.center,
-                    child: Text(chore.icon ?? _guessEmoji(chore.title), style: const TextStyle(fontSize: 20)),
+                    child: Text(chore.icon ?? _guessEmoji(chore.title), style: TextStyle(fontSize: 20)),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(chore.title, style: const TextStyle(
+                        Text(chore.title, style: TextStyle(
                           fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w700, color: AppTheme.stone900,
                         )),
                         if (chore.description != null)
-                          Text(chore.description!, style: const TextStyle(
+                          Text(chore.description!, style: TextStyle(
                             fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400,
                           ), maxLines: 1, overflow: TextOverflow.ellipsis),
                       ],
@@ -412,7 +414,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
                 child: const Icon(Icons.pending_actions_rounded, size: 16, color: AppTheme.warning),
               ),
               const SizedBox(width: 10),
-              Text('Pending Approvals', style: const TextStyle(
+              Text('Pending Approvals', style: TextStyle(
                 fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15, color: AppTheme.stone900,
               )),
               const SizedBox(width: 8),
@@ -422,7 +424,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
                   color: AppTheme.warning.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Text('${pending.length}', style: const TextStyle(
+                child: Text('${pending.length}', style: TextStyle(
                   fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.warning,
                 )),
               ),
@@ -441,11 +443,11 @@ class _ChoresScreenState extends State<ChoresScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(chore?.title ?? 'Chore', style: const TextStyle(
+                        Text(chore?.title ?? 'Chore', style: TextStyle(
                           fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone800,
                         )),
                         Text('$firstName \u00B7 ${DateFormat.MMMd().format(cc.date)}',
-                          style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
+                          style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
                         ),
                       ],
                     ),
@@ -456,7 +458,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
                       color: AppTheme.primary.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Text('+${chore?.points ?? 0}', style: const TextStyle(
+                    child: Text('+${chore?.points ?? 0}', style: TextStyle(
                       fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.primary,
                     )),
                   ),
@@ -504,7 +506,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
     final user = provider.activeUser;
     final family = provider.activeFamily;
     if (user == null || family == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const ModuleFamilyLoadingScaffold();
     }
 
     final familyId = family.id;
@@ -569,11 +571,12 @@ class _ChoresScreenState extends State<ChoresScreen> {
       }
     }
 
-    return Scaffold(
+    return HuddleModuleScaffold(
+      modulePath: '/chores',
       drawer: const AppDrawer(),
       // backgroundColor handled by theme
       appBar: const MainAppBar(),
-      body: ListView(
+      child: ListView(
         padding: EdgeInsets.zero,
         children: [
           // ── Page Header ──────────────────────────────────────────
@@ -696,7 +699,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
                     children: [
                       Text(
                         '$todayDone',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontFamily: 'Inter', fontSize: 40, fontWeight: FontWeight.w900, color: Colors.white, height: 1,
                         ),
                       ),
@@ -720,7 +723,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
                           ),
                           child: Text(
                             '${(todayDone / totalExpected * 100).round()}%',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white,
                             ),
                           ),
@@ -912,17 +915,17 @@ class _ChoresScreenState extends State<ChoresScreen> {
                                         borderRadius: BorderRadius.circular(10),
                                       ),
                                       alignment: Alignment.center,
-                                      child: Text(choreIcon, style: const TextStyle(fontSize: 18)),
+                                      child: Text(choreIcon, style: TextStyle(fontSize: 18)),
                                     ),
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          Text(row.chore.title, style: const TextStyle(
+                                          Text(row.chore.title, style: TextStyle(
                                             fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.stone800,
                                           ), maxLines: 1, overflow: TextOverflow.ellipsis),
-                                          Text(row.userName, style: const TextStyle(
+                                          Text(row.userName, style: TextStyle(
                                             fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400,
                                           )),
                                         ],
@@ -1043,7 +1046,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
                                     children: [
                                       Text(
                                         isMe ? 'You' : member.name.split(' ').first,
-                                        style: const TextStyle(
+                                        style: TextStyle(
                                           fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.stone800,
                                         ),
                                       ),
@@ -1054,7 +1057,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
                                           children: memberChores.where((c) =>
                                               !_isDoneOnDay(c.id, member.id, today, completions)).take(3).map((c) {
                                             final icon = c.icon ?? _guessEmoji(c.title);
-                                            return Text('$icon ${c.title}', style: const TextStyle(
+                                            return Text('$icon ${c.title}', style: TextStyle(
                                               fontFamily: 'Inter', fontSize: 11, color: AppTheme.stone400,
                                             ));
                                           }).toList(),
@@ -1106,40 +1109,13 @@ class _ChoresScreenState extends State<ChoresScreen> {
   Widget _buildEmptyState() {
     final hasSearch = _searchQuery.isNotEmpty;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 32),
-      child: Center(
-        child: Column(
-          children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: const BoxDecoration(
-                color: AppTheme.stone50,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                hasSearch ? Icons.search_off_rounded : Icons.assignment_turned_in_outlined,
-                size: 28,
-                color: AppTheme.stone300,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              hasSearch ? 'No matching chores' : 'No chores yet',
-              style: const TextStyle(
-                fontFamily: 'Inter', fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.stone500,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              hasSearch ? 'Try a different search term' : 'Tap "Add Chore" to get started',
-              style: const TextStyle(
-                fontFamily: 'Inter', fontSize: 13, color: AppTheme.stone400,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
+      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 16),
+      child: CatalogModuleEmptyState(
+        modulePath: '/chores',
+        title: hasSearch ? 'No matching chores' : 'No chores yet',
+        subtitle: hasSearch ? 'Try a different search term' : 'Tap "Add Chore" to get started',
+        actionLabel: hasSearch ? null : 'Add chore',
+        onAction: hasSearch ? null : () => _showAddSheet(),
       ),
     );
   }
@@ -1189,7 +1165,7 @@ class _StatCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(value, style: TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w800, color: color)),
-                  Text(label, style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w600, color: AppTheme.stone400)),
+                  Text(label, style: TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w600, color: AppTheme.stone400)),
                 ],
               ),
             ),
@@ -1349,7 +1325,7 @@ class _ChoreFormSheetState extends State<_ChoreFormSheet> {
                   const SizedBox(width: 12),
                   Text(
                     _isEditing ? 'Edit Chore' : 'New Chore',
-                    style: const TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.stone900),
+                    style: TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.stone900),
                   ),
                   const Spacer(),
                   IconButton(
@@ -1426,7 +1402,7 @@ class _ChoreFormSheetState extends State<_ChoreFormSheet> {
                                       border: selected ? Border.all(color: AppTheme.primary, width: 2) : Border.all(color: AppTheme.stone200),
                                     ),
                                     alignment: Alignment.center,
-                                    child: Text(_choreIcons[i], style: const TextStyle(fontSize: 18)),
+                                    child: Text(_choreIcons[i], style: TextStyle(fontSize: 18)),
                                   ),
                                 );
                               }),
@@ -1762,7 +1738,7 @@ class _ChoreFormSheetState extends State<_ChoreFormSheet> {
                       ),
                       child: _isSaving
                           ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                          : Text(_isEditing ? 'Save Changes' : 'Create Chore', style: const TextStyle(
+                          : Text(_isEditing ? 'Save Changes' : 'Create Chore', style: TextStyle(
                               fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16,
                             )),
                     ),
@@ -1804,6 +1780,6 @@ class _ChoreFormSheetState extends State<_ChoreFormSheet> {
 
   Widget _sectionLabel(String label) => Text(
     label,
-    style: const TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.stone700),
+    style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.stone700),
   );
 }

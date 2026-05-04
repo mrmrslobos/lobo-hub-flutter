@@ -1,8 +1,13 @@
 // lib/screens/meals/meals_screen.dart
 // Meal planning + recipe library screen for Huddle
 
+import 'dart:async' show unawaited;
 import 'dart:convert';
-import 'package:flutter/material.dart';
+import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/material.dart' hide Visibility;
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -16,6 +21,9 @@ import '../../services/meal_macros.dart';
 import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/huddle_page_layout.dart';
+import '../../widgets/huddle_subpage_scaffold.dart';
 import '../../services/ai_service.dart';
 import '../../services/locale_service.dart';
 import '../../config/app_config.dart';
@@ -77,6 +85,30 @@ const _mealTypeEmojis = {
   'snack': '🍎',
 };
 
+/// Editable row in pantry photo preview (before save).
+class _PantryDraftEditable {
+  String name;
+  String quantity;
+  String unit;
+  bool selected;
+  /// True if this name matched pantry when the scan ran (hint only).
+  final bool startsAsDuplicate;
+
+  _PantryDraftEditable({
+    required this.name,
+    this.quantity = '',
+    this.unit = '',
+    required this.selected,
+    required this.startsAsDuplicate,
+  });
+}
+
+class _PantrySheetResult {
+  final bool planWeekAfter;
+  final List<_PantryDraftEditable> rows;
+  const _PantrySheetResult({required this.planWeekAfter, required this.rows});
+}
+
 const _tagEmojis = {
   'vegetarian': '🥦',
   'vegan': '🌱',
@@ -133,6 +165,8 @@ class _MealsScreenState extends State<MealsScreen>
   // AI Week Planner
   final _weekPlannerController = TextEditingController();
   bool _weekPlannerLoading = false;
+  /// True while vision → pantry → week plan pipeline runs.
+  bool _pantryPhotoFlowLoading = false;
   bool _pantryFirstWeek = true;
   final _kcalTargetCtrl = TextEditingController();
   final _proteinTargetCtrl = TextEditingController();
@@ -442,10 +476,10 @@ Return a JSON array of exactly 3 objects, each with these fields:
   }
 
   // ── AI Week Planner ──
-  Future<void> _generateWeekPlan() async {
+  Future<void> _generateWeekPlan({String? preferenceOverride}) async {
     if (SubscriptionModal.guardAI(context, kind: AiPaywallKind.meals)) return;
     if (!_requireFamilyOwnerForHouseholdMeals('run the AI week planner.')) return;
-    final prefs = _weekPlannerController.text.trim();
+    final prefs = (preferenceOverride ?? _weekPlannerController.text).trim();
     if (prefs.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter your meal preferences'), behavior: SnackBarBehavior.floating),
@@ -722,7 +756,7 @@ Return a JSON array of 7 objects, each with:
         dbState,
         pushTableScope: CloudSyncScope.mealsPlannerBundle,
       );
-      if (provider.activeFamily != null) await provider.syncTasksNow();
+      if (provider.activeFamily != null) unawaited(provider.syncTasksNow());
 
       try {
         NotificationService.notifyFamilyActivityWithDb(
@@ -751,6 +785,198 @@ Return a JSON array of 7 objects, each with:
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Could not generate meal plan. Please try again.'), behavior: SnackBarBehavior.floating),
         );
+      }
+    }
+  }
+
+  Future<XFile?> _pickPantryImage() async {
+    final picker = ImagePicker();
+    if (kIsWeb) {
+      return picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 3200,
+        imageQuality: 88,
+      );
+    }
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Take photo'),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Choose from library'),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null || !mounted) return null;
+    return picker.pickImage(
+      source: source,
+      maxWidth: 3200,
+      imageQuality: 88,
+    );
+  }
+
+  /// Vision → preview sheet → add to pantry (optional week plan).
+  Future<void> _openPantryPhotoScan() async {
+    if (SubscriptionModal.guardAI(context, kind: AiPaywallKind.meals)) return;
+    if (!_requireFamilyOwnerForHouseholdMeals('scan the pantry from a photo.')) return;
+
+    final img = await _pickPantryImage();
+    if (img == null || !mounted) return;
+
+    setState(() => _pantryPhotoFlowLoading = true);
+    try {
+      final bytes = await img.readAsBytes();
+      if (!mounted) return;
+      final b64 = base64Encode(bytes);
+      final mime = img.mimeType ?? 'image/jpeg';
+
+      final provider = context.read<AppProvider>();
+      final family = provider.activeFamily;
+      final user = provider.activeUser;
+      if (family == null || user == null) return;
+
+      final decoded = await AiService.extractPantryItemsFromImage(
+        familyId: family.id,
+        imageBase64: b64,
+        mimeType: mime,
+      );
+      if (!mounted) return;
+      if (decoded == null) {
+        _showSnack(context, 'Could not read the photo. Try a clearer picture or check your connection.');
+        return;
+      }
+      final rawList = decoded['items'];
+      if (rawList is! List || rawList.isEmpty) {
+        _showSnack(context, 'No food items were recognized. Try a wider shot with better light.');
+        return;
+      }
+
+      final db = provider.db;
+      final existingKeys = <String>{
+        for (final p in db.pantryItems.where((e) => e.familyId == family.id))
+          p.name.toLowerCase().trim(),
+      };
+      final drafts = <_PantryDraftEditable>[];
+      for (final item in rawList) {
+        if (item is! Map) continue;
+        final m = Map<String, dynamic>.from(item);
+        final name = m['name']?.toString().trim() ?? '';
+        if (name.isEmpty) continue;
+        final key = name.toLowerCase();
+        final isDup = existingKeys.contains(key);
+        final qtyRaw = m['quantity']?.toString().trim() ?? '';
+        final unitRaw = m['unit']?.toString().trim() ?? '';
+        drafts.add(_PantryDraftEditable(
+          name: name,
+          quantity: qtyRaw,
+          unit: unitRaw,
+          selected: !isDup,
+          startsAsDuplicate: isDup,
+        ));
+      }
+
+      if (drafts.isEmpty) {
+        _showSnack(context, 'No usable items to preview.');
+        return;
+      }
+
+      if (!mounted) return;
+      setState(() => _pantryPhotoFlowLoading = false);
+
+      final sheetResult = await showModalBottomSheet<_PantrySheetResult?>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (ctx) => _PantryScanPreviewSheet(
+          imageBytes: bytes,
+          drafts: drafts,
+        ),
+      );
+
+      if (!mounted || sheetResult == null) return;
+
+      final takenKeys = <String>{
+        for (final p in context.read<AppProvider>().db.pantryItems.where((e) => e.familyId == family.id))
+          p.name.toLowerCase().trim(),
+      };
+      final newItems = <PantryItem>[];
+      for (final d in sheetResult.rows) {
+        if (!d.selected) continue;
+        final name = d.name.trim();
+        if (name.isEmpty) continue;
+        final key = name.toLowerCase();
+        if (takenKeys.contains(key)) continue;
+        takenKeys.add(key);
+        final q = d.quantity.trim();
+        final u = d.unit.trim();
+        newItems.add(PantryItem(
+          id: const Uuid().v4(),
+          familyId: family.id,
+          name: name,
+          quantity: q.isEmpty ? null : q,
+          unit: u.isEmpty ? null : u,
+          updatedAt: DateTime.now(),
+        ));
+      }
+
+      if (newItems.isEmpty) {
+        _showSnack(context, 'No new items to add (check selections or rename duplicates).');
+        if (sheetResult.planWeekAfter) {
+          setState(() => _pantryFirstWeek = true);
+          await _generateWeekPlan(
+            preferenceOverride:
+                'Plan a balanced week of family meals using our pantry list. '
+                'Prefer what we already have; keep meals realistic and varied.',
+          );
+        }
+        return;
+      }
+
+      await provider.saveAndSync(
+        provider.db.copyWith(pantryItems: [...provider.db.pantryItems, ...newItems]),
+        pushTableScope: CloudSyncScope.mealsExtendedBundle,
+      );
+      if (mounted) {
+        _showSnack(context, 'Added ${newItems.length} item${newItems.length == 1 ? '' : 's'} to pantry.');
+      }
+
+      if (!sheetResult.planWeekAfter || !mounted) return;
+      setState(() => _pantryFirstWeek = true);
+      await _generateWeekPlan(
+        preferenceOverride:
+            'Plan a balanced week of family meals using ingredients from our pantry list '
+            '(including items we just added from a fridge/pantry photo). '
+            'Prefer using what we already have; keep meals realistic and varied.',
+      );
+    } on AINotAvailableException {
+      if (mounted) {
+        _showSnack(context, 'AI meal planning requires an AI-enabled plan.');
+      }
+    } catch (e, st) {
+      debugPrint('[Meals] pantry photo flow: $e\n$st');
+      if (mounted) {
+        _showSnack(context, 'Something went wrong. Please try again.');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _pantryPhotoFlowLoading = false);
       }
     }
   }
@@ -1117,6 +1343,9 @@ Return a JSON array of 7 objects, each with:
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
+    if (provider.activeUser == null || provider.activeFamily == null) {
+      return const ModuleFamilyLoadingScaffold();
+    }
     final familyId = provider.activeFamily?.id ?? '';
     final now = DateTime.now();
     final monday = now.subtract(Duration(days: now.weekday - 1));
@@ -1132,11 +1361,12 @@ Return a JSON array of 7 objects, each with:
         .toList()
       ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
-    return Scaffold(
+    return HuddleModuleScaffold(
+      modulePath: '/meals',
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),
-      body: RefreshIndicator(
+      child: RefreshIndicator(
         color: AppTheme.primary,
         onRefresh: () => pullCloudLatestWithHaptic(context),
         child: SingleChildScrollView(
@@ -1148,7 +1378,7 @@ Return a JSON array of 7 objects, each with:
               // ── Page Header ──
               PageHeader(
                 title: screenTitleForModulePath('/meals'),
-                subtitle: 'Plan nutrition and manage family recipes.',
+                subtitle: 'Plan meals together — this week’s slots and recipes in one place.',
                 actions: [
                   ActionChipButton(
                     icon: Icons.add_rounded,
@@ -1246,6 +1476,28 @@ Return a JSON array of 7 objects, each with:
                         fontFamily: 'Inter',
                         fontSize: 12,
                         color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.tonalIcon(
+                        onPressed: (_pantryPhotoFlowLoading || _weekPlannerLoading)
+                            ? null
+                            : _openPantryPhotoScan,
+                        icon: _pantryPhotoFlowLoading
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.camera_alt_outlined),
+                        label: Text(
+                          _pantryPhotoFlowLoading
+                              ? 'Reading your fridge & pantry…'
+                              : 'Snap fridge / pantry (preview)',
+                          style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700),
+                        ),
                       ),
                     ),
                     if (pantry.isEmpty)
@@ -1604,11 +1856,258 @@ Return a JSON array of 7 objects, each with:
               const _MealPlanTab(),
             ] else ...[
               // ── RECIPE BOX section ──
-              _RecipesTab(onCookMode: _openCookMode),
+              _RecipesTab(
+                onCookMode: _openCookMode,
+                onAddRecipe: () => showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                  ),
+                  builder: (_) => const _AddRecipeSheet(),
+                ),
+              ),
             ],
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _PantryScanPreviewSheet extends StatefulWidget {
+  const _PantryScanPreviewSheet({
+    required this.imageBytes,
+    required this.drafts,
+  });
+
+  final Uint8List imageBytes;
+  final List<_PantryDraftEditable> drafts;
+
+  @override
+  State<_PantryScanPreviewSheet> createState() => _PantryScanPreviewSheetState();
+}
+
+class _PantryScanPreviewSheetState extends State<_PantryScanPreviewSheet> {
+  late List<_PantryDraftEditable> _rows;
+  final List<TextEditingController> _nameCtrls = [];
+  final List<TextEditingController> _qtyCtrls = [];
+  final List<TextEditingController> _unitCtrls = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _rows = widget.drafts
+        .map(
+          (d) => _PantryDraftEditable(
+            name: d.name,
+            quantity: d.quantity,
+            unit: d.unit,
+            selected: d.selected,
+            startsAsDuplicate: d.startsAsDuplicate,
+          ),
+        )
+        .toList();
+    for (final r in _rows) {
+      _nameCtrls.add(TextEditingController(text: r.name));
+      _qtyCtrls.add(TextEditingController(text: r.quantity));
+      _unitCtrls.add(TextEditingController(text: r.unit));
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final c in _nameCtrls) {
+      c.dispose();
+    }
+    for (final c in _qtyCtrls) {
+      c.dispose();
+    }
+    for (final c in _unitCtrls) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  void _syncControllersToRows() {
+    for (var i = 0; i < _rows.length; i++) {
+      _rows[i].name = _nameCtrls[i].text;
+      _rows[i].quantity = _qtyCtrls[i].text;
+      _rows[i].unit = _unitCtrls[i].text;
+    }
+  }
+
+  List<_PantryDraftEditable> _collectRows() {
+    _syncControllersToRows();
+    return _rows;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: DraggableScrollableSheet(
+        expand: false,
+        minChildSize: 0.45,
+        initialChildSize: 0.88,
+        maxChildSize: 0.95,
+        builder: (ctx, scrollCtrl) {
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Review pantry items',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w800,
+                          fontSize: 17,
+                          color: Theme.of(context).colorScheme.onSurface,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.memory(
+                    widget.imageBytes,
+                    height: 120,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Text(
+                  'Uncheck or edit rows before saving. Items that matched your pantry when you scanned start unchecked.',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: ListView.builder(
+                  controller: scrollCtrl,
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  itemCount: _rows.length,
+                  itemBuilder: (ctx, i) {
+                    final r = _rows[i];
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(4, 4, 8, 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            CheckboxListTile(
+                              contentPadding: EdgeInsets.zero,
+                              value: r.selected,
+                              onChanged: (v) => setState(() => r.selected = v ?? false),
+                              controlAffinity: ListTileControlAffinity.leading,
+                              title: TextField(
+                                controller: _nameCtrls[i],
+                                style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 15),
+                                decoration: const InputDecoration(
+                                  hintText: 'Item name',
+                                  isDense: true,
+                                  border: InputBorder.none,
+                                ),
+                              ),
+                              subtitle: r.startsAsDuplicate
+                                  ? Text(
+                                      'Matched pantry when scanned — rename to add as a new line',
+                                      style: TextStyle(
+                                        fontFamily: 'Inter',
+                                        fontSize: 11,
+                                        color: Theme.of(context).colorScheme.tertiary,
+                                      ),
+                                    )
+                                  : null,
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.only(left: 52, right: 0),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: TextField(
+                                      controller: _qtyCtrls[i],
+                                      decoration: const InputDecoration(
+                                        labelText: 'Qty',
+                                        isDense: true,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: TextField(
+                                      controller: _unitCtrls[i],
+                                      decoration: const InputDecoration(
+                                        labelText: 'Unit',
+                                        isDense: true,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      OutlinedButton(
+                        onPressed: () {
+                          Navigator.pop(
+                            context,
+                            _PantrySheetResult(planWeekAfter: false, rows: _collectRows()),
+                          );
+                        },
+                        child: const Text('Add to pantry only'),
+                      ),
+                      const SizedBox(height: 8),
+                      FilledButton(
+                        onPressed: () {
+                          Navigator.pop(
+                            context,
+                            _PantrySheetResult(planWeekAfter: true, rows: _collectRows()),
+                          );
+                        },
+                        child: const Text('Add to pantry & plan week'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1868,6 +2367,92 @@ class _MealPlanTabState extends State<_MealPlanTab> {
     );
   }
 
+  ShoppingList? _preferredGroceryList(AppProvider provider, String familyId) {
+    final lists = provider.db.lists.where((l) => l.familyId == familyId).toList();
+    for (final l in lists) {
+      final t = l.title.toLowerCase();
+      if (t.contains('grocer') || t.contains('shop')) return l;
+    }
+    return lists.isEmpty ? null : lists.first;
+  }
+
+  /// Add one planned meal's ingredients into Lists (merge into Groceries-like list or create).
+  Future<void> _addSingleMealIngredientsToLists(
+    BuildContext context,
+    MealPlanEntry meal,
+  ) async {
+    if (!_requireFamilyOwnerForTab(
+      context,
+      'Only the family owner can add ingredients to Lists.',
+    )) {
+      return;
+    }
+    final provider = context.read<AppProvider>();
+    final familyId = provider.activeFamily?.id ?? '';
+    if (familyId.isEmpty) return;
+    final userId = provider.activeUser?.id ?? '';
+    if (userId.isEmpty) return;
+
+    final lines = linesForSingleMeal(meal: meal, recipes: provider.db.recipes);
+    String displayName = meal.customMeal?.trim() ?? '';
+    if (displayName.isEmpty && meal.recipeId != null) {
+      for (final r in provider.db.recipes) {
+        if (r.id == meal.recipeId) {
+          displayName = r.title;
+          break;
+        }
+      }
+    }
+    if (displayName.isEmpty) displayName = 'This meal';
+
+    final List<ListItem> newItems;
+    if (lines.isEmpty) {
+      newItems = [
+        ListItem(id: const Uuid().v4(), text: 'Shop for: $displayName'),
+      ];
+    } else {
+      newItems = lines.map((l) {
+        final q = (l.quantity != null && l.quantity!.trim().isNotEmpty)
+            ? '${l.quantity!.trim()}${l.unit != null && l.unit!.trim().isNotEmpty ? ' ${l.unit!.trim()}' : ''}'
+            : null;
+        final text = (q != null && q.isNotEmpty) ? '$q ${l.name}' : l.name;
+        return ListItem(id: const Uuid().v4(), text: text);
+      }).toList();
+    }
+
+    final db = provider.db;
+    final existing = _preferredGroceryList(provider, familyId);
+    if (existing != null) {
+      final merged = [...existing.items, ...newItems];
+      final updated = existing.copyWith(items: merged);
+      final nextLists = db.lists.map((l) => l.id == existing.id ? updated : l).toList();
+      await provider.saveAndSync(
+        db.copyWith(lists: nextLists),
+        pushTableScope: {CloudSyncScope.lists},
+      );
+      if (context.mounted) {
+        _showSnack(context, 'Added ${newItems.length} items to "${existing.title}" in Lists');
+      }
+    } else {
+      final list = ShoppingList(
+        id: const Uuid().v4(),
+        familyId: familyId,
+        creatorId: userId,
+        title: 'Groceries',
+        items: newItems,
+        category: ListCategory.GROCERY,
+        visibility: Visibility.FAMILY,
+      );
+      await provider.saveAndSync(
+        db.copyWith(lists: [...db.lists, list]),
+        pushTableScope: {CloudSyncScope.lists},
+      );
+      if (context.mounted) {
+        _showSnack(context, 'Created "Groceries" in Lists with ${newItems.length} items');
+      }
+    }
+  }
+
   Future<void> _addWeekIngredientsToGrocery(BuildContext context) async {
     if (!_requireFamilyOwnerForTab(
       context,
@@ -1996,13 +2581,13 @@ class _MealPlanTabState extends State<_MealPlanTab> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Section header
-        const Padding(
-          padding: EdgeInsets.fromLTRB(24, 16, 20, 10),
-          child: Text('DAILY PLANNER', style: TextStyle(
-            fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w800,
-            color: AppTheme.stone400, letterSpacing: 1.2,
-          )),
+        // Section header — aligns with Home / Calendar “today & week” framing
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+          child: HuddleSectionHeader(
+            overline: 'This week',
+            title: 'Meal planner',
+          ),
         ),
         // Week navigation header
         Padding(
@@ -2174,6 +2759,9 @@ class _MealPlanTabState extends State<_MealPlanTab> {
               onScheduleLeftovers: slotMeal != null
                   ? () => _showLeftoverTargetPicker(context, slotMeal)
                   : null,
+              onAddIngredientsToList: slotMeal != null
+                  ? () => _addSingleMealIngredientsToLists(context, slotMeal)
+                  : null,
             ),
           );
         }),
@@ -2234,6 +2822,7 @@ class _MealSlotCard extends StatelessWidget {
   final DateTime day;
   final VoidCallback? onRepeatWeekly;
   final VoidCallback? onScheduleLeftovers;
+  final VoidCallback? onAddIngredientsToList;
 
   const _MealSlotCard({
     required this.mealType,
@@ -2241,6 +2830,7 @@ class _MealSlotCard extends StatelessWidget {
     required this.day,
     this.onRepeatWeekly,
     this.onScheduleLeftovers,
+    this.onAddIngredientsToList,
   });
 
   @override
@@ -2405,6 +2995,16 @@ class _MealSlotCard extends StatelessWidget {
   }
 
   void _showMealOptions(BuildContext context, {required bool canManageMeal}) {
+    final provider = context.read<AppProvider>();
+    Recipe? linkedRecipe;
+    if (meal?.recipeId != null) {
+      for (final r in provider.db.recipes) {
+        if (r.id == meal!.recipeId) {
+          linkedRecipe = r;
+          break;
+        }
+      }
+    }
     final emoji = _mealTypeEmojis[mealType] ?? '🍽️';
     showModalBottomSheet(
       context: context,
@@ -2455,6 +3055,29 @@ class _MealSlotCard extends StatelessWidget {
                 onTap: () {
                   Navigator.pop(ctx);
                   _openAddMealSheet(context, mealType, day, existingMeal: meal);
+                },
+              ),
+            if (canManageMeal && onAddIngredientsToList != null)
+              ListTile(
+                leading: Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF16A34A).withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.playlist_add_check_rounded, size: 18, color: Color(0xFF16A34A)),
+                ),
+                title: const Text('Add ingredients to Lists', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600)),
+                subtitle: Text(
+                  linkedRecipe != null
+                      ? 'Merge into your grocery-style list (or create Groceries)'
+                      : 'Adds a reminder line (link a recipe for detailed ingredients)',
+                  style: const TextStyle(fontFamily: 'Inter', fontSize: 11),
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  onAddIngredientsToList!();
                 },
               ),
             ListTile(
@@ -3158,7 +3781,12 @@ class _RecipePickerSheetState extends State<_RecipePickerSheet> {
 
 class _RecipesTab extends StatefulWidget {
   final void Function(Recipe recipe) onCookMode;
-  const _RecipesTab({required this.onCookMode});
+  final VoidCallback onAddRecipe;
+
+  const _RecipesTab({
+    required this.onCookMode,
+    required this.onAddRecipe,
+  });
 
   @override
   State<_RecipesTab> createState() => _RecipesTabState();
@@ -3253,16 +3881,13 @@ class _RecipesTabState extends State<_RecipesTab> {
         if (recipes.isEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: OnboardingCard(
-              emoji: '🍽️',
-              title: _query.isEmpty ? 'No Recipes Yet' : 'No Matches',
-              bullets: _query.isEmpty
-                  ? const [
-                      'Save family recipes in one place',
-                      'Import from URLs or generate with AI',
-                      'Add recipes to your weekly meal plan',
-                    ]
-                  : const ['Try a different search term'],
+            child: CatalogModuleEmptyState(
+              modulePath: '/meals',
+              title: _query.isEmpty ? 'No recipes yet' : 'No matches',
+              subtitle: _query.isEmpty ? null : 'Try a different search term',
+              actionLabel: _query.isEmpty ? 'Add recipe' : null,
+              onAction: _query.isEmpty ? widget.onAddRecipe : null,
+              compact: false,
             ),
           )
         else
@@ -3338,6 +3963,8 @@ class _RecipeCard extends StatelessWidget {
                   ? CachedNetworkImage(
                       imageUrl: recipe.imageUrl!,
                       fit: BoxFit.cover,
+                      fadeInDuration: const Duration(milliseconds: 200),
+                      fadeOutDuration: const Duration(milliseconds: 120),
                       errorWidget: (_, __, ___) => _EmojiPlaceholder(emoji),
                       placeholder: (_, __) => Container(
                         color: AppTheme.stone100,
@@ -3499,6 +4126,8 @@ class _RecipeDetailSheet extends StatelessWidget {
                           ? CachedNetworkImage(
                               imageUrl: recipe.imageUrl!,
                               fit: BoxFit.cover,
+                              fadeInDuration: const Duration(milliseconds: 220),
+                              fadeOutDuration: const Duration(milliseconds: 140),
                               errorWidget: (_, __, ___) => _EmojiPlaceholder(_recipeEmoji(recipe)),
                             )
                           : _EmojiPlaceholder(_recipeEmoji(recipe)),
@@ -3778,15 +4407,13 @@ class _CookModeScreenState extends State<_CookModeScreen> {
   Widget build(BuildContext context) {
     final steps = widget.recipe.steps.where((s) => s.trim().isNotEmpty).toList();
     if (steps.isEmpty) {
-      return Scaffold(
-        appBar: AppBar(title: Text(widget.recipe.title)),
+      return HuddleSubpageScaffold(
+        title: widget.recipe.title,
         body: const Center(child: Text('No steps for this recipe.')),
       );
     }
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.recipe.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-      ),
+    return HuddleSubpageScaffold(
+      title: widget.recipe.title,
       body: Column(
         children: [
           Padding(

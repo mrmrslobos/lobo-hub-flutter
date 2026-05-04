@@ -25,6 +25,9 @@ import '../../services/workout_health_sync.dart';
 import '../../widgets/exercise_media_image.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/module_ui_kit.dart';
+import '../../widgets/huddle_subpage_scaffold.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/debounce.dart';
 import '../../utils/fitness_plan_storage.dart';
@@ -564,7 +567,7 @@ Write 2-4 short paragraphs: (1) what went well or patterns you notice, (2) one c
     final user = provider.activeUser;
     final family = provider.activeFamily;
     if (user == null || family == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const ModuleFamilyLoadingScaffold();
     }
 
     final locale = context.read<LocaleService>().config;
@@ -638,11 +641,12 @@ Write 2-4 short paragraphs: (1) what went well or patterns you notice, (2) one c
     // Total minutes this week
     final weekMinutes = weekLogs.fold<int>(0, (sum, s) => sum + s.durationMinutes);
 
-    return Scaffold(
+    return HuddleModuleScaffold(
+      modulePath: '/fitness',
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),
-      body: ListView(
+      child: ListView(
         padding: const EdgeInsets.only(bottom: 32),
         children: [
           // ── Page Header ──
@@ -1169,8 +1173,8 @@ Write 2-4 short paragraphs: (1) what went well or patterns you notice, (2) one c
 
           // ── Workout Logs ──
           if (sessionsForList.isEmpty)
-            EmptyState(
-              emoji: '💪',
+            CatalogModuleEmptyState(
+              modulePath: '/fitness',
               title: baseSessions.isEmpty
                   ? 'No workout sessions yet'
                   : 'No matches',
@@ -3918,12 +3922,10 @@ class _GuidedPlanWorkoutScreenState extends State<_GuidedPlanWorkoutScreen> {
         _exerciseIndex == widget.exercises.length - 1 && _setIndex == ex.setsCount - 1;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.title, style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 16)),
-        leading: IconButton(
-          icon: const Icon(Icons.close),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
+      appBar: SubpageAppBar(
+        title: widget.title,
+        leading: SubpageLeading.close,
+        onBack: () => Navigator.of(context).pop(),
       ),
       body: Stack(
         children: [

@@ -17,6 +17,9 @@ import '../../services/notification_service.dart';
 import '../../services/supabase_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/module_ui_kit.dart';
+import '../../widgets/huddle_subpage_scaffold.dart';
 import '../../utils/debounce.dart';
 
 const _reactionEmojis = ['❤️', '😍', '😂', '🥹', '🎉', '👏'];
@@ -118,6 +121,8 @@ class _PhotosScreenState extends State<PhotosScreen> {
       return CachedNetworkImage(
         imageUrl: url,
         fit: fit,
+        fadeInDuration: const Duration(milliseconds: 200),
+        fadeOutDuration: const Duration(milliseconds: 120),
         placeholder: (_, __) => _photoPlaceholder(),
         errorWidget: (_, __, ___) => _photoPlaceholder(),
       );
@@ -615,7 +620,7 @@ class _PhotosScreenState extends State<PhotosScreen> {
     final user = provider.activeUser;
     final family = provider.activeFamily;
     if (user == null || family == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const ModuleFamilyLoadingScaffold();
     }
 
     final allPhotos = provider.db.photos.where((p) => p.familyId == family.id).toList()
@@ -645,11 +650,12 @@ class _PhotosScreenState extends State<PhotosScreen> {
 
     final totalReactions = photos.fold<int>(0, (n, p) => n + p.reactions.length);
 
-    return Scaffold(
+    return HuddleModuleScaffold(
+      modulePath: '/photos',
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),
-      body: SingleChildScrollView(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.only(bottom: 32),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -657,7 +663,7 @@ class _PhotosScreenState extends State<PhotosScreen> {
             // ─── Header ───────────────────────────────────────────
             PageHeader(
               title: screenTitleForModulePath('/photos'),
-              subtitle: 'Your private family album & milestone moments',
+              subtitle: 'Your household album — only invited members see these.',
               actions: [
                 ActionChipButton(
                   icon: Icons.star_rounded,
@@ -770,6 +776,8 @@ class _PhotosScreenState extends State<PhotosScreen> {
                 _buildMilestonesTab(milestones, provider),
               ],
             ),
+
+            const FamilySyncPrivacyFootnote(),
           ],
         ),
       ),
@@ -782,16 +790,13 @@ class _PhotosScreenState extends State<PhotosScreen> {
     if (photos.isEmpty) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20),
-        child: OnboardingCard(
-          emoji: '\u{1F4F8}',
+        child: CatalogModuleEmptyState(
+          modulePath: '/photos',
           title: 'No photos yet',
-          bullets: [
-            'Share photos with your family',
-            'Capture and upload special moments',
-            'View and manage shared memories',
-          ],
-          actionLabel: 'Add Photo',
+          subtitle: 'Capture uploads everyone can react to — one album per household.',
+          actionLabel: 'Add photo',
           onAction: _pickAndAddPhoto,
+          compact: false,
         ),
       );
     }
@@ -908,16 +913,13 @@ class _PhotosScreenState extends State<PhotosScreen> {
     if (milestones.isEmpty) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20),
-        child: OnboardingCard(
-          emoji: '⭐',
+        child: CatalogModuleEmptyState(
+          modulePath: '/photos',
           title: 'No milestones yet',
-          bullets: [
-            'Record first steps, first words',
-            'Track school achievements',
-            'Celebrate family moments',
-          ],
-          actionLabel: 'Add Milestone',
+          subtitle: 'Celebrate wins — birthdays, first steps, and school moments.',
+          actionLabel: 'Add milestone',
           onAction: () => _showAddMilestone(),
+          compact: false,
         ),
       );
     }
@@ -1244,15 +1246,10 @@ class _PhotoLightbox extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(
+      appBar: SubpageAppBar(
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        title: Text(
-          photo.caption ?? 'Photo',
-          style: const TextStyle(color: Colors.white, fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w700),
-        ),
+        title: photo.caption ?? 'Photo',
         actions: [
           IconButton(
             icon: const Icon(Icons.edit_outlined, color: Colors.white70, size: 20),

@@ -14,6 +14,8 @@ import '../../providers/app_provider.dart';
 import '../../services/family_activity_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/huddle_module_scaffold.dart';
+import '../../widgets/module_ui_kit.dart';
 import '../../utils/debounce.dart';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -351,6 +353,9 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     return Consumer<AppProvider>(
       builder: (context, provider, _) {
+        if (provider.activeUser == null || provider.activeFamily == null) {
+          return const ModuleFamilyLoadingScaffold();
+        }
         final familyId = provider.activeFamily?.id;
         final myId = provider.activeUser?.id;
 
@@ -372,7 +377,8 @@ class _ChatScreenState extends State<ChatScreen> {
           }
         });
 
-        return Scaffold(
+        return HuddleModuleScaffold(
+          modulePath: '/chat',
           resizeToAvoidBottomInset: true,
           drawer: const AppDrawer(),
           appBar: MainAppBar(
@@ -393,7 +399,7 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ],
           ),
-          body: Column(
+          child: Column(
             children: [
               // ─── Search bar ────────────────────────────────────────────
               if (_showSearch)
@@ -439,10 +445,14 @@ class _ChatScreenState extends State<ChatScreen> {
                       : messages.where((m) => m.text.toLowerCase().contains(_searchQuery.toLowerCase())).toList();
                   if (filteredMessages.isEmpty) {
                     if (_searchQuery.isNotEmpty) {
-                      return const EmptyState(emoji: '🔍', title: 'No matches', subtitle: 'Try a different search term');
+                      return CatalogModuleEmptyState(
+                        modulePath: '/chat',
+                        title: 'No matches',
+                        subtitle: 'Try a different search term',
+                      );
                     }
-                    return const EmptyState(
-                      emoji: '💬',
+                    return CatalogModuleEmptyState(
+                      modulePath: '/chat',
                       title: 'No messages yet',
                       subtitle: 'Send the first message to your family!',
                     );

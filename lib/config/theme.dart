@@ -68,10 +68,12 @@ class AppTheme {
       ),
       cardTheme: CardThemeData(
         color: surface,
-        elevation: 0,
+        elevation: 1,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.black.withValues(alpha: 0.06),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: const BorderSide(color: stone100),
+          borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+          side: BorderSide(color: stone200.withValues(alpha: 0.35)),
         ),
         margin: EdgeInsets.zero,
       ),
@@ -124,6 +126,8 @@ class AppTheme {
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: primary,
+          minimumSize: const Size(44, 44),
+          tapTargetSize: MaterialTapTargetSize.padded,
           textStyle: const TextStyle(
             fontFamily: 'Inter',
             fontWeight: FontWeight.w600,
@@ -132,17 +136,36 @@ class AppTheme {
       ),
       chipTheme: ChipThemeData(
         backgroundColor: stone100,
+        surfaceTintColor: Colors.transparent,
         selectedColor: primaryLight,
-        labelStyle: const TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600),
+        labelStyle: const TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: stone800,
+        ),
+        secondaryLabelStyle: const TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: stone700,
+        ),
+        iconTheme: const IconThemeData(color: stone700, size: 18),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         side: BorderSide.none,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       ),
       floatingActionButtonTheme: const FloatingActionButtonThemeData(
         backgroundColor: primary,
         foregroundColor: Colors.white,
         elevation: 2,
         shape: CircleBorder(),
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: IconButton.styleFrom(
+          minimumSize: const Size(44, 44),
+          tapTargetSize: MaterialTapTargetSize.padded,
+        ),
       ),
       dividerTheme: const DividerThemeData(
         color: stone100,
@@ -165,7 +188,7 @@ class AppTheme {
         behavior: SnackBarBehavior.floating,
       ),
       dialogTheme: DialogThemeData(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusXl)),
         backgroundColor: surface,
         titleTextStyle: const TextStyle(
           fontFamily: 'Inter',
@@ -173,11 +196,19 @@ class AppTheme {
           fontWeight: FontWeight.w700,
           color: stone900,
         ),
+        contentTextStyle: const TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 15,
+          fontWeight: FontWeight.w400,
+          color: stone700,
+          height: 1.45,
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
       ),
-      bottomSheetTheme: const BottomSheetThemeData(
+      bottomSheetTheme: BottomSheetThemeData(
         backgroundColor: surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(AppTheme.radiusXl)),
         ),
         elevation: 8,
       ),
@@ -241,10 +272,12 @@ class AppTheme {
       ),
       cardTheme: CardThemeData(
         color: darkSurface,
-        elevation: 0,
+        elevation: 1,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.black.withValues(alpha: 0.5),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: const BorderSide(color: darkBorder),
+          borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+          side: BorderSide(color: darkBorder.withValues(alpha: 0.85)),
         ),
         margin: EdgeInsets.zero,
       ),
@@ -297,6 +330,8 @@ class AppTheme {
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: primaryDarkMode,
+          minimumSize: const Size(44, 44),
+          tapTargetSize: MaterialTapTargetSize.padded,
           textStyle: const TextStyle(
             fontFamily: 'Inter',
             fontWeight: FontWeight.w600,
@@ -305,17 +340,36 @@ class AppTheme {
       ),
       chipTheme: ChipThemeData(
         backgroundColor: darkCard,
+        surfaceTintColor: Colors.transparent,
         selectedColor: const Color(0xFF3730A3),
-        labelStyle: const TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600),
+        labelStyle: const TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: Color(0xFFFAFAF9),
+        ),
+        secondaryLabelStyle: const TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: Color(0xFFE7E5E4),
+        ),
+        iconTheme: const IconThemeData(color: Color(0xFFD6D3D1), size: 18),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         side: BorderSide.none,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       ),
       floatingActionButtonTheme: const FloatingActionButtonThemeData(
         backgroundColor: primaryDarkMode,
         foregroundColor: Colors.white,
         elevation: 2,
         shape: CircleBorder(),
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: IconButton.styleFrom(
+          minimumSize: const Size(44, 44),
+          tapTargetSize: MaterialTapTargetSize.padded,
+        ),
       ),
       dividerTheme: const DividerThemeData(
         color: darkBorder,
@@ -340,7 +394,7 @@ class AppTheme {
         behavior: SnackBarBehavior.floating,
       ),
       dialogTheme: DialogThemeData(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusXl)),
         backgroundColor: darkSurface,
         titleTextStyle: const TextStyle(
           fontFamily: 'Inter',
@@ -348,11 +402,19 @@ class AppTheme {
           fontWeight: FontWeight.w700,
           color: Color(0xFFFAFAF9),
         ),
+        contentTextStyle: const TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 15,
+          fontWeight: FontWeight.w400,
+          color: Color(0xFFD6D3D1),
+          height: 1.45,
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
       ),
       bottomSheetTheme: const BottomSheetThemeData(
         backgroundColor: darkSurface,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(AppTheme.radiusXl)),
         ),
         elevation: 8,
       ),

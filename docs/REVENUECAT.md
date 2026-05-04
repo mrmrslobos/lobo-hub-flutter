@@ -82,3 +82,19 @@ Minimum iOS version for this project is **13.0** (see `ios/Podfile`).
 - **iOS:** StoreKit Configuration in Xcode, or sandbox Apple IDs.  
 - **Android:** License testers in Play Console.  
 - Use RevenueCat’s **Customer profile** page to verify `appUserID` and entitlements after a test purchase.
+
+## 10. Introductory pricing (AI Family yearly — AUD 149 first year, AUD 199 renewal)
+
+Binding prices and eligibility always come from **Apple/Google**. Flutter marketing copy uses AUD amounts as a **guide** only when live store strings are unavailable.
+
+**Configure intro offers on each platform:**
+
+1. **App Store Connect** — Open the **annual AI Family** subscription → **Subscription Prices** → add an **Introductory Offer** (e.g. pay-as-you-go first period at AUD 149 for one year, then standard price AUD 199/year). Match Apple’s current workflows for introductory pricing and eligibility (often new subscribers only).
+
+2. **Google Play Console** — Under the subscription **base plan** for AI Family yearly, add an **offer** or introductory phase (e.g. lower price year one, then renewal at AUD 199). Align base-plan renewal pricing with your ongoing yearly SKU.
+
+3. **RevenueCat** — No separate package id is required if intro is on the **same** store product attached to `ai_family_annual` / `ai_family_yearly`; RevenueCat passes through `StoreProduct.priceString` from the store. Confirm on a **sandbox** purchase that the pay sheet shows the intro.
+
+4. **Verify** — After publishing offers, run through Subscribe on device; optional checks in RevenueCat customer detail for introductory vs standard period.
+
+If you change regional pricing, update fallback AUD figures in `lib/screens/subscription/subscription_screen.dart` (`_pricing`) so web/offline placeholders stay aligned with marketing.

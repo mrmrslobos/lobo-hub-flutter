@@ -69,7 +69,7 @@ The app uses `purchases_flutter` (RevenueCat SDK). Integration is in `lib/servic
 3. **Create products** in App Store Connect / Google Play Console:
    - `base` — Base plan (essential family features)
    - `ai` — AI plan (AI-powered features)
-   - `ai_family` — AI Family plan (2 adults + 4 children)
+   - `ai_family` — AI Family plan (marketed for **2 adults + 2 children under 16**; billing/TOS are source of truth)
 4. **Create entitlements** in RevenueCat matching the app's checks: `base`, `ai`
 5. **Create offerings** with the products attached
 6. **Copy API keys** from RevenueCat → Project Settings → API Keys:
@@ -80,7 +80,13 @@ The app uses `purchases_flutter` (RevenueCat SDK). Integration is in `lib/servic
    --dart-define=RC_IOS_KEY=appl_xxxxx
    --dart-define=RC_ANDROID_KEY=goog_xxxxx
    ```
-8. The subscription screen is at `lib/screens/subscription/subscription_screen.dart` — currently shows "Coming Soon". Wire it to `PurchaseService.checkEntitlements()` and `Purchases.getOfferings()` for real purchase flows.
+8. The subscription screen is at `lib/screens/subscription/subscription_screen.dart` — it loads live prices from RevenueCat when configured (`storeProduct.priceString`); fallback amounts are marketing placeholders only.
+
+### AI Family introductory pricing (AUD)
+
+Target positioning: **AUD 149 for the first year**, then **AUD 199/year** on renewal for the AI Family **annual** product — configured as **introductory offers** in App Store Connect and Google Play (not only as fallback numbers in Flutter). After configuring the stores, verify package pricing in RevenueCat and on a sandbox device.
+
+See **`docs/REVENUECAT.md`** (Introductory pricing section).
 
 ### Key gotchas
 

@@ -2,15 +2,18 @@
 // App entry point with go_router navigation and MaterialApp.router setup
 
 import 'dart:async';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 
+import 'config/huddle_motion.dart';
 import 'config/theme.dart';
 import 'config/app_config.dart';
 import 'providers/app_provider.dart';
+import 'widgets/route_recency.dart';
 import 'services/notification_service.dart';
 import 'widgets/biometric_lock.dart';
 import 'widgets/offline_banner.dart';
@@ -39,6 +42,33 @@ import 'screens/ai_history/ai_history_screen.dart';
 import 'screens/habits/habits_screen.dart';
 import 'screens/subscription/subscription_screen.dart';
 import 'screens/assistant/assistant_screen.dart';
+
+/// Cross-fade plus slight vertical drift when switching top-level / shell routes (Phase G).
+Page<void> _huddlePage(GoRouterState state, Widget child) {
+  return CustomTransitionPage<void>(
+    key: state.pageKey,
+    child: child,
+    transitionDuration: HuddleMotion.routeForward,
+    reverseTransitionDuration: HuddleMotion.routeReverse,
+    transitionsBuilder: (context, animation, _, child) {
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: HuddleMotion.routeCurve,
+        reverseCurve: HuddleMotion.routeReverseCurve,
+      );
+      return FadeTransition(
+        opacity: curved,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: HuddleMotion.routeSlideBegin,
+            end: Offset.zero,
+          ).animate(curved),
+          child: child,
+        ),
+      );
+    },
+  );
+}
 
 class HuddleApp extends StatefulWidget {
   const HuddleApp({super.key});
@@ -154,12 +184,15 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
         GoRoute(
           path: '/auth',
           name: 'auth',
-          builder: (context, state) {
+          pageBuilder: (context, state) {
             final resetPassword =
                 state.uri.queryParameters['resetPassword'] == 'true';
-            return AuthScreen(
-              key: ValueKey(resetPassword),
-              showResetPassword: resetPassword,
+            return _huddlePage(
+              state,
+              AuthScreen(
+                key: ValueKey(resetPassword),
+                showResetPassword: resetPassword,
+              ),
             );
           },
         ),
@@ -167,9 +200,12 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
         GoRoute(
           path: '/',
           name: 'dashboard',
-          builder: (context, state) => PopScope(
-            canPop: false,
-            child: const DashboardScreen(),
+          pageBuilder: (context, state) => _huddlePage(
+            state,
+            const PopScope(
+              canPop: false,
+              child: DashboardScreen(),
+            ),
           ),
         ),
         // All module screens: back goes to dashboard (or closes in-screen detail first).
@@ -182,123 +218,198 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
               if (BackNavigationScope.invokeActive()) return;
               context.go('/');
             },
-            child: child,
+            child: ModuleRouteRecency(
+              location: state.matchedLocation,
+              child: child,
+            ),
           ),
           routes: [
             GoRoute(
               path: '/tasks',
               name: 'tasks',
-              builder: (context, state) => const TasksScreen(),
+              pageBuilder: (context, state) => _huddlePage(
+                state,
+                const TasksScreen(),
+              ),
             ),
             GoRoute(
               path: '/chat',
               name: 'chat',
-              builder: (context, state) => const ChatScreen(),
+              pageBuilder: (context, state) => _huddlePage(
+                state,
+                const ChatScreen(),
+              ),
             ),
             GoRoute(
               path: '/assistant',
               name: 'assistant',
-              builder: (context, state) => const AssistantScreen(),
+              pageBuilder: (context, state) {
+                final q = state.uri.queryParameters;
+                return _huddlePage(
+                  state,
+                  AssistantScreen(
+                    initialQuery: q['q'],
+                    fromPath: q['from'],
+                    startDictation: q['dictate'] == '1',
+                  ),
+                );
+              },
             ),
             GoRoute(
               path: '/calendar',
               name: 'calendar',
-              builder: (context, state) => const CalendarScreen(),
+              pageBuilder: (context, state) => _huddlePage(
+                state,
+                const CalendarScreen(),
+              ),
             ),
             GoRoute(
               path: '/meals',
               name: 'meals',
-              builder: (context, state) => const MealsScreen(),
+              pageBuilder: (context, state) => _huddlePage(
+                state,
+                const MealsScreen(),
+              ),
             ),
             GoRoute(
               path: '/budget',
               name: 'budget',
-              builder: (context, state) => const BudgetScreen(),
+              pageBuilder: (context, state) => _huddlePage(
+                state,
+                const BudgetScreen(),
+              ),
             ),
             GoRoute(
               path: '/lists',
               name: 'lists',
-              builder: (context, state) => const ListsScreen(),
+              pageBuilder: (context, state) => _huddlePage(
+                state,
+                const ListsScreen(),
+              ),
             ),
             GoRoute(
               path: '/chores',
               name: 'chores',
-              builder: (context, state) => const ChoresScreen(),
+              pageBuilder: (context, state) => _huddlePage(
+                state,
+                const ChoresScreen(),
+              ),
             ),
             GoRoute(
               path: '/rewards',
               name: 'rewards',
-              builder: (context, state) => const RewardsScreen(),
+              pageBuilder: (context, state) => _huddlePage(
+                state,
+                const RewardsScreen(),
+              ),
             ),
             GoRoute(
               path: '/fitness',
               name: 'fitness',
-              builder: (context, state) => const FitnessScreen(),
+              pageBuilder: (context, state) => _huddlePage(
+                state,
+                const FitnessScreen(),
+              ),
             ),
             GoRoute(
               path: '/devotional',
               name: 'devotional',
-              builder: (context, state) {
+              pageBuilder: (context, state) {
                 final id = state.uri.queryParameters['id'] ??
                     state.uri.queryParameters['devotionalId'];
-                return DevotionalScreen(initialDevotionalId: id);
+                return _huddlePage(
+                  state,
+                  DevotionalScreen(initialDevotionalId: id),
+                );
               },
             ),
             GoRoute(
               path: '/prayer-wall',
               name: 'prayer-wall',
-              builder: (context, state) => const PrayerWallScreen(),
+              pageBuilder: (context, state) => _huddlePage(
+                state,
+                const PrayerWallScreen(),
+              ),
             ),
             GoRoute(
               path: '/polls',
               name: 'polls',
-              builder: (context, state) => const PollsScreen(),
+              pageBuilder: (context, state) => _huddlePage(
+                state,
+                const PollsScreen(),
+              ),
             ),
             GoRoute(
               path: '/period-tracker',
               name: 'period-tracker',
-              builder: (context, state) => const PeriodTrackerScreen(),
+              pageBuilder: (context, state) => _huddlePage(
+                state,
+                const PeriodTrackerScreen(),
+              ),
             ),
             GoRoute(
               path: '/birthdays',
               name: 'birthdays',
-              builder: (context, state) => const BirthdaysScreen(),
+              pageBuilder: (context, state) => _huddlePage(
+                state,
+                const BirthdaysScreen(),
+              ),
             ),
             GoRoute(
               path: '/photos',
               name: 'photos',
-              builder: (context, state) => const PhotosScreen(),
+              pageBuilder: (context, state) => _huddlePage(
+                state,
+                const PhotosScreen(),
+              ),
             ),
             GoRoute(
               path: '/location',
               name: 'location',
-              builder: (context, state) => const LocationScreen(),
+              pageBuilder: (context, state) => _huddlePage(
+                state,
+                const LocationScreen(),
+              ),
             ),
             GoRoute(
               path: '/health',
               name: 'health',
-              builder: (context, state) => const HealthScreen(),
+              pageBuilder: (context, state) => _huddlePage(
+                state,
+                const HealthScreen(),
+              ),
             ),
             GoRoute(
               path: '/ai-history',
               name: 'ai-history',
-              builder: (context, state) => const AIHistoryScreen(),
+              pageBuilder: (context, state) => _huddlePage(
+                state,
+                const AIHistoryScreen(),
+              ),
             ),
             GoRoute(
               path: '/habits',
               name: 'habits',
-              builder: (context, state) => const HabitsScreen(),
+              pageBuilder: (context, state) => _huddlePage(
+                state,
+                const HabitsScreen(),
+              ),
             ),
             GoRoute(
               path: '/subscription',
               name: 'subscription',
-              builder: (context, state) => const SubscriptionScreen(),
+              pageBuilder: (context, state) => _huddlePage(
+                state,
+                const SubscriptionScreen(),
+              ),
             ),
           ],
         ),
       ],
       errorBuilder: (context, state) {
-        final cs = Theme.of(context).colorScheme;
+        final theme = Theme.of(context);
+        final cs = theme.colorScheme;
+        final tt = theme.textTheme;
         return Scaffold(
           backgroundColor: cs.surface,
           body: SafeArea(
@@ -317,10 +428,7 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
                         child: Text(
                           'We couldn’t open that screen',
                           textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontFamily: 'Inter',
-                            fontWeight: FontWeight.w800,
-                            fontSize: 22,
+                          style: tt.headlineSmall?.copyWith(
                             height: 1.2,
                             color: cs.onSurface,
                           ),
@@ -330,9 +438,7 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
                       Text(
                         '${AppConfig.appName} may have been updated, or the link is out of date. Nothing was deleted.',
                         textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 15,
+                        style: tt.bodyLarge?.copyWith(
                           height: 1.4,
                           color: cs.onSurface.withValues(alpha: 0.56),
                         ),
@@ -343,7 +449,7 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
                         child: Text(
                           state.matchedLocation,
                           textAlign: TextAlign.center,
-                          style: TextStyle(
+                          style: tt.labelSmall?.copyWith(
                             fontFamily: 'monospace',
                             fontSize: 11,
                             color: cs.onSurface.withValues(alpha: 0.38),
@@ -360,7 +466,7 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
                         ),
                         onPressed: () => context.go('/'),
                         icon: const Icon(Icons.home_rounded, size: 20),
-                        label: const Text('Back to home', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700)),
+                        label: Text('Back to home', style: tt.labelLarge),
                       ),
                     ],
                   ),
@@ -403,9 +509,20 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
                     dark ? Brightness.light : Brightness.dark,
                 systemNavigationBarContrastEnforced: false,
               ));
-              return ConnectivityWrapper(
-                child: child ?? const SizedBox.shrink(),
-              );
+              // Router can pass null briefly; never use shrink here — ConnectivityWrapper
+              // puts this in an Expanded, and shrink breaks flex layout (blank area).
+              var wrapped = child ??
+                  const Center(child: CircularProgressIndicator());
+              if (kIsWeb) {
+                wrapped = Align(
+                  alignment: Alignment.topCenter,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 1280),
+                    child: wrapped,
+                  ),
+                );
+              }
+              return ConnectivityWrapper(child: wrapped);
             },
           ),
         );
