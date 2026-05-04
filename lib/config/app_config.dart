@@ -45,8 +45,9 @@ class AppConfig {
   static const String planDescEssentials = 'Core tools for your family';
   static const String planLabelAi = 'AI';
   static const String planDescAi = 'Smart AI features for busy families';
-  static const String planLabelAiFamily = 'AI · Larger family';
-  static const String planDescAiFamily = 'AI for bigger households (2 adults + 4 under-16)';
+  static const String planLabelAiFamily = 'AI · Family';
+  static const String planDescAiFamily =
+      'Full AI for up to 2 adults and 2 children under 16';
   static const String planTrialExpiredBlurb =
       'You have Tasks, Lists & Calendar. Upgrade for the full app.';
 

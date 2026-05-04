@@ -72,7 +72,7 @@ const _paywallCopy = <AiPaywallKind, _PaywallCopy>{
       'Same account works across tasks, meals, budget, and more',
       'Cancel anytime from your store settings',
       'Kids’ data stays under your family’s control',
-      'Optional AI Family plan for larger households',
+      'Optional AI Family plan for up to 2 adults + 2 under-16',
     ],
   ),
   AiPaywallKind.tasks: _PaywallCopy(

@@ -28,6 +28,8 @@ class _PlanPricing {
   final double aiYearly;
   final double aiFamilyMonthly;
   final double aiFamilyYearly;
+  /// Marketing fallback for yearly AI Family intro (AUD); configure real intro in stores.
+  final double? aiFamilyYearlyIntroFirstYear;
 
   const _PlanPricing({
     required this.symbol,
@@ -37,11 +39,21 @@ class _PlanPricing {
     required this.aiYearly,
     required this.aiFamilyMonthly,
     required this.aiFamilyYearly,
+    this.aiFamilyYearlyIntroFirstYear,
   });
 }
 
 const _pricing = <String, _PlanPricing>{
-  'AUD': _PlanPricing(symbol: r'$', baseMonthly: 9.99, baseYearly: 109, aiMonthly: 14.99, aiYearly: 159, aiFamilyMonthly: 17.99, aiFamilyYearly: 199),
+  'AUD': _PlanPricing(
+    symbol: r'$',
+    baseMonthly: 9.99,
+    baseYearly: 109,
+    aiMonthly: 14.99,
+    aiYearly: 159,
+    aiFamilyMonthly: 17.99,
+    aiFamilyYearly: 199,
+    aiFamilyYearlyIntroFirstYear: 149,
+  ),
   'USD': _PlanPricing(symbol: r'$', baseMonthly: 6.99, baseYearly: 74.99, aiMonthly: 9.99, aiYearly: 109, aiFamilyMonthly: 12.99, aiFamilyYearly: 139),
   'GBP': _PlanPricing(symbol: '£', baseMonthly: 5.49, baseYearly: 59.99, aiMonthly: 7.99, aiYearly: 84.99, aiFamilyMonthly: 9.99, aiFamilyYearly: 109),
   'CAD': _PlanPricing(symbol: r'$', baseMonthly: 8.99, baseYearly: 99, aiMonthly: 12.99, aiYearly: 139, aiFamilyMonthly: 15.99, aiFamilyYearly: 174),
@@ -317,7 +329,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 popular: true,
                 features: [
                   'Everything in ${AppConfig.planLabelAi}, plus:',
-                  'Designed for up to 2 adult accounts + 4 under-16',
+                  'Designed for up to 2 adults + 2 children under 16',
                   'Family member dashboards',
                   'Kids mode with parental controls',
                   'Shared AI suggestions per member',
@@ -358,7 +370,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'Larger-family AI plan',
+                            'AI Family household',
                             style: TextStyle(
                               fontFamily: 'Inter',
                               fontWeight: FontWeight.w800,
@@ -373,7 +385,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'In Settings → Manage members, each profile can tick “This person is under 16” (or a parent can tick it for a child). That keeps pricing aligned with “2 adults + 4 children” without collecting IDs — misrepresenting ages can breach store rules and your terms.',
+                      'In Settings → Manage members, each profile can tick “This person is under 16” (or a parent can tick it for a child). That keeps pricing aligned with “2 adults + 2 children under 16” without collecting IDs — misrepresenting ages can breach store rules and your terms.',
                       style: TextStyle(
                         fontFamily: 'Inter',
                         fontSize: 12,
@@ -385,7 +397,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      'This family: $declaredAdults adult${declaredAdults == 1 ? '' : 's'} declared, $declaredUnder16 under 16 declared (limit 2 + 4).',
+                      'This family: $declaredAdults adult${declaredAdults == 1 ? '' : 's'} declared, $declaredUnder16 under 16 declared (limit 2 adults + 2 under 16).',
                       style: TextStyle(
                         fontFamily: 'Inter',
                         fontWeight: FontWeight.w600,
@@ -396,7 +408,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                     if (householdOverAiFamily) ...[
                       const SizedBox(height: 8),
                       const Text(
-                        'Your household is above the larger-family AI limit — add individual AI seats or adjust declarations so billing matches your real household.',
+                        'Your household is above the AI Family plan limit — upgrade billing options or adjust declarations so they match your real household.',
                         style: TextStyle(
                           fontFamily: 'Inter',
                           fontSize: 12,
@@ -430,6 +442,48 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         );
       },
     );
+  }
+
+  /// Marketing copy for AI Family yearly; stores enforce real intro + renewal pricing.
+  List<Widget> _aiFamilyYearlyPricingFootnotes() {
+    final intro = _prices.aiFamilyYearlyIntroFirstYear;
+    final renewal = _prices.aiFamilyYearly;
+    return [
+      if (intro != null) ...[
+        Text(
+          'First year ${_formatPrice(intro)}, then ${_formatPrice(renewal)}/year.',
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: AppTheme.stone600,
+            height: 1.3,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          'About ${_formatPrice(intro / 12)}/month in year one, ~${_formatPrice(renewal / 12)}/month if renewing at ${_formatPrice(renewal)}/year.',
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 11,
+            color: AppTheme.stone500,
+            height: 1.35,
+          ),
+        ),
+        const SizedBox(height: 4),
+      ],
+      Text(
+        intro != null
+            ? 'AUD guide pricing — Apple or Google shows the exact total at checkout.'
+            : 'Introductory offers may apply where eligible — your store shows the binding price.',
+        style: const TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 11,
+          color: AppTheme.stone400,
+          height: 1.35,
+        ),
+      ),
+    ];
   }
 
   Widget _billingToggle(String label, bool selected, {String? badge}) {
@@ -573,6 +627,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       ),
                   ],
                 ),
+                if (tier == SubscriptionTier.ai_family && _yearly) ...[
+                  const SizedBox(height: 10),
+                  ..._aiFamilyYearlyPricingFootnotes(),
+                ],
                 const SizedBox(height: 16),
 
                 // Features
