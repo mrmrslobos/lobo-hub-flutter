@@ -141,6 +141,31 @@ class CloudSyncScope {
         workoutSets,
       };
 
+  /// Tables eligible for incremental pull via per-`(familyId, table)`
+  /// `last_synced_at` cursors. Two requirements:
+  ///   1. The table has a real `updated_at timestamptz` column.
+  ///   2. Absence of a row from an incremental response is not interpreted
+  ///      as "row was deleted" (incremental fetches also include
+  ///      `deleted_at != null` rows so the client learns about deletes).
+  /// `users`, `families`, `family_members` stay full-pull as they're
+  /// foundational and small.
+  static const Set<String> incrementalEligibleTables = {
+    // Soft-delete family-scoped tables (deletes propagate via deleted_at).
+    tasks, events, lists, recipes, mealPlans, chores, polls,
+    prayerWall, devotionals, readingPlans, specialDates,
+    familyPhotos, savedPlaces, rewardItems, savingsGoals,
+    dailyHabits, budgetCategories, transactions, budgetEntries,
+    milestones, externalCalendars, healthRecords,
+    periodCycles, periodSymptoms, rewards,
+    // Append-only / log-like tables with reliable updated_at.
+    messages, familyActivityLogs, aiHistory,
+    dailyHabitCompletions, choreCompletions, pollVotes,
+    rewardRedemptions, devotionalThoughts, readingPlanProgress,
+    pantryItems, wellnessCheckIns, exercisePrs,
+    workoutSessions, workoutExercises, workoutSets,
+    fitness, fitnessLogs, fitnessPlans,
+  };
+
   /// Tables we subscribe to via Postgres realtime, filtered by `family_id`.
   /// Single source of truth so the realtime subscription list can't drift
   /// from the push scope. `families` is subscribed separately (filter by id).

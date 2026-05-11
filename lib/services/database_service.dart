@@ -149,6 +149,85 @@ class DatabaseService {
     }
   }
 
+  // ── Sync cursors (per-table last_synced_at for incremental pulls) ─────────
+
+  /// In-memory cache of all cursors. Keyed `"$familyId:$table"` → ISO string.
+  /// Lazy-loaded on first read; persisted on every write so a crash never
+  /// loses more than the in-flight pull.
+  static Map<String, String>? _cursors;
+
+  static String _cursorKey(String familyId, String table) =>
+      '$familyId:$table';
+
+  static Future<Map<String, String>> _loadCursors() async {
+    _cursors ??= await LocalSembastStore.readCursors();
+    return _cursors!;
+  }
+
+  /// Cursors that apply to [familyId] and a table the client treats as
+  /// incremental-eligible. Tables without a cursor entry → full pull.
+  static Future<Map<String, DateTime>> _cursorsForFamily(String familyId) async {
+    final all = await _loadCursors();
+    final out = <String, DateTime>{};
+    final prefix = '$familyId:';
+    for (final entry in all.entries) {
+      if (!entry.key.startsWith(prefix)) continue;
+      final table = entry.key.substring(prefix.length);
+      if (!CloudSyncScope.incrementalEligibleTables.contains(table)) continue;
+      final ts = DateTime.tryParse(entry.value);
+      if (ts != null) out[table] = ts;
+    }
+    return out;
+  }
+
+  /// Update cursors from the latest cloud response. For each incremental
+  /// table that has rows in the response, advance the cursor to
+  /// `max(updated_at)`. Rows with `deleted_at != null` count too — their
+  /// updated_at is set by `softDeleteRows`, so a soft-delete bumps the cursor.
+  static Future<void> _advanceCursors(
+    String familyId,
+    Map<String, dynamic> cloudData,
+    Set<String> incrementalTables,
+  ) async {
+    if (incrementalTables.isEmpty) return;
+    final cursors = await _loadCursors();
+    var dirty = false;
+    for (final table in incrementalTables) {
+      final rows = cloudData[table];
+      if (rows is! List || rows.isEmpty) continue;
+      DateTime? maxTs;
+      for (final row in rows) {
+        if (row is! Map) continue;
+        final raw = row['updated_at'];
+        DateTime? ts;
+        if (raw is String && raw.isNotEmpty) {
+          ts = DateTime.tryParse(raw);
+        } else if (raw is DateTime) {
+          ts = raw;
+        }
+        if (ts == null) continue;
+        if (maxTs == null || ts.isAfter(maxTs)) maxTs = ts;
+      }
+      if (maxTs == null) continue;
+      final key = _cursorKey(familyId, table);
+      final iso = maxTs.toUtc().toIso8601String();
+      if (cursors[key] != iso) {
+        cursors[key] = iso;
+        dirty = true;
+      }
+    }
+    if (dirty) {
+      await LocalSembastStore.writeCursors(cursors);
+    }
+  }
+
+  /// Drop all cursors. Called on logout / wipe so a different account starts
+  /// from a clean slate.
+  static Future<void> _clearCursors() async {
+    _cursors = <String, String>{};
+    await LocalSembastStore.writeCursors(_cursors!);
+  }
+
   static AppDB get db => _cache ?? AppDB.empty();
 
   static void _debugCatch(String context, Object e, StackTrace st) {
@@ -246,6 +325,7 @@ class DatabaseService {
   static Future<void> clearLocal() async {
     _cache = AppDB.empty();
     _deletedKeys.clear();
+    await _clearCursors();
     await LocalSembastStore.clearAppRecords();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_dbKey);
@@ -259,6 +339,7 @@ class DatabaseService {
   static Future<void> wipeAllLocalStorage() async {
     _cache = AppDB.empty();
     _deletedKeys.clear();
+    _cursors = <String, String>{};
     await LocalSembastStore.deletePhysicalDatabase();
     final prefs = await SharedPreferences.getInstance();
     final keys = prefs.getKeys().toList();
@@ -1157,18 +1238,40 @@ class DatabaseService {
     lastError = null;
     if (!SupabaseService.isConfigured) return local;
     try {
+      final cursors = await _cursorsForFamily(familyId);
+      // The set of tables we actually used cursors for in this pull.
+      final usedCursors = <String, DateTime>{};
+      for (final entry in cursors.entries) {
+        // Only count cursors for tables we're about to fetch.
+        if (pullTables == null ||
+            pullTables.isEmpty ||
+            pullTables.contains(entry.key)) {
+          usedCursors[entry.key] = entry.value;
+        }
+      }
+
       final Map<String, dynamic> cloudData;
       final bool partial;
       if (pullTables != null && pullTables.isNotEmpty) {
         partial = true;
-        cloudData =
-            await SupabaseService.fetchTablesForFamily(familyId, pullTables);
+        cloudData = await SupabaseService.fetchTablesForFamily(
+          familyId,
+          pullTables,
+          cursors: usedCursors.isEmpty ? null : usedCursors,
+        );
       } else {
         partial = false;
-        cloudData = await SupabaseService.fetchAllTables(familyId);
+        cloudData = await SupabaseService.fetchAllTables(
+          familyId,
+          cursors: usedCursors.isEmpty ? null : usedCursors,
+        );
       }
       final localForMerge = getLocalAfterFetch?.call() ?? local;
-      _pruneTombstonesAgainstCloud(cloudData, partial: partial);
+      _pruneTombstonesAgainstCloud(
+        cloudData,
+        partial: partial,
+        incrementalTables: usedCursors.keys.toSet(),
+      );
       await _persistTombstones();
       var merged = _mergeWithCloud(localForMerge, cloudData, familyId);
       if (FieldEncryption.isReady(familyId)) {
@@ -1176,6 +1279,17 @@ class DatabaseService {
       }
       merged = await backfillMissingUsersForFamily(merged, familyId);
       await saveLocal(merged, tombstoneBase: localForMerge);
+      // Advance cursors for tables we just successfully merged. For tables
+      // without an existing cursor, this is the first pull — record their
+      // max(updated_at) so the NEXT pull is incremental.
+      final tablesToTrack = CloudSyncScope.incrementalEligibleTables
+          .where((t) =>
+              cloudData.containsKey(t) &&
+              (pullTables == null ||
+                  pullTables.isEmpty ||
+                  pullTables.contains(t)))
+          .toSet();
+      await _advanceCursors(familyId, cloudData, tablesToTrack);
       return merged;
     } on Object catch (e, st) {
       lastError = '$e\n$st';
@@ -1184,9 +1298,15 @@ class DatabaseService {
   }
 
   /// Drop tombstones once Supabase no longer has that row (delete succeeded).
+  ///
+  /// [incrementalTables] are tables whose cloud payload is a `gte(updated_at,
+  /// cursor)` delta — absence of an id from such a response means "not
+  /// modified since cursor", NOT "deleted". Pruning these would silently drop
+  /// valid tombstones, so we skip them.
   static void _pruneTombstonesAgainstCloud(
     Map<String, dynamic> cloud, {
     bool partial = false,
+    Set<String> incrementalTables = const {},
   }) {
     final fmKeys = <String>{};
     for (final m in (cloud['family_members'] as List?) ?? []) {
@@ -1219,6 +1339,7 @@ class DatabaseService {
 
     void maybePrune(String tableKey) {
       if (partial && !cloud.containsKey(tableKey)) return;
+      if (incrementalTables.contains(tableKey)) return;
       pruneTable(tableKey);
     }
 
@@ -1694,13 +1815,27 @@ class DatabaseService {
   }
 
   /// Parse a list from cloud data, skipping individual items that fail.
+  ///
+  /// Rows with `deleted_at != null` are tombstoned (their id is added to
+  /// `_deletedKeys`) and skipped — incremental pulls surface soft-deletes
+  /// this way, and the post-merge sweep in `_mergeById` drops them from
+  /// any local-only state.
   static List<T> _safeParse<T>(dynamic raw, T Function(Map<String, dynamic>) fromJson) {
     if (raw == null || raw is! List) return [];
     final results = <T>[];
     for (final item in raw) {
       if (item is Map) {
+        final m = Map<String, dynamic>.from(item);
+        final deletedAt = m['deleted_at'];
+        if (deletedAt != null && !(deletedAt is String && deletedAt.isEmpty)) {
+          final id = m['id']?.toString();
+          if (id != null && id.isNotEmpty) {
+            _recordTombstone(id);
+          }
+          continue;
+        }
         try {
-          results.add(fromJson(Map<String, dynamic>.from(item)));
+          results.add(fromJson(m));
         } on Object catch (e, st) {
           final prev = lastError ?? '';
           lastError =

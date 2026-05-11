@@ -16,6 +16,7 @@ class LocalSembastStore {
 
   static const String _markerKey = '_huddle_sem_marker_v1';
   static const String _tombstoneKey = '_huddle_merge_tombstones';
+  static const String _cursorsKey = '_huddle_sync_cursors';
 
   static Database? _db;
   static String? _storagePathOrName;
@@ -86,6 +87,29 @@ class LocalSembastStore {
     await _store.record(_tombstoneKey).put(database, keys.toList());
   }
 
+  /// Read per-`(familyId, table)` `last_synced_at` cursors as a flat map keyed
+  /// by `"$familyId:$table"` → ISO timestamp string. Empty map means no
+  /// cursors recorded yet (initial sync should be a full fetch).
+  static Future<Map<String, String>> readCursors() async {
+    final database = await _database();
+    final raw = await _store.record(_cursorsKey).get(database);
+    if (raw is Map) {
+      final out = <String, String>{};
+      raw.forEach((k, v) {
+        if (k is String && v is String && v.isNotEmpty) {
+          out[k] = v;
+        }
+      });
+      return out;
+    }
+    return <String, String>{};
+  }
+
+  static Future<void> writeCursors(Map<String, String> cursors) async {
+    final database = await _database();
+    await _store.record(_cursorsKey).put(database, cursors);
+  }
+
   /// Clears app DB shards + marker + tombstones (logout / clear local DB).
   static Future<void> clearAppRecords() async {
     final database = await _database();
@@ -96,6 +120,7 @@ class LocalSembastStore {
       }
       await _store.record(_markerKey).delete(txn);
       await _store.record(_tombstoneKey).delete(txn);
+      await _store.record(_cursorsKey).delete(txn);
     });
   }
 
