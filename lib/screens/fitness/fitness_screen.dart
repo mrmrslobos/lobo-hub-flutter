@@ -485,7 +485,7 @@ Write 2-4 short paragraphs: (1) what went well or patterns you notice, (2) one c
       db.copyWith(
         users: db.users.map((u) => u.id == user.id ? updatedUser : u).toList(),
       ),
-      pushTableScope: <String>{},
+      pushTableScope: {CloudSyncScope.users},
     );
     if (mounted) {
       _showSnack(

@@ -153,7 +153,7 @@ async function sendFcmMessage(
           priority: 'high',
           notification: {
             sound: 'default',
-            channel_id: 'default',
+            channel_id: 'lobohub_general',
             click_action: 'FLUTTER_NOTIFICATION_CLICK',
           },
         },
@@ -275,7 +275,7 @@ async function createVapidJwt(
 
 async function sendWebPushNotification(
   subscription: { endpoint: string; p256dh: string; auth: string },
-  payload: { title: string; body: string; path: string; tag: string },
+  payload: { title: string; body: string; path: string; tag: string; devotionalId?: string },
   vapidPrivateKey: string,
   vapidPublicKey: string,
 ): Promise<boolean> {
@@ -841,6 +841,7 @@ Deno.serve(async (req: Request) => {
                 body: notifBody,
                 path: notifPath,
                 tag,
+                devotionalId: entryId,
               }, vapidPrivateKey, vapidPublicKey)
             ),
           );

@@ -150,7 +150,7 @@ async function sendFcmMessage(
         notification: { title: msg.title, body: msg.body },
         data: { path: msg.path },
         apns: { payload: { aps: { badge: 1, sound: 'default' } } },
-        android: { notification: { sound: 'default', channel_id: 'default' } },
+        android: { notification: { sound: 'default', channel_id: 'lobohub_general' } },
       },
     }),
   });

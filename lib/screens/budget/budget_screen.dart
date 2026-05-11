@@ -296,7 +296,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
                 db.copyWith(
                   families: db.families.map((f) => f.id == family.id ? next : f).toList(),
                 ),
-                pushTableScope: <String>{},
+                pushTableScope: {CloudSyncScope.families},
               );
               if (ctx.mounted) Navigator.pop(ctx);
             },
@@ -2677,7 +2677,7 @@ class _DebtTrackerSheetState extends State<_DebtTrackerSheet> {
       db.copyWith(
         families: db.families.map((f) => f.id == family.id ? next : f).toList(),
       ),
-      pushTableScope: <String>{},
+      pushTableScope: {CloudSyncScope.families},
     );
   }
 

@@ -2,6 +2,7 @@
 
 import 'dart:io';
 
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:health/health.dart';
 
@@ -26,6 +27,15 @@ HealthWorkoutActivityType _activityFromTitle(String title) {
 Future<bool> writeWorkoutSessionToHealth(WorkoutSession session) async {
   if (kIsWeb) return false;
   if (!Platform.isIOS && !Platform.isAndroid) return false;
+
+  if (Platform.isAndroid) {
+    try {
+      final sdkInt = (await DeviceInfoPlugin().androidInfo).version.sdkInt;
+      if (sdkInt < 26) return false;
+    } catch (_) {
+      return false;
+    }
+  }
 
   final health = Health();
   await health.configure();

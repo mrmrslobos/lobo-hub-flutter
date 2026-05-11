@@ -2883,6 +2883,99 @@ class ReadingPlan {
   );
 }
 
+/// Per-user completion state for a [ReadingPlan] (`reading_plan_progress` table).
+class ReadingPlanProgress {
+  final String id;
+  final String planId;
+  final String userId;
+  final String familyId;
+  final List<int> completedDayNumbers;
+  final int currentStreak;
+  final int longestStreak;
+  final DateTime startedAt;
+  final DateTime? lastCompletedAt;
+
+  const ReadingPlanProgress({
+    required this.id,
+    required this.planId,
+    required this.userId,
+    required this.familyId,
+    this.completedDayNumbers = const [],
+    this.currentStreak = 0,
+    this.longestStreak = 0,
+    required this.startedAt,
+    this.lastCompletedAt,
+  });
+
+  static String stableId(String planId, String userId) => '${planId}_$userId';
+
+  factory ReadingPlanProgress.fromJson(Map<String, dynamic> j) {
+    final raw = j['completed_days'] ?? j['completedDays'];
+    final days = <int>{};
+    if (raw is List) {
+      for (final x in raw) {
+        if (x is int) days.add(x);
+        else if (x is num) days.add(x.toInt());
+      }
+    }
+    final sorted = days.toList()..sort();
+
+    return ReadingPlanProgress(
+      id: j['id'] as String? ?? '',
+      planId: j['plan_id'] as String? ?? '',
+      userId: j['user_id'] as String? ?? '',
+      familyId: j['family_id'] as String? ?? '',
+      completedDayNumbers: sorted,
+      currentStreak: (j['current_streak'] as num?)?.toInt() ??
+          (j['currentStreak'] as num?)?.toInt() ??
+          0,
+      longestStreak: (j['longest_streak'] as num?)?.toInt() ??
+          (j['longestStreak'] as num?)?.toInt() ??
+          0,
+      startedAt:
+          _parseDateOpt(j['started_at']) ?? _parseDateOpt(j['startedAt']) ?? DateTime.now(),
+      lastCompletedAt: _parseDateOpt(j['last_completed_at']) ??
+          _parseDateOpt(j['lastCompletedAt']),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'plan_id': planId,
+        'user_id': userId,
+        'family_id': familyId,
+        'completed_days': completedDayNumbers,
+        'current_streak': currentStreak,
+        'longest_streak': longestStreak,
+        'started_at': startedAt.toIso8601String(),
+        if (lastCompletedAt != null)
+          'last_completed_at': lastCompletedAt!.toIso8601String(),
+      };
+
+  ReadingPlanProgress copyWith({
+    String? id,
+    String? planId,
+    String? userId,
+    String? familyId,
+    List<int>? completedDayNumbers,
+    int? currentStreak,
+    int? longestStreak,
+    DateTime? startedAt,
+    DateTime? lastCompletedAt,
+  }) =>
+      ReadingPlanProgress(
+        id: id ?? this.id,
+        planId: planId ?? this.planId,
+        userId: userId ?? this.userId,
+        familyId: familyId ?? this.familyId,
+        completedDayNumbers: completedDayNumbers ?? this.completedDayNumbers,
+        currentStreak: currentStreak ?? this.currentStreak,
+        longestStreak: longestStreak ?? this.longestStreak,
+        startedAt: startedAt ?? this.startedAt,
+        lastCompletedAt: lastCompletedAt ?? this.lastCompletedAt,
+      );
+}
+
 class ReadingPlanEntry {
   final String id;
   final String planId;
@@ -4363,6 +4456,7 @@ class AppDB {
   final List<PeriodSymptomLog> periodSymptoms;
   final List<NotificationPrefs> notificationPrefs;
   final List<ReadingPlan> readingPlans;
+  final List<ReadingPlanProgress> readingPlanProgress;
   final List<ExternalCalendar> externalCalendars;
   final List<PantryItem> pantryItems;
   final List<FamilyActivityLog> familyActivityLogs;
@@ -4412,6 +4506,7 @@ class AppDB {
     this.periodSymptoms = const [],
     this.notificationPrefs = const [],
     this.readingPlans = const [],
+    this.readingPlanProgress = const [],
     this.externalCalendars = const [],
     this.pantryItems = const [],
     this.familyActivityLogs = const [],
@@ -4469,6 +4564,10 @@ class AppDB {
     periodSymptoms: _parseList(j['periodSymptoms'] ?? j['period_symptoms'], PeriodSymptomLog.fromJson),
     notificationPrefs: _parseList(j['notificationPrefs'] ?? j['notification_prefs'], NotificationPrefs.fromJson),
     readingPlans: _parseList(j['readingPlans'] ?? j['reading_plans'], ReadingPlan.fromJson),
+    readingPlanProgress: _parseList(
+      j['readingPlanProgress'] ?? j['reading_plan_progress'],
+      ReadingPlanProgress.fromJson,
+    ),
     externalCalendars: _parseList(j['externalCalendars'] ?? j['external_calendars'], ExternalCalendar.fromJson),
     pantryItems: _parseList(j['pantryItems'] ?? j['pantry_items'], PantryItem.fromJson),
     familyActivityLogs: _parseList(j['familyActivityLogs'] ?? j['family_activity_logs'], FamilyActivityLog.fromJson),
@@ -4523,6 +4622,10 @@ class AppDB {
     periodSymptoms: _parseList(cloud['period_symptoms'], PeriodSymptomLog.fromJson),
     notificationPrefs: const [],
     readingPlans: _parseList(cloud['reading_plans'], ReadingPlan.fromJson),
+    readingPlanProgress: _parseList(
+      cloud['reading_plan_progress'],
+      ReadingPlanProgress.fromJson,
+    ),
     externalCalendars: _parseList(cloud['external_calendars'], ExternalCalendar.fromJson),
     pantryItems: _parseList(cloud['pantry_items'], PantryItem.fromJson),
     familyActivityLogs: _parseList(cloud['family_activity_logs'], FamilyActivityLog.fromJson),
@@ -4573,6 +4676,7 @@ class AppDB {
     'periodSymptoms': periodSymptoms.map((e) => e.toJson()).toList(),
     'notificationPrefs': notificationPrefs.map((e) => e.toJson()).toList(),
     'readingPlans': readingPlans.map((e) => e.toJson()).toList(),
+    'readingPlanProgress': readingPlanProgress.map((e) => e.toJson()).toList(),
     'externalCalendars': externalCalendars.map((e) => e.toJson()).toList(),
     'pantryItems': pantryItems.map((e) => e.toJson()).toList(),
     'familyActivityLogs': familyActivityLogs.map((e) => e.toJson()).toList(),
@@ -4623,6 +4727,7 @@ class AppDB {
     List<PeriodSymptomLog>? periodSymptoms,
     List<NotificationPrefs>? notificationPrefs,
     List<ReadingPlan>? readingPlans,
+    List<ReadingPlanProgress>? readingPlanProgress,
     List<ExternalCalendar>? externalCalendars,
     List<PantryItem>? pantryItems,
     List<FamilyActivityLog>? familyActivityLogs,
@@ -4680,6 +4785,7 @@ class AppDB {
     periodSymptoms: periodSymptoms ?? this.periodSymptoms,
     notificationPrefs: notificationPrefs ?? this.notificationPrefs,
     readingPlans: readingPlans ?? this.readingPlans,
+    readingPlanProgress: readingPlanProgress ?? this.readingPlanProgress,
     externalCalendars: externalCalendars ?? this.externalCalendars,
     pantryItems: pantryItems ?? this.pantryItems,
     familyActivityLogs: familyActivityLogs ?? this.familyActivityLogs,

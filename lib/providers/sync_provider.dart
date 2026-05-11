@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 
+import '../config/build_flags.dart';
 import '../config/cloud_sync_scope.dart';
 import '../models/models.dart';
 import '../services/database_service.dart';
@@ -83,6 +84,9 @@ class SyncProvider extends ChangeNotifier {
 
   void startRealtimeListener() {
     _stopRealtimeListener();
+    if (BuildFlags.photoframe) {
+      return;
+    }
     final familyId = authProvider.activeFamily?.id;
     if (familyId == null || !SupabaseService.isConfigured) return;
 
@@ -104,10 +108,10 @@ class SyncProvider extends ChangeNotifier {
         'transactions', 'chores', 'chore_completions', 'polls', 'poll_votes',
         'reward_items', 'reward_redemptions', 'savings_goals', 'prayer_wall',
         'special_dates', 'family_photos', 'milestones', 'saved_places',
-        'messages', 'health_records', 'reading_plans', 'rewards',
+        'messages', 'health_records', 'reading_plans', 'reading_plan_progress', 'rewards',
         'external_calendars', 'pantry_items', 'family_activity_logs',
         'wellness_check_ins', 'exercise_prs', 'ai_history', 'daily_habits',
-        'family_members', 'fitness_logs', 'fitness_plans', 'period_cycles',
+        'daily_habit_completions', 'family_members', 'fitness', 'fitness_logs', 'fitness_plans', 'period_cycles',
         'period_symptoms', 'user_locations', 'workout_exercises',
         'workout_sessions', 'workout_sets'
       ];

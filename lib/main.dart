@@ -1,11 +1,14 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'config/build_flags.dart';
 import 'app.dart';
+import 'firebase_messaging_background.dart';
 import 'providers/app_provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/data_provider.dart';
@@ -58,13 +61,25 @@ void _configureProductionErrorPresentation() {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await NotificationService.bootstrapTimeZone();
+  if (!kIsWeb) {
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+  }
   _configureProductionErrorPresentation();
 
-  // Set preferred orientations
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
+  // Photoframe wall builds: landscape + immersive chrome (see AGENTS.md / build.gradle).
+  if (BuildFlags.photoframe) {
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+  } else {
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
+  }
 
   // Initial status bar before MaterialApp; app.dart syncs to theme afterward.
   final platformBright =
@@ -109,7 +124,7 @@ void main() async {
 
   // Notifications / Firebase / IAP must not block the first frame (cold start UX).
   void startDeferredBootstrap() {
-    unawaited(NotificationService.init());
+    unawaited(NotificationService.ensureReady());
     unawaited(CrashReportingService.init());
     unawaited(PurchaseService.init(iosApiKey: iosKey, androidApiKey: androidKey));
     unawaited(appProvider.initialize());

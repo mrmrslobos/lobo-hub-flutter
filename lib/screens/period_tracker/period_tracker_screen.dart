@@ -77,6 +77,37 @@ void _showSnack(BuildContext context, String msg) {
   ));
 }
 
+/// Owner always sees own rows; others see rows when owner's [User.settings] nominates them.
+bool _periodUserDataVisible(String rowUserId, String viewerId, AppDB db) {
+  if (rowUserId == viewerId) return true;
+  User? owner;
+  for (final u in db.users) {
+    if (u.id == rowUserId) {
+      owner = u;
+      break;
+    }
+  }
+  if (owner == null) return false;
+  final share =
+      owner.settings['period_share_with_user_id']?.toString().trim() ?? '';
+  return share.isNotEmpty && share == viewerId;
+}
+
+List<PeriodCycle> _insightsSourceEntries(List<PeriodCycle> visible, String viewerId) {
+  final mine = visible.where((e) => e.userId == viewerId).toList();
+  if (mine.isNotEmpty) return mine;
+  if (visible.isEmpty) return visible;
+  final oid = visible.first.userId;
+  return visible.where((e) => e.userId == oid).toList();
+}
+
+String _userDisplayName(AppDB db, String userId) {
+  for (final u in db.users) {
+    if (u.id == userId) return u.name.isNotEmpty ? u.name : userId;
+  }
+  return userId;
+}
+
 Future<bool> _confirmRemove(BuildContext context, String title, String message) async {
   final confirmed = await showDialog<bool>(
     context: context,
@@ -770,6 +801,96 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     return dates;
   }
 
+  String? _periodSharePartnerValue(User viewer, AppDB db, String familyId) {
+    final raw =
+        viewer.settings['period_share_with_user_id']?.toString().trim() ?? '';
+    if (raw.isEmpty) return null;
+    final allowed = db.familyMembers.any(
+      (m) =>
+          m.familyId == familyId &&
+          m.userId == raw &&
+          m.userId != viewer.id,
+    );
+    return allowed ? raw : null;
+  }
+
+  Future<void> _setPeriodSharePartner(
+    AppProvider provider,
+    User viewer,
+    Family family,
+    String? partnerUserId,
+  ) async {
+    final next = Map<String, dynamic>.from(viewer.settings);
+    if (partnerUserId == null || partnerUserId.isEmpty) {
+      next.remove('period_share_with_user_id');
+    } else {
+      next['period_share_with_user_id'] = partnerUserId;
+    }
+    final updated = viewer.copyWith(settings: next);
+    final db = provider.db;
+    await provider.saveAndSync(
+      db.copyWith(
+        users: db.users.map((u) => u.id == updated.id ? updated : u).toList(),
+      ),
+      pushTableScope: {CloudSyncScope.users},
+    );
+    if (!mounted) return;
+    setState(() {});
+    final label = partnerUserId == null || partnerUserId.isEmpty
+        ? 'Period calendar no longer shared.'
+        : 'Read-only calendar visible to ${_userDisplayName(db, partnerUserId)}.';
+    _showSnack(context, label);
+  }
+
+  Widget _periodShareDropdown(
+    BuildContext context,
+    AppProvider provider,
+    User viewer,
+    Family family,
+  ) {
+    final db = provider.db;
+    final candidates = db.familyMembers
+        .where((m) => m.familyId == family.id && m.userId != viewer.id)
+        .toList()
+      ..sort(
+        (a, b) => _userDisplayName(db, a.userId).toLowerCase().compareTo(
+              _userDisplayName(db, b.userId).toLowerCase(),
+            ),
+      );
+    final sel = _periodSharePartnerValue(viewer, db, family.id);
+    return DropdownButtonFormField<String?>(
+      key: ValueKey(sel ?? 'period_share_none'),
+      isExpanded: true,
+      value: sel,
+      decoration: InputDecoration(
+        labelText: 'Share read-only calendar with',
+        helperText: candidates.isEmpty
+            ? 'Add another adult to your home to enable sharing.'
+            : 'They see your period days and symptoms on the calendar (read-only).',
+        filled: true,
+        fillColor: AppTheme.surface,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+      ),
+      items: [
+        const DropdownMenuItem<String?>(
+          value: null,
+          child: Text('Not shared'),
+        ),
+        ...candidates.map(
+          (m) => DropdownMenuItem<String?>(
+            value: m.userId,
+            child: Text(_userDisplayName(db, m.userId)),
+          ),
+        ),
+      ],
+      onChanged: candidates.isEmpty
+          ? null
+          : (v) => unawaited(
+                _setPeriodSharePartner(provider, viewer, family, v),
+              ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
@@ -779,16 +900,22 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
       return const ModuleFamilyLoadingScaffold();
     }
 
-    // Private data — only current user
-    final entries = provider.db.periodEntries
-        .where((e) => e.familyId == family.id && e.userId == user.id)
+    // Current user sees own rows plus partner-visible rows when shared via users.settings.
+    final entries = provider.db.periodCycles
+        .where(
+          (e) =>
+              e.familyId == family.id &&
+              _periodUserDataVisible(e.userId, user.id, provider.db),
+        )
         .toList();
     entries.sort((a, b) => b.startDate.compareTo(a.startDate));
 
-    final avgCycle = _cycleLengthDays(entries);
-    final daysUntil = _daysUntilNext(entries);
+    final insightsEntries = _insightsSourceEntries(entries, user.id);
 
-    final prediction = _predictFertilityDates(entries, avgCycle);
+    final avgCycle = _cycleLengthDays(insightsEntries);
+    final daysUntil = _daysUntilNext(insightsEntries);
+
+    final prediction = _predictFertilityDates(insightsEntries, avgCycle);
     final predictedFertileStart = prediction[0];
     final predictedOvulationDate = prediction[1];
 
@@ -808,6 +935,14 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
           ),
         );
       });
+    }
+
+    PeriodCycle? foreignSharedEntry;
+    for (final e in entries) {
+      if (e.userId != user.id) {
+        foreignSharedEntry = e;
+        break;
+      }
     }
 
     return HuddleModuleScaffold(
@@ -861,6 +996,46 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
                   foregroundColor: AppTheme.stone700,
                 ),
               ],
+            ),
+
+            if (foreignSharedEntry != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF1F5),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFFBCFE8)),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.visibility_outlined,
+                            size: 18, color: _pinkDark),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Shared calendar — ${_userDisplayName(provider.db, foreignSharedEntry.userId)} chose to share read-only dates with you.',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              height: 1.35,
+                              color: AppTheme.stone700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              child: _periodShareDropdown(context, provider, user, family),
             ),
 
             Padding(
@@ -923,9 +1098,9 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
             const SizedBox(height: 16),
 
             // Tab content
-            if (_selectedTab == 0) _buildCalendarTab(entries),
-            if (_selectedTab == 1) _buildHistoryTab(entries, _historySearchQuery),
-            if (_selectedTab == 2) _buildInsightsTab(entries, avgCycle, daysUntil),
+            if (_selectedTab == 0) _buildCalendarTab(entries, insightsEntries),
+            if (_selectedTab == 1) _buildHistoryTab(entries, provider, _historySearchQuery),
+            if (_selectedTab == 2) _buildInsightsTab(entries, insightsEntries, avgCycle, daysUntil),
 
             const FamilySyncPrivacyFootnote(),
           ],
@@ -935,7 +1110,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
   }
 
   // ─── Calendar Tab ───────────────────────────────────────────────────────────
-  Widget _buildCalendarTab(List<PeriodEntry> entries) {
+  Widget _buildCalendarTab(List<PeriodEntry> entries, List<PeriodEntry> statsEntries) {
     final periodDates = _periodDates(entries);
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -945,9 +1120,9 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     // Flo F1: predicted fertile window + ovulation date.
     final fertileDates = <DateTime>{};
     final ovulationDates = <DateTime>{};
-    final avgCycle = _cycleLengthDays(entries);
-    if (avgCycle != null && entries.isNotEmpty) {
-      final sorted = [...entries]..sort((a, b) => b.startDate.compareTo(a.startDate));
+    final avgCycle = _cycleLengthDays(statsEntries);
+    if (avgCycle != null && statsEntries.isNotEmpty) {
+      final sorted = [...statsEntries]..sort((a, b) => b.startDate.compareTo(a.startDate));
       final lastStartDate = DateTime(
         sorted.first.startDate.year,
         sorted.first.startDate.month,
@@ -965,8 +1140,14 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
       ovulationDates.add(DateTime(ovulationDate.year, ovulationDate.month, ovulationDate.day));
     }
 
-    final symptomLogs = user != null
-        ? provider.db.periodSymptoms.where((s) => s.userId == user.id).toList()
+    final symptomLogs = user != null && provider.activeFamily != null
+        ? provider.db.periodSymptoms
+            .where(
+              (s) =>
+                  s.familyId == provider.activeFamily!.id &&
+                  _periodUserDataVisible(s.userId, user.id, provider.db),
+            )
+            .toList()
         : <PeriodSymptomLog>[];
     final symptomDates = symptomLogs.map((s) => DateTime(s.date.year, s.date.month, s.date.day)).toSet();
     final intimateDates = symptomLogs
@@ -1024,7 +1205,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
             'Tap any day and choose "Log Period Start" to begin',
             'Log symptoms & mood daily for better insights',
             'After 2+ cycles the app predicts your next period',
-            'All data is private to you — partners cannot see it',
+            'You can optionally share read-only calendar access with one adult in Sharing above',
           ],
         ),
       ]),
@@ -1073,7 +1254,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
   }
 
   // ─── History Tab ────────────────────────────────────────────────────────────
-  Widget _buildHistoryTab(List<PeriodEntry> entries, String rawQ) {
+  Widget _buildHistoryTab(List<PeriodEntry> entries, AppProvider provider, String rawQ) {
     if (entries.isEmpty) {
       return const Padding(
         padding: EdgeInsets.symmetric(horizontal: 20),
@@ -1085,10 +1266,16 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
       );
     }
 
-    final provider = context.watch<AppProvider>();
     final user = provider.activeUser;
-    final allSymptomLogs = user != null
-        ? provider.db.periodSymptoms.where((s) => s.userId == user.id).toList()
+    final fid = provider.activeFamily?.id;
+    final allSymptomLogs = user != null && fid != null
+        ? provider.db.periodSymptoms
+            .where(
+              (s) =>
+                  s.familyId == fid &&
+                  _periodUserDataVisible(s.userId, user.id, provider.db),
+            )
+            .toList()
         : <PeriodSymptomLog>[];
     final q = rawQ.trim().toLowerCase();
     bool entryMatches(PeriodEntry entry) {
@@ -1107,6 +1294,9 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
           .any((s) => s.toLowerCase().contains(q));
       return syms;
     }
+    final viewerId = provider.activeUser?.id;
+    final hasSharedView =
+        viewerId != null && entries.any((e) => e.userId != viewerId);
     final filtered = q.isEmpty ? entries : entries.where(entryMatches).toList();
 
     return Padding(
@@ -1116,10 +1306,17 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
         children: [
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
-            child: Row(children: const [
+            child: Row(children: [
               Icon(Icons.lock_outline_rounded, size: 14, color: AppTheme.stone400),
               SizedBox(width: 6),
-              Text('Your data is private to you', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400)),
+              Expanded(
+                child: Text(
+                  hasSharedView
+                      ? 'Including read-only period rows a family member chose to share with you.'
+                      : 'Your cycle data is private unless you turn on sharing below.',
+                  style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
+                ),
+              ),
             ]),
           ),
           TextField(
@@ -1209,6 +1406,19 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
                               'to ${DateFormat('MMM d').format(entry.endDate!)}',
                               style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppTheme.stone400),
                             ),
+                          if (viewerId != null && entry.userId != viewerId)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Text(
+                                'Shared · ${_userDisplayName(provider.db, entry.userId)}',
+                                style: const TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppTheme.stone500,
+                                ),
+                              ),
+                            ),
                         ]),
                       ),
                       if (duration != null)
@@ -1253,21 +1463,26 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
   }
 
   // ─── Insights Tab ───────────────────────────────────────────────────────────
-  Widget _buildInsightsTab(List<PeriodEntry> entries, int? avgCycle, int? daysUntil) {
-    // Average period duration
-    final withEnd = entries.where((e) => e.endDate != null).toList();
+  Widget _buildInsightsTab(
+    List<PeriodEntry> visibleEntries,
+    List<PeriodEntry> statsEntries,
+    int? avgCycle,
+    int? daysUntil,
+  ) {
+    final withEnd = statsEntries.where((e) => e.endDate != null).toList();
     final avgDuration = withEnd.isNotEmpty
-        ? (withEnd.fold<int>(0, (sum, e) => sum + e.endDate!.difference(e.startDate).inDays + 1) / withEnd.length).round()
+        ? (withEnd.fold<int>(0, (sum, e) => sum + e.endDate!.difference(e.startDate).inDays + 1) /
+                withEnd.length)
+            .round()
         : null;
 
-    // Flo F3: fertility timing predictions.
     final today = DateTime.now();
     final todayDateOnly = DateTime(today.year, today.month, today.day);
 
     DateTime? fertileStart;
     DateTime? ovulationDate;
-    if (avgCycle != null && entries.isNotEmpty) {
-      final sorted = [...entries]..sort((a, b) => b.startDate.compareTo(a.startDate));
+    if (avgCycle != null && statsEntries.isNotEmpty) {
+      final sorted = [...statsEntries]..sort((a, b) => b.startDate.compareTo(a.startDate));
       final lastStart = DateTime(
         sorted.first.startDate.year,
         sorted.first.startDate.month,
@@ -1303,8 +1518,8 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
         const SizedBox(height: 10),
         Row(children: [
           Expanded(child: StatCard(
-            label: 'Entries logged',
-            value: '${entries.length}',
+            label: 'Entries visible',
+            value: '${visibleEntries.length}',
             emoji: '📊',
             color: const Color(0xFFA855F7),
           )),

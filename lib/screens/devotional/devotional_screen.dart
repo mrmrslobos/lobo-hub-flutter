@@ -20,6 +20,7 @@ import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
 import '../../services/database_service.dart';
 import '../../services/notification_service.dart';
+import '../../services/supabase_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import '../../widgets/app_drawer.dart';
@@ -30,6 +31,7 @@ import '../../widgets/huddle_subpage_scaffold.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/devotional_display_utils.dart';
 import '../../utils/debounce.dart';
+import '../../utils/reading_plan_progress.dart';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -206,24 +208,6 @@ String _devotionalVarietyBlock(AppDB db, String familyId) {
   return buf.toString();
 }
 
-/// Per-user prayer lives in [DevotionalThought] with kind [DevotionalNoteKind.prayer]; legacy [DevotionalEntry.userPrayer] is still honored until cleared.
-bool _entryHasPersonalPrayer(
-  DevotionalEntry e,
-  String? uid,
-  List<DevotionalThought> thoughts,
-) {
-  if (uid != null) {
-    final row = thoughts.firstWhereOrNull(
-      (t) =>
-          t.devotionalId == e.id &&
-          t.userId == uid &&
-          t.kind == DevotionalNoteKind.prayer,
-    );
-    if (row != null && row.body.trim().isNotEmpty) return true;
-  }
-  return e.userPrayer != null && e.userPrayer!.trim().isNotEmpty;
-}
-
 String? _myPrayerBody(
   DevotionalEntry e,
   String? uid,
@@ -312,6 +296,33 @@ class _DevotionalScreenState extends State<DevotionalScreen>
       await provider.refreshFromCloud();
       if (!mounted) return;
       e = match(context.read<AppProvider>().db.devotionalEntries);
+    }
+    if (e == null && SupabaseService.isConfigured) {
+      try {
+        final raw = await Supabase.instance.client
+            .from('devotionals')
+            .select()
+            .eq('id', id)
+            .maybeSingle();
+        if (!mounted) return;
+        if (raw != null) {
+          final entry = DevotionalEntry.fromJson(
+            Map<String, dynamic>.from(raw as Map),
+          );
+          final db = provider.db;
+          provider.updateDb(
+            db.copyWith(
+              devotionalEntries: [
+                ...db.devotionals.where((x) => x.id != id),
+                entry,
+              ],
+            ),
+          );
+          e = entry;
+        }
+      } catch (err, st) {
+        debugPrint('[DevotionalScreen] direct devotional fetch failed: $err\n$st');
+      }
     }
     if (!mounted) return;
     if (e != null) {
@@ -486,9 +497,19 @@ class _DevotionalScreenState extends State<DevotionalScreen>
             final db = provider.db;
             final rest =
                 db.devotionalThoughts.where((t) => t.id != thought.id).toList();
+            var next = db.copyWith(devotionalThoughts: [...rest, thought]);
+            if (thought.kind == DevotionalNoteKind.prayer) {
+              next = applyReadingPlanProgressAfterPrayerChange(
+                next,
+                userId: thought.userId,
+                familyId: thought.familyId,
+                devotionalId: thought.devotionalId,
+                hasPrayer: thought.body.trim().isNotEmpty,
+              );
+            }
             await provider.saveAndSync(
-              db.copyWith(devotionalThoughts: [...rest, thought]),
-              pushTableScope: CloudSyncScope.devotionalBundle,
+              next,
+              pushTableScope: CloudSyncScope.devotionalReadingPlanBundle,
             );
           },
           onUpdatePrayer: (prayer) async {
@@ -523,14 +544,22 @@ class _DevotionalScreenState extends State<DevotionalScreen>
               ];
             }
             final cleared = entry.copyWith(userPrayer: null);
+            var next = db.copyWith(
+              devotionalThoughts: nextThoughts,
+              devotionalEntries: db.devotionalEntries
+                  .map((e) => e.id == cleared.id ? cleared : e)
+                  .toList(),
+            );
+            next = applyReadingPlanProgressAfterPrayerChange(
+              next,
+              userId: uid,
+              familyId: entry.familyId,
+              devotionalId: entry.id,
+              hasPrayer: trimmed.isNotEmpty,
+            );
             await provider.saveAndSync(
-              db.copyWith(
-                devotionalThoughts: nextThoughts,
-                devotionalEntries: db.devotionalEntries
-                    .map((e) => e.id == cleared.id ? cleared : e)
-                    .toList(),
-              ),
-              pushTableScope: CloudSyncScope.devotionalBundle,
+              next,
+              pushTableScope: CloudSyncScope.devotionalReadingPlanBundle,
             );
             setState(() => _selectedEntry = cleared);
           },
@@ -1480,6 +1509,7 @@ For each entry's "discussion" field, provide one substantive personal reflection
           pushTableScope: {
             CloudSyncScope.devotionals,
             CloudSyncScope.readingPlans,
+            CloudSyncScope.readingPlanProgress,
           },
         );
 
@@ -1499,7 +1529,6 @@ For each entry's "discussion" field, provide one substantive personal reflection
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppProvider>();
-    final thoughts = app.db.devotionalThoughts;
     final uid = app.activeUser?.id;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1592,13 +1621,8 @@ For each entry's "discussion" field, provide one substantive personal reflection
           const SizedBox(height: 4),
           ...widget.plans.map((plan) {
             final totalDays = plan.entryIds.length;
-            final completedDays = plan.entryIds.where((id) {
-              final entry = widget.entries.cast<DevotionalEntry?>().firstWhere(
-                (e) => e?.id == id, orElse: () => null,
-              );
-              if (entry == null) return false;
-              return _entryHasPersonalPrayer(entry, uid, thoughts);
-            }).length;
+            final completedDays =
+                readingPlanEffectiveCompletedDays(plan, uid, app.db);
             final progress = totalDays > 0 ? completedDays / totalDays : 0.0;
 
             return Padding(
@@ -2261,29 +2285,34 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
   @override
   void initState() {
     super.initState();
-    final entries = _planEntries;
-    final uid = widget.activeUserId;
-    final thoughts = widget.thoughts;
-    for (int i = 0; i < entries.length; i++) {
-      if (!_entryHasPersonalPrayer(entries[i], uid, thoughts)) {
-        _currentDay = i;
-        break;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final db = context.read<AppProvider>().db;
+      final entries = _planEntries;
+      final uid = widget.activeUserId;
+      for (int i = 0; i < entries.length; i++) {
+        if (!readingPlanDayIsDone(widget.plan, uid, db, i)) {
+          setState(() => _currentDay = i);
+          break;
+        }
       }
-    }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    final app = context.watch<AppProvider>();
     final entries = _planEntries;
     final totalDays = entries.length;
     final currentEntryRaw = _currentDay < entries.length ? entries[_currentDay] : null;
     final currentEntry =
         currentEntryRaw != null ? devotionalEntryForDisplay(currentEntryRaw) : null;
     final uid = widget.activeUserId;
-    final thoughts = widget.thoughts;
-    final completedCount = entries
-        .where((e) => _entryHasPersonalPrayer(e, uid, thoughts))
-        .length;
+    final completedCount = readingPlanEffectiveCompletedDays(
+      widget.plan,
+      uid,
+      app.db,
+    );
 
     return Scaffold(
       appBar: SubpageAppBar(
@@ -2348,7 +2377,7 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
               child: Row(
                 children: List.generate(totalDays, (i) {
                   final isComplete = i < entries.length &&
-                      _entryHasPersonalPrayer(entries[i], uid, thoughts);
+                      readingPlanDayIsDone(widget.plan, uid, app.db, i);
                   final isCurrent = i == _currentDay;
                   return GestureDetector(
                     onTap: () => setState(() => _currentDay = i),
@@ -2499,14 +2528,22 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
                         final without =
                             db.devotionalThoughts.where((t) => t.id != sid).toList();
                         final cleared = currentEntry.copyWith(userPrayer: null);
+                        var nextDb = db.copyWith(
+                          devotionalThoughts: [...without, prayerThought],
+                          devotionalEntries: db.devotionalEntries
+                              .map((e) => e.id == cleared.id ? cleared : e)
+                              .toList(),
+                        );
+                        nextDb = applyReadingPlanProgressAfterPrayerChange(
+                          nextDb,
+                          userId: userId,
+                          familyId: currentEntry.familyId,
+                          devotionalId: currentEntry.id,
+                          hasPrayer: true,
+                        );
                         provider.saveAndSync(
-                          db.copyWith(
-                            devotionalThoughts: [...without, prayerThought],
-                            devotionalEntries: db.devotionalEntries
-                                .map((e) => e.id == cleared.id ? cleared : e)
-                                .toList(),
-                          ),
-                          pushTableScope: CloudSyncScope.devotionalBundle,
+                          nextDb,
+                          pushTableScope: CloudSyncScope.devotionalReadingPlanBundle,
                         );
                         setState(() {});
                         _showSnack(context, 'Day ${_currentDay + 1} complete!');

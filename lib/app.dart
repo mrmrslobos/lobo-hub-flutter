@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 
+import 'config/build_flags.dart';
 import 'config/huddle_motion.dart';
 import 'config/theme.dart';
 import 'config/app_config.dart';
@@ -42,6 +43,7 @@ import 'screens/ai_history/ai_history_screen.dart';
 import 'screens/habits/habits_screen.dart';
 import 'screens/subscription/subscription_screen.dart';
 import 'screens/assistant/assistant_screen.dart';
+import 'screens/photoframe/photoframe_screen.dart';
 
 /// Cross-fade plus slight vertical drift when switching top-level / shell routes (Phase G).
 Page<void> _huddlePage(GoRouterState state, Widget child) {
@@ -92,6 +94,7 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
     if (!_isRouterInitialized) {
       _provider = context.read<AppProvider>();
       _router = _buildRouter(_provider);
+      _provider.authProvider.onSessionReady = _consumePendingRoute;
       _isRouterInitialized = true;
       _listenToAuthState();
       WidgetsBinding.instance.addObserver(this);
@@ -112,19 +115,22 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
   /// Navigate to the route set by a notification tap (FCM or local).
   /// Syncs with cloud first so newly-generated content is available.
   void _consumePendingRoute() {
-    final route = NotificationService.pendingRoute;
-    if (route != null && route.isNotEmpty) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await NotificationService.ensureReady();
+      final route = NotificationService.pendingRoute;
+      if (route == null || route.isEmpty) return;
+      if (!_provider.isAuthenticated) {
+        return;
+      }
       NotificationService.pendingRoute = null;
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
         if (_provider.isAuthenticated) {
-          // Sync first so the notification's content (e.g. devotional) is
-          // available locally before navigating to the screen.
           await _provider.refreshFromCloud();
-          if (!mounted) return; // FIXED: avoid navigation after dispose
-          _router.go(route);
         }
-      });
-    }
+      } catch (_) {}
+      if (!mounted) return;
+      _router.go(route);
+    });
   }
 
   void _listenToAuthState() {
@@ -158,20 +164,36 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
 
   GoRouter _buildRouter(AppProvider provider) {
     return GoRouter(
-      initialLocation: '/',
+      initialLocation: BuildFlags.photoframe ? '/photoframe' : '/',
       debugLogDiagnostics: false,
       redirect: (context, state) {
         // Still loading initial data — don't redirect yet
         if (provider.isInitializing) return null;
 
+        final loc = state.matchedLocation;
         final isAuthenticated = provider.isAuthenticated;
-        final isOnAuth = state.matchedLocation == '/auth';
-
-        if (!isAuthenticated && !isOnAuth) return '/auth';
+        final isOnAuth = loc == '/auth';
         // Don't redirect away from auth during password recovery
         final isResetFlow =
             _isPasswordRecovery &&
             state.uri.queryParameters['resetPassword'] == 'true';
+
+        if (!BuildFlags.photoframe && loc == '/photoframe') {
+          return '/';
+        }
+
+        if (BuildFlags.photoframe) {
+          if (!isAuthenticated && !isOnAuth) return '/auth';
+          if (!isAuthenticated) return null;
+          if (isAuthenticated && isOnAuth && !isResetFlow) {
+            _isPasswordRecovery = false;
+            return '/photoframe';
+          }
+          if (loc != '/photoframe') return '/photoframe';
+          return null;
+        }
+
+        if (!isAuthenticated && !isOnAuth) return '/auth';
         if (isAuthenticated && isOnAuth && !isResetFlow) {
           _isPasswordRecovery = false;
           return '/';
@@ -195,6 +217,17 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
               ),
             );
           },
+        ),
+        GoRoute(
+          path: '/photoframe',
+          name: 'photoframe',
+          pageBuilder: (context, state) => NoTransitionPage<void>(
+            key: state.pageKey,
+            child: const PopScope(
+              canPop: false,
+              child: PhotoframeScreen(),
+            ),
+          ),
         ),
         // Dashboard: back does nothing (prevents accidental app exit on Android).
         GoRoute(
@@ -464,7 +497,9 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
-                        onPressed: () => context.go('/'),
+                        onPressed: () => context.go(
+                              BuildFlags.photoframe ? '/photoframe' : '/',
+                            ),
                         icon: const Icon(Icons.home_rounded, size: 20),
                         label: Text('Back to home', style: tt.labelLarge),
                       ),
@@ -489,8 +524,7 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
     return ListenableBuilder(
       listenable: _provider,
       builder: (context, _) {
-        return BiometricLockScreen(
-          child: MaterialApp.router(
+        final shell = MaterialApp.router(
             title: AppConfig.appName,
             debugShowCheckedModeBanner: false,
             theme: AppTheme.lightTheme,
@@ -524,8 +558,10 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
               }
               return ConnectivityWrapper(child: wrapped);
             },
-          ),
-        );
+          );
+        return BuildFlags.photoframe
+            ? shell
+            : BiometricLockScreen(child: shell);
       },
     );
   }
