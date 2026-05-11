@@ -239,7 +239,7 @@ async function sendFcmMessage(
             // No click_action — Capacitor registers no Flutter intent filter.
             // Omitting it lets Android use the default launcher intent so the
             // app opens correctly when the notification is tapped.
-            channel_id: 'default',
+            channel_id: 'lobohub_general',
           },
         },
       },

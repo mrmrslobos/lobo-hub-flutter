@@ -55,11 +55,11 @@ jobs:
         run: |
           set -e
           if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_ANON_KEY" ]; then
-            flutter build web --release \
+            flutter build web --release --no-wasm-dry-run \
               --dart-define=SUPABASE_URL="$SUPABASE_URL" \
               --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"
           else
-            flutter build web --release
+            flutter build web --release --no-wasm-dry-run
           fi
 
       - name: Ensure Vercel config in output

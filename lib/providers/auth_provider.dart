@@ -28,6 +28,9 @@ class AuthProvider extends ChangeNotifier {
   void Function()? _syncStartRealtime;
   void Function()? _syncStop;
 
+  /// Notified when [activeUser] and [activeFamily] are both set (bootstrap, login, family switch).
+  void Function()? onSessionReady;
+
   AuthProvider(this.dataProvider);
 
   /// Wired by [SyncProvider] after construction (avoids circular imports).
@@ -285,6 +288,7 @@ class AuthProvider extends ChangeNotifier {
         unawaited(PurchaseService.syncIdentity(user.id));
         unawaited(refreshStoreSubscription());
         notifyListeners();
+        onSessionReady?.call();
       }
     }
   }
@@ -404,6 +408,7 @@ class AuthProvider extends ChangeNotifier {
     unawaited(backfillMissingUsersIfNeeded(family.id));
     unawaited(PurchaseService.syncIdentity(user.id));
     unawaited(refreshStoreSubscription());
+    onSessionReady?.call();
   }
 
   Future<void> logout() async {
@@ -531,6 +536,7 @@ class AuthProvider extends ChangeNotifier {
       }
       _syncStartRealtime?.call();
       notifyListeners();
+      onSessionReady?.call();
     }
   }
 

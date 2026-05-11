@@ -1,6 +1,6 @@
 name: lobohub
 description: Family life in one app — tasks, calendar, meals, budget, and more. (Huddle / LoboHub)
-version: 1.0.15+16
+version: 1.0.20+21
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -40,6 +40,7 @@ dependencies:
   # Internationalization
   intl: ^0.20.2
   timezone: ^0.10.1
+  flutter_timezone: ^4.1.1
 
   # UUID generation
   uuid: ^4.5.1
@@ -101,6 +102,9 @@ dependencies:
 
   # Permission handling
   permission_handler: ^11.3.1
+
+  # Device API level (Android Health Connect guard, diagnostics)
+  device_info_plus: ^12.3.0
 
   # Apple Health / Health Connect (mobile only; no-op on web)
   health: ^13.3.1

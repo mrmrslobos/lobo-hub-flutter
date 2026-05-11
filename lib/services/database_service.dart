@@ -71,7 +71,6 @@ class DatabaseService {
     'technique_notes',
     'reference_url',
     'technique_image_url',
-    'exercise_db_id',
   };
 
   /// Meal plan columns older DBs may lack until migration 16 / 17.
@@ -93,8 +92,7 @@ class DatabaseService {
   /// workout_sessions.health_synced_at until migration 17.
   static const _workoutSessionCloudOmit = {'health_synced_at'};
 
-  /// users.settings may not exist on all deployments.
-  static const _usersCloudOmit = {'settings'};
+  static const _usersCloudOmit = <String>{};
 
   /// Events columns some older DBs lack (PGRST204).
   static const _eventsCloudOmit = {'shared_with'};
@@ -585,8 +583,7 @@ class DatabaseService {
               'fitness',
               db.fitness
                   .where((f) => f.userId == currentUserId)
-                  .map((f) => f.toJson())
-                  .toList(),
+                  .map((f) => {...f.toJson(), 'family_id': fid}).toList(),
               db.fitness
                   .where((f) => f.userId == currentUserId)
                   .map((f) => f.id)
@@ -720,7 +717,14 @@ class DatabaseService {
           'daily_habit_completions',
           db.dailyHabitCompletions
               .where((c) => c.userId == currentUserId)
-              .map((c) => c.toJson())
+              .map((c) {
+                final habitFam =
+                    db.dailyHabits.firstWhereOrNull((h) => h.id == c.habitId)?.familyId;
+                final fam = (habitFam != null && habitFam.isNotEmpty)
+                    ? habitFam
+                    : fid;
+                return {...c.toJson(), 'family_id': fam};
+              })
               .toList(),
           db.dailyHabitCompletions
               .where((c) => c.userId == currentUserId)
@@ -833,6 +837,11 @@ class DatabaseService {
             'reading_plans',
             db.readingPlans.map((r) => {...r.toJson(), 'family_id': fid}).toList(),
             db.readingPlans.map((r) => r.id).toSet()),
+      if (pick('reading_plan_progress'))
+        upAndClean(
+            'reading_plan_progress',
+            db.readingPlanProgress.map((r) => r.toJson()).toList(),
+            db.readingPlanProgress.map((r) => r.id).toSet()),
       if (pick('pantry_items'))
         upAndClean(
             'pantry_items',
@@ -1161,6 +1170,7 @@ class DatabaseService {
     maybePrune('reward_items');
     maybePrune('savings_goals');
     maybePrune('external_calendars');
+    maybePrune('reading_plan_progress');
     maybePrune('pantry_items');
     maybePrune('fitness_plans');
     maybePrune('family_activity_logs');
@@ -1182,6 +1192,7 @@ class DatabaseService {
     if (o is ChatMessage) return o.editedAt ?? o.createdAt;
     if (o is Family) return o.updatedAt;
     if (o is Task) return o.updatedAt;
+    if (o is ReadingPlanProgress) return o.lastCompletedAt ?? o.startedAt;
     try {
       final u = (o as dynamic).updatedAt;
       if (u is DateTime && u.millisecondsSinceEpoch > 0) return u;
@@ -1359,7 +1370,7 @@ class DatabaseService {
     addAll(db.familyPhotos); addAll(db.milestones); addAll(db.savedPlaces);
     addAll(db.userLocations); addAll(db.messages); addAll(db.healthRecords);
     addAll(db.periodCycles); addAll(db.periodSymptoms);
-    addAll(db.rewards); addAll(db.readingPlans); addAll(db.externalCalendars);
+    addAll(db.rewards); addAll(db.readingPlans); addAll(db.readingPlanProgress); addAll(db.externalCalendars);
     addAll(db.pantryItems);
     addAll(db.familyActivityLogs);
     addAll(db.wellnessCheckIns);
@@ -1587,6 +1598,9 @@ class DatabaseService {
       readingPlans: _mergeReadingPlans(
           local.readingPlans,
           _safeParse(cloud['reading_plans'], ReadingPlan.fromJson)),
+      readingPlanProgress: _mergeById(
+          local.readingPlanProgress,
+          _safeParse(cloud['reading_plan_progress'], ReadingPlanProgress.fromJson)),
       externalCalendars: _mergeById(local.externalCalendars, _safeParse(cloud['external_calendars'], ExternalCalendar.fromJson)),
       pantryItems: _mergeById(local.pantryItems, _safeParse(cloud['pantry_items'], PantryItem.fromJson)),
       familyActivityLogs: _mergeById(

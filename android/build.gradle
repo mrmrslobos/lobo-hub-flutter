@@ -20,6 +20,21 @@ rootProject.buildDir = '../build'
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
 }
+// Photoframe installs on API 23 (Android 6). Several Flutter plugins declare minSdk 24–26
+// even though the wall build never uses Health Connect / image picker. Coerce plugin
+// manifests so merger matches :app photoframe minSdk 23. Standard flavor stays at 26,
+// so merged minSdk for phone builds remains max(26, …) = 26.
+subprojects { sub ->
+    sub.afterEvaluate {
+        if (sub.name == 'app') {
+            return
+        }
+        def androidExt = sub.extensions.findByName('android')
+        if (androidExt?.defaultConfig != null) {
+            androidExt.defaultConfig.minSdkVersion 23
+        }
+    }
+}
 subprojects {
     project.evaluationDependsOn(':app')
 }

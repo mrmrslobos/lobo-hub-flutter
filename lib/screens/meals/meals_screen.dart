@@ -323,7 +323,7 @@ class _MealsScreenState extends State<MealsScreen>
       provider.db.copyWith(
         families: provider.db.families.map((x) => x.id == fam.id ? nextFam : x).toList(),
       ),
-      pushTableScope: <String>{},
+      pushTableScope: {CloudSyncScope.families},
     );
     if (mounted) _showSnack(context, 'Macro targets saved');
   }

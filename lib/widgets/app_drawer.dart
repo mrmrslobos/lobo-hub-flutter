@@ -648,7 +648,7 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
     final families = db.families.map((f) => f.id == updated.id ? updated : f).toList();
     await provider.saveAndSync(
       db.copyWith(families: families),
-      pushTableScope: <String>{},
+      pushTableScope: {CloudSyncScope.families},
     );
   }
 

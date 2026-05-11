@@ -33,10 +33,26 @@ android {
     ndkVersion = "29.0.14206865"
     compileSdkVersion 36
 
+    flavorDimensions 'mode'
+    productFlavors {
+        standard {
+            dimension 'mode'
+            // Health Connect (health plugin) + Fitness sync need API 26+.
+            minSdkVersion 26
+        }
+        photoframe {
+            dimension 'mode'
+            // MUST stay literal 23 — flutter.minSdkVersion is hard-coded to 24 in FlutterExtension.
+            minSdkVersion flutter.minSdkVersion
+            // Launcher label only; same applicationId as standard.
+            resValue 'string', 'app_name', 'Huddle Frame'
+        }
+    }
+
     defaultConfig {
         applicationId 'com.opensolutions.huddle'
-        // health / Health Connect requires API 26+ (Flutter default is often 24)
-        minSdkVersion 26
+        // Literal 23 baseline — not flutter.minSdkVersion (24).
+        minSdkVersion flutter.minSdkVersion
         targetSdkVersion 36
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
@@ -45,12 +61,12 @@ android {
 
     compileOptions {
         coreLibraryDesugaringEnabled true
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
 
     kotlinOptions {
-        jvmTarget = '1.8'
+        jvmTarget = '17'
     }
 
     signingConfigs {
@@ -90,4 +106,95 @@ dependencies {
     implementation 'androidx.window:window-java:1.2.0'
     // MainActivity.enableEdgeToEdge() (predictable insets on Android 15+)
     implementation 'androidx.activity:activity-ktx:1.9.3'
+}
+
+// Photoframe targets API 23. Dependency manifests + Flutter defaults can leave intermediates at minSdk 24.
+// The APK uses packaged_manifests (after ManifestForPackage). Patch every photoframe manifest XML under intermediates.
+def patchPhotoframeManifestMinSdks = { Project proj ->
+    File intermediates = proj.file("${proj.buildDir}/intermediates")
+    if (!intermediates.isDirectory()) {
+        return
+    }
+    proj.fileTree(dir: intermediates, includes: ['**/photoframe*/**/AndroidManifest.xml']).each { File mf ->
+        String text = mf.getText('UTF-8')
+        def sdkMatcher = (text =~ /android:minSdkVersion="(\d+)"/)
+        if (!sdkMatcher.find()) {
+            return
+        }
+        int cur = sdkMatcher.group(1) as int
+        if (cur <= 23) {
+            return
+        }
+        mf.write(text.replaceFirst(/android:minSdkVersion="\d+"/, 'android:minSdkVersion="23"'), 'UTF-8')
+        proj.logger.lifecycle("[photoframe] manifest minSdk ${cur} -> 23 (${proj.relativePath(mf)})")
+    }
+}
+
+afterEvaluate {
+    // Immediately before APK packaging (binary manifest is taken from packaged_manifests).
+    ['PhotoframeRelease', 'PhotoframeDebug', 'PhotoframeProfile'].each { String suffix ->
+        try {
+            tasks.named("package${suffix}").configure { t ->
+                t.doFirst { patchPhotoframeManifestMinSdks(project) }
+            }
+        } catch (Exception ignored) {
+            // Profile/debug variants may be absent in some setups.
+        }
+        try {
+            tasks.named("process${suffix}ManifestForPackage").configure { t ->
+                t.doLast { patchPhotoframeManifestMinSdks(project) }
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    // Quick check without aapt — run: gradlew :app:photoframePrintPackagedMinSdk
+    tasks.register('photoframePrintPackagedMinSdk') {
+        dependsOn 'assemblePhotoframeRelease'
+        group 'verification'
+        description 'Print minSdk from packaged photoframe manifest (no aapt required).'
+        doLast {
+            File packaged = file("${buildDir}/intermediates/packaged_manifests/photoframeRelease/processPhotoframeReleaseManifestForPackage/AndroidManifest.xml")
+            if (!packaged.exists()) {
+                throw new GradleException("Missing packaged manifest; build photoframe release first.")
+            }
+            String line = packaged.readLines().find { it.contains('minSdkVersion') }
+            println "photoframe packaged manifest minSdk line: ${line?.trim()}"
+        }
+    }
+
+    tasks.register('photoframeBadging') {
+        dependsOn 'assemblePhotoframeRelease'
+        group 'verification'
+        description 'Runs aapt dump badging on the photoframe release APK when build-tools are installed.'
+        doLast {
+            def sdkDirPath = localProperties.getProperty('sdk.dir')
+            if (sdkDirPath == null) {
+                println 'sdk.dir not set in local.properties — skipping aapt.'
+                return
+            }
+            File sdkDir = file(sdkDirPath)
+            File btRoot = new File(sdkDir, 'build-tools')
+            List<File> dirs = btRoot.listFiles()?.findAll { it.isDirectory() }?.sort { a, b -> b.name <=> a.name }
+            File aapt = dirs?.collect { new File(it, 'aapt.exe') }?.find { it.exists() }
+            if (aapt == null || !aapt.exists()) {
+                println "No aapt.exe under ${btRoot.path}"
+                return
+            }
+            File repoRoot = rootProject.projectDir.parentFile
+            File apk = new File(repoRoot, 'build/app/outputs/flutter-apk/app-photoframe-release.apk')
+            if (!apk.exists()) {
+                apk = file("${buildDir}/outputs/flutter-apk/app-photoframe-release.apk")
+            }
+            if (!apk.exists()) {
+                println "APK not found at ${apk.absolutePath}"
+                return
+            }
+            exec {
+                commandLine aapt.absolutePath, 'dump', 'badging', apk.absolutePath
+                standardOutput System.out
+                errorOutput System.err
+            }
+        }
+    }
 }

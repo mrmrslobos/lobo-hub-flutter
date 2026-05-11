@@ -24,6 +24,7 @@ import '../../services/ai_service.dart';
 import '../../utils/cloud_pull.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
+import '../../utils/reading_plan_progress.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/module_disclaimer.dart';
 import '../../utils/dashboard_ai_suggestions_cache.dart';
@@ -917,7 +918,7 @@ Return ONLY the JSON array, no markdown.''',
                   _buildTodayMeals(context, todayMealPlans),
                   _buildTodayChores(context, choresToday, choresCompletedToday),
                   _buildDevotional(context, todayDevotional),
-                  _buildReadingPlan(context, readingPlans),
+                  _buildReadingPlan(context, db, user.id, readingPlans),
                   _buildPrayerWall(context, recentPrayer),
                   _buildFitness(context, recentFitness),
                   _buildOpenPolls(context, openPolls),
@@ -1775,7 +1776,7 @@ Return ONLY the JSON array, no markdown.''',
       db.copyWith(
         families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
       ),
-      pushTableScope: <String>{},
+      pushTableScope: {CloudSyncScope.families},
     );
     // Clear dismiss state if the announcement changed
     if (result.isNotEmpty) {
@@ -1876,7 +1877,7 @@ Return ONLY the JSON array, no markdown.''',
                         db.copyWith(
                           families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
                         ),
-                        pushTableScope: <String>{},
+                        pushTableScope: {CloudSyncScope.families},
                       );
                     },
                     splashRadius: 18,
@@ -2574,11 +2575,17 @@ Return ONLY the JSON array, no markdown.''',
     );
   }
 
-  Widget _buildReadingPlan(BuildContext context, List<ReadingPlan> plans) {
+  Widget _buildReadingPlan(
+    BuildContext context,
+    AppDB db,
+    String userId,
+    List<ReadingPlan> plans,
+  ) {
     if (plans.isEmpty) return const SizedBox.shrink();
     final plan = plans.first;
     final totalEntries = plan.entryIds.length;
-    final completedEntries = plan.completedCount;
+    final completedEntries =
+        readingPlanEffectiveCompletedDays(plan, userId, db);
     final progressValue = totalEntries > 0 ? completedEntries / totalEntries : 0.0;
 
     return Container(

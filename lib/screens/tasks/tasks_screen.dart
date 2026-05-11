@@ -103,7 +103,7 @@ class _TasksScreenState extends State<TasksScreen> {
       provider.updateFamily(next);
       await provider.saveAndSync(
         provider.db,
-        pushTableScope: <String>{},
+        pushTableScope: {CloudSyncScope.families},
       );
       await prefs.remove(key);
     } catch (_) {}
@@ -153,7 +153,7 @@ class _TasksScreenState extends State<TasksScreen> {
     provider.updateFamily(next);
     await provider.saveAndSync(
       provider.db,
-      pushTableScope: <String>{},
+      pushTableScope: {CloudSyncScope.families},
     );
   }
 

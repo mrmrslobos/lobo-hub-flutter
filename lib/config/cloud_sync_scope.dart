@@ -48,6 +48,7 @@ class CloudSyncScope {
   static const String externalCalendars = 'external_calendars';
   static const String rewards = 'rewards';
   static const String readingPlans = 'reading_plans';
+  static const String readingPlanProgress = 'reading_plan_progress';
   static const String pantryItems = 'pantry_items';
   static const String familyActivityLogs = 'family_activity_logs';
   static const String wellnessCheckIns = 'wellness_check_ins';
@@ -56,6 +57,16 @@ class CloudSyncScope {
   static Set<String> get devotionalBundle => {
         devotionals,
         devotionalThoughts,
+      };
+
+  static Set<String> get readingPlanBundle => {
+        readingPlans,
+        readingPlanProgress,
+      };
+
+  static Set<String> get devotionalReadingPlanBundle => {
+        ...devotionalBundle,
+        readingPlanProgress,
       };
 
   /// Budget-related tables often saved together.

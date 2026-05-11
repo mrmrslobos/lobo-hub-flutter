@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Merged only for photoframe builds (Android 6 / API 23 wall tablets).
+     Gradle + Flutter defaults can still emit minSdk 24; force 23 for adb install on Marshmallow.
+     Health Connect AAR declares minSdk 26 — overrideLibrary keeps merger happy. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-sdk
+        android:minSdkVersion="23"
+        tools:overrideLibrary="androidx.health.connect.client"
+        tools:replace="android:minSdkVersion" />
+</manifest>
