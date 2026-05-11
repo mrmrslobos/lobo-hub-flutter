@@ -1,0 +1,34 @@
+name: Integration tests
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'lib/services/database_service.dart'
+      - 'lib/services/supabase_service.dart'
+      - 'lib/providers/sync_provider.dart'
+      - 'test/integration/**'
+
+jobs:
+  sync-harness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      # Without dart-defines the test skips ( exits 0 ) — add repo secrets later to run live.
+      - run: >-
+          flutter test test/integration/sync_two_device_test.dart
+          --dart-define=SUPABASE_TEST_URL=${{ secrets.SUPABASE_TEST_URL }}
+          --dart-define=SUPABASE_TEST_ANON_KEY=${{ secrets.SUPABASE_TEST_ANON_KEY }}
+          --dart-define=HUB_TEST_USER_A_EMAIL=${{ secrets.HUB_TEST_USER_A_EMAIL }}
+          --dart-define=HUB_TEST_USER_A_PASSWORD=${{ secrets.HUB_TEST_USER_A_PASSWORD }}
+          --dart-define=HUB_TEST_USER_B_EMAIL=${{ secrets.HUB_TEST_USER_B_EMAIL }}
+          --dart-define=HUB_TEST_USER_B_PASSWORD=${{ secrets.HUB_TEST_USER_B_PASSWORD }}
+          --dart-define=HUB_TEST_FAMILY_ID=${{ secrets.HUB_TEST_FAMILY_ID }}
