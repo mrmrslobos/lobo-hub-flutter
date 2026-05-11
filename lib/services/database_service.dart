@@ -2,11 +2,13 @@
 // Huddle - Local storage service with Supabase sync
 
 import 'dart:async';
+import 'dart:collection';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../config/cloud_sync_scope.dart';
 import '../models/models.dart';
 import 'local_sembast_store.dart';
 import '../utils/app_db_isolate_codec.dart';
@@ -15,6 +17,7 @@ import '../utils/fitness_plan_storage.dart';
 import 'exercise_plan_media_service.dart';
 import 'field_encryption_service.dart';
 import 'supabase_service.dart';
+import 'sync_echo_tracker.dart';
 
 /// Row shape for Supabase `fitness_plans` (AI weekly plan per user).
 Map<String, dynamic> fitnessPlanRowForCloud(
@@ -108,7 +111,43 @@ class DatabaseService {
 
   /// Keys intentionally removed locally. Persisted so restarts + failed cloud
   /// deletes don't let merged pulls resurrect rows (family members, tasks, …).
-  static final Set<String> _deletedKeys = {};
+  ///
+  /// Bounded LRU keyed by insertion order. On overflow we evict the OLDEST
+  /// entries — never `.clear()` the whole set, which would let an
+  /// offline-deleted row resurrect after a cloud merge.
+  static final LinkedHashSet<String> _deletedKeys = LinkedHashSet<String>();
+
+  static const int _tombstoneCap = 2000;
+
+  /// External hook: realtime soft-delete handler can mark a key without
+  /// touching local state directly. The next reconcile's `_mergeById` will
+  /// drop the local row whose key matches.
+  static void markTombstone(String key) => _recordTombstone(key);
+
+  /// Add one tombstone key. If already present, bump it to MRU. Evict oldest
+  /// until size ≤ cap.
+  static void _recordTombstone(String key) {
+    if (key.isEmpty) return;
+    _deletedKeys.remove(key);
+    _deletedKeys.add(key);
+    while (_deletedKeys.length > _tombstoneCap) {
+      _deletedKeys.remove(_deletedKeys.first);
+    }
+  }
+
+  static void _recordTombstones(Iterable<String> keys) {
+    for (final k in keys) {
+      _recordTombstone(k);
+    }
+  }
+
+  /// Evict oldest entries until under cap. Used after hydration when the
+  /// persisted set is larger than the current cap (e.g. cap was lowered).
+  static void _trimTombstones() {
+    while (_deletedKeys.length > _tombstoneCap) {
+      _deletedKeys.remove(_deletedKeys.first);
+    }
+  }
 
   static AppDB get db => _cache ?? AppDB.empty();
 
@@ -124,13 +163,12 @@ class DatabaseService {
     try {
       final list = prefs.getStringList(_tombstoneKey);
       if (list != null && list.isNotEmpty) {
-        _deletedKeys
-          ..clear()
-          ..addAll(list);
-        if (_deletedKeys.length > 800) {
-          _deletedKeys.clear();
-          await prefs.remove(_tombstoneKey);
+        _deletedKeys.clear();
+        // Preserve order; oldest first since we'll evict from front.
+        for (final k in list) {
+          _deletedKeys.add(k);
         }
+        _trimTombstones();
       }
     } on Object catch (e, st) {
       _debugCatch('tombstones load (prefs)', e, st);
@@ -140,8 +178,8 @@ class DatabaseService {
   static Future<void> _hydrateTombstonesFromSembast() async {
     try {
       await LocalSembastStore.readTombstonesInto(_deletedKeys);
-      if (_deletedKeys.length > 800) {
-        _deletedKeys.clear();
+      if (_deletedKeys.length > _tombstoneCap) {
+        _trimTombstones();
         await LocalSembastStore.writeTombstones(_deletedKeys);
       }
     } on Object catch (e, st) {
@@ -198,7 +236,7 @@ class DatabaseService {
     if (base != null) {
       final oldKeys = _collectKeys(base);
       final newKeys = _collectKeys(db);
-      _deletedKeys.addAll(oldKeys.difference(newKeys));
+      _recordTombstones(oldKeys.difference(newKeys));
     }
     _cache = db;
     await LocalSembastStore.writeAppDb(db);
@@ -274,6 +312,20 @@ class DatabaseService {
         }
       } else {
         m.remove('updated_at');
+      }
+      // Record self-write for postgres-change echo suppression. Read the
+      // updated_at we're about to send (or fall back to now for tables where
+      // we drop it client-side and Postgres regenerates it).
+      final rowId = m['id']?.toString() ?? '';
+      if (rowId.isNotEmpty) {
+        DateTime? ts;
+        final outU = m['updated_at'];
+        if (outU is String && outU.isNotEmpty) {
+          ts = DateTime.tryParse(outU);
+        } else if (outU is DateTime) {
+          ts = outU;
+        }
+        SyncEchoTracker.record(table, rowId, ts ?? DateTime.now().toUtc());
       }
       if (table == 'families') {
         for (final k in _familiesCloudOmit) {
@@ -956,16 +1008,25 @@ class DatabaseService {
     String table, Set<String> localIds, String familyId,
   ) async {
     if (!SupabaseService.isConfigured || _deletedKeys.isEmpty) return;
+    final softDelete = CloudSyncScope.softDeleteTables.contains(table);
     try {
-      final cloudRows = await SupabaseService.client
+      final selectQ = SupabaseService.client
           .from(table)
           .select('id')
           .eq('family_id', familyId);
+      // Skip already-soft-deleted rows so we don't re-touch them every sync.
+      final cloudRows = softDelete
+          ? await selectQ.isFilter('deleted_at', null)
+          : await selectQ;
       final cloudIds = (cloudRows as List).map((r) => r['id'] as String).toSet();
       // Only delete cloud rows that were intentionally deleted locally
       final removed = cloudIds.intersection(_deletedKeys);
       for (final id in removed) {
-        await SupabaseService.deleteRows(table, {'id': id});
+        if (softDelete) {
+          await SupabaseService.softDeleteRows(table, {'id': id});
+        } else {
+          await SupabaseService.deleteRows(table, {'id': id});
+        }
       }
     } on Object catch (e, st) {
       final msg = e.toString();
@@ -986,17 +1047,25 @@ class DatabaseService {
     String userId,
   ) async {
     if (!SupabaseService.isConfigured || _deletedKeys.isEmpty) return;
+    final softDelete = CloudSyncScope.softDeleteTables.contains(table);
     try {
-      final cloudRows = await SupabaseService.client
+      final selectQ = SupabaseService.client
           .from(table)
           .select('id')
           .eq('user_id', userId);
+      final cloudRows = softDelete
+          ? await selectQ.isFilter('deleted_at', null)
+          : await selectQ;
       final cloudIds = (cloudRows as List)
           .map((r) => r['id'] as String)
           .toSet();
       final removed = cloudIds.intersection(_deletedKeys);
       for (final id in removed) {
-        await SupabaseService.deleteRows(table, {'id': id});
+        if (softDelete) {
+          await SupabaseService.softDeleteRows(table, {'id': id});
+        } else {
+          await SupabaseService.deleteRows(table, {'id': id});
+        }
       }
     } on Object catch (e, st) {
       final msg = e.toString();
@@ -1251,7 +1320,7 @@ class DatabaseService {
   }
 
   static List<T> _mergeById<T>(List<T> local, List<T> cloud) {
-    if (cloud.isEmpty) return local;
+    if (cloud.isEmpty && _deletedKeys.isEmpty) return local;
     final localMap = <String, T>{};
     for (final item in local) {
       try {
@@ -1283,6 +1352,13 @@ class DatabaseService {
       } on Object catch (e, st) {
         _debugCatch('_mergeById cloud item', e, st);
       }
+    }
+    // Drop any tombstoned key still in the merged map. The local-only-and-
+    // tombstoned case happens when a realtime soft-delete event ran before
+    // this merge: the row never reaches `cloud` (filtered by deleted_at IS
+    // NULL) but the tombstone was registered out-of-band.
+    if (_deletedKeys.isNotEmpty) {
+      map.removeWhere((key, _) => _deletedKeys.contains(key));
     }
     return map.values.toList();
   }

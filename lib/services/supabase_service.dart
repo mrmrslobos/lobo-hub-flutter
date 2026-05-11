@@ -220,10 +220,13 @@ class SupabaseService {
     final result = <String, dynamic>{};
 
     Future<List<dynamic>> fetch(String table, String column, dynamic value) async {
+      final softDelete = CloudSyncScope.softDeleteTables.contains(table);
       if (value is List) {
-        return await client.from(table).select().inFilter(column, value);
+        final q = client.from(table).select().inFilter(column, value);
+        return softDelete ? await q.isFilter('deleted_at', null) : await q;
       }
-      return await client.from(table).select().eq(column, value);
+      final q = client.from(table).select().eq(column, value);
+      return softDelete ? await q.isFilter('deleted_at', null) : await q;
     }
 
     Future<List<dynamic>> fetchOrEmpty(String label, Future<List<dynamic>> f) async {
@@ -358,10 +361,13 @@ class SupabaseService {
     final result = <String, dynamic>{};
 
     Future<List<dynamic>> fetch(String table, String column, dynamic value) async {
+      final softDelete = CloudSyncScope.softDeleteTables.contains(table);
       if (value is List) {
-        return await client.from(table).select().inFilter(column, value);
+        final q = client.from(table).select().inFilter(column, value);
+        return softDelete ? await q.isFilter('deleted_at', null) : await q;
       }
-      return await client.from(table).select().eq(column, value);
+      final q = client.from(table).select().eq(column, value);
+      return softDelete ? await q.isFilter('deleted_at', null) : await q;
     }
 
     Future<List<dynamic>> fetchOrEmpty(String label, Future<List<dynamic>> f) async {
@@ -479,6 +485,26 @@ class SupabaseService {
     Map<String, String> filters,
   ) async {
     var query = client.from(table).delete();
+    for (final entry in filters.entries) {
+      query = query.eq(entry.key, entry.value);
+    }
+    await query;
+  }
+
+  /// Soft-delete rows in a table that has a `deleted_at` column. Used in place
+  /// of [deleteRows] for tables in [CloudSyncScope.softDeleteTables] so an
+  /// offline peer holding a stale copy can't resurrect the row via upsert
+  /// (clients omit `deleted_at` from upsert payloads, so the column is
+  /// preserved server-side).
+  static Future<void> softDeleteRows(
+    String table,
+    Map<String, String> filters,
+  ) async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    var query = client.from(table).update({
+      'deleted_at': now,
+      'updated_at': now,
+    });
     for (final entry in filters.entries) {
       query = query.eq(entry.key, entry.value);
     }

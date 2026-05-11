@@ -8,6 +8,7 @@ import '../models/models.dart';
 import '../services/database_service.dart';
 import '../services/family_activity_service.dart';
 import '../services/supabase_service.dart';
+import '../services/sync_echo_tracker.dart';
 import 'auth_provider.dart';
 import 'data_provider.dart';
 
@@ -101,22 +102,8 @@ class SyncProvider extends ChangeNotifier {
 
     try {
       var channel = Supabase.instance.client.channel('postgres:$familyId');
-      
-      const realtimeTables = [
-        'tasks', 'events', 'recipes', 'meal_plans', 'lists', 'devotionals',
-        'devotional_thoughts', 'budget_categories', 'budget_entries',
-        'transactions', 'chores', 'chore_completions', 'polls', 'poll_votes',
-        'reward_items', 'reward_redemptions', 'savings_goals', 'prayer_wall',
-        'special_dates', 'family_photos', 'milestones', 'saved_places',
-        'messages', 'health_records', 'reading_plans', 'reading_plan_progress', 'rewards',
-        'external_calendars', 'pantry_items', 'family_activity_logs',
-        'wellness_check_ins', 'exercise_prs', 'ai_history', 'daily_habits',
-        'daily_habit_completions', 'family_members', 'fitness', 'fitness_logs', 'fitness_plans', 'period_cycles',
-        'period_symptoms', 'user_locations', 'workout_exercises',
-        'workout_sessions', 'workout_sets'
-      ];
 
-      for (final table in realtimeTables) {
+      for (final table in CloudSyncScope.realtimeFamilyScopedTables) {
         channel = channel.onPostgresChanges(
           event: PostgresChangeEvent.all,
           schema: 'public',
@@ -127,11 +114,13 @@ class SyncProvider extends ChangeNotifier {
             value: familyId,
           ),
           callback: (payload) {
+            if (_isPostgresSelfEcho(payload)) return;
+            _maybeTombstoneFromSoftDelete(payload);
             scheduleDebouncedPullFromCloud();
           },
         );
       }
-      
+
       channel = channel.onPostgresChanges(
         event: PostgresChangeEvent.all,
         schema: 'public',
@@ -142,12 +131,58 @@ class SyncProvider extends ChangeNotifier {
           value: familyId,
         ),
         callback: (payload) {
+          if (_isPostgresSelfEcho(payload)) return;
           scheduleDebouncedPullFromCloud();
         },
       );
       _postgresChannel = channel.subscribe();
     } catch (e) {
       debugPrint('[SyncProvider] Postgres realtime subscription failed: $e');
+    }
+  }
+
+  /// If the realtime event is an UPDATE that set `deleted_at`, record a
+  /// tombstone so the next reconcile drops the row from local state too.
+  /// Without this, the post-pull merge keeps B's stale local copy after A
+  /// soft-deletes the row (the fetch filter hides it from B's pull).
+  void _maybeTombstoneFromSoftDelete(PostgresChangePayload payload) {
+    try {
+      if (payload.eventType == PostgresChangeEvent.delete) return;
+      if (!CloudSyncScope.softDeleteTables.contains(payload.table)) return;
+      final row = payload.newRecord;
+      final deletedAt = row['deleted_at'];
+      if (deletedAt == null || (deletedAt is String && deletedAt.isEmpty)) {
+        return;
+      }
+      final id = row['id']?.toString();
+      if (id == null || id.isEmpty) return;
+      DatabaseService.markTombstone(id);
+    } on Object {
+      // Best-effort; the pull still runs.
+    }
+  }
+
+  /// Drop postgres-change events that echo a row this device just upserted.
+  /// Falls back to triggering a pull on any parse failure (safer to over-sync
+  /// than miss an event).
+  bool _isPostgresSelfEcho(PostgresChangePayload payload) {
+    try {
+      if (payload.eventType == PostgresChangeEvent.delete) return false;
+      final row = payload.newRecord;
+      if (row.isEmpty) return false;
+      final id = row['id']?.toString();
+      if (id == null || id.isEmpty) return false;
+      final updatedRaw = row['updated_at'];
+      DateTime? updated;
+      if (updatedRaw is String && updatedRaw.isNotEmpty) {
+        updated = DateTime.tryParse(updatedRaw);
+      } else if (updatedRaw is DateTime) {
+        updated = updatedRaw;
+      }
+      if (updated == null) return false;
+      return SyncEchoTracker.isSelfEcho(payload.table, id, updated);
+    } on Object {
+      return false;
     }
   }
 

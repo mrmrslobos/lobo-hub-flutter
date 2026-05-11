@@ -140,4 +140,50 @@ class CloudSyncScope {
         workoutExercises,
         workoutSets,
       };
+
+  /// Tables we subscribe to via Postgres realtime, filtered by `family_id`.
+  /// Single source of truth so the realtime subscription list can't drift
+  /// from the push scope. `families` is subscribed separately (filter by id).
+  static const List<String> realtimeFamilyScopedTables = [
+    tasks, events, recipes, mealPlans, lists, devotionals, devotionalThoughts,
+    budgetCategories, budgetEntries, transactions, chores, choreCompletions,
+    polls, pollVotes, rewardItems, rewardRedemptions, savingsGoals, prayerWall,
+    specialDates, familyPhotos, milestones, savedPlaces, messages,
+    healthRecords, readingPlans, readingPlanProgress, rewards, externalCalendars,
+    pantryItems, familyActivityLogs, wellnessCheckIns, exercisePrs, aiHistory,
+    dailyHabits, dailyHabitCompletions, familyMembers, fitness, fitnessLogs,
+    fitnessPlans, periodCycles, periodSymptoms, userLocations,
+    workoutExercises, workoutSessions, workoutSets,
+  ];
+
+  /// Tables with a server-side `deleted_at` column. Deletes on these tables
+  /// must be UPDATEs setting `deleted_at = now()`, not DELETEs. Fetches must
+  /// filter `deleted_at IS NULL`. See migration 20260511120300_add_deleted_at.
+  static const Set<String> softDeleteTables = {
+    tasks,
+    events,
+    lists,
+    recipes,
+    mealPlans,
+    chores,
+    polls,
+    prayerWall,
+    devotionals,
+    readingPlans,
+    specialDates,
+    familyPhotos,
+    savedPlaces,
+    rewardItems,
+    savingsGoals,
+    dailyHabits,
+    budgetCategories,
+    transactions,
+    budgetEntries,
+    milestones,
+    externalCalendars,
+    healthRecords,
+    periodCycles,
+    periodSymptoms,
+    rewards,
+  };
 }
