@@ -142,10 +142,11 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
           _router.go('/auth?resetPassword=true');
         } else if (data.event == AuthChangeEvent.signedIn) {
           _isPasswordRecovery = false;
-          // OAuth callback or token refresh — re-resolve user/family from
-          // the new session so isAuthenticated becomes true, then the
-          // router's refreshListenable triggers redirect re-evaluation.
-          unawaited(_provider.initialize()); // FIXED: explicit fire-and-forget
+          // OAuth callback or session restore: re-resolve auth from Supabase.
+          // Do not call full [AppProvider.initialize] here — it reloads the local
+          // DB and races with [AuthScreen._login] while [DatabaseService.reconcileCloud]
+          // is in flight, breaking email-password sign-in.
+          unawaited(_provider.resumeAuthAfterSupabaseSignIn());
         } else if (data.event == AuthChangeEvent.signedOut) {
           _isPasswordRecovery = false;
         }

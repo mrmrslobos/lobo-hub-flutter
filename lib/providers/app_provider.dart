@@ -76,6 +76,16 @@ class AppProvider extends ChangeNotifier {
     await _auth.initialize();
   }
 
+  /// After Supabase [AuthChangeEvent.signedIn] when the user already has a JWT.
+  /// Reloading the entire local DB here races with in-flight email-password login
+  /// ([AuthScreen._login] still running [DatabaseService.reconcileCloud]) and can
+  /// desync [DataProvider.db] from what [reconcileCloud] just wrote to disk.
+  /// Cold start is handled by [initialize] before the user can sign in interactively.
+  Future<void> resumeAuthAfterSupabaseSignIn() async {
+    if (!_data.completedInitialHydration) return;
+    await _auth.initialize();
+  }
+
   Future<void> refreshStoreSubscription() =>
       _auth.refreshStoreSubscription();
 

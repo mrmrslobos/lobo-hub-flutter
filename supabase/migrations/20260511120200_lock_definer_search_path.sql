@@ -14,7 +14,7 @@ BEGIN
     JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public' AND p.proname = 'auth_is_member_of'
   ) THEN
-    EXECUTE 'ALTER FUNCTION public.auth_is_member_of(uuid) SET search_path = pg_catalog, public';
+    EXECUTE 'ALTER FUNCTION public.auth_is_member_of(text) SET search_path = pg_catalog, public';
   END IF;
 END
 $m$;
@@ -38,7 +38,7 @@ BEGIN
     JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public' AND p.proname = 'delete_family_cloud_data'
   ) THEN
-    EXECUTE 'ALTER FUNCTION public.delete_family_cloud_data(uuid) SET search_path = pg_catalog, public';
+    EXECUTE 'ALTER FUNCTION public.delete_family_cloud_data(text) SET search_path = pg_catalog, public';
   END IF;
 END
 $m$;
@@ -62,7 +62,7 @@ BEGIN
     JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public' AND p.proname = 'sync_family_subscription_tier'
   ) THEN
-    EXECUTE 'ALTER FUNCTION public.sync_family_subscription_tier() SET search_path = pg_catalog, public';
+    EXECUTE 'ALTER FUNCTION public.sync_family_subscription_tier(text, text) SET search_path = pg_catalog, public';
   END IF;
 END
 $m$;
