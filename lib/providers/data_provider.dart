@@ -11,9 +11,11 @@ class DataProvider extends ChangeNotifier {
   
   AppDB _db = AppDB.empty();
   DateTime? _lastLocalPersistAt;
+  bool _completedInitialHydration = false;
 
   AppDB get db => _db;
   DateTime? get lastLocalPersistAt => _lastLocalPersistAt;
+  bool get completedInitialHydration => _completedInitialHydration;
 
   void updateDb(AppDB newDb) {
     _db = newDb;
@@ -34,6 +36,7 @@ class DataProvider extends ChangeNotifier {
   Future<void> initialize() async {
     _db = await DatabaseService.loadLocal();
     await _loadNotificationPrefsIntoDb();
+    _completedInitialHydration = true;
     notifyListeners();
   }
 
@@ -41,6 +44,7 @@ class DataProvider extends ChangeNotifier {
     await DatabaseService.wipeAllLocalStorage();
     _db = AppDB.empty();
     await _loadNotificationPrefsIntoDb();
+    _completedInitialHydration = true;
     notifyListeners();
   }
 

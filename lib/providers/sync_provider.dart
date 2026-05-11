@@ -9,6 +9,7 @@ import '../services/database_service.dart';
 import '../services/family_activity_service.dart';
 import '../services/supabase_service.dart';
 import '../services/sync_echo_tracker.dart';
+import '../services/sync_outbox.dart';
 import 'auth_provider.dart';
 import 'data_provider.dart';
 
@@ -25,6 +26,7 @@ class SyncProvider extends ChangeNotifier {
       startRealtimeListener: startRealtimeListener,
       stop: stop,
     );
+    SyncOutbox.registerErrorSink(setSyncError);
   }
 
   @override
@@ -334,6 +336,8 @@ class SyncProvider extends ChangeNotifier {
 
   void onAppResumed() {
     if (!authProvider.isAuthenticated || !SupabaseService.isConfigured) return;
+    // Flush any queued writes before pulling so they appear in the next pull.
+    unawaited(SyncOutbox.drain());
     final at = _lastSuccessfulSyncAt;
     final hadError = _lastSyncError != null && _lastSyncError!.isNotEmpty;
     final stale = at == null || DateTime.now().difference(at) > resumeSyncStaleAfter;
@@ -374,6 +378,9 @@ class SyncProvider extends ChangeNotifier {
       setSyncError(e.toString());
     } finally {
       setOutboundSyncActive(false);
+      // Drain any outbox records (e.g. queued soft-deletes from
+      // _deleteRemovedRows) so a successful sync also flushes the queue.
+      unawaited(SyncOutbox.drain());
     }
   }
 

@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import '../config/theme.dart';
 import '../providers/app_provider.dart';
 import '../services/supabase_service.dart';
+import '../services/sync_outbox.dart';
 import '../utils/user_facing_errors.dart';
 
 class ConnectivityWrapper extends StatefulWidget {
@@ -57,6 +58,11 @@ class _ConnectivityWrapperState extends State<ConnectivityWrapper> {
     if (offline != _isOffline) {
       if (!mounted) return;
       setState(() => _isOffline = offline);
+      // Coming back online: kick the outbox so any queued soft-deletes /
+      // failed writes flush before the next user-driven sync.
+      if (!offline) {
+        unawaited(SyncOutbox.drain());
+      }
     }
   }
 

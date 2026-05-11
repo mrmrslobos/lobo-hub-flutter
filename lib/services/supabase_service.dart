@@ -160,8 +160,16 @@ class SupabaseService {
     return ids;
   }
 
-  /// Fetch all relevant tables for a family from Supabase (full DB sync).
-  static Future<Map<String, dynamic>> fetchAllTables(String familyId) async {
+  /// Fetch all relevant tables for a family from Supabase.
+  ///
+  /// When [cursors] is provided, tables present in the map use incremental
+  /// pulls (`.gte('updated_at', cursor)`) and INCLUDE soft-deleted rows so
+  /// the client can learn about deletes that happened while it was offline.
+  /// Tables not in [cursors] do a full live-only fetch as before.
+  static Future<Map<String, dynamic>> fetchAllTables(
+    String familyId, {
+    Map<String, DateTime>? cursors,
+  }) async {
     const familyScopedTables = [
       'tasks',
       'events',
@@ -221,11 +229,14 @@ class SupabaseService {
 
     Future<List<dynamic>> fetch(String table, String column, dynamic value) async {
       final softDelete = CloudSyncScope.softDeleteTables.contains(table);
-      if (value is List) {
-        final q = client.from(table).select().inFilter(column, value);
-        return softDelete ? await q.isFilter('deleted_at', null) : await q;
+      final since = cursors?[table];
+      var q = value is List
+          ? client.from(table).select().inFilter(column, value)
+          : client.from(table).select().eq(column, value);
+      if (since != null) {
+        // Incremental pull: include dead rows so client picks up deletes too.
+        return await q.gte('updated_at', since.toUtc().toIso8601String());
       }
-      final q = client.from(table).select().eq(column, value);
       return softDelete ? await q.isFilter('deleted_at', null) : await q;
     }
 
@@ -293,9 +304,10 @@ class SupabaseService {
   /// to [fetchAllTables].
   static Future<Map<String, dynamic>> fetchTablesForFamily(
     String familyId,
-    Set<String> tables,
-  ) async {
-    if (tables.isEmpty) return fetchAllTables(familyId);
+    Set<String> tables, {
+    Map<String, DateTime>? cursors,
+  }) async {
+    if (tables.isEmpty) return fetchAllTables(familyId, cursors: cursors);
 
     const familyScopedTables = [
       'tasks',
@@ -362,11 +374,14 @@ class SupabaseService {
 
     Future<List<dynamic>> fetch(String table, String column, dynamic value) async {
       final softDelete = CloudSyncScope.softDeleteTables.contains(table);
-      if (value is List) {
-        final q = client.from(table).select().inFilter(column, value);
-        return softDelete ? await q.isFilter('deleted_at', null) : await q;
+      final since = cursors?[table];
+      var q = value is List
+          ? client.from(table).select().inFilter(column, value)
+          : client.from(table).select().eq(column, value);
+      if (since != null) {
+        // Incremental pull: include dead rows so client picks up deletes too.
+        return await q.gte('updated_at', since.toUtc().toIso8601String());
       }
-      final q = client.from(table).select().eq(column, value);
       return softDelete ? await q.isFilter('deleted_at', null) : await q;
     }
 
