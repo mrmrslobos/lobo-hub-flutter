@@ -17,6 +17,7 @@ class LocalSembastStore {
   static const String _markerKey = '_huddle_sem_marker_v1';
   static const String _tombstoneKey = '_huddle_merge_tombstones';
   static const String _cursorsKey = '_huddle_sync_cursors';
+  static const String _outboxKey = '_huddle_sync_outbox';
 
   static Database? _db;
   static String? _storagePathOrName;
@@ -110,6 +111,28 @@ class LocalSembastStore {
     await _store.record(_cursorsKey).put(database, cursors);
   }
 
+  /// Read the outbox queue as a list of plain Maps (caller parses to its
+  /// record type). Empty list = empty queue or first run.
+  static Future<List<Map<String, dynamic>>> readOutbox() async {
+    final database = await _database();
+    final raw = await _store.record(_outboxKey).get(database);
+    if (raw is List) {
+      final out = <Map<String, dynamic>>[];
+      for (final e in raw) {
+        if (e is Map) {
+          out.add(Map<String, dynamic>.from(e));
+        }
+      }
+      return out;
+    }
+    return const <Map<String, dynamic>>[];
+  }
+
+  static Future<void> writeOutbox(List<Map<String, dynamic>> records) async {
+    final database = await _database();
+    await _store.record(_outboxKey).put(database, records);
+  }
+
   /// Clears app DB shards + marker + tombstones (logout / clear local DB).
   static Future<void> clearAppRecords() async {
     final database = await _database();
@@ -121,6 +144,7 @@ class LocalSembastStore {
       await _store.record(_markerKey).delete(txn);
       await _store.record(_tombstoneKey).delete(txn);
       await _store.record(_cursorsKey).delete(txn);
+      await _store.record(_outboxKey).delete(txn);
     });
   }
 

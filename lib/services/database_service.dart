@@ -18,6 +18,7 @@ import 'exercise_plan_media_service.dart';
 import 'field_encryption_service.dart';
 import 'supabase_service.dart';
 import 'sync_echo_tracker.dart';
+import 'sync_outbox.dart';
 
 /// Row shape for Supabase `fitness_plans` (AI weekly plan per user).
 Map<String, dynamic> fitnessPlanRowForCloud(
@@ -326,6 +327,7 @@ class DatabaseService {
     _cache = AppDB.empty();
     _deletedKeys.clear();
     await _clearCursors();
+    await SyncOutbox.clear();
     await LocalSembastStore.clearAppRecords();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_dbKey);
@@ -340,6 +342,7 @@ class DatabaseService {
     _cache = AppDB.empty();
     _deletedKeys.clear();
     _cursors = <String, String>{};
+    await SyncOutbox.clear();
     await LocalSembastStore.deletePhysicalDatabase();
     final prefs = await SharedPreferences.getInstance();
     final keys = prefs.getKeys().toList();
@@ -1103,11 +1106,18 @@ class DatabaseService {
       // Only delete cloud rows that were intentionally deleted locally
       final removed = cloudIds.intersection(_deletedKeys);
       for (final id in removed) {
-        if (softDelete) {
-          await SupabaseService.softDeleteRows(table, {'id': id});
-        } else {
-          await SupabaseService.deleteRows(table, {'id': id});
-        }
+        // Route through the outbox so a per-row failure (RLS, transient
+        // 5xx) gets retried with backoff instead of silently lost.
+        await SyncOutbox.enqueue(
+          table: table,
+          rowKey: id,
+          op: softDelete ? OutboxOp.softDelete : OutboxOp.hardDelete,
+          payload: {'id': id},
+        );
+      }
+      if (removed.isNotEmpty) {
+        // Best-effort immediate drain; failures stay queued for later.
+        unawaited(SyncOutbox.drain());
       }
     } on Object catch (e, st) {
       final msg = e.toString();
@@ -1142,11 +1152,15 @@ class DatabaseService {
           .toSet();
       final removed = cloudIds.intersection(_deletedKeys);
       for (final id in removed) {
-        if (softDelete) {
-          await SupabaseService.softDeleteRows(table, {'id': id});
-        } else {
-          await SupabaseService.deleteRows(table, {'id': id});
-        }
+        await SyncOutbox.enqueue(
+          table: table,
+          rowKey: id,
+          op: softDelete ? OutboxOp.softDelete : OutboxOp.hardDelete,
+          payload: {'id': id},
+        );
+      }
+      if (removed.isNotEmpty) {
+        unawaited(SyncOutbox.drain());
       }
     } on Object catch (e, st) {
       final msg = e.toString();
