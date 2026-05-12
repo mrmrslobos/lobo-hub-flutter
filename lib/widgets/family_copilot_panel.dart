@@ -21,6 +21,7 @@ import '../config/module_config.dart';
 import '../config/theme.dart';
 import '../models/models.dart';
 import '../providers/app_provider.dart';
+import '../repositories/shopping_list_repository.dart';
 import '../services/ai_service.dart';
 import '../services/calendar_external_links.dart';
 import '../services/copilot_action_applier.dart';
@@ -208,7 +209,7 @@ class _FamilyCopilotPanelState extends State<FamilyCopilotPanel> {
     super.dispose();
   }
 
-  String _buildContext(AppProvider provider) {
+  String _buildContext(BuildContext context, AppProvider provider) {
     final family = provider.activeFamily;
     final user = provider.activeUser;
     if (family == null || user == null) return '';
@@ -231,8 +232,9 @@ class _FamilyCopilotPanelState extends State<FamilyCopilotPanel> {
     var block =
         'Family: ${family.name}. Tasks due today: $tasksDue. Next events: $upcoming.';
 
-    final listTitles = db.lists
-        .where((l) => l.familyId == familyId)
+    final listTitles = context
+        .read<ShoppingListsRepository>()
+        .listsForFamily(familyId)
         .map((l) => '"${l.title}" (${l.items.length} items)')
         .join('; ');
     block += listTitles.isEmpty
@@ -274,7 +276,7 @@ class _FamilyCopilotPanelState extends State<FamilyCopilotPanel> {
     unawaited(_stopSpeaking());
     _scrollBottom();
 
-    final ctx = _buildContext(provider);
+    final ctx = _buildContext(context, provider);
     final decoded = await AiService.askCopilot(
       userMessage: text,
       familyId: family.id,

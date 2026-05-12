@@ -15,6 +15,7 @@ import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../repositories/shopping_list_repository.dart';
 import '../../utils/module_disclaimer.dart';
 import '../../services/meal_plan_shopping.dart';
 import '../../services/meal_macros.dart';
@@ -2367,8 +2368,8 @@ class _MealPlanTabState extends State<_MealPlanTab> {
     );
   }
 
-  ShoppingList? _preferredGroceryList(AppProvider provider, String familyId) {
-    final lists = provider.db.lists.where((l) => l.familyId == familyId).toList();
+  ShoppingList? _preferredGroceryList(ShoppingListsRepository listsRepo, String familyId) {
+    final lists = listsRepo.listsForFamily(familyId);
     for (final l in lists) {
       final t = l.title.toLowerCase();
       if (t.contains('grocer') || t.contains('shop')) return l;
@@ -2420,16 +2421,12 @@ class _MealPlanTabState extends State<_MealPlanTab> {
       }).toList();
     }
 
-    final db = provider.db;
-    final existing = _preferredGroceryList(provider, familyId);
+    final listsRepo = context.read<ShoppingListsRepository>();
+    final existing = _preferredGroceryList(listsRepo, familyId);
     if (existing != null) {
       final merged = [...existing.items, ...newItems];
       final updated = existing.copyWith(items: merged);
-      final nextLists = db.lists.map((l) => l.id == existing.id ? updated : l).toList();
-      await provider.saveAndSync(
-        db.copyWith(lists: nextLists),
-        pushTableScope: {CloudSyncScope.lists},
-      );
+      await listsRepo.upsert(updated);
       if (context.mounted) {
         _showSnack(context, 'Added ${newItems.length} items to "${existing.title}" in Lists');
       }
@@ -2443,10 +2440,7 @@ class _MealPlanTabState extends State<_MealPlanTab> {
         category: ListCategory.GROCERY,
         visibility: Visibility.FAMILY,
       );
-      await provider.saveAndSync(
-        db.copyWith(lists: [...db.lists, list]),
-        pushTableScope: {CloudSyncScope.lists},
-      );
+      await listsRepo.upsert(list);
       if (context.mounted) {
         _showSnack(context, 'Created "Groceries" in Lists with ${newItems.length} items');
       }
@@ -2486,11 +2480,8 @@ class _MealPlanTabState extends State<_MealPlanTab> {
       items: listItems,
       category: ListCategory.GROCERY,
     );
-    final db = provider.db;
-    await provider.saveAndSync(
-      db.copyWith(lists: [...db.lists, list]),
-      pushTableScope: CloudSyncScope.mealsExtendedBundle,
-    );
+    final listsRepo = context.read<ShoppingListsRepository>();
+    await listsRepo.upsert(list);
     if (context.mounted) {
       _showSnack(context, 'Added ${listItems.length} items to Lists');
     }

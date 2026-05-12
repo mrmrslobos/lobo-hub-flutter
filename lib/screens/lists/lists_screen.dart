@@ -9,11 +9,11 @@ import 'package:uuid/uuid.dart';
 import '../../app.dart';
 
 import '../../config/app_design_tokens.dart';
-import '../../config/cloud_sync_scope.dart';
 import '../../config/module_config.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../repositories/shopping_list_repository.dart';
 import '../../services/ai_service.dart';
 import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
@@ -64,13 +64,6 @@ class _ListsScreenState extends State<ListsScreen> {
 
   // ── Data helpers ───────────────────────────────────────────────────────────
 
-  /// Persist lists and push to Supabase ([saveAndSync] enqueues list scope).
-  Future<void> _saveShoppingLists(AppProvider provider, AppDB nextDb) async {
-    await provider.saveAndSync(nextDb,
-        pushTableScope: {CloudSyncScope.lists});
-  }
-
-  /// Opens an existing list or creates one when the title matches case-insensitively.
   Future<void> _openOrCreateQuickList(String title) async {
     final t = title.trim();
     if (t.isEmpty) return;
@@ -80,7 +73,8 @@ class _ListsScreenState extends State<ListsScreen> {
     if (familyId == null || uid == null) return;
     final lower = t.toLowerCase();
     ShoppingList? match;
-    for (final l in provider.db.shoppingLists) {
+    final listsRepo = context.read<ShoppingListsRepository>();
+    for (final l in listsRepo.listsForFamily(familyId)) {
       if (l.familyId != familyId) continue;
       if (!_canAccessList(l, uid)) continue;
       if (l.title.toLowerCase() == lower) {
@@ -97,7 +91,6 @@ class _ListsScreenState extends State<ListsScreen> {
 
   Future<void> _createList(String name, {Visibility visibility = Visibility.FAMILY, List<String> sharedWith = const []}) async {
     final provider = context.read<AppProvider>();
-    final db = provider.db;
     final list = ShoppingList(
       id: const Uuid().v4(),
       familyId: provider.activeFamily!.id,
@@ -107,8 +100,8 @@ class _ListsScreenState extends State<ListsScreen> {
       visibility: visibility,
       sharedWith: sharedWith,
     );
-    final updated = [...db.shoppingLists, list];
-    await _saveShoppingLists(provider, db.copyWith(shoppingLists: updated));
+    final listsRepo = context.read<ShoppingListsRepository>();
+    await listsRepo.upsert(list);
     if (visibility != Visibility.PRIVATE) {
       NotificationService.notifyFamilyActivityWithDb(
         provider.db,
@@ -135,10 +128,7 @@ class _ListsScreenState extends State<ListsScreen> {
       }
       return;
     }
-    final db = provider.db;
-    await _saveShoppingLists(provider, db.copyWith(
-      shoppingLists: db.shoppingLists.where((l) => l.id != list.id).toList(),
-    ));
+    await context.read<ShoppingListsRepository>().softDelete(list.id);
     if (_selectedList?.id == list.id) setState(() => _selectedList = null);
   }
 
@@ -217,13 +207,9 @@ class _ListsScreenState extends State<ListsScreen> {
                 }
                 return;
               }
-              final db = provider.db;
+              final listsRepo = context.read<ShoppingListsRepository>();
               final updated = list.copyWith(title: newName);
-              await _saveShoppingLists(provider, db.copyWith(
-                shoppingLists: db.shoppingLists
-                    .map((l) => l.id == list.id ? updated : l)
-                    .toList(),
-              ));
+              await listsRepo.upsert(updated);
               if (_selectedList?.id == list.id) {
                 setState(() => _selectedList = updated);
               }
@@ -238,11 +224,10 @@ class _ListsScreenState extends State<ListsScreen> {
   Future<void> _addItem(ShoppingList list, String name) async {
     final provider = context.read<AppProvider>();
     if (!_canMutateItems(provider, list)) return;
-    final db = provider.db;
+    final listsRepo = context.read<ShoppingListsRepository>();
     final newItem = ListItem(id: const Uuid().v4(), text: name, checked: false);
     final updatedList = list.copyWith(items: [...list.items, newItem]);
-    final updatedLists = db.shoppingLists.map((l) => l.id == list.id ? updatedList : l).toList();
-    await _saveShoppingLists(provider, db.copyWith(shoppingLists: updatedLists));
+    await listsRepo.upsert(updatedList);
     setState(() => _selectedList = updatedList);
     if (list.visibility != Visibility.PRIVATE) {
       NotificationService.notifyFamilyActivityWithDb(
@@ -260,11 +245,10 @@ class _ListsScreenState extends State<ListsScreen> {
     HapticFeedback.lightImpact();
     final provider = context.read<AppProvider>();
     if (!_canMutateItems(provider, list)) return;
-    final db = provider.db;
+    final listsRepo = context.read<ShoppingListsRepository>();
     final updatedItems = list.items.map((i) => i.id == item.id ? i.copyWith(checked: !i.checked) : i).toList();
     final updatedList = list.copyWith(items: updatedItems);
-    final updatedLists = db.shoppingLists.map((l) => l.id == list.id ? updatedList : l).toList();
-    await _saveShoppingLists(provider, db.copyWith(shoppingLists: updatedLists));
+    await listsRepo.upsert(updatedList);
     if (!mounted) return;
     setState(() => _selectedList = updatedList);
     if (!item.checked && list.visibility != Visibility.PRIVATE) {
@@ -282,10 +266,9 @@ class _ListsScreenState extends State<ListsScreen> {
   Future<void> _deleteItem(ShoppingList list, String itemId) async {
     final provider = context.read<AppProvider>();
     if (!_canMutateItems(provider, list)) return;
-    final db = provider.db;
+    final listsRepo = context.read<ShoppingListsRepository>();
     final updatedList = list.copyWith(items: list.items.where((i) => i.id != itemId).toList());
-    final updatedLists = db.shoppingLists.map((l) => l.id == list.id ? updatedList : l).toList();
-    await _saveShoppingLists(provider, db.copyWith(shoppingLists: updatedLists));
+    await listsRepo.upsert(updatedList);
     if (!mounted) return;
     setState(() => _selectedList = updatedList);
   }
@@ -313,10 +296,9 @@ class _ListsScreenState extends State<ListsScreen> {
     if (!mounted) return;
     final provider = context.read<AppProvider>();
     if (!_canMutateItems(provider, list)) return;
-    final db = provider.db;
+    final listsRepo = context.read<ShoppingListsRepository>();
     final updatedList = list.copyWith(items: list.items.where((i) => !i.checked).toList());
-    final updatedLists = db.shoppingLists.map((l) => l.id == list.id ? updatedList : l).toList();
-    await _saveShoppingLists(provider, db.copyWith(shoppingLists: updatedLists));
+    await listsRepo.upsert(updatedList);
     if (!mounted) return;
     setState(() => _selectedList = updatedList);
   }
@@ -424,7 +406,12 @@ class _ListsScreenState extends State<ListsScreen> {
     if (list == null) {
       final provider = context.read<AppProvider>();
       final familyId = provider.activeFamily?.id;
-      final allLists = provider.db.shoppingLists.where((l) => l.familyId == familyId && l.items.isNotEmpty).toList();
+      if (familyId == null) return;
+      final listsRepo = context.read<ShoppingListsRepository>();
+      final allLists = listsRepo
+          .listsForFamily(familyId)
+          .where((l) => l.items.isNotEmpty)
+          .toList();
       if (allLists.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -535,45 +522,48 @@ class _ListsScreenState extends State<ListsScreen> {
     if (family == null) return const ModuleFamilyLoadingScaffold();
 
     final currentUserId = provider.activeUser?.id;
-    final lists = provider.db.shoppingLists
-        .where((l) => l.familyId == family.id)
-        .where((l) => currentUserId != null && _canAccessList(l, currentUserId))
-        .toList();
+    final listsRepo = context.read<ShoppingListsRepository>();
+    return StreamBuilder<List<ShoppingList>>(
+      stream: listsRepo.watchListsForFamily(family.id),
+      builder: (context, snapshot) {
+        final lists = (snapshot.data ?? const <ShoppingList>[])
+            .where((l) => currentUserId != null && _canAccessList(l, currentUserId))
+            .toList();
 
-    // Sync selectedList with latest db state
-    if (_selectedList != null) {
-      final fresh = lists.cast<ShoppingList?>().firstWhere((l) => l?.id == _selectedList!.id, orElse: () => null);
-      if (fresh == null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) => setState(() => _selectedList = null));
-      } else if (fresh != _selectedList) {
-        _selectedList = fresh;
-      }
-    }
+        // Sync selectedList with latest db state
+        if (_selectedList != null) {
+          final fresh = lists.cast<ShoppingList?>().firstWhere((l) => l?.id == _selectedList!.id, orElse: () => null);
+          if (fresh == null) {
+            WidgetsBinding.instance.addPostFrameCallback((_) => setState(() => _selectedList = null));
+          } else if (fresh != _selectedList) {
+            _selectedList = fresh;
+          }
+        }
 
-    if (_selectedList != null) {
-      return BackNavigationScope(
-        onBack: () {
-          setState(() => _selectedList = null);
-          return true;
-        },
-        child: _ListDetailView(
-          list: _selectedList!,
-          onBack: () => setState(() => _selectedList = null),
-          onAddItem: (name) => _addItem(_selectedList!, name),
-          onToggleItem: (item) => _toggleItem(_selectedList!, item),
-          onDeleteItem: (id) => _deleteItem(_selectedList!, id),
-          onClearChecked: () => _clearCheckedItems(_selectedList!),
-          onDeleteList: () => _deleteList(_selectedList!),
-          onAiCategorize: _showAiCategorization,
-        ),
-      );
-    }
+        if (_selectedList != null) {
+          return BackNavigationScope(
+            onBack: () {
+              setState(() => _selectedList = null);
+              return true;
+            },
+            child: _ListDetailView(
+              list: _selectedList!,
+              onBack: () => setState(() => _selectedList = null),
+              onAddItem: (name) => _addItem(_selectedList!, name),
+              onToggleItem: (item) => _toggleItem(_selectedList!, item),
+              onDeleteItem: (id) => _deleteItem(_selectedList!, id),
+              onClearChecked: () => _clearCheckedItems(_selectedList!),
+              onDeleteList: () => _deleteList(_selectedList!),
+              onAiCategorize: _showAiCategorization,
+            ),
+          );
+        }
 
-    // Stats
-    final totalItems = lists.fold<int>(0, (s, l) => s + l.items.length);
-    final checkedItems = lists.fold<int>(0, (s, l) => s + l.items.where((i) => i.checked).length);
+        // Stats
+        final totalItems = lists.fold<int>(0, (s, l) => s + l.items.length);
+        final checkedItems = lists.fold<int>(0, (s, l) => s + l.items.where((i) => i.checked).length);
 
-    return HuddleModuleScaffold(
+        return HuddleModuleScaffold(
       modulePath: '/lists',
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
@@ -914,6 +904,8 @@ class _ListsScreenState extends State<ListsScreen> {
         ),
       ),
     );
+      },
+    );
   }
 }
 
@@ -1167,14 +1159,11 @@ class _AiCategorizationSheetState extends State<_AiCategorizationSheet> {
                     return catA.compareTo(catB);
                   });
 
-                  final provider = context.read<AppProvider>();
-                  final db = provider.db;
                   final updatedList = widget.list.copyWith(items: updatedItems);
-                  final updatedLists = db.shoppingLists
-                      .map((l) => l.id == widget.list.id ? updatedList : l)
-                      .toList();
-                  await provider.saveAndSync(db.copyWith(shoppingLists: updatedLists),
-                    pushTableScope: {CloudSyncScope.lists});
+                  final listsRepo = context.read<ShoppingListsRepository>();
+                  await listsRepo.upsert(updatedList);
+                  if (!context.mounted) return;
+                  final provider = context.read<AppProvider>();
                   if (provider.activeFamily != null) unawaited(provider.syncListsNow());
 
                   if (!context.mounted) return;
@@ -1362,8 +1351,7 @@ class _ListDetailViewState extends State<_ListDetailView> {
     if (result == null || result['text']!.isEmpty) return;
     if (!mounted) return;
 
-    final provider = context.read<AppProvider>();
-    final db = provider.db;
+    final listsRepo = context.read<ShoppingListsRepository>();
     final updatedItems = widget.list.items.map((i) {
       if (i.id != item.id) return i;
       return i.copyWith(
@@ -1372,9 +1360,9 @@ class _ListDetailViewState extends State<_ListDetailView> {
       );
     }).toList();
     final updatedList = widget.list.copyWith(items: updatedItems);
-    final updatedLists = db.shoppingLists.map((l) => l.id == widget.list.id ? updatedList : l).toList();
-    await provider.saveAndSync(db.copyWith(shoppingLists: updatedLists),
-                    pushTableScope: {CloudSyncScope.lists});
+    await listsRepo.upsert(updatedList);
+    if (!mounted) return;
+    final provider = context.read<AppProvider>();
     if (provider.activeFamily != null) unawaited(provider.syncListsNow());
   }
 
@@ -1678,8 +1666,9 @@ class _ListDetailViewState extends State<_ListDetailView> {
                 optionsBuilder: (textEditingValue) {
                   final query = textEditingValue.text.trim().toLowerCase();
                   if (query.isEmpty) return const Iterable<String>.empty();
-                  final provider = context.read<AppProvider>();
-                  final allNames = provider.db.shoppingLists
+                  final allNames = context
+                      .read<ShoppingListsRepository>()
+                      .listsForFamily(widget.list.familyId)
                       .expand((l) => l.items)
                       .map((i) => i.text)
                       .toSet()
@@ -1799,7 +1788,6 @@ class _AiTextToChecklistSheetState extends State<_AiTextToChecklistSheet> {
       if (!mounted) return;
 
       final provider = context.read<AppProvider>();
-      final db = provider.db;
       final userId = provider.activeUser?.id ?? '';
 
       final items = decoded.map((item) {
@@ -1822,9 +1810,7 @@ class _AiTextToChecklistSheetState extends State<_AiTextToChecklistSheet> {
         items: items,
       );
 
-      await provider.saveAndSync(
-        db.copyWith(shoppingLists: [...db.shoppingLists, newList]),
-        pushTableScope: {CloudSyncScope.lists});
+      await context.read<ShoppingListsRepository>().upsert(newList);
       if (provider.activeFamily != null) unawaited(provider.syncListsNow());
 
       if (mounted) {

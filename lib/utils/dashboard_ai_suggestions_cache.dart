@@ -23,6 +23,7 @@ String dashboardSuggestionsContextFingerprint({
   required AppDB db,
   required String familyId,
   required String userId,
+  required int familyShoppingListCount,
 }) {
   final now = DateTime.now();
   final today = DateTime(now.year, now.month, now.day);
@@ -57,7 +58,7 @@ String dashboardSuggestionsContextFingerprint({
       .where((c) => _isSameDay(c.date, today))
       .length;
   final prayer = db.prayerWall.where((p) => p.familyId == familyId).length;
-  final lists = db.lists.where((l) => l.familyId == familyId).length;
+  final lists = familyShoppingListCount;
 
   return [
     familyId,

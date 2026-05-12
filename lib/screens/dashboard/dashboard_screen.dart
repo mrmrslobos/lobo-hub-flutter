@@ -20,6 +20,7 @@ import '../../config/theme.dart';
 import '../../config/user_module_pins.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../repositories/shopping_list_repository.dart';
 import '../../services/ai_service.dart';
 import '../../utils/cloud_pull.dart';
 import '../../widgets/app_drawer.dart';
@@ -488,10 +489,12 @@ Return a JSON object:
 
     final familyId = family.id;
     final userId = user.id;
+    final listsRepo = context.read<ShoppingListsRepository>();
     final fingerprint = dashboardSuggestionsContextFingerprint(
       db: db,
       familyId: familyId,
       userId: userId,
+      familyShoppingListCount: listsRepo.listsForFamily(familyId).length,
     );
     final contextHash = hashDashboardContext(fingerprint);
 
@@ -542,6 +545,7 @@ Return a JSON object:
 
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
+    final listCount = listsRepo.listsForFamily(familyId).length;
 
     // Build context for the AI
     final tasksDue = db.tasks.where((t) => t.familyId == familyId && !t.completed && t.dueDate != null && _isSameDay(t.dueDate!, today)).length;
@@ -562,7 +566,7 @@ Meals planned today: ${mealsPlanned.join(', ')} (missing: ${['breakfast', 'lunch
 Upcoming events (3 days): ${upcomingEvents.map((e) => '${e.title} on ${DateFormat('EEE').format(e.startDate)}').join(', ')}
 Habits: $habitsCompleted/$habits completed today
 Prayer wall entries: ${db.prayerWall.where((p) => p.familyId == familyId).length}
-Active lists: ${db.lists.where((l) => l.familyId == familyId).length}
+Active lists: $listCount
 ''';
 
     Future<void> showLocalFallback() async {
@@ -818,9 +822,7 @@ Return ONLY the JSON array, no markdown.''',
             .where((c) => _isSameDay(c.date, today))
             .length;
 
-        final activeLists = db.lists
-            .where((l) => l.familyId == familyId)
-            .toList();
+        final listsRepo = context.read<ShoppingListsRepository>();
 
         final todayMealPlans = db.mealPlans
             .where((m) =>
@@ -869,64 +871,70 @@ Return ONLY the JSON array, no markdown.''',
             db.events.where((e) => e.familyId == familyId).isEmpty;
         final actionTodayCount = todayFocusTasks.length + overdueTasks.length;
 
-        return HuddleModuleScaffold(
-          modulePath: '/',
-          drawer: const AppDrawer(),
-          // backgroundColor handled by theme
-          appBar: const MainAppBar(),
-          child: RefreshIndicator(
-            onRefresh: _onRefresh,
-            color: AppTheme.primary,
-            child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: EdgeInsets.zero,
-              children: [
-                _buildTodayAtAGlance(
-                  context,
-                  user,
-                  family,
-                  actionTodayCount,
-                  upcomingEvents,
+        return StreamBuilder<List<ShoppingList>>(
+          stream: listsRepo.watchListsForFamily(familyId),
+          builder: (context, listsSnapshot) {
+            final activeLists = listsSnapshot.data ?? const <ShoppingList>[];
+            return HuddleModuleScaffold(
+              modulePath: '/',
+              drawer: const AppDrawer(),
+              // backgroundColor handled by theme
+              appBar: const MainAppBar(),
+              child: RefreshIndicator(
+                onRefresh: _onRefresh,
+                color: AppTheme.primary,
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: EdgeInsets.zero,
+                  children: [
+                    _buildTodayAtAGlance(
+                      context,
+                      user,
+                      family,
+                      actionTodayCount,
+                      upcomingEvents,
+                    ),
+                    _buildTrialBanner(context, family),
+                    if (_startTipReady && !_startTipDismissed) _buildOnboardingHint(context, family.id),
+                    _buildAnnouncementSection(context, provider, family),
+                    _buildHomeQuickActions(context, family, user),
+                    if (showTryAI) _buildTryAICard(context, provider, family),
+                    if (hasNoCoreData) _buildEmptySetupHint(context, family, familyId),
+                    RepaintBoundary(child: _buildAISuggestionsSection()),
+                    _buildDashboardDeepSectionsToggle(context),
+                    if (_showDashboardDeepSections) ...[
+                      _buildBirthdaysSection(db, familyId, today),
+                      RepaintBoundary(child: _buildMonthlySummarySection()),
+                      _buildStatsGrid(
+                        tasksDue: tasksDueToday.length,
+                        choresCompleted: choresCompletedToday,
+                        choresTotal: choresToday.length,
+                        eventsThisMonth: eventsThisMonth,
+                        spentThisMonth: spentThisMonth,
+                        habitsCompleted: habitsCompletedToday,
+                        habitsTotal: habitsToday.length,
+                      ),
+                      _buildEventCountdown(context, upcomingEvents),
+                      _buildRecapCard(now),
+                      _buildTodayFocus(context, todayFocusTasks, overdueTasks, provider),
+                      _buildUpcomingEvents(context, upcomingEvents),
+                      _buildActiveLists(context, activeLists),
+                      _buildBudgetSnapshot(context, db, familyId, user.id, monthStart),
+                      _buildPointsLeaderboard(db, familyId),
+                      _buildTodayMeals(context, todayMealPlans),
+                      _buildTodayChores(context, choresToday, choresCompletedToday),
+                      _buildDevotional(context, todayDevotional),
+                      _buildReadingPlan(context, db, user.id, readingPlans),
+                      _buildPrayerWall(context, recentPrayer),
+                      _buildFitness(context, recentFitness),
+                      _buildOpenPolls(context, openPolls),
+                    ],
+                    const SizedBox(height: 32),
+                  ],
                 ),
-                _buildTrialBanner(context, family),
-                if (_startTipReady && !_startTipDismissed) _buildOnboardingHint(context, family.id),
-                _buildAnnouncementSection(context, provider, family),
-                _buildHomeQuickActions(context, family, user),
-                if (showTryAI) _buildTryAICard(context, provider, family),
-                if (hasNoCoreData) _buildEmptySetupHint(context, family, familyId),
-                RepaintBoundary(child: _buildAISuggestionsSection()),
-                _buildDashboardDeepSectionsToggle(context),
-                if (_showDashboardDeepSections) ...[
-                  _buildBirthdaysSection(db, familyId, today),
-                  RepaintBoundary(child: _buildMonthlySummarySection()),
-                  _buildStatsGrid(
-                    tasksDue: tasksDueToday.length,
-                    choresCompleted: choresCompletedToday,
-                    choresTotal: choresToday.length,
-                    eventsThisMonth: eventsThisMonth,
-                    spentThisMonth: spentThisMonth,
-                    habitsCompleted: habitsCompletedToday,
-                    habitsTotal: habitsToday.length,
-                  ),
-                  _buildEventCountdown(context, upcomingEvents),
-                  _buildRecapCard(now),
-                  _buildTodayFocus(context, todayFocusTasks, overdueTasks, provider),
-                  _buildUpcomingEvents(context, upcomingEvents),
-                  _buildActiveLists(context, activeLists),
-                  _buildBudgetSnapshot(context, db, familyId, user.id, monthStart),
-                  _buildPointsLeaderboard(db, familyId),
-                  _buildTodayMeals(context, todayMealPlans),
-                  _buildTodayChores(context, choresToday, choresCompletedToday),
-                  _buildDevotional(context, todayDevotional),
-                  _buildReadingPlan(context, db, user.id, readingPlans),
-                  _buildPrayerWall(context, recentPrayer),
-                  _buildFitness(context, recentFitness),
-                  _buildOpenPolls(context, openPolls),
-                ],
-                const SizedBox(height: 32),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );

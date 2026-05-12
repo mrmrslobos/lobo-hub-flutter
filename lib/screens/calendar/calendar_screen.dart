@@ -23,6 +23,7 @@ import '../../config/module_config.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../repositories/shopping_list_repository.dart';
 import '../../services/ai_service.dart';
 import '../../services/calendar_external_links.dart';
 import '../../services/calendar_sync_service.dart';
@@ -3468,11 +3469,13 @@ class _EventPlannerWizardState extends State<_EventPlannerWizard> {
       }).toList();
 
       final db = provider.db;
+      final listsRepo = context.read<ShoppingListsRepository>();
+      final baseLists = listsRepo.listsForFamily(family.id);
       await provider.saveAndSync(
         db.copyWith(
           events: [...db.events, event],
           tasks: [...db.tasks, ...newTasks],
-          lists: [...db.lists, ...newLists],
+          lists: [...baseLists, ...newLists],
         ),
         pushTableScope: CloudSyncScope.eventPlannerAiBundle,
       );

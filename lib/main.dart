@@ -12,7 +12,9 @@ import 'firebase_messaging_background.dart';
 import 'providers/app_provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/data_provider.dart';
+import 'repositories/app_db_shopping_list_repository.dart';
 import 'repositories/app_db_tasks_repository.dart';
+import 'repositories/shopping_list_repository.dart';
 import 'repositories/tasks_repository.dart';
 import 'providers/sync_provider.dart';
 import 'providers/theme_provider.dart';
@@ -140,6 +142,11 @@ void main() async {
         ChangeNotifierProvider<DataProvider>.value(value: dataProvider),
         Provider<TasksRepository>(
           create: (ctx) => AppDbTasksRepository(
+            dataProvider: ctx.read<DataProvider>(),
+          ),
+        ),
+        Provider<ShoppingListsRepository>(
+          create: (ctx) => AppDbShoppingListsRepository(
             dataProvider: ctx.read<DataProvider>(),
           ),
         ),

@@ -331,6 +331,12 @@ class DatabaseService {
   static Map<String, dynamic> _taskRowForCloud(Task t) =>
       Map<String, dynamic>.from(t.toJson());
 
+  static Map<String, dynamic> _shoppingListRowForCloud(
+    ShoppingList l,
+    String familyId,
+  ) =>
+      Map<String, dynamic>.from({...l.toJson(), 'family_id': familyId});
+
   /// Shared rules for Supabase upserts (must match [syncToCloud]).
   static List<Map<String, dynamic>> sanitizeRowsForCloudUpsert(
     List<Map<String, dynamic>> rows,
@@ -369,18 +375,20 @@ class DatabaseService {
     await _enqueueFamilyCloudWrite(familyId, () async {
       final familyLists = db.lists.where((l) => l.familyId == familyId).toList();
       final localIds = familyLists.map((l) => l.id).toSet();
-      final rows = familyLists
-          .map((l) =>
-              Map<String, dynamic>.from({...l.toJson(), 'family_id': familyId}))
-          .toList();
-      try {
-        await SupabaseService.upsertTable(
+      for (final l in familyLists) {
+        final row = sanitizeRowsForCloudUpsert(
+          [_shoppingListRowForCloud(l, familyId)],
           'lists',
-          sanitizeRowsForCloudUpsert(rows, 'lists'),
+        ).first;
+        await SyncOutbox.enqueue(
+          table: 'lists',
+          rowKey: l.id,
+          op: OutboxOp.upsert,
+          payload: row,
+          onConflict: 'id',
         );
-      } on Object catch (e, st) {
-        debugPrint('[DatabaseService] lists upsert failed: $e\n$st');
       }
+      await SyncOutbox.drain();
       await _deleteRemovedRows('lists', localIds, familyId);
     });
   }
@@ -545,9 +553,26 @@ class DatabaseService {
                 .toList(),
             db.mealPlans.where((m) => m.familyId == fid).map((m) => m.id).toSet()),
       if (pick('lists'))
-        upAndClean('lists',
-            db.lists.map((l) => {...l.toJson(), 'family_id': fid}).toList(),
-            db.lists.map((l) => l.id).toSet()),
+        (() async {
+          final familyLists =
+              db.lists.where((l) => l.familyId == fid).toList();
+          final localIds = familyLists.map((l) => l.id).toSet();
+          for (final l in familyLists) {
+            final row = sanitizeRowsForCloudUpsert(
+              [_shoppingListRowForCloud(l, fid)],
+              'lists',
+            ).first;
+            await SyncOutbox.enqueue(
+              table: 'lists',
+              rowKey: l.id,
+              op: OutboxOp.upsert,
+              payload: row,
+              onConflict: 'id',
+            );
+          }
+          await SyncOutbox.drain();
+          await _deleteRemovedRows('lists', localIds, fid);
+        })(),
       if (pick('devotionals'))
         upAndClean(
             'devotionals',
