@@ -12,6 +12,8 @@ import 'firebase_messaging_background.dart';
 import 'providers/app_provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/data_provider.dart';
+import 'repositories/app_db_tasks_repository.dart';
+import 'repositories/tasks_repository.dart';
 import 'providers/sync_provider.dart';
 import 'providers/theme_provider.dart';
 import 'services/locale_service.dart';
@@ -136,6 +138,11 @@ void main() async {
     MultiProvider(
       providers: [
         ChangeNotifierProvider<DataProvider>.value(value: dataProvider),
+        Provider<TasksRepository>(
+          create: (ctx) => AppDbTasksRepository(
+            dataProvider: ctx.read<DataProvider>(),
+          ),
+        ),
         ChangeNotifierProvider<ThemeProvider>.value(value: themeProvider),
         ChangeNotifierProvider<AuthProvider>.value(value: authProvider),
         ChangeNotifierProvider<SyncProvider>.value(value: syncProvider),

@@ -16,6 +16,7 @@ import '../../config/module_config.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../repositories/tasks_repository.dart';
 import '../../services/ai_service.dart';
 import '../../utils/cloud_pull.dart';
 import '../../services/notification_service.dart';
@@ -164,7 +165,7 @@ class _TasksScreenState extends State<TasksScreen> {
     super.dispose();
   }
 
-  List<Task> _filteredTasks(AppProvider provider) {
+  List<Task> _filteredTasks(AppProvider provider, List<Task> familyTasks) {
     final familyId = provider.activeFamily?.id;
     final userId = provider.activeUser?.id;
     if (familyId == null) return [];
@@ -172,7 +173,7 @@ class _TasksScreenState extends State<TasksScreen> {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
-    return provider.db.tasks.where((t) {
+    return familyTasks.where((t) {
       if (t.familyId != familyId) return false;
 
       // Search filter
@@ -235,15 +236,14 @@ class _TasksScreenState extends State<TasksScreen> {
     return userId != null && (task.createdBy == userId || isOwner);
   }
 
-  Future<void> _toggleComplete(AppProvider provider, Task task) async {
+  Future<void> _toggleComplete(AppProvider provider, TasksRepository tasksRepo, Task task) async {
     HapticFeedback.lightImpact();
-    final db = provider.db;
     final updated = task.copyWith(
       completed: !task.completed,
       completedBy: !task.completed ? provider.activeUser?.id : null,
       updatedAt: DateTime.now(),
     );
-    var tasks = db.tasks.map((t) => t.id == task.id ? updated : t).toList();
+    await tasksRepo.upsert(updated);
 
     // Generate next recurring instance when completing a recurring task
     if (updated.completed && task.recurrence != Recurrence.NONE && task.dueDate != null) {
@@ -255,7 +255,7 @@ class _TasksScreenState extends State<TasksScreen> {
         dueDate: nextDue,
         updatedAt: DateTime.now(),
       );
-      tasks = [...tasks, nextTask];
+      await tasksRepo.upsert(nextTask);
       if (nextTask.dueDate != null && nextTask.reminderMinutes != null && nextTask.dueTime != null) {
         NotificationService.scheduleTaskReminder(
           taskId: nextTask.id,
@@ -267,8 +267,6 @@ class _TasksScreenState extends State<TasksScreen> {
       }
     }
 
-    await provider.saveAndSync(db.copyWith(tasks: tasks),
-          pushTableScope: {CloudSyncScope.tasks});
     if (provider.activeFamily != null) unawaited(provider.syncTasksNow());
     if (updated.completed) {
       NotificationService.cancelTaskReminder(task.id);
@@ -288,7 +286,7 @@ class _TasksScreenState extends State<TasksScreen> {
     }
   }
 
-  Future<void> _deleteTask(AppProvider provider, Task task) async {
+  Future<void> _deleteTask(AppProvider provider, TasksRepository tasksRepo, Task task) async {
     if (!_canManageTask(provider, task)) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -300,10 +298,7 @@ class _TasksScreenState extends State<TasksScreen> {
       }
       return;
     }
-    final db = provider.db;
-    final tasks = db.tasks.where((t) => t.id != task.id).toList();
-    await provider.saveAndSync(db.copyWith(tasks: tasks),
-          pushTableScope: {CloudSyncScope.tasks});
+    await tasksRepo.softDelete(task.id);
     if (provider.activeFamily != null) unawaited(provider.syncTasksNow());
     NotificationService.cancelTaskReminder(task.id);
   }
@@ -338,36 +333,41 @@ class _TasksScreenState extends State<TasksScreen> {
         if (provider.activeUser == null || provider.activeFamily == null) {
           return const ModuleFamilyLoadingScaffold();
         }
-        final tasks = _filteredTasks(provider);
-        final family = provider.currentFamily;
-        final familyId = family?.id;
-        final userId = provider.activeUser?.id;
-        final members = provider.familyMembers;
-        final folderNames = family == null ? _folderNames : _allFolderNames(family);
+        final familyId = provider.activeFamily!.id;
+        final tasksRepo = context.read<TasksRepository>();
+        return StreamBuilder<List<Task>>(
+          stream: tasksRepo.watchTasksForFamily(familyId),
+          builder: (context, snapshot) {
+            final familyTasks = snapshot.data ?? const <Task>[];
+            final tasks = _filteredTasks(provider, familyTasks);
+            final family = provider.currentFamily;
+            final userId = provider.activeUser?.id;
+            final members = provider.familyMembers;
+            final folderNames = family == null ? _folderNames : _allFolderNames(family);
 
-        // Counts for filters
-        final allTasks = provider.db.tasks.where((t) => t.familyId == familyId && !t.completed).toList();
-        final myTasks = allTasks.where((t) => t.assigneeIds.contains(userId) || t.createdBy == userId).toList();
-        final now = DateTime.now();
-        final today = DateTime(now.year, now.month, now.day);
-        final otherTasks = allTasks.where((t) => !t.assigneeIds.contains(userId) && t.createdBy != userId && t.assigneeIds.isNotEmpty).toList();
-        final dueTodayTasks = allTasks.where((t) => t.dueDate != null && _isSameDay(t.dueDate!, today)).toList();
-        final highPriorityTasks = allTasks.where((t) => t.priority == Priority.HIGH).toList();
-        final doneTasks = provider.db.tasks.where((t) => t.familyId == familyId && t.completed).toList();
-        final overdueTasks = allTasks.where((t) => t.isOverdue).toList();
+            // Counts for filters (already scoped to active family via repository stream).
+            final allTasks = familyTasks.where((t) => !t.completed).toList();
+            final myTasks = allTasks.where((t) => t.assigneeIds.contains(userId) || t.createdBy == userId).toList();
+            final now = DateTime.now();
+            final today = DateTime(now.year, now.month, now.day);
+            final otherTasks = allTasks.where((t) => !t.assigneeIds.contains(userId) && t.createdBy != userId && t.assigneeIds.isNotEmpty).toList();
+            final dueTodayTasks = allTasks.where((t) => t.dueDate != null && _isSameDay(t.dueDate!, today)).toList();
+            final highPriorityTasks = allTasks.where((t) => t.priority == Priority.HIGH).toList();
+            final doneTasks = familyTasks.where((t) => t.completed).toList();
+            final overdueTasks = allTasks.where((t) => t.isOverdue).toList();
 
-        // Folder counts
-        final allCount = allTasks.length;
-        int folderCount(String folder) {
-          final fl = folder.toLowerCase();
-          return allTasks.where((t) => t.tags.any((tag) => tag.toLowerCase() == fl)).length;
-        }
+            // Folder counts
+            final allCount = allTasks.length;
+            int folderCount(String folder) {
+              final fl = folder.toLowerCase();
+              return allTasks.where((t) => t.tags.any((tag) => tag.toLowerCase() == fl)).length;
+            }
 
-        // Progress
-        final totalTasks = provider.db.tasks.where((t) => t.familyId == familyId).length;
-        final completedCount = doneTasks.length;
+            // Progress
+            final totalTasks = familyTasks.length;
+            final completedCount = doneTasks.length;
 
-        return HuddleModuleScaffold(
+            return HuddleModuleScaffold(
           modulePath: '/tasks',
           drawer: const AppDrawer(),
           appBar: const MainAppBar(),
@@ -746,12 +746,12 @@ class _TasksScreenState extends State<TasksScreen> {
                           child: _TaskCard(
                             task: task,
                             provider: provider,
-                            onToggle: () => _toggleComplete(provider, task),
+                            onToggle: () => _toggleComplete(provider, tasksRepo, task),
                             onEdit: _canManageTask(provider, task)
                                 ? () => _showAddTaskSheet(context, editTask: task)
                                 : null,
                             onDelete: _canManageTask(provider, task)
-                                ? () => _deleteTask(provider, task)
+                                ? () => _deleteTask(provider, tasksRepo, task)
                                 : null,
                           ),
                         ),
@@ -763,6 +763,8 @@ class _TasksScreenState extends State<TasksScreen> {
             ],
             ),
           ),
+        );
+          },
         );
       },
     );
@@ -1016,7 +1018,7 @@ class _AiBreakdownSheetState extends State<_AiBreakdownSheet> {
     setState(() => _saving = true);
     try {
       final provider = context.read<AppProvider>();
-      final db = provider.db;
+      final tasksRepo = context.read<TasksRepository>();
       final familyId = provider.activeFamily!.id;
       final userId = provider.activeUser!.id;
       const uuid = Uuid();
@@ -1044,9 +1046,9 @@ class _AiBreakdownSheetState extends State<_AiBreakdownSheet> {
             creatorId: userId,
           )).toList();
 
-      final updatedTasks = [...db.tasks, ...newTasks];
-      await provider.saveAndSync(db.copyWith(tasks: updatedTasks),
-          pushTableScope: {CloudSyncScope.tasks});
+      for (final t in newTasks) {
+        await tasksRepo.upsert(t);
+      }
       if (!mounted) return;
       if (provider.activeFamily != null) unawaited(provider.syncTasksNow());
 
@@ -1657,7 +1659,7 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
     setState(() => _loading = true);
     try {
       final provider = context.read<AppProvider>();
-      final db = provider.db;
+      final tasksRepo = context.read<TasksRepository>();
       final familyId = provider.activeFamily!.id;
       final userId = provider.activeUser!.id;
       const uuid = Uuid();
@@ -1687,9 +1689,7 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
           tags: tags,
           updatedAt: DateTime.now(),
         );
-        final tasks = db.tasks.map((t) => t.id == savedTask.id ? savedTask : t).toList();
-        await provider.saveAndSync(db.copyWith(tasks: tasks),
-          pushTableScope: {CloudSyncScope.tasks});
+        await tasksRepo.upsert(savedTask);
         if (provider.activeFamily != null) unawaited(provider.syncTasksNow());
       } else {
         savedTask = Task(
@@ -1708,9 +1708,7 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
           tags: tags,
           creatorId: userId,
         );
-        final tasks = [...db.tasks, savedTask];
-        await provider.saveAndSync(db.copyWith(tasks: tasks),
-          pushTableScope: {CloudSyncScope.tasks});
+        await tasksRepo.upsert(savedTask);
         if (provider.activeFamily != null) unawaited(provider.syncTasksNow());
 
         // Notify family about new shared task
