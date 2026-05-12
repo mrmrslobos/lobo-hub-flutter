@@ -1,61 +1,34 @@
-// Sequential simulation of two family members (same process, shared static DB).
-//
-// Provision in the test Supabase project:
-// - Two authenticated users who are members of the same family.
-// - HUB_TEST_FAMILY_ID = that family's UUID.
-
 import 'package:flutter_test/flutter_test.dart';
 
-import '_supabase_test_config.dart';
+import 'package:lobohub/test_support/supabase_test_config.dart';
+
 import '_harness.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test(
-    'soft-delete on A is visible after B reconciles',
-    () async {
-      await SyncTestHarness.initSupabaseOnce();
+  testWidgets(
+    'soft-delete propagates from A to B within 5s',
+    (tester) async {
+      final harness = await SyncTestHarness.create();
+      try {
+        final deviceA = await harness.spawnDevice(asUser: SyncTestUser.a);
+        final deviceB = await harness.spawnDevice(asUser: SyncTestUser.b);
 
-      const fid = SupabaseTestConfig.familyId;
+        final task = await deviceA.createTask('soft-delete propagation harness');
+        await deviceB.waitForTask(task.id);
 
-      await SyncTestHarness.tearDownLocals();
-      await SyncTestHarness.signIn(
-        SupabaseTestConfig.userAEmail,
-        SupabaseTestConfig.userAPassword,
-      );
+        await deviceA.deleteTask(task.id);
+        await deviceB.waitForTaskGone(task.id, timeout: const Duration(seconds: 5));
 
-      final task = await SyncTestHarness.deviceACreateTask('integration harness task');
-
-      await SyncTestHarness.tearDownLocals();
-      await SyncTestHarness.signIn(
-        SupabaseTestConfig.userBEmail,
-        SupabaseTestConfig.userBPassword,
-      );
-      await SyncTestHarness.pullFamily(fid);
-
-      await SyncTestHarness.waitForTask(task.id, fid);
-
-      await SyncTestHarness.tearDownLocals();
-      await SyncTestHarness.signIn(
-        SupabaseTestConfig.userAEmail,
-        SupabaseTestConfig.userAPassword,
-      );
-      await SyncTestHarness.pullFamily(fid);
-
-      await SyncTestHarness.deviceASoftDeleteTask(task.id);
-
-      await SyncTestHarness.tearDownLocals();
-      await SyncTestHarness.signIn(
-        SupabaseTestConfig.userBEmail,
-        SupabaseTestConfig.userBPassword,
-      );
-      await SyncTestHarness.pullFamily(fid);
-
-      await SyncTestHarness.waitForTaskGone(task.id, fid);
-
-      await SyncTestHarness.tearDownLocals();
+        await tester.pump();
+      } finally {
+        await harness.tearDown();
+      }
     },
-    skip: !SupabaseTestConfig.isReady,
+    skip:
+        SupabaseTestConfig.supabaseUrl.isEmpty ||
+            SupabaseTestConfig.supabaseAnonKey.isEmpty ||
+            !SupabaseTestConfig.hasIntegrationAccounts,
   );
 }

@@ -57,53 +57,6 @@ class DatabaseService {
   /// and overwrite a newer row (e.g. list created empty then items added quickly).
   static final Map<String, Future<void>> _syncTailByFamily = {};
 
-  /// Families columns omitted on upsert until DB has them (see migrations/06).
-  static const _familiesCloudOmit = {'currency', 'trial_start_date'};
-
-  /// fitness_plans.family_id until migration 18 is applied everywhere.
-  /// plan_id: migration 25 (optional on older DBs).
-  static const _fitnessPlansCloudOmit = {'family_id', 'plan_id'};
-
-  /// Tasks columns some older DBs lack (PGRST204).
-  static const _tasksCloudOmit = {'completed_by', 'updated_by', 'due_time', 'reminder_minutes'};
-
-  /// Chores columns older DBs may lack until migration.
-  static const _choresCloudOmit = {'rotation_enabled', 'rotation_cursor'};
-
-  /// Workout exercise columns older DBs may lack until migration 16.
-  static const _workoutExerciseCloudOmit = {
-    'technique_notes',
-    'reference_url',
-    'technique_image_url',
-  };
-
-  /// Meal plan columns older DBs may lack until migration 16 / 17.
-  static const _mealPlanCloudOmit = {
-    'repeat_rule',
-    'source_meal_plan_id',
-    'leftover_meal_plan_id',
-  };
-
-  /// Recipe macro columns until migration 17.
-  static const _recipeCloudOmit = {
-    'kcal',
-    'protein_g',
-    'carbs_g',
-    'fat_g',
-    'fiber_g',
-  };
-
-  /// workout_sessions.health_synced_at until migration 17.
-  static const _workoutSessionCloudOmit = {'health_synced_at'};
-
-  static const _usersCloudOmit = <String>{};
-
-  /// Events columns some older DBs lack (PGRST204).
-  static const _eventsCloudOmit = {'shared_with'};
-
-  /// Prayer wall columns some older DBs lack (PGRST204).
-  static const _prayerWallCloudOmit = {'prayed_by_ids'};
-
   static const String _dbKey = 'huddle_db';
   /// Pre-rebrand local DB key; [loadLocal] migrates into [_dbKey] once.
   static const String _legacyDbKey = 'familyhub_db';
@@ -351,6 +304,19 @@ class DatabaseService {
     }
   }
 
+  /// Integration harness only: reset caches/outbox and delete this isolate's Sembast file.
+  ///
+  /// Avoids [wipeAllLocalStorage], which clears all SharedPreferences and breaks parallel
+  /// isolate teardown. Requires each isolate to set [LocalSembastStore.debugDatabaseSuffix].
+  static Future<void> resetIsolateTestStorage() async {
+    _cache = AppDB.empty();
+    _deletedKeys.clear();
+    _cursors = <String, String>{};
+    await SyncOutbox.clear();
+    await LocalSembastStore.resetDatabaseConnection();
+    await LocalSembastStore.deletePhysicalDatabase();
+  }
+
   // ── Cloud sync ────────────────────────────────────────────────────────────
 
   /// Save locally and attempt a background cloud sync.
@@ -363,13 +329,8 @@ class DatabaseService {
     await syncToCloud(db, familyId, tableScope: tableScope);
   }
 
-  static Map<String, dynamic> _taskRowForCloud(Task t) {
-    final m = Map<String, dynamic>.from(t.toJson());
-    for (final k in _tasksCloudOmit) {
-      m.remove(k);
-    }
-    return m;
-  }
+  static Map<String, dynamic> _taskRowForCloud(Task t) =>
+      Map<String, dynamic>.from(t.toJson());
 
   /// Shared rules for Supabase upserts (must match [syncToCloud]).
   static List<Map<String, dynamic>> sanitizeRowsForCloudUpsert(
@@ -410,31 +371,6 @@ class DatabaseService {
           ts = outU;
         }
         SyncEchoTracker.record(table, rowId, ts ?? DateTime.now().toUtc());
-      }
-      if (table == 'families') {
-        for (final k in _familiesCloudOmit) {
-          m.remove(k);
-        }
-      }
-      if (table == 'tasks') {
-        for (final k in _tasksCloudOmit) {
-          m.remove(k);
-        }
-      }
-      if (table == 'events') {
-        for (final k in _eventsCloudOmit) {
-          m.remove(k);
-        }
-      }
-      if (table == 'prayer_wall') {
-        for (final k in _prayerWallCloudOmit) {
-          m.remove(k);
-        }
-      }
-      if (table == 'users') {
-        for (final k in _usersCloudOmit) {
-          m.remove(k);
-        }
       }
       if (table == 'devotional_thoughts') {
         final nk = m['note_kind'];
@@ -493,13 +429,8 @@ class DatabaseService {
     });
   }
 
-  static Map<String, dynamic> _choreRowForCloud(Chore c) {
-    final m = Map<String, dynamic>.from(c.toJson());
-    for (final k in _choresCloudOmit) {
-      m.remove(k);
-    }
-    return m;
-  }
+  static Map<String, dynamic> _choreRowForCloud(Chore c) =>
+      Map<String, dynamic>.from(c.toJson());
 
   /// Upserts all tasks for [familyId] and applies tombstone deletes. Await after
   /// saves so new tasks reach Supabase even when the full background sync fails
@@ -642,9 +573,6 @@ class DatabaseService {
                 .map((r) {
                   final row = Map<String, dynamic>.from(r.toJson());
                   row['family_id'] = fid;
-                  for (final k in _recipeCloudOmit) {
-                    row.remove(k);
-                  }
                   return row;
                 })
                 .toList(),
@@ -657,9 +585,6 @@ class DatabaseService {
                 .map((m) {
                   final row = Map<String, dynamic>.from(m.toJson());
                   row['family_id'] = fid;
-                  for (final k in _mealPlanCloudOmit) {
-                    row.remove(k);
-                  }
                   final cb = row['created_by'];
                   final cbStr = cb is String ? cb : '';
                   if (cbStr.isEmpty) {
@@ -733,14 +658,10 @@ class DatabaseService {
                   .whereType<Map>()
                   .where((p) => p['user_id'] == currentUserId)
                   .map((p) {
-                    final row = fitnessPlanRowForCloud(
+                    return fitnessPlanRowForCloud(
                       Map<String, dynamic>.from(p), // FIXED: whereType<Map> element
                       fid,
                     );
-                    for (final k in _fitnessPlansCloudOmit) {
-                      row.remove(k);
-                    }
-                    return row;
                   })
                   .toList(),
               db.fitnessPlans
@@ -773,9 +694,6 @@ class DatabaseService {
               .map((s) {
                 final row = Map<String, dynamic>.from(s.toJson());
                 row['family_id'] = fid;
-                for (final k in _workoutSessionCloudOmit) {
-                  row.remove(k);
-                }
                 return row;
               })
               .toList(),
@@ -792,9 +710,6 @@ class DatabaseService {
               .map((e) {
                 final row = Map<String, dynamic>.from(e.toJson());
                 row['family_id'] = fid;
-                for (final k in _workoutExerciseCloudOmit) {
-                  row.remove(k);
-                }
                 return row;
               })
               .toList(),

@@ -22,20 +22,49 @@ class LocalSembastStore {
   static Database? _db;
   static String? _storagePathOrName;
 
+  /// Optional isolate-local DB file/name suffix for integration tests (two devices).
+  /// Must be set before the first DB open in that isolate.
+  static String? debugDatabaseSuffix;
+
   static final StoreRef<String, dynamic> _store = StoreRef<String, dynamic>.main();
 
   static Future<Database> _database() async {
     if (_db != null) return _db!;
     final factory = localDatabaseFactory;
+    final suffix = debugDatabaseSuffix;
+    final baseName =
+        suffix == null || suffix.isEmpty ? 'huddle_app_v1' : 'huddle_app_v1_$suffix';
     if (kIsWeb) {
-      _storagePathOrName = 'huddle_app_v1';
+      _storagePathOrName = baseName;
       _db = await factory.openDatabase(_storagePathOrName!);
       return _db!;
     }
     final dir = await getApplicationDocumentsDirectory();
-    _storagePathOrName = p.join(dir.path, 'huddle_app_v1.db');
+    _storagePathOrName = p.join(dir.path, '$baseName.db');
     _db = await factory.openDatabase(_storagePathOrName!);
     return _db!;
+  }
+
+  /// Clears in-memory handle so the next open uses [debugDatabaseSuffix].
+  static Future<void> resetDatabaseConnection() async {
+    try {
+      await _db?.close();
+    } on Object catch (_) {}
+    _db = null;
+    _storagePathOrName = null;
+  }
+
+  /// Deletes `huddle_app_v1_<suffix>.db` if present (VM tests only).
+  static Future<void> deletePhysicalDatabaseForSuffix(String suffix) async {
+    if (kIsWeb || suffix.isEmpty) return;
+    try {
+      await resetDatabaseConnection();
+      final dir = await getApplicationDocumentsDirectory();
+      final path = p.join(dir.path, 'huddle_app_v1_$suffix.db');
+      await localDatabaseFactory.deleteDatabase(path);
+    } on Object catch (e, st) {
+      debugPrint('[LocalSembastStore] deletePhysicalDatabaseForSuffix: $e\n$st');
+    }
   }
 
   /// True once we have successfully written the sharded Sembast layout.
