@@ -27,6 +27,7 @@ class SyncProvider extends ChangeNotifier {
       stop: stop,
     );
     SyncOutbox.registerErrorSink(setSyncError);
+    unawaited(_refreshPendingOutboxCount());
   }
 
   @override
@@ -53,9 +54,29 @@ class SyncProvider extends ChangeNotifier {
   DateTime? _lastSuccessfulSyncAt;
   String? _lastSyncError;
 
+  int _pendingOutboxCount = 0;
+
   bool get isSyncing => _isSyncing;
   DateTime? get lastSuccessfulSyncAt => _lastSuccessfulSyncAt;
   String? get lastSyncError => _lastSyncError;
+
+  /// Best-effort count of queued outbox rows (includes soft-deletes and migrated upserts).
+  ///
+  /// Refreshed when [notifyListeners] runs and after [syncToCloud] flushes the outbox.
+  int get pendingOutboxCount => _pendingOutboxCount;
+
+  Future<void> _refreshPendingOutboxCount() async {
+    final n = await SyncOutbox.pendingCount();
+    if (_pendingOutboxCount == n) return;
+    _pendingOutboxCount = n;
+    super.notifyListeners();
+  }
+
+  @override
+  void notifyListeners() {
+    super.notifyListeners();
+    unawaited(_refreshPendingOutboxCount());
+  }
 
   void setOutboundSyncActive(bool active) {
     _outboundCloudSyncActive = active;
@@ -378,9 +399,11 @@ class SyncProvider extends ChangeNotifier {
       setSyncError(e.toString());
     } finally {
       setOutboundSyncActive(false);
-      // Drain any outbox records (e.g. queued soft-deletes from
-      // _deleteRemovedRows) so a successful sync also flushes the queue.
-      unawaited(SyncOutbox.drain());
+      try {
+        await SyncOutbox.drain();
+      } finally {
+        await _refreshPendingOutboxCount();
+      }
     }
   }
 

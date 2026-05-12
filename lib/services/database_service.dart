@@ -16,8 +16,8 @@ import '../utils/app_log.dart';
 import '../utils/fitness_plan_storage.dart';
 import 'exercise_plan_media_service.dart';
 import 'field_encryption_service.dart';
+import 'cloud_upsert_sanitize.dart' as cloud_upsert_sanitize;
 import 'supabase_service.dart';
-import 'sync_echo_tracker.dart';
 import 'sync_outbox.dart';
 
 /// Row shape for Supabase `fitness_plans` (AI weekly plan per user).
@@ -56,53 +56,6 @@ class DatabaseService {
   /// One cloud sync at a time per family — parallel syncs can finish out of order
   /// and overwrite a newer row (e.g. list created empty then items added quickly).
   static final Map<String, Future<void>> _syncTailByFamily = {};
-
-  /// Families columns omitted on upsert until DB has them (see migrations/06).
-  static const _familiesCloudOmit = {'currency', 'trial_start_date'};
-
-  /// fitness_plans.family_id until migration 18 is applied everywhere.
-  /// plan_id: migration 25 (optional on older DBs).
-  static const _fitnessPlansCloudOmit = {'family_id', 'plan_id'};
-
-  /// Tasks columns some older DBs lack (PGRST204).
-  static const _tasksCloudOmit = {'completed_by', 'updated_by', 'due_time', 'reminder_minutes'};
-
-  /// Chores columns older DBs may lack until migration.
-  static const _choresCloudOmit = {'rotation_enabled', 'rotation_cursor'};
-
-  /// Workout exercise columns older DBs may lack until migration 16.
-  static const _workoutExerciseCloudOmit = {
-    'technique_notes',
-    'reference_url',
-    'technique_image_url',
-  };
-
-  /// Meal plan columns older DBs may lack until migration 16 / 17.
-  static const _mealPlanCloudOmit = {
-    'repeat_rule',
-    'source_meal_plan_id',
-    'leftover_meal_plan_id',
-  };
-
-  /// Recipe macro columns until migration 17.
-  static const _recipeCloudOmit = {
-    'kcal',
-    'protein_g',
-    'carbs_g',
-    'fat_g',
-    'fiber_g',
-  };
-
-  /// workout_sessions.health_synced_at until migration 17.
-  static const _workoutSessionCloudOmit = {'health_synced_at'};
-
-  static const _usersCloudOmit = <String>{};
-
-  /// Events columns some older DBs lack (PGRST204).
-  static const _eventsCloudOmit = {'shared_with'};
-
-  /// Prayer wall columns some older DBs lack (PGRST204).
-  static const _prayerWallCloudOmit = {'prayed_by_ids'};
 
   static const String _dbKey = 'huddle_db';
   /// Pre-rebrand local DB key; [loadLocal] migrates into [_dbKey] once.
@@ -351,6 +304,18 @@ class DatabaseService {
     }
   }
 
+  /// Integration harness only: reset caches/outbox and delete this isolate's Sembast file.
+  ///
+  /// Avoids [wipeAllLocalStorage], which clears all SharedPreferences and breaks parallel
+  /// isolate teardown. Requires each isolate to set [LocalSembastStore.debugDatabaseSuffix].
+  static Future<void> resetIsolateTestStorage() async {
+    _cache = AppDB.empty();
+    _deletedKeys.clear();
+    _cursors = <String, String>{};
+    await SyncOutbox.clear();
+    await LocalSembastStore.deletePhysicalDatabase();
+  }
+
   // ── Cloud sync ────────────────────────────────────────────────────────────
 
   /// Save locally and attempt a background cloud sync.
@@ -363,88 +328,15 @@ class DatabaseService {
     await syncToCloud(db, familyId, tableScope: tableScope);
   }
 
-  static Map<String, dynamic> _taskRowForCloud(Task t) {
-    final m = Map<String, dynamic>.from(t.toJson());
-    for (final k in _tasksCloudOmit) {
-      m.remove(k);
-    }
-    return m;
-  }
+  static Map<String, dynamic> _taskRowForCloud(Task t) =>
+      Map<String, dynamic>.from(t.toJson());
 
   /// Shared rules for Supabase upserts (must match [syncToCloud]).
   static List<Map<String, dynamic>> sanitizeRowsForCloudUpsert(
     List<Map<String, dynamic>> rows,
     String table,
-  ) {
-    const keepUpdatedAt = {
-      'user_locations',
-      'lists',
-      'families',
-      'tasks',
-      'devotional_thoughts',
-    };
-    return rows.map((r) {
-      final m = Map<String, dynamic>.from(r);
-      if (keepUpdatedAt.contains(table)) {
-        final u = m['updated_at'];
-        if (u == null ||
-            (u is String && u.isEmpty) ||
-            (u is! String && u is! DateTime)) {
-          m['updated_at'] = DateTime.now().toUtc().toIso8601String();
-        } else if (u is DateTime) {
-          m['updated_at'] = u.toUtc().toIso8601String();
-        }
-      } else {
-        m.remove('updated_at');
-      }
-      // Record self-write for postgres-change echo suppression. Read the
-      // updated_at we're about to send (or fall back to now for tables where
-      // we drop it client-side and Postgres regenerates it).
-      final rowId = m['id']?.toString() ?? '';
-      if (rowId.isNotEmpty) {
-        DateTime? ts;
-        final outU = m['updated_at'];
-        if (outU is String && outU.isNotEmpty) {
-          ts = DateTime.tryParse(outU);
-        } else if (outU is DateTime) {
-          ts = outU;
-        }
-        SyncEchoTracker.record(table, rowId, ts ?? DateTime.now().toUtc());
-      }
-      if (table == 'families') {
-        for (final k in _familiesCloudOmit) {
-          m.remove(k);
-        }
-      }
-      if (table == 'tasks') {
-        for (final k in _tasksCloudOmit) {
-          m.remove(k);
-        }
-      }
-      if (table == 'events') {
-        for (final k in _eventsCloudOmit) {
-          m.remove(k);
-        }
-      }
-      if (table == 'prayer_wall') {
-        for (final k in _prayerWallCloudOmit) {
-          m.remove(k);
-        }
-      }
-      if (table == 'users') {
-        for (final k in _usersCloudOmit) {
-          m.remove(k);
-        }
-      }
-      if (table == 'devotional_thoughts') {
-        final nk = m['note_kind'];
-        if (nk == null || (nk is String && nk.isEmpty)) {
-          m['note_kind'] = 'thought';
-        }
-      }
-      return m;
-    }).toList();
-  }
+  ) =>
+      cloud_upsert_sanitize.sanitizeRowsForCloudUpsert(rows, table);
 
   /// Serialize **all** Supabase writes for [familyId]: [syncToCloud],
   /// [pushFamilyListsToCloudNow], and [pushFamilyTasksToCloudNow] share one queue.
@@ -493,46 +385,32 @@ class DatabaseService {
     });
   }
 
-  static Map<String, dynamic> _choreRowForCloud(Chore c) {
-    final m = Map<String, dynamic>.from(c.toJson());
-    for (final k in _choresCloudOmit) {
-      m.remove(k);
-    }
-    return m;
-  }
+  static Map<String, dynamic> _choreRowForCloud(Chore c) =>
+      Map<String, dynamic>.from(c.toJson());
 
   /// Upserts all tasks for [familyId] and applies tombstone deletes. Await after
   /// saves so new tasks reach Supabase even when the full background sync fails
   /// (RLS batch issues, payload size, or tasks from other families polluting the batch).
+  ///
+  /// Task rows are pushed via [SyncOutbox] (per-row retry/backoff); [SyncOutbox.drain]
+  /// runs before return so callers keep “push completed” semantics on success.
   static Future<void> pushFamilyTasksToCloudNow(AppDB db, String familyId) async {
     if (!SupabaseService.isConfigured) return;
     await _enqueueFamilyCloudWrite(familyId, () async {
       final familyTasks = db.tasks.where((t) => t.familyId == familyId).toList();
       final localIds = familyTasks.map((t) => t.id).toSet();
-      const chunk = 40;
-      for (var i = 0; i < familyTasks.length; i += chunk) {
-        final slice = familyTasks.sublist(
-            i, math.min(i + chunk, familyTasks.length));
-        final rows = slice.map(_taskRowForCloud).toList();
-        try {
-          await SupabaseService.upsertTable(
-            'tasks',
-            sanitizeRowsForCloudUpsert(rows, 'tasks'),
-          );
-        } on Object catch (e, st) {
-          debugPrint('[DatabaseService] tasks chunk upsert failed, retry per row: $e\n$st');
-          for (final t in slice) {
-            try {
-              await SupabaseService.upsertTable(
-                'tasks',
-                sanitizeRowsForCloudUpsert([_taskRowForCloud(t)], 'tasks'),
-              );
-            } on Object catch (e2, st2) {
-              debugPrint('[DatabaseService] task ${t.id} sync failed: $e2\n$st2');
-            }
-          }
-        }
+      for (final t in familyTasks) {
+        final row =
+            sanitizeRowsForCloudUpsert([_taskRowForCloud(t)], 'tasks').first;
+        await SyncOutbox.enqueue(
+          table: 'tasks',
+          rowKey: t.id,
+          op: OutboxOp.upsert,
+          payload: row,
+          onConflict: 'id',
+        );
       }
+      await SyncOutbox.drain();
       await _deleteRemovedRows('tasks', localIds, familyId);
     });
   }
@@ -642,9 +520,6 @@ class DatabaseService {
                 .map((r) {
                   final row = Map<String, dynamic>.from(r.toJson());
                   row['family_id'] = fid;
-                  for (final k in _recipeCloudOmit) {
-                    row.remove(k);
-                  }
                   return row;
                 })
                 .toList(),
@@ -657,9 +532,6 @@ class DatabaseService {
                 .map((m) {
                   final row = Map<String, dynamic>.from(m.toJson());
                   row['family_id'] = fid;
-                  for (final k in _mealPlanCloudOmit) {
-                    row.remove(k);
-                  }
                   final cb = row['created_by'];
                   final cbStr = cb is String ? cb : '';
                   if (cbStr.isEmpty) {
@@ -733,14 +605,10 @@ class DatabaseService {
                   .whereType<Map>()
                   .where((p) => p['user_id'] == currentUserId)
                   .map((p) {
-                    final row = fitnessPlanRowForCloud(
+                    return fitnessPlanRowForCloud(
                       Map<String, dynamic>.from(p), // FIXED: whereType<Map> element
                       fid,
                     );
-                    for (final k in _fitnessPlansCloudOmit) {
-                      row.remove(k);
-                    }
-                    return row;
                   })
                   .toList(),
               db.fitnessPlans
@@ -773,9 +641,6 @@ class DatabaseService {
               .map((s) {
                 final row = Map<String, dynamic>.from(s.toJson());
                 row['family_id'] = fid;
-                for (final k in _workoutSessionCloudOmit) {
-                  row.remove(k);
-                }
                 return row;
               })
               .toList(),
@@ -792,9 +657,6 @@ class DatabaseService {
               .map((e) {
                 final row = Map<String, dynamic>.from(e.toJson());
                 row['family_id'] = fid;
-                for (final k in _workoutExerciseCloudOmit) {
-                  row.remove(k);
-                }
                 return row;
               })
               .toList(),

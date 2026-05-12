@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
+import 'cloud_upsert_sanitize.dart';
 import 'local_sembast_store.dart';
 import 'supabase_service.dart';
 
@@ -87,12 +89,31 @@ class OutboxRecord {
 ///   - coalescing: rapid edits to the same row collapse to the latest payload
 ///   - explicit failure reporting via `lastError`
 ///
-/// v1 scope: only soft-deletes route through here. Bulk upserts still use
-/// the legacy path. Future PRs can migrate more paths incrementally.
+/// v1 scope: soft-deletes and targeted tables (e.g. `tasks`) route through here.
+/// Bulk upserts for other tables still use the legacy path until migrated per-table.
 class SyncOutbox {
   SyncOutbox._();
 
   static const _uuid = Uuid();
+
+  static dynamic _canonicalJsonValue(dynamic v) {
+    if (v == null) return null;
+    if (v is Map) {
+      final keys = v.keys.map((k) => k.toString()).toList()..sort();
+      return <String, dynamic>{
+        for (final k in keys) k: _canonicalJsonValue(v[k]),
+      };
+    }
+    if (v is List) {
+      return v.map(_canonicalJsonValue).toList();
+    }
+    return v;
+  }
+
+  /// Stable equality for coalesce checks (JSON-shaped maps only).
+  static bool _payloadMapsEqual(Map<String, dynamic> a, Map<String, dynamic> b) {
+    return jsonEncode(_canonicalJsonValue(a)) == jsonEncode(_canonicalJsonValue(b));
+  }
 
   /// Backoff schedule per attempt index (0 = first retry). Capped at 1h.
   static const List<Duration> _backoff = [
@@ -144,6 +165,9 @@ class SyncOutbox {
 
   /// Add or coalesce a record. Same `(table, rowKey, op)` replaces the
   /// existing payload (most recent wins) and resets backoff.
+  ///
+  /// If an identical record already exists with the same payload, this is a no-op
+  /// so repeated pushes do not churn the queue.
   static Future<void> enqueue({
     required String table,
     required String rowKey,
@@ -152,6 +176,14 @@ class SyncOutbox {
     String? onConflict,
   }) async {
     await _hydrate();
+    for (final r in _records) {
+      if (r.table == table && r.rowKey == rowKey && r.op == op) {
+        if (_payloadMapsEqual(r.payload, payload)) {
+          return;
+        }
+        break;
+      }
+    }
     final now = DateTime.now().toUtc();
     _records.removeWhere(
       (r) => r.table == table && r.rowKey == rowKey && r.op == op,
@@ -211,9 +243,13 @@ class SyncOutbox {
     try {
       switch (rec.op) {
         case OutboxOp.upsert:
+          final sanitized = sanitizeRowsForCloudUpsert(
+            [Map<String, dynamic>.from(rec.payload)],
+            rec.table,
+          );
           await SupabaseService.upsertTable(
             rec.table,
-            [rec.payload],
+            sanitized,
             onConflict: rec.onConflict ?? 'id',
           );
           break;
