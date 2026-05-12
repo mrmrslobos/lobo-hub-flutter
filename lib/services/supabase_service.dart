@@ -462,6 +462,8 @@ class SupabaseService {
   static RealtimeChannel subscribeToFamily(
     String familyId, {
     required void Function(Map<String, dynamic>) onBroadcast,
+    void Function(RealtimeSubscribeStatus status, Object? error)?
+        onSubscribeStatus,
   }) {
     return client
         .channel('family:$familyId')
@@ -469,7 +471,7 @@ class SupabaseService {
           event: 'db_change',
           callback: (payload) => onBroadcast(payload),
         )
-        .subscribe();
+        .subscribe(onSubscribeStatus);
   }
 
   /// Unsubscribe and remove a realtime channel.

@@ -45,7 +45,7 @@ class SyncProvider extends ChangeNotifier {
   Timer? _moduleEnterPullTimer;
   final Set<String> _pendingModulePullTables = {};
   
-  static const Duration _defaultPullDebounce = Duration(milliseconds: 450);
+  static const Duration _defaultPullDebounce = Duration(milliseconds: 175);
   static const Duration resumeSyncStaleAfter = Duration(minutes: 3);
 
   DateTime? _lastSuccessfulSyncAt;
@@ -98,6 +98,19 @@ class SyncProvider extends ChangeNotifier {
         if (senderId == authProvider.activeUser?.id) return;
         scheduleDebouncedPullFromCloud();
       },
+      onSubscribeStatus: kDebugMode
+          ? (status, err) {
+              if (status == RealtimeSubscribeStatus.subscribed) {
+                final prefix =
+                    familyId.length >= 8 ? familyId.substring(0, 8) : familyId;
+                debugPrint(
+                    '[SyncProvider] realtime family broadcast channel subscribed (family:${prefix}…)');
+              } else if (status == RealtimeSubscribeStatus.channelError) {
+                debugPrint(
+                    '[SyncProvider] realtime family broadcast channel error: $err');
+              }
+            }
+          : null,
     );
 
     try {
@@ -135,7 +148,24 @@ class SyncProvider extends ChangeNotifier {
           scheduleDebouncedPullFromCloud();
         },
       );
-      _postgresChannel = channel.subscribe();
+      final pgTableSubs =
+          CloudSyncScope.realtimeFamilyScopedTables.length + 1; // +families row
+      _postgresChannel = channel.subscribe(
+        kDebugMode
+            ? (status, err) {
+                if (status == RealtimeSubscribeStatus.subscribed) {
+                  debugPrint(
+                      '[SyncProvider] Postgres realtime subscribed postgres:$familyId ($pgTableSubs table filters)');
+                } else if (status == RealtimeSubscribeStatus.channelError) {
+                  debugPrint(
+                      '[SyncProvider] Postgres realtime channel error postgres:$familyId: $err');
+                } else if (status == RealtimeSubscribeStatus.timedOut) {
+                  debugPrint(
+                      '[SyncProvider] Postgres realtime subscribe timed out postgres:$familyId');
+                }
+              }
+            : null,
+      );
     } catch (e) {
       debugPrint('[SyncProvider] Postgres realtime subscription failed: $e');
     }

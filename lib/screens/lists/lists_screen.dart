@@ -35,6 +35,17 @@ class _ListsScreenState extends State<ListsScreen> {
   ShoppingList? _selectedList;
   bool _pullRefreshing = false;
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<AppProvider>().scheduleModuleEnterCloudPull({
+        CloudSyncScope.lists,
+      });
+    });
+  }
+
   bool _canAccessList(ShoppingList list, String userId) {
     if (list.creatorId == userId) return true;
     switch (list.visibility) {

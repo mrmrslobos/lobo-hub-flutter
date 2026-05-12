@@ -589,9 +589,19 @@ class DatabaseService {
                 .toList(),
             db.mealPlans.where((m) => m.familyId == fid).map((m) => m.id).toSet()),
       if (pick('lists'))
-        upAndClean('lists',
-            db.lists.map((l) => {...l.toJson(), 'family_id': fid}).toList(),
-            db.lists.map((l) => l.id).toSet()),
+        (() async {
+          final familyLists = db.lists.where((l) => l.familyId == fid).toList();
+          await upAndClean(
+            'lists',
+            familyLists.map((l) => {...l.toJson(), 'family_id': fid}).toList(),
+            familyLists.map((l) => l.id).toSet(),
+          );
+          if (kDebugMode) {
+            debugPrint(
+              '[DatabaseService] lists cloud sync finished for family=$fid rowCount=${familyLists.length}',
+            );
+          }
+        })(),
       if (pick('devotionals'))
         upAndClean(
             'devotionals',
