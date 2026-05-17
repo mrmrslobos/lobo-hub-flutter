@@ -1364,6 +1364,13 @@ class ShoppingList {
         category != null ||
         visibility != null ||
         sharedWith != null;
+    DateTime bumpedUpdatedAt() {
+      final prev = this.updatedAt;
+      final now = DateTime.now();
+      if (now.isAfter(prev)) return now;
+      return prev.add(const Duration(microseconds: 1));
+    }
+
     return ShoppingList(
       id: id ?? this.id,
       familyId: familyId ?? this.familyId,
@@ -1373,7 +1380,8 @@ class ShoppingList {
       category: category ?? this.category,
       visibility: visibility ?? this.visibility,
       sharedWith: sharedWith ?? this.sharedWith,
-      updatedAt: updatedAt ?? (anyField ? DateTime.now() : this.updatedAt),
+      updatedAt: updatedAt ??
+          (anyField ? bumpedUpdatedAt() : this.updatedAt),
     );
   }
 }

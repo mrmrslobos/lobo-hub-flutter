@@ -1429,7 +1429,8 @@ class DatabaseService {
   /// Merge two lists by [id] using last-write-wins on [_entityVersion].
   ///
   /// - Same id: keep whichever record has the newer [updatedAt]/createdAt/date.
-  /// - Tie → prefer cloud so the other family member's latest push applies.
+  /// - Tie → prefer cloud by default so another family member's push applies;
+  ///   pass [preferLocalOnTimestampTie] for nested-document rows (shopping lists).
   /// - Only in cloud: add (unless [_deletedKeys]).
   /// - Only in local: keep (offline-created).
   /// Prefer [mergeKey] when the model defines it (composite keys); otherwise [id].
@@ -1456,7 +1457,15 @@ class DatabaseService {
     return '';
   }
 
-  static List<T> _mergeById<T>(List<T> local, List<T> cloud) {
+  static List<T> _mergeById<T>(
+    List<T> local,
+    List<T> cloud, {
+    /// When timestamps tie, [_mergeById] normally prefers cloud so another
+    /// device’s simultaneous edit wins. Shopping lists nest line items in one
+    /// JSON row — ties happen often after Postgres rounding / skew and caused
+    /// cleared checked items to resurrect from an older cloud snapshot.
+    bool preferLocalOnTimestampTie = false,
+  }) {
     if (cloud.isEmpty && _deletedKeys.isEmpty) return local;
     final localMap = <String, T>{};
     for (final item in local) {
@@ -1484,7 +1493,7 @@ class DatabaseService {
         } else if (tl.isAfter(tc)) {
           map[key] = loc;
         } else {
-          map[key] = item;
+          map[key] = preferLocalOnTimestampTie ? loc : item;
         }
       } on Object catch (e, st) {
         _debugCatch('_mergeById cloud item', e, st);
@@ -1766,7 +1775,9 @@ class DatabaseService {
       recipes: _mergeById(local.recipes, _safeParse(cloud['recipes'], Recipe.fromJson)),
       mealPlans: _mergeById(local.mealPlans, _safeParse(cloud['meal_plans'], MealPlanEntry.fromJson)),
       lists: _mergeById(
-          local.lists, _safeParse(cloud['lists'], ShoppingList.fromJson)),
+          local.lists,
+          _safeParse(cloud['lists'], ShoppingList.fromJson),
+          preferLocalOnTimestampTie: true),
       devotionals: _mergeById(local.devotionals, _safeParse(cloud['devotionals'], DevotionalEntry.fromJson)),
       devotionalThoughts: _mergeDevotionalThoughts(
           local.devotionalThoughts,
