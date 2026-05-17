@@ -10,7 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config/cloud_sync_scope.dart';
 import '../models/models.dart';
-import 'local_sembast_store.dart';
+import 'local_store/local_store_resolver.dart';
 import '../utils/app_db_isolate_codec.dart';
 import '../utils/app_log.dart';
 import '../utils/fitness_plan_storage.dart';
@@ -161,7 +161,7 @@ class DatabaseService {
       '$familyId:$table';
 
   static Future<Map<String, String>> _loadCursors() async {
-    _cursors ??= await LocalSembastStore.readCursors();
+    _cursors ??= await (await resolvedLocalPersistence()).readCursors();
     return _cursors!;
   }
 
@@ -218,7 +218,7 @@ class DatabaseService {
       }
     }
     if (dirty) {
-      await LocalSembastStore.writeCursors(cursors);
+      await (await resolvedLocalPersistence()).writeCursors(cursors);
     }
   }
 
@@ -226,7 +226,7 @@ class DatabaseService {
   /// from a clean slate.
   static Future<void> _clearCursors() async {
     _cursors = <String, String>{};
-    await LocalSembastStore.writeCursors(_cursors!);
+    await (await resolvedLocalPersistence()).writeCursors(_cursors!);
   }
 
   static AppDB get db => _cache ?? AppDB.empty();
@@ -255,30 +255,31 @@ class DatabaseService {
     }
   }
 
-  static Future<void> _hydrateTombstonesFromSembast() async {
+  static Future<void> _hydrateTombstonesFromPersistence() async {
     try {
-      await LocalSembastStore.readTombstonesInto(_deletedKeys);
+      await (await resolvedLocalPersistence()).readTombstonesInto(_deletedKeys);
       if (_deletedKeys.length > _tombstoneCap) {
         _trimTombstones();
-        await LocalSembastStore.writeTombstones(_deletedKeys);
+        await (await resolvedLocalPersistence()).writeTombstones(_deletedKeys);
       }
     } on Object catch (e, st) {
-      _debugCatch('tombstones load (sembast)', e, st);
+      _debugCatch('tombstones load (local store)', e, st);
     }
   }
 
   static Future<void> _persistTombstones() async {
     try {
-      await LocalSembastStore.writeTombstones(_deletedKeys);
+      await (await resolvedLocalPersistence()).writeTombstones(_deletedKeys);
     } on Object catch (e, st) {
       _debugCatch('tombstones persist', e, st);
     }
   }
 
   static Future<AppDB> loadLocal() async {
-    if (await LocalSembastStore.hasStoredAppDb()) {
-      await _hydrateTombstonesFromSembast();
-      _cache = await LocalSembastStore.readAppDb();
+    final persist = await resolvedLocalPersistence();
+    if (await persist.hasStoredAppDb()) {
+      await _hydrateTombstonesFromPersistence();
+      _cache = await persist.readAppDb();
       return _cache!;
     }
 
@@ -297,8 +298,8 @@ class DatabaseService {
 
     if (raw != null && raw.isNotEmpty) {
       _cache = await loadAppDbFromPrefsJson(raw);
-      await LocalSembastStore.writeAppDb(_cache!);
-      await LocalSembastStore.writeTombstones(_deletedKeys);
+      await persist.writeAppDb(_cache!);
+      await persist.writeTombstones(_deletedKeys);
       await prefs.remove(_dbKey);
       await prefs.remove(_legacyDbKey);
       await prefs.remove(_tombstoneKey);
@@ -319,7 +320,7 @@ class DatabaseService {
       _recordTombstones(oldKeys.difference(newKeys));
     }
     _cache = db;
-    await LocalSembastStore.writeAppDb(db);
+    await (await resolvedLocalPersistence()).writeAppDb(db);
     await _persistTombstones();
   }
 
@@ -328,7 +329,7 @@ class DatabaseService {
     _deletedKeys.clear();
     await _clearCursors();
     await SyncOutbox.clear();
-    await LocalSembastStore.clearAppRecords();
+    await (await resolvedLocalPersistence()).clearAppRecords();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_dbKey);
     await prefs.remove(_legacyDbKey);
@@ -343,7 +344,8 @@ class DatabaseService {
     _deletedKeys.clear();
     _cursors = <String, String>{};
     await SyncOutbox.clear();
-    await LocalSembastStore.deletePhysicalDatabase();
+    await (await resolvedLocalPersistence()).deletePhysicalDatabase();
+    resetResolvedLocalPersistence();
     final prefs = await SharedPreferences.getInstance();
     final keys = prefs.getKeys().toList();
     for (final k in keys) {

@@ -310,7 +310,7 @@ class _DevotionalScreenState extends State<DevotionalScreen>
             Map<String, dynamic>.from(raw as Map),
           );
           final db = provider.db;
-          provider.updateDb(
+          await provider.updateDb(
             db.copyWith(
               devotionalEntries: [
                 ...db.devotionals.where((x) => x.id != id),
@@ -840,7 +840,7 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
         getLocalAfterFetch: () => provider.db,
       );
       if (mounted) {
-        provider.updateDb(merged);
+        await provider.updateDb(merged);
         final synced = findTodaysDevotional();
         if (synced != null) {
           if (!widget.skipAutoOpen) widget.onSelectEntry(synced);
@@ -2495,7 +2495,7 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
                 children: [
                   Expanded(
                     child: ElevatedButton.icon(
-                      onPressed: () {
+                      onPressed: () async {
                         HapticFeedback.lightImpact();
                         final provider = context.read<AppProvider>();
                         final db = provider.db;
@@ -2541,10 +2541,11 @@ class _ReadingPlanDetailViewState extends State<_ReadingPlanDetailView> {
                           devotionalId: currentEntry.id,
                           hasPrayer: true,
                         );
-                        provider.saveAndSync(
+                        await provider.saveAndSync(
                           nextDb,
                           pushTableScope: CloudSyncScope.devotionalReadingPlanBundle,
                         );
+                        if (!context.mounted) return;
                         setState(() {});
                         _showSnack(context, 'Day ${_currentDay + 1} complete!');
                       },

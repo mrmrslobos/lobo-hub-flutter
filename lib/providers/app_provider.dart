@@ -123,7 +123,7 @@ class AppProvider extends ChangeNotifier {
 
   Future<void> deleteAccount() => _auth.deleteAccount();
 
-  void updateDb(AppDB newDb) => _data.updateDb(newDb);
+  Future<void> updateDb(AppDB newDb) => _data.updateDb(newDb);
 
   Future<void> syncTasksNow() async {
     final fam = activeFamily;

@@ -413,7 +413,7 @@ Return a JSON array of exactly 3 objects, each with these fields:
     }
   }
 
-  void _saveChefRecipe(Map<String, dynamic> suggestion) {
+  Future<void> _saveChefRecipe(Map<String, dynamic> suggestion) async {
     if (!_requireFamilyOwnerForHouseholdMeals('save AI chef recipes to the library.')) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
@@ -466,10 +466,11 @@ Return a JSON array of exactly 3 objects, each with these fields:
       createdBy: userId,
     );
 
-    provider.saveAndSync(
+    await provider.saveAndSync(
       db.copyWith(recipes: [...db.recipes, newRecipe]),
       pushTableScope: CloudSyncScope.mealsExtendedBundle,
     );
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Saved "${newRecipe.title}" to Recipe Box'), behavior: SnackBarBehavior.floating),
     );
@@ -1640,7 +1641,7 @@ Return a JSON array of 7 objects, each with:
                                     ],
                                     const Spacer(),
                                     GestureDetector(
-                                      onTap: () => _saveChefRecipe(s),
+                                      onTap: () async => _saveChefRecipe(s),
                                       child: Container(
                                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
                                         decoration: BoxDecoration(
@@ -3196,7 +3197,7 @@ class _MealSlotCard extends StatelessWidget {
     if (confirmed != true) return;
     final db = provider.db;
     final updated = db.mealPlans.where((m) => m.id != meal!.id).toList();
-    provider.saveAndSync(
+    await provider.saveAndSync(
       db.copyWith(mealPlans: updated),
       pushTableScope: CloudSyncScope.mealsExtendedBundle,
     );
@@ -4204,7 +4205,7 @@ class _RecipeDetailSheet extends StatelessWidget {
                             if (confirmed == true && context.mounted) {
                               final db = provider.db;
                               final updated = db.recipes.where((r) => r.id != recipe.id).toList();
-                              provider.saveAndSync(
+                              await provider.saveAndSync(
                                 db.copyWith(recipes: updated),
                                 pushTableScope: CloudSyncScope.mealsExtendedBundle,
                               );

@@ -1855,7 +1855,7 @@ Return ONLY the JSON array, no markdown.''',
                   ),
                   IconButton(
                     icon: const Icon(Icons.close_rounded, color: Colors.white70, size: 18),
-                    onPressed: () {
+                    onPressed: () async {
                       final uid = provider.activeUser?.id;
                       final isOwner = uid != null && family.ownerId == uid;
                       if (!isOwner) {
@@ -1873,7 +1873,7 @@ Return ONLY the JSON array, no markdown.''',
                       final updated = family.copyWith(welcomeDismissed: true);
                       final db = provider.db;
                       provider.updateFamily(updated);
-                      provider.saveAndSync(
+                      await provider.saveAndSync(
                         db.copyWith(
                           families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
                         ),
