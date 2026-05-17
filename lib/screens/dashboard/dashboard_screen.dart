@@ -894,6 +894,10 @@ Return ONLY the JSON array, no markdown.''',
                       actionTodayCount,
                       upcomingEvents,
                     ),
+                    if (provider.canAccess('/devotional')) ...[
+                      const SizedBox(height: 12),
+                      _buildDailyRhythmHero(context),
+                    ],
                     _buildTrialBanner(context, family),
                     if (_startTipReady && !_startTipDismissed) _buildOnboardingHint(context, family.id),
                     _buildAnnouncementSection(context, provider, family),
@@ -1279,6 +1283,83 @@ Return ONLY the JSON array, no markdown.''',
             );
           }).toList()),
         ]),
+      ),
+    );
+  }
+
+  /// Home entry point for scripture + reflection (flagship rhythm — no new modules).
+  Widget _buildDailyRhythmHero(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+      child: Material(
+        borderRadius: BorderRadius.circular(16),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () {
+            HapticFeedback.lightImpact();
+            context.go('/devotional?daily=1');
+          },
+          child: Ink(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  const Icon(Icons.auto_awesome, color: Colors.white, size: 28),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'DAILY RHYTHM',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1.1,
+                            color: Colors.white.withValues(alpha: 0.82),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Start today’s reading together',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'One calm minute of scripture & prayer — then back to the day.',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 12,
+                            height: 1.35,
+                            color: Colors.white.withValues(alpha: 0.9),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    Icons.arrow_forward_ios_rounded,
+                    size: 16,
+                    color: Colors.white.withValues(alpha: 0.85),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

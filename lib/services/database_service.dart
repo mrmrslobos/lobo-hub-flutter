@@ -48,7 +48,8 @@ Map<String, dynamic> fitnessPlanRowForCloud(
     'weekly_plan': weekly,
     'tips': tips,
     'profile': profile,
-    'created_at': created.isNotEmpty ? created : DateTime.now().toIso8601String(),
+    'created_at':
+        created.isNotEmpty ? created : DateTime.now().toIso8601String(),
   };
 }
 
@@ -58,6 +59,7 @@ class DatabaseService {
   static final Map<String, Future<void>> _syncTailByFamily = {};
 
   static const String _dbKey = 'huddle_db';
+
   /// Pre-rebrand local DB key; [loadLocal] migrates into [_dbKey] once.
   static const String _legacyDbKey = 'familyhub_db';
   static const String _tombstoneKey = 'fh_merge_tombstones';
@@ -110,8 +112,7 @@ class DatabaseService {
   /// loses more than the in-flight pull.
   static Map<String, String>? _cursors;
 
-  static String _cursorKey(String familyId, String table) =>
-      '$familyId:$table';
+  static String _cursorKey(String familyId, String table) => '$familyId:$table';
 
   static Future<Map<String, String>> _loadCursors() async {
     _cursors ??= await LocalSembastStore.readCursors();
@@ -120,7 +121,8 @@ class DatabaseService {
 
   /// Cursors that apply to [familyId] and a table the client treats as
   /// incremental-eligible. Tables without a cursor entry → full pull.
-  static Future<Map<String, DateTime>> _cursorsForFamily(String familyId) async {
+  static Future<Map<String, DateTime>> _cursorsForFamily(
+      String familyId) async {
     final all = await _loadCursors();
     final out = <String, DateTime>{};
     final prefix = '$familyId:';
@@ -192,7 +194,8 @@ class DatabaseService {
 
   // ── Local persistence ─────────────────────────────────────────────────────
 
-  static Future<void> _hydrateTombstonesFromPrefs(SharedPreferences prefs) async {
+  static Future<void> _hydrateTombstonesFromPrefs(
+      SharedPreferences prefs) async {
     try {
       final list = prefs.getStringList(_tombstoneKey);
       if (list != null && list.isNotEmpty) {
@@ -344,6 +347,50 @@ class DatabaseService {
   ) =>
       cloud_upsert_sanitize.sanitizeRowsForCloudUpsert(rows, table);
 
+  static Future<void> _outboxEnqueueFamilyUpserts(
+    String table,
+    List<Map<String, dynamic>> rows, {
+    String onConflict = 'id',
+  }) async {
+    for (final raw in rows) {
+      final row = sanitizeRowsForCloudUpsert(
+        [Map<String, dynamic>.from(raw)],
+        table,
+      ).first;
+      final key = row['id']?.toString();
+      if (key == null || key.isEmpty) continue;
+      await SyncOutbox.enqueue(
+        table: table,
+        rowKey: key,
+        op: OutboxOp.upsert,
+        payload: row,
+        onConflict: onConflict,
+      );
+    }
+  }
+
+  static Future<void> _outboxEnqueueUserUpserts(
+    String table,
+    List<Map<String, dynamic>> rows, {
+    String onConflict = 'id',
+  }) async {
+    for (final raw in rows) {
+      final row = sanitizeRowsForCloudUpsert(
+        [Map<String, dynamic>.from(raw)],
+        table,
+      ).first;
+      final key = row['id']?.toString();
+      if (key == null || key.isEmpty) continue;
+      await SyncOutbox.enqueue(
+        table: table,
+        rowKey: key,
+        op: OutboxOp.upsert,
+        payload: row,
+        onConflict: onConflict,
+      );
+    }
+  }
+
   /// Serialize **all** Supabase writes for [familyId]: [syncToCloud],
   /// [pushFamilyListsToCloudNow], and [pushFamilyTasksToCloudNow] share one queue.
   /// Without this, a targeted list push could finish first and an older full sync’s
@@ -370,24 +417,17 @@ class DatabaseService {
 
   /// Await after list edits so checked state reaches Supabase before the next pull
   /// (same idea as [pushFamilyTasksToCloudNow]).
-  static Future<void> pushFamilyListsToCloudNow(AppDB db, String familyId) async {
+  static Future<void> pushFamilyListsToCloudNow(
+      AppDB db, String familyId) async {
     if (!SupabaseService.isConfigured) return;
     await _enqueueFamilyCloudWrite(familyId, () async {
-      final familyLists = db.lists.where((l) => l.familyId == familyId).toList();
+      final familyLists =
+          db.lists.where((l) => l.familyId == familyId).toList();
       final localIds = familyLists.map((l) => l.id).toSet();
-      for (final l in familyLists) {
-        final row = sanitizeRowsForCloudUpsert(
-          [_shoppingListRowForCloud(l, familyId)],
-          'lists',
-        ).first;
-        await SyncOutbox.enqueue(
-          table: 'lists',
-          rowKey: l.id,
-          op: OutboxOp.upsert,
-          payload: row,
-          onConflict: 'id',
-        );
-      }
+      await _outboxEnqueueFamilyUpserts(
+        'lists',
+        familyLists.map((l) => _shoppingListRowForCloud(l, familyId)).toList(),
+      );
       await SyncOutbox.drain();
       await _deleteRemovedRows('lists', localIds, familyId);
     });
@@ -402,10 +442,12 @@ class DatabaseService {
   ///
   /// Task rows are pushed via [SyncOutbox] (per-row retry/backoff); [SyncOutbox.drain]
   /// runs before return so callers keep “push completed” semantics on success.
-  static Future<void> pushFamilyTasksToCloudNow(AppDB db, String familyId) async {
+  static Future<void> pushFamilyTasksToCloudNow(
+      AppDB db, String familyId) async {
     if (!SupabaseService.isConfigured) return;
     await _enqueueFamilyCloudWrite(familyId, () async {
-      final familyTasks = db.tasks.where((t) => t.familyId == familyId).toList();
+      final familyTasks =
+          db.tasks.where((t) => t.familyId == familyId).toList();
       final localIds = familyTasks.map((t) => t.id).toSet();
       for (final t in familyTasks) {
         final row =
@@ -455,17 +497,18 @@ class DatabaseService {
     String familyId, {
     Set<String>? tableScope,
   }) async {
-    bool pick(String table) =>
-        tableScope == null || tableScope.contains(table);
+    bool pick(String table) => tableScope == null || tableScope.contains(table);
     Future<void> up(String table, List<Map<String, dynamic>> rows,
         {String onConflict = 'id'}) async {
       if (rows.isNotEmpty) {
         try {
           await SupabaseService.upsertTable(
-              table, sanitizeRowsForCloudUpsert(rows, table), onConflict: onConflict);
+              table, sanitizeRowsForCloudUpsert(rows, table),
+              onConflict: onConflict);
         } on Object catch (e, st) {
           final msg = e.toString();
-          if (msg.contains('PGRST205') || msg.contains('Could not find the table')) {
+          if (msg.contains('PGRST205') ||
+              msg.contains('Could not find the table')) {
             return; // table not in schema — skip quietly
           }
           AppLog.sync('DatabaseService: Failed to sync $table: $e\n$st');
@@ -482,24 +525,6 @@ class DatabaseService {
       return currentUserId ?? '';
     }
 
-    // Helper to upsert then delete removed rows in one step
-    Future<void> upAndClean(String table, List<Map<String, dynamic>> rows,
-        Set<String> localIds, {String onConflict = 'id'}) async {
-      await up(table, rows, onConflict: onConflict);
-      await _deleteRemovedRows(table, localIds, fid);
-    }
-
-    Future<void> upAndCleanUser(
-      String table,
-      List<Map<String, dynamic>> rows,
-      Set<String> localIds, {
-      required String userId,
-      String onConflict = 'id',
-    }) async {
-      await up(table, rows, onConflict: onConflict);
-      await _deleteRemovedUserRows(table, localIds, userId);
-    }
-
     // Core identity tables first (other tables may reference these)
     await Future.wait([
       up('users', db.users.map((u) => u.toJson()).toList()),
@@ -507,395 +532,662 @@ class DatabaseService {
       _syncFamilyMembers(db, fid),
     ]);
 
-    // All other tables in parallel — they're independent of each other
+    // Outbox upserts enqueue in parallel; drains + tombstones follow below.
+    // They are independent of each other.
+
     await Future.wait([
       if (pick('tasks'))
-        upAndClean(
-            'tasks',
-            db.tasks
-                .where((t) => t.familyId == fid)
-                .map((t) => t.toJson())
-                .toList(),
-            db.tasks.where((t) => t.familyId == fid).map((t) => t.id).toSet()),
-      if (pick('events'))
-        upAndClean('events',
-            db.events.map((e) => {...e.toJson(), 'family_id': fid}).toList(),
-            db.events.map((e) => e.id).toSet()),
-      if (pick('recipes'))
-        upAndClean(
-            'recipes',
-            db.recipes
-                .map((r) {
-                  final row = Map<String, dynamic>.from(r.toJson());
-                  row['family_id'] = fid;
-                  return row;
-                })
-                .toList(),
-            db.recipes.map((r) => r.id).toSet()),
-      if (pick('meal_plans'))
-        upAndClean(
-            'meal_plans',
-            db.mealPlans
-                .where((m) => m.familyId == fid)
-                .map((m) {
-                  final row = Map<String, dynamic>.from(m.toJson());
-                  row['family_id'] = fid;
-                  final cb = row['created_by'];
-                  final cbStr = cb is String ? cb : '';
-                  if (cbStr.isEmpty) {
-                    final fb = (currentUserId != null && currentUserId.isNotEmpty)
-                        ? currentUserId
-                        : mealPlanCreatedByFallback();
-                    if (fb.isNotEmpty) row['created_by'] = fb;
-                  }
-                  return row;
-                })
-                .toList(),
-            db.mealPlans.where((m) => m.familyId == fid).map((m) => m.id).toSet()),
-      if (pick('lists'))
         (() async {
-          final familyLists =
-              db.lists.where((l) => l.familyId == fid).toList();
-          final localIds = familyLists.map((l) => l.id).toSet();
-          for (final l in familyLists) {
-            final row = sanitizeRowsForCloudUpsert(
-              [_shoppingListRowForCloud(l, fid)],
-              'lists',
-            ).first;
-            await SyncOutbox.enqueue(
-              table: 'lists',
-              rowKey: l.id,
-              op: OutboxOp.upsert,
-              payload: row,
-              onConflict: 'id',
-            );
-          }
-          await SyncOutbox.drain();
-          await _deleteRemovedRows('lists', localIds, fid);
+          final taskRows = db.tasks
+              .where((t) => t.familyId == fid)
+              .map((t) => t.toJson())
+              .toList();
+          await up('tasks', taskRows, onConflict: 'id');
         })(),
+      if (pick('events'))
+        _outboxEnqueueFamilyUpserts('events',
+            db.events.map((e) => {...e.toJson(), 'family_id': fid}).toList()),
+      if (pick('recipes'))
+        _outboxEnqueueFamilyUpserts(
+            'recipes',
+            db.recipes.map((r) {
+              final row = Map<String, dynamic>.from(r.toJson());
+              row['family_id'] = fid;
+              return row;
+            }).toList()),
+      if (pick('meal_plans'))
+        _outboxEnqueueFamilyUpserts(
+            'meal_plans',
+            db.mealPlans.where((m) => m.familyId == fid).map((m) {
+              final row = Map<String, dynamic>.from(m.toJson());
+              row['family_id'] = fid;
+              final cb = row['created_by'];
+              final cbStr = cb is String ? cb : '';
+              if (cbStr.isEmpty) {
+                final fb = (currentUserId != null && currentUserId.isNotEmpty)
+                    ? currentUserId
+                    : mealPlanCreatedByFallback();
+                if (fb.isNotEmpty) row['created_by'] = fb;
+              }
+              return row;
+            }).toList()),
+      if (pick('lists'))
+        _outboxEnqueueFamilyUpserts(
+          'lists',
+          db.lists
+              .where((l) => l.familyId == fid)
+              .map((l) => _shoppingListRowForCloud(l, fid))
+              .toList(),
+        ),
       if (pick('devotionals'))
-        upAndClean(
+        _outboxEnqueueFamilyUpserts(
             'devotionals',
             db.devotionals
                 .map((d) => _devotionalEntryRowForCloud(d, fid))
-                .toList(),
-            db.devotionals.map((d) => d.id).toSet()),
+                .toList()),
       if (pick('devotional_thoughts'))
-        (() async {
-          final thoughtRows = db.devotionalThoughts
+        _outboxEnqueueFamilyUpserts(
+          'devotional_thoughts',
+          db.devotionalThoughts
               .where((t) => t.familyId == fid)
               .map((t) => {...t.toJson(), 'family_id': fid})
-              .toList();
-          final thoughtIds = db.devotionalThoughts
-              .where((t) => t.familyId == fid)
-              .map((t) => t.id)
-              .toSet();
-          if (thoughtRows.isNotEmpty) {
-            try {
-              await SupabaseService.upsertTable(
-                'devotional_thoughts',
-                sanitizeRowsForCloudUpsert(thoughtRows, 'devotional_thoughts'),
-                onConflict: 'devotional_id,user_id,note_kind',
-              );
-            } on Object catch (e, st) {
-              final msg = e.toString();
-              if (!msg.contains('PGRST205') &&
-                  !msg.contains('Could not find the table')) {
-                debugPrint(
-                    '[DatabaseService] Failed to sync devotional_thoughts: $e\n$st');
-              }
-            }
-          }
-          await _deleteRemovedRows('devotional_thoughts', thoughtIds, fid);
-        })(),
-      if (currentUserId != null &&
-          (pick('fitness') || pick('fitness_plans')))
+              .toList(),
+          onConflict: 'devotional_id,user_id,note_kind',
+        ),
+      if (currentUserId != null && (pick('fitness') || pick('fitness_plans')))
         Future.wait([
           if (pick('fitness'))
-            upAndCleanUser(
-              'fitness',
-              db.fitness
-                  .where((f) => f.userId == currentUserId)
-                  .map((f) => {...f.toJson(), 'family_id': fid}).toList(),
-              db.fitness
-                  .where((f) => f.userId == currentUserId)
-                  .map((f) => f.id)
-                  .toSet(),
-              userId: currentUserId,
-            ),
+            _outboxEnqueueUserUpserts(
+                'fitness',
+                db.fitness
+                    .where((f) => f.userId == currentUserId)
+                    .map((f) => {...f.toJson(), 'family_id': fid})
+                    .toList()),
           if (pick('fitness_plans'))
-            upAndCleanUser(
-              'fitness_plans',
-              db.fitnessPlans
-                  .whereType<Map>()
-                  .where((p) => p['user_id'] == currentUserId)
-                  .map((p) {
-                    return fitnessPlanRowForCloud(
-                      Map<String, dynamic>.from(p), // FIXED: whereType<Map> element
-                      fid,
-                    );
-                  })
-                  .toList(),
-              db.fitnessPlans
-                  .whereType<Map>()
-                  .where((p) => p['user_id'] == currentUserId)
-                  .map((p) => fitnessPlanCloudRowId(p, fid))
-                  .toSet(),
-              userId: currentUserId,
-            ),
+            _outboxEnqueueUserUpserts(
+                'fitness_plans',
+                db.fitnessPlans
+                    .whereType<Map>()
+                    .where((p) => p['user_id'] == currentUserId)
+                    .map((p) {
+                  return fitnessPlanRowForCloud(
+                    Map<String, dynamic>.from(
+                        p), // FIXED: whereType<Map> element
+                    fid,
+                  );
+                }).toList()),
         ])
       else
         Future.value(),
       if (pick('fitness_logs'))
-        upAndClean(
-          'fitness_logs',
-          db.fitnessLogs
-              .where((l) => l.familyId == fid && l.userId == SupabaseService.currentUser?.id)
-              .map((l) => {...l.toJson(), 'family_id': fid}).toList(),
-          db.fitnessLogs
-              .where((l) => l.familyId == fid && l.userId == SupabaseService.currentUser?.id)
-              .map((l) => l.id)
-              .toSet(),
-        ),
+        _outboxEnqueueFamilyUpserts(
+            'fitness_logs',
+            db.fitnessLogs
+                .where((l) =>
+                    l.familyId == fid &&
+                    l.userId == SupabaseService.currentUser?.id)
+                .map((l) => {...l.toJson(), 'family_id': fid})
+                .toList()),
       // Strong integration: family-visible workouts, owner-only writes via RLS
       if (pick('workout_sessions'))
-        upAndClean(
-          'workout_sessions',
-          db.workoutSessions
-              .where((s) => s.familyId == fid && s.userId == SupabaseService.currentUser?.id)
-              .map((s) {
-                final row = Map<String, dynamic>.from(s.toJson());
-                row['family_id'] = fid;
-                return row;
-              })
-              .toList(),
-          db.workoutSessions
-              .where((s) => s.familyId == fid && s.userId == SupabaseService.currentUser?.id)
-              .map((s) => s.id)
-              .toSet(),
-        ),
+        _outboxEnqueueFamilyUpserts(
+            'workout_sessions',
+            db.workoutSessions
+                .where((s) =>
+                    s.familyId == fid &&
+                    s.userId == SupabaseService.currentUser?.id)
+                .map((s) {
+              final row = Map<String, dynamic>.from(s.toJson());
+              row['family_id'] = fid;
+              return row;
+            }).toList()),
       if (pick('workout_exercises'))
-        upAndClean(
-          'workout_exercises',
-          db.workoutExercises
-              .where((e) => e.familyId == fid && e.userId == SupabaseService.currentUser?.id)
-              .map((e) {
-                final row = Map<String, dynamic>.from(e.toJson());
-                row['family_id'] = fid;
-                return row;
-              })
-              .toList(),
-          db.workoutExercises
-              .where((e) => e.familyId == fid && e.userId == SupabaseService.currentUser?.id)
-              .map((e) => e.id)
-              .toSet(),
-        ),
+        _outboxEnqueueFamilyUpserts(
+            'workout_exercises',
+            db.workoutExercises
+                .where((e) =>
+                    e.familyId == fid &&
+                    e.userId == SupabaseService.currentUser?.id)
+                .map((e) {
+              final row = Map<String, dynamic>.from(e.toJson());
+              row['family_id'] = fid;
+              return row;
+            }).toList()),
       if (pick('workout_sets'))
-        upAndClean(
-          'workout_sets',
-          db.workoutSets
-              .where((set) => set.familyId == fid && set.userId == SupabaseService.currentUser?.id)
-              .map((set) => {...set.toJson(), 'family_id': fid}).toList(),
-          db.workoutSets
-              .where((set) => set.familyId == fid && set.userId == SupabaseService.currentUser?.id)
-              .map((set) => set.id)
-              .toSet(),
-        ),
+        _outboxEnqueueFamilyUpserts(
+            'workout_sets',
+            db.workoutSets
+                .where((set) =>
+                    set.familyId == fid &&
+                    set.userId == SupabaseService.currentUser?.id)
+                .map((set) => {...set.toJson(), 'family_id': fid})
+                .toList()),
       if (pick('exercise_prs'))
-        upAndClean(
-          'exercise_prs',
-          db.exercisePrs
-              .where((p) => p.familyId == fid)
-              .map((p) => p.toJson())
-              .toList(),
-          db.exercisePrs.where((p) => p.familyId == fid).map((p) => p.id).toSet(),
-        ),
+        _outboxEnqueueFamilyUpserts(
+            'exercise_prs',
+            db.exercisePrs
+                .where((p) => p.familyId == fid)
+                .map((p) => p.toJson())
+                .toList()),
       if (pick('budget_categories'))
-        upAndClean(
+        _outboxEnqueueFamilyUpserts(
             'budget_categories',
-            db.budgetCategories.map((b) => {...b.toJson(), 'family_id': fid}).toList(),
-            db.budgetCategories.map((b) => b.id).toSet()),
+            db.budgetCategories
+                .map((b) => {...b.toJson(), 'family_id': fid})
+                .toList()),
       if (pick('budget_entries'))
-        upAndClean(
+        _outboxEnqueueFamilyUpserts(
             'budget_entries',
-            db.budgetEntries.map((b) => {...b.toJson(), 'family_id': fid}).toList(),
-            db.budgetEntries.map((b) => b.id).toSet()),
+            db.budgetEntries
+                .map((b) => {...b.toJson(), 'family_id': fid})
+                .toList()),
       if (pick('transactions'))
-        upAndClean(
+        _outboxEnqueueFamilyUpserts(
             'transactions',
-            db.transactions.map((t) => {...t.toJson(), 'family_id': fid}).toList(),
-            db.transactions.map((t) => t.id).toSet()),
+            db.transactions
+                .map((t) => {...t.toJson(), 'family_id': fid})
+                .toList()),
       if (pick('ai_history'))
-        upAndClean(
-            'ai_history',
-            db.aiHistory.map((a) => a.toJson()).toList(),
-            db.aiHistory.map((a) => a.id).toSet()),
+        _outboxEnqueueFamilyUpserts(
+            'ai_history', db.aiHistory.map((a) => a.toJson()).toList()),
       if (pick('daily_habits'))
-        upAndClean(
-            'daily_habits',
-            db.dailyHabits.map((h) => h.toJson()).toList(),
-            db.dailyHabits.map((h) => h.id).toSet()),
+        _outboxEnqueueFamilyUpserts(
+            'daily_habits', db.dailyHabits.map((h) => h.toJson()).toList()),
       if (currentUserId != null && pick('daily_habit_completions'))
-        upAndCleanUser(
-          'daily_habit_completions',
-          db.dailyHabitCompletions
-              .where((c) => c.userId == currentUserId)
-              .map((c) {
-                final habitFam =
-                    db.dailyHabits.firstWhereOrNull((h) => h.id == c.habitId)?.familyId;
-                final fam = (habitFam != null && habitFam.isNotEmpty)
-                    ? habitFam
-                    : fid;
-                return {...c.toJson(), 'family_id': fam};
-              })
-              .toList(),
-          db.dailyHabitCompletions
-              .where((c) => c.userId == currentUserId)
-              .map((c) => c.id)
-              .toSet(),
-          userId: currentUserId,
-        )
+        _outboxEnqueueUserUpserts(
+            'daily_habit_completions',
+            db.dailyHabitCompletions
+                .where((c) => c.userId == currentUserId)
+                .map((c) {
+              final habitFam = db.dailyHabits
+                  .firstWhereOrNull((h) => h.id == c.habitId)
+                  ?.familyId;
+              final fam =
+                  (habitFam != null && habitFam.isNotEmpty) ? habitFam : fid;
+              return {...c.toJson(), 'family_id': fam};
+            }).toList())
       else
         Future.value(),
       if (pick('chores'))
-        upAndClean(
+        _outboxEnqueueFamilyUpserts(
             'chores',
             db.chores
                 .where((c) => c.familyId == fid)
                 .map((c) => _choreRowForCloud(c))
-                .toList(),
-            db.chores.where((c) => c.familyId == fid).map((c) => c.id).toSet()),
+                .toList()),
       if (pick('chore_completions'))
-        upAndClean(
-            'chore_completions',
-            db.choreCompletions.map((c) => c.toJson()).toList(),
-            db.choreCompletions.map((c) => c.id).toSet()),
+        _outboxEnqueueFamilyUpserts('chore_completions',
+            db.choreCompletions.map((c) => c.toJson()).toList()),
       if (pick('polls'))
-        upAndClean(
-            'polls',
-            db.polls.map((p) => {...p.toJson(), 'family_id': fid}).toList(),
-            db.polls.map((p) => p.id).toSet()),
+        _outboxEnqueueFamilyUpserts('polls',
+            db.polls.map((p) => {...p.toJson(), 'family_id': fid}).toList()),
       if (pick('poll_votes'))
-        upAndClean(
-            'poll_votes',
-            db.pollVotes.map((v) => v.toJson()).toList(),
-            db.pollVotes.map((v) => v.id).toSet()),
+        _outboxEnqueueFamilyUpserts(
+            'poll_votes', db.pollVotes.map((v) => v.toJson()).toList()),
       if (pick('reward_items'))
-        upAndClean(
+        _outboxEnqueueFamilyUpserts(
             'reward_items',
-            db.rewardItems.map((r) => {...r.toJson(), 'family_id': fid}).toList(),
-            db.rewardItems.map((r) => r.id).toSet()),
+            db.rewardItems
+                .map((r) => {...r.toJson(), 'family_id': fid})
+                .toList()),
       if (pick('reward_redemptions'))
-        upAndClean(
-            'reward_redemptions',
-            db.rewardRedemptions.map((r) => r.toJson()).toList(),
-            db.rewardRedemptions.map((r) => r.id).toSet()),
+        _outboxEnqueueFamilyUpserts('reward_redemptions',
+            db.rewardRedemptions.map((r) => r.toJson()).toList()),
       if (pick('savings_goals'))
-        upAndClean(
+        _outboxEnqueueFamilyUpserts(
             'savings_goals',
-            db.savingsGoals.map((g) => {...g.toJson(), 'family_id': fid}).toList(),
-            db.savingsGoals.map((g) => g.id).toSet()),
+            db.savingsGoals
+                .map((g) => {...g.toJson(), 'family_id': fid})
+                .toList()),
       if (pick('prayer_wall'))
-        upAndClean(
+        _outboxEnqueueFamilyUpserts(
             'prayer_wall',
-            db.prayerWall.map((p) => {...p.toJson(), 'family_id': fid}).toList(),
-            db.prayerWall.map((p) => p.id).toSet()),
+            db.prayerWall
+                .map((p) => {...p.toJson(), 'family_id': fid})
+                .toList()),
       if (pick('special_dates'))
-        upAndClean(
+        _outboxEnqueueFamilyUpserts(
             'special_dates',
-            db.specialDates.map((s) => {...s.toJson(), 'family_id': fid}).toList(),
-            db.specialDates.map((s) => s.id).toSet()),
+            db.specialDates
+                .map((s) => {...s.toJson(), 'family_id': fid})
+                .toList()),
       if (pick('family_photos'))
-        upAndClean(
+        _outboxEnqueueFamilyUpserts(
             'family_photos',
-            db.familyPhotos.map((p) => {...p.toJson(), 'family_id': fid}).toList(),
-            db.familyPhotos.map((p) => p.id).toSet()),
+            db.familyPhotos
+                .map((p) => {...p.toJson(), 'family_id': fid})
+                .toList()),
       if (pick('milestones'))
-        upAndClean(
+        _outboxEnqueueFamilyUpserts(
             'milestones',
-            db.milestones.map((m) => {...m.toJson(), 'family_id': fid}).toList(),
-            db.milestones.map((m) => m.id).toSet()),
+            db.milestones
+                .map((m) => {...m.toJson(), 'family_id': fid})
+                .toList()),
       if (pick('saved_places'))
-        upAndClean(
+        _outboxEnqueueFamilyUpserts(
             'saved_places',
-            db.savedPlaces.map((s) => {...s.toJson(), 'family_id': fid}).toList(),
-            db.savedPlaces.map((s) => s.id).toSet()),
+            db.savedPlaces
+                .map((s) => {...s.toJson(), 'family_id': fid})
+                .toList()),
       if (pick('user_locations'))
-        upAndClean(
-            'user_locations',
-            db.userLocations.map((u) => u.toJson()).toList(),
-            db.userLocations.map((u) => u.id).toSet()),
+        _outboxEnqueueFamilyUpserts(
+            'user_locations', db.userLocations.map((u) => u.toJson()).toList()),
       if (pick('messages'))
-        upAndClean(
-            'messages',
-            db.messages.map((m) => {...m.toJson(), 'family_id': fid}).toList(),
-            db.messages.map((m) => m.id).toSet()),
+        _outboxEnqueueFamilyUpserts('messages',
+            db.messages.map((m) => {...m.toJson(), 'family_id': fid}).toList()),
       if (pick('health_records'))
-        upAndClean(
+        _outboxEnqueueFamilyUpserts(
             'health_records',
-            db.healthRecords.map((h) => {...h.toJson(), 'family_id': fid}).toList(),
-            db.healthRecords.map((h) => h.id).toSet()),
+            db.healthRecords
+                .map((h) => {...h.toJson(), 'family_id': fid})
+                .toList()),
       if (pick('period_cycles'))
-        upAndClean(
-            'period_cycles',
-            db.periodCycles.map((c) => c.toJson()).toList(),
-            db.periodCycles.map((c) => c.id).toSet()),
+        _outboxEnqueueFamilyUpserts(
+            'period_cycles', db.periodCycles.map((c) => c.toJson()).toList()),
       if (pick('period_symptoms'))
-        upAndClean(
-            'period_symptoms',
-            db.periodSymptoms.map((s) => s.toJson()).toList(),
-            db.periodSymptoms.map((s) => s.id).toSet()),
+        _outboxEnqueueFamilyUpserts('period_symptoms',
+            db.periodSymptoms.map((s) => s.toJson()).toList()),
       if (pick('external_calendars'))
-        upAndClean(
+        _outboxEnqueueFamilyUpserts(
             'external_calendars',
-            db.externalCalendars.map((c) => {...c.toJson(), 'family_id': fid}).toList(),
-            db.externalCalendars.map((c) => c.id).toSet()),
+            db.externalCalendars
+                .map((c) => {...c.toJson(), 'family_id': fid})
+                .toList()),
       if (pick('rewards'))
-        upAndClean(
-            'rewards',
-            db.rewards.map((r) => {...r.toJson(), 'family_id': fid}).toList(),
-            db.rewards.map((r) => r.id).toSet()),
+        _outboxEnqueueFamilyUpserts('rewards',
+            db.rewards.map((r) => {...r.toJson(), 'family_id': fid}).toList()),
       if (pick('reading_plans'))
-        upAndClean(
+        _outboxEnqueueFamilyUpserts(
             'reading_plans',
-            db.readingPlans.map((r) => {...r.toJson(), 'family_id': fid}).toList(),
-            db.readingPlans.map((r) => r.id).toSet()),
+            db.readingPlans
+                .map((r) => {...r.toJson(), 'family_id': fid})
+                .toList()),
       if (pick('reading_plan_progress'))
-        upAndClean(
-            'reading_plan_progress',
-            db.readingPlanProgress.map((r) => r.toJson()).toList(),
-            db.readingPlanProgress.map((r) => r.id).toSet()),
+        _outboxEnqueueFamilyUpserts('reading_plan_progress',
+            db.readingPlanProgress.map((r) => r.toJson()).toList()),
       if (pick('pantry_items'))
-        upAndClean(
+        _outboxEnqueueFamilyUpserts(
             'pantry_items',
             db.pantryItems
                 .where((p) => p.familyId == fid)
                 .map((p) => p.toJson())
-                .toList(),
-            db.pantryItems.where((p) => p.familyId == fid).map((p) => p.id).toSet()),
+                .toList()),
       if (pick('family_activity_logs'))
-        upAndClean(
+        _outboxEnqueueFamilyUpserts(
             'family_activity_logs',
             db.familyActivityLogs
                 .where((a) => a.familyId == fid)
                 .map((a) => a.toJson())
-                .toList(),
-            db.familyActivityLogs
-                .where((a) => a.familyId == fid)
-                .map((a) => a.id)
-                .toSet()),
+                .toList()),
       if (pick('wellness_check_ins'))
-        upAndClean(
+        _outboxEnqueueFamilyUpserts(
             'wellness_check_ins',
             db.wellnessCheckIns
                 .where((w) => w.familyId == fid)
                 .map((w) => w.toJson())
-                .toList(),
-            db.wellnessCheckIns
-                .where((w) => w.familyId == fid)
-                .map((w) => w.id)
-                .toSet()),
+                .toList()),
     ]);
+
+    await SyncOutbox.drain();
+
+    await Future.wait([
+      if (pick('tasks'))
+        _deleteRemovedRows(
+          'tasks',
+          db.tasks.where((t) => t.familyId == fid).map((t) => t.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('events'))
+        _deleteRemovedRows(
+          'events',
+          db.events.map((e) => e.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('recipes'))
+        _deleteRemovedRows(
+          'recipes',
+          db.recipes.map((r) => r.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('meal_plans'))
+        _deleteRemovedRows(
+          'meal_plans',
+          db.mealPlans.where((m) => m.familyId == fid).map((m) => m.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('lists'))
+        _deleteRemovedRows(
+          'lists',
+          db.lists.where((l) => l.familyId == fid).map((l) => l.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('devotionals'))
+        _deleteRemovedRows(
+          'devotionals',
+          db.devotionals.map((d) => d.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('devotional_thoughts'))
+        _deleteRemovedRows(
+          'devotional_thoughts',
+          db.devotionalThoughts
+              .where((t) => t.familyId == fid)
+              .map((t) => t.id)
+              .toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (currentUserId != null && pick('fitness'))
+        _deleteRemovedUserRows(
+          'fitness',
+          db.fitness
+              .where((f) => f.userId == currentUserId)
+              .map((f) => f.id)
+              .toSet(),
+          currentUserId,
+          deferOutboxDrain: true,
+        ),
+      if (currentUserId != null && pick('fitness_plans'))
+        _deleteRemovedUserRows(
+          'fitness_plans',
+          db.fitnessPlans
+              .whereType<Map>()
+              .where((p) => p['user_id'] == currentUserId)
+              .map((p) => fitnessPlanCloudRowId(p, fid))
+              .toSet(),
+          currentUserId,
+          deferOutboxDrain: true,
+        ),
+      if (pick('fitness_logs'))
+        _deleteRemovedRows(
+          'fitness_logs',
+          db.fitnessLogs
+              .where((l) =>
+                  l.familyId == fid &&
+                  l.userId == SupabaseService.currentUser?.id)
+              .map((l) => l.id)
+              .toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('workout_sessions'))
+        _deleteRemovedRows(
+          'workout_sessions',
+          db.workoutSessions
+              .where((s) =>
+                  s.familyId == fid &&
+                  s.userId == SupabaseService.currentUser?.id)
+              .map((s) => s.id)
+              .toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('workout_exercises'))
+        _deleteRemovedRows(
+          'workout_exercises',
+          db.workoutExercises
+              .where((e) =>
+                  e.familyId == fid &&
+                  e.userId == SupabaseService.currentUser?.id)
+              .map((e) => e.id)
+              .toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('workout_sets'))
+        _deleteRemovedRows(
+          'workout_sets',
+          db.workoutSets
+              .where((set) =>
+                  set.familyId == fid &&
+                  set.userId == SupabaseService.currentUser?.id)
+              .map((set) => set.id)
+              .toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('exercise_prs'))
+        _deleteRemovedRows(
+          'exercise_prs',
+          db.exercisePrs
+              .where((p) => p.familyId == fid)
+              .map((p) => p.id)
+              .toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('budget_categories'))
+        _deleteRemovedRows(
+          'budget_categories',
+          db.budgetCategories.map((b) => b.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('budget_entries'))
+        _deleteRemovedRows(
+          'budget_entries',
+          db.budgetEntries.map((b) => b.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('transactions'))
+        _deleteRemovedRows(
+          'transactions',
+          db.transactions.map((t) => t.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('ai_history'))
+        _deleteRemovedRows(
+          'ai_history',
+          db.aiHistory.map((a) => a.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('daily_habits'))
+        _deleteRemovedRows(
+          'daily_habits',
+          db.dailyHabits.map((h) => h.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (currentUserId != null && pick('daily_habit_completions'))
+        _deleteRemovedUserRows(
+          'daily_habit_completions',
+          db.dailyHabitCompletions
+              .where((c) => c.userId == currentUserId)
+              .map((c) => c.id)
+              .toSet(),
+          currentUserId,
+          deferOutboxDrain: true,
+        )
+      else
+        Future.value(),
+      if (pick('chores'))
+        _deleteRemovedRows(
+          'chores',
+          db.chores.where((c) => c.familyId == fid).map((c) => c.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('chore_completions'))
+        _deleteRemovedRows(
+          'chore_completions',
+          db.choreCompletions.map((c) => c.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('polls'))
+        _deleteRemovedRows(
+          'polls',
+          db.polls.map((p) => p.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('poll_votes'))
+        _deleteRemovedRows(
+          'poll_votes',
+          db.pollVotes.map((v) => v.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('reward_items'))
+        _deleteRemovedRows(
+          'reward_items',
+          db.rewardItems.map((r) => r.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('reward_redemptions'))
+        _deleteRemovedRows(
+          'reward_redemptions',
+          db.rewardRedemptions.map((r) => r.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('savings_goals'))
+        _deleteRemovedRows(
+          'savings_goals',
+          db.savingsGoals.map((g) => g.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('prayer_wall'))
+        _deleteRemovedRows(
+          'prayer_wall',
+          db.prayerWall.map((p) => p.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('special_dates'))
+        _deleteRemovedRows(
+          'special_dates',
+          db.specialDates.map((s) => s.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('family_photos'))
+        _deleteRemovedRows(
+          'family_photos',
+          db.familyPhotos.map((p) => p.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('milestones'))
+        _deleteRemovedRows(
+          'milestones',
+          db.milestones.map((m) => m.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('saved_places'))
+        _deleteRemovedRows(
+          'saved_places',
+          db.savedPlaces.map((s) => s.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('user_locations'))
+        _deleteRemovedRows(
+          'user_locations',
+          db.userLocations.map((u) => u.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('messages'))
+        _deleteRemovedRows(
+          'messages',
+          db.messages.map((m) => m.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('health_records'))
+        _deleteRemovedRows(
+          'health_records',
+          db.healthRecords.map((h) => h.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('period_cycles'))
+        _deleteRemovedRows(
+          'period_cycles',
+          db.periodCycles.map((c) => c.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('period_symptoms'))
+        _deleteRemovedRows(
+          'period_symptoms',
+          db.periodSymptoms.map((s) => s.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('external_calendars'))
+        _deleteRemovedRows(
+          'external_calendars',
+          db.externalCalendars.map((c) => c.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('rewards'))
+        _deleteRemovedRows(
+          'rewards',
+          db.rewards.map((r) => r.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('reading_plans'))
+        _deleteRemovedRows(
+          'reading_plans',
+          db.readingPlans.map((r) => r.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('reading_plan_progress'))
+        _deleteRemovedRows(
+          'reading_plan_progress',
+          db.readingPlanProgress.map((r) => r.id).toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('pantry_items'))
+        _deleteRemovedRows(
+          'pantry_items',
+          db.pantryItems
+              .where((p) => p.familyId == fid)
+              .map((p) => p.id)
+              .toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('family_activity_logs'))
+        _deleteRemovedRows(
+          'family_activity_logs',
+          db.familyActivityLogs
+              .where((a) => a.familyId == fid)
+              .map((a) => a.id)
+              .toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+      if (pick('wellness_check_ins'))
+        _deleteRemovedRows(
+          'wellness_check_ins',
+          db.wellnessCheckIns
+              .where((w) => w.familyId == fid)
+              .map((w) => w.id)
+              .toSet(),
+          fid,
+          deferOutboxDrain: true,
+        ),
+    ]);
+    await SyncOutbox.drain();
   }
 
   /// Collapse duplicate `(user_id, family_id)` rows, keeping the highest role.
@@ -964,7 +1256,8 @@ class DatabaseService {
         }
       }
     } on Object catch (e, st) {
-      debugPrint('[DatabaseService] Failed to delete removed family_members: $e\n$st');
+      debugPrint(
+          '[DatabaseService] Failed to delete removed family_members: $e\n$st');
     }
   }
 
@@ -976,8 +1269,11 @@ class DatabaseService {
   /// daily-devotional edge function) to be wiped before the app ever saw it.
   /// Now it only deletes rows whose keys are in [_deletedKeys].
   static Future<void> _deleteRemovedRows(
-    String table, Set<String> localIds, String familyId,
-  ) async {
+    String table,
+    Set<String> localIds,
+    String familyId, {
+    bool deferOutboxDrain = false,
+  }) async {
     if (!SupabaseService.isConfigured || _deletedKeys.isEmpty) return;
     final softDelete = CloudSyncScope.softDeleteTables.contains(table);
     try {
@@ -989,7 +1285,8 @@ class DatabaseService {
       final cloudRows = softDelete
           ? await selectQ.isFilter('deleted_at', null)
           : await selectQ;
-      final cloudIds = (cloudRows as List).map((r) => r['id'] as String).toSet();
+      final cloudIds =
+          (cloudRows as List).map((r) => r['id'] as String).toSet();
       // Only delete cloud rows that were intentionally deleted locally
       final removed = cloudIds.intersection(_deletedKeys);
       for (final id in removed) {
@@ -1002,16 +1299,18 @@ class DatabaseService {
           payload: {'id': id},
         );
       }
-      if (removed.isNotEmpty) {
+      if (removed.isNotEmpty && !deferOutboxDrain) {
         // Best-effort immediate drain; failures stay queued for later.
         unawaited(SyncOutbox.drain());
       }
     } on Object catch (e, st) {
       final msg = e.toString();
-      if (msg.contains('PGRST205') || msg.contains('Could not find the table')) {
+      if (msg.contains('PGRST205') ||
+          msg.contains('Could not find the table')) {
         return; // table not in this project's schema — skip quietly
       }
-      debugPrint('[DatabaseService] Failed to delete removed $table rows: $e\n$st');
+      debugPrint(
+          '[DatabaseService] Failed to delete removed $table rows: $e\n$st');
     }
   }
 
@@ -1022,21 +1321,19 @@ class DatabaseService {
   static Future<void> _deleteRemovedUserRows(
     String table,
     Set<String> localIds,
-    String userId,
-  ) async {
+    String userId, {
+    bool deferOutboxDrain = false,
+  }) async {
     if (!SupabaseService.isConfigured || _deletedKeys.isEmpty) return;
     final softDelete = CloudSyncScope.softDeleteTables.contains(table);
     try {
-      final selectQ = SupabaseService.client
-          .from(table)
-          .select('id')
-          .eq('user_id', userId);
+      final selectQ =
+          SupabaseService.client.from(table).select('id').eq('user_id', userId);
       final cloudRows = softDelete
           ? await selectQ.isFilter('deleted_at', null)
           : await selectQ;
-      final cloudIds = (cloudRows as List)
-          .map((r) => r['id'] as String)
-          .toSet();
+      final cloudIds =
+          (cloudRows as List).map((r) => r['id'] as String).toSet();
       final removed = cloudIds.intersection(_deletedKeys);
       for (final id in removed) {
         await SyncOutbox.enqueue(
@@ -1046,15 +1343,17 @@ class DatabaseService {
           payload: {'id': id},
         );
       }
-      if (removed.isNotEmpty) {
+      if (removed.isNotEmpty && !deferOutboxDrain) {
         unawaited(SyncOutbox.drain());
       }
     } on Object catch (e, st) {
       final msg = e.toString();
-      if (msg.contains('PGRST205') || msg.contains('Could not find the table')) {
+      if (msg.contains('PGRST205') ||
+          msg.contains('Could not find the table')) {
         return; // table not in this project's schema — skip quietly
       }
-      debugPrint('[DatabaseService] Failed to delete removed $table rows: $e\n$st');
+      debugPrint(
+          '[DatabaseService] Failed to delete removed $table rows: $e\n$st');
     }
   }
 
@@ -1068,14 +1367,14 @@ class DatabaseService {
   /// row (tasks/chores join on `users` for names). Fetches missing profiles
   /// from Supabase, then stubs from `display_name` so UI never shows generic
   /// "Member" for everyone after a partial sync.
-  static Future<AppDB> backfillMissingUsersForFamily(AppDB db, String familyId) async {
+  static Future<AppDB> backfillMissingUsersForFamily(
+      AppDB db, String familyId) async {
     final memberIds = <String>{};
     for (final m in db.familyMembers) {
       if (m.familyId == familyId) memberIds.add(m.userId);
     }
-    final missing = memberIds
-        .where((id) => !db.users.any((u) => u.id == id))
-        .toList();
+    final missing =
+        memberIds.where((id) => !db.users.any((u) => u.id == id)).toList();
     if (missing.isEmpty) return db;
 
     FamilyMember? fmFor(String uid) {
@@ -1114,7 +1413,8 @@ class DatabaseService {
         }
       }
     } on Object catch (e, st) {
-      debugPrint('[DatabaseService] backfillMissingUsersForFamily fetch: $e\n$st');
+      debugPrint(
+          '[DatabaseService] backfillMissingUsersForFamily fetch: $e\n$st');
     }
 
     for (final id in missing) {
@@ -1130,6 +1430,7 @@ class DatabaseService {
     AppDB local,
     String familyId, {
     Set<String>? pullTables,
+
     /// Called **after** the cloud HTTP fetch completes, to merge against the
     /// latest in-memory DB. Prevents losing edits (e.g. a new list) made while
     /// the network request was in flight — the initial [local] snapshot can be
@@ -1456,19 +1757,45 @@ class DatabaseService {
         }
       }
     }
-    addAll(db.users); addAll(db.families); addAll(db.familyMembers);
-    addAll(db.tasks); addAll(db.events); addAll(db.recipes);
-    addAll(db.mealPlans); addAll(db.lists); addAll(db.devotionals);
+
+    addAll(db.users);
+    addAll(db.families);
+    addAll(db.familyMembers);
+    addAll(db.tasks);
+    addAll(db.events);
+    addAll(db.recipes);
+    addAll(db.mealPlans);
+    addAll(db.lists);
+    addAll(db.devotionals);
     addAll(db.devotionalThoughts);
-    addAll(db.fitness); addAll(db.budgetCategories); addAll(db.budgetEntries); addAll(db.transactions);
-    addAll(db.aiHistory); addAll(db.dailyHabits); addAll(db.dailyHabitCompletions);
-    addAll(db.chores); addAll(db.choreCompletions); addAll(db.polls);
-    addAll(db.pollVotes); addAll(db.rewardItems); addAll(db.rewardRedemptions);
-    addAll(db.savingsGoals); addAll(db.prayerWall); addAll(db.specialDates);
-    addAll(db.familyPhotos); addAll(db.milestones); addAll(db.savedPlaces);
-    addAll(db.userLocations); addAll(db.messages); addAll(db.healthRecords);
-    addAll(db.periodCycles); addAll(db.periodSymptoms);
-    addAll(db.rewards); addAll(db.readingPlans); addAll(db.readingPlanProgress); addAll(db.externalCalendars);
+    addAll(db.fitness);
+    addAll(db.budgetCategories);
+    addAll(db.budgetEntries);
+    addAll(db.transactions);
+    addAll(db.aiHistory);
+    addAll(db.dailyHabits);
+    addAll(db.dailyHabitCompletions);
+    addAll(db.chores);
+    addAll(db.choreCompletions);
+    addAll(db.polls);
+    addAll(db.pollVotes);
+    addAll(db.rewardItems);
+    addAll(db.rewardRedemptions);
+    addAll(db.savingsGoals);
+    addAll(db.prayerWall);
+    addAll(db.specialDates);
+    addAll(db.familyPhotos);
+    addAll(db.milestones);
+    addAll(db.savedPlaces);
+    addAll(db.userLocations);
+    addAll(db.messages);
+    addAll(db.healthRecords);
+    addAll(db.periodCycles);
+    addAll(db.periodSymptoms);
+    addAll(db.rewards);
+    addAll(db.readingPlans);
+    addAll(db.readingPlanProgress);
+    addAll(db.externalCalendars);
     addAll(db.pantryItems);
     addAll(db.familyActivityLogs);
     addAll(db.wellnessCheckIns);
@@ -1482,7 +1809,8 @@ class DatabaseService {
   }
 
   /// Normalize stored AI plan (local JSON or Supabase row) to one map shape.
-  static Map<String, dynamic> _normalizeFitnessPlanMap(Map<dynamic, dynamic> raw) {
+  static Map<String, dynamic> _normalizeFitnessPlanMap(
+      Map<dynamic, dynamic> raw) {
     dynamic wp = raw['weeklyPlan'] ?? raw['weekly_plan'];
     if (wp is! List) wp = <dynamic>[];
     dynamic tips = raw['tips'];
@@ -1493,7 +1821,8 @@ class DatabaseService {
       'summary': raw['summary']?.toString() ?? '',
       'weeklyPlan': wp,
       'tips': tips,
-      'profile': Map<String, dynamic>.from(prof), // FIXED: prof is Map after guard
+      'profile':
+          Map<String, dynamic>.from(prof), // FIXED: prof is Map after guard
       'user_id': raw['user_id']?.toString() ?? '',
       'created_at': raw['created_at']?.toString() ?? '',
       'plan_id': raw['plan_id']?.toString() ?? '',
@@ -1556,7 +1885,8 @@ class DatabaseService {
     }
 
     final list = byKey.values.toList();
-    list.sort((a, b) => _fitnessPlanTimestamp(b).compareTo(_fitnessPlanTimestamp(a)));
+    list.sort(
+        (a, b) => _fitnessPlanTimestamp(b).compareTo(_fitnessPlanTimestamp(a)));
     return list;
   }
 
@@ -1566,8 +1896,7 @@ class DatabaseService {
     List<DevotionalThought> cloud,
   ) {
     DevotionalThought canonical(DevotionalThought t) {
-      final sid =
-          DevotionalThought.stableId(t.devotionalId, t.userId, t.kind);
+      final sid = DevotionalThought.stableId(t.devotionalId, t.userId, t.kind);
       if (t.id == sid) return t;
       return DevotionalThought(
         id: sid,
@@ -1612,13 +1941,11 @@ class DatabaseService {
     Map<String, dynamic> cloud,
     String activeFamilyId,
   ) {
-    final cloudFm =
-        _safeParse(cloud['family_members'], FamilyMember.fromJson);
+    final cloudFm = _safeParse(cloud['family_members'], FamilyMember.fromJson);
     final membersThisFamily =
         cloudFm.where((m) => m.familyId == activeFamilyId).toList();
-    final localThisFamily = local.familyMembers
-        .where((m) => m.familyId == activeFamilyId)
-        .toList();
+    final localThisFamily =
+        local.familyMembers.where((m) => m.familyId == activeFamilyId).toList();
     // Union local + cloud by (user_id, family_id). Cloud overwrites the same
     // key so server stays authoritative, but **partial** cloud responses (e.g.
     // only the owner) must not drop everyone else who still exists locally or
@@ -1632,9 +1959,8 @@ class DatabaseService {
     }
     final membersForActiveFamily =
         dedupeFamilyMembers(byMemberKey.values.toList());
-    final membersOtherFamilies = local.familyMembers
-        .where((m) => m.familyId != activeFamilyId)
-        .toList();
+    final membersOtherFamilies =
+        local.familyMembers.where((m) => m.familyId != activeFamilyId).toList();
     final mergedFamilyMembers = [
       ...membersOtherFamilies,
       ...membersForActiveFamily,
@@ -1644,68 +1970,100 @@ class DatabaseService {
     // Merge by ID so offline-created items aren't lost.
     return AppDB(
       users: _mergeById(local.users, _safeParse(cloud['users'], User.fromJson)),
-      families: _mergeById(local.families, _safeParse(cloud['families'], Family.fromJson)),
+      families: _mergeById(
+          local.families, _safeParse(cloud['families'], Family.fromJson)),
       familyMembers: mergedFamilyMembers,
       tasks: _mergeById(local.tasks, _safeParse(cloud['tasks'], Task.fromJson)),
-      events: _mergeById(local.events, _safeParse(cloud['events'], CalendarEvent.fromJson)),
-      recipes: _mergeById(local.recipes, _safeParse(cloud['recipes'], Recipe.fromJson)),
-      mealPlans: _mergeById(local.mealPlans, _safeParse(cloud['meal_plans'], MealPlanEntry.fromJson)),
+      events: _mergeById(
+          local.events, _safeParse(cloud['events'], CalendarEvent.fromJson)),
+      recipes: _mergeById(
+          local.recipes, _safeParse(cloud['recipes'], Recipe.fromJson)),
+      mealPlans: _mergeById(local.mealPlans,
+          _safeParse(cloud['meal_plans'], MealPlanEntry.fromJson)),
       lists: _mergeById(
           local.lists, _safeParse(cloud['lists'], ShoppingList.fromJson)),
-      devotionals: _mergeById(local.devotionals, _safeParse(cloud['devotionals'], DevotionalEntry.fromJson)),
-      devotionalThoughts: _mergeDevotionalThoughts(
-          local.devotionalThoughts,
+      devotionals: _mergeById(local.devotionals,
+          _safeParse(cloud['devotionals'], DevotionalEntry.fromJson)),
+      devotionalThoughts: _mergeDevotionalThoughts(local.devotionalThoughts,
           _safeParse(cloud['devotional_thoughts'], DevotionalThought.fromJson)),
-      fitness: _mergeById(local.fitness, _safeParse(cloud['fitness'], FitnessMetric.fromJson)),
-      fitnessLogs: _mergeById(
-          local.fitnessLogs, _safeParse(cloud['fitness_logs'], FitnessLog.fromJson)),
-      workoutSessions: _mergeById(
-          local.workoutSessions,
+      fitness: _mergeById(
+          local.fitness, _safeParse(cloud['fitness'], FitnessMetric.fromJson)),
+      fitnessLogs: _mergeById(local.fitnessLogs,
+          _safeParse(cloud['fitness_logs'], FitnessLog.fromJson)),
+      workoutSessions: _mergeById(local.workoutSessions,
           _safeParse(cloud['workout_sessions'], WorkoutSession.fromJson)),
-      workoutExercises: _mergeById(
-          local.workoutExercises,
+      workoutExercises: _mergeById(local.workoutExercises,
           _safeParse(cloud['workout_exercises'], WorkoutExercise.fromJson)),
-      workoutSets: _mergeById(
-          local.workoutSets, _safeParse(cloud['workout_sets'], WorkoutSet.fromJson)),
-      exercisePrs: _mergeById(
-          local.exercisePrs, _safeParse(cloud['exercise_prs'], ExercisePR.fromJson)),
-      budgetCategories: _mergeById(local.budgetCategories, _safeParse(cloud['budget_categories'], BudgetCategoryRecord.fromJson)),
-      budgetEntries: _mergeById(local.budgetEntries, _safeParse(cloud['budget_entries'], BudgetEntry.fromJson)),
-      transactions: _mergeById(local.transactions, _safeParse(cloud['transactions'], Transaction.fromJson)),
-      aiHistory: _mergeById(local.aiHistory, _safeParse(cloud['ai_history'], AIHistory.fromJson)),
-      dailyHabits: _mergeById(local.dailyHabits, _safeParse(cloud['daily_habits'], DailyHabit.fromJson)),
-      dailyHabitCompletions: _mergeById(local.dailyHabitCompletions, _safeParse(cloud['daily_habit_completions'], DailyHabitCompletion.fromJson)),
-      chores: _mergeById(local.chores, _safeParse(cloud['chores'], Chore.fromJson)),
-      choreCompletions: _mergeById(local.choreCompletions, _safeParse(cloud['chore_completions'], ChoreCompletion.fromJson)),
+      workoutSets: _mergeById(local.workoutSets,
+          _safeParse(cloud['workout_sets'], WorkoutSet.fromJson)),
+      exercisePrs: _mergeById(local.exercisePrs,
+          _safeParse(cloud['exercise_prs'], ExercisePR.fromJson)),
+      budgetCategories: _mergeById(
+          local.budgetCategories,
+          _safeParse(
+              cloud['budget_categories'], BudgetCategoryRecord.fromJson)),
+      budgetEntries: _mergeById(local.budgetEntries,
+          _safeParse(cloud['budget_entries'], BudgetEntry.fromJson)),
+      transactions: _mergeById(local.transactions,
+          _safeParse(cloud['transactions'], Transaction.fromJson)),
+      aiHistory: _mergeById(
+          local.aiHistory, _safeParse(cloud['ai_history'], AIHistory.fromJson)),
+      dailyHabits: _mergeById(local.dailyHabits,
+          _safeParse(cloud['daily_habits'], DailyHabit.fromJson)),
+      dailyHabitCompletions: _mergeById(
+          local.dailyHabitCompletions,
+          _safeParse(
+              cloud['daily_habit_completions'], DailyHabitCompletion.fromJson)),
+      chores:
+          _mergeById(local.chores, _safeParse(cloud['chores'], Chore.fromJson)),
+      choreCompletions: _mergeById(local.choreCompletions,
+          _safeParse(cloud['chore_completions'], ChoreCompletion.fromJson)),
       polls: _mergeById(local.polls, _safeParse(cloud['polls'], Poll.fromJson)),
-      pollVotes: _mergeById(local.pollVotes, _safeParse(cloud['poll_votes'], PollVote.fromJson)),
-      rewardItems: _mergeById(local.rewardItems, _safeParse(cloud['reward_items'], RewardItem.fromJson)),
-      rewardRedemptions: _mergeById(local.rewardRedemptions, _safeParse(cloud['reward_redemptions'], RewardRedemption.fromJson)),
-      savingsGoals: _mergeById(local.savingsGoals, _safeParse(cloud['savings_goals'], SavingsGoal.fromJson)),
-      prayerWall: _mergeById(local.prayerWall, _safeParse(cloud['prayer_wall'], PrayerWallEntry.fromJson)),
-      specialDates: _mergeById(local.specialDates, _safeParse(cloud['special_dates'], SpecialDate.fromJson)),
-      familyPhotos: _mergeById(local.familyPhotos, _safeParse(cloud['family_photos'], FamilyPhoto.fromJson)),
-      milestones: _mergeById(local.milestones, _safeParse(cloud['milestones'], Milestone.fromJson)),
-      savedPlaces: _mergeById(local.savedPlaces, _safeParse(cloud['saved_places'], SavedPlace.fromJson)),
-      userLocations: _mergeById(local.userLocations, _safeParse(cloud['user_locations'], UserLocation.fromJson)),
-      messages: _mergeById(local.messages, _safeParse(cloud['messages'], ChatMessage.fromJson)),
-      healthRecords: _mergeById(local.healthRecords, _safeParse(cloud['health_records'], HealthRecord.fromJson)),
-      periodCycles: _mergeById(local.periodCycles, _safeParse(cloud['period_cycles'], PeriodCycle.fromJson)),
-      periodSymptoms: _mergeById(local.periodSymptoms, _safeParse(cloud['period_symptoms'], PeriodSymptomLog.fromJson)),
-      rewards: _mergeById(local.rewards, _safeParse(cloud['rewards'], Reward.fromJson)),
-      readingPlans: _mergeReadingPlans(
-          local.readingPlans,
+      pollVotes: _mergeById(
+          local.pollVotes, _safeParse(cloud['poll_votes'], PollVote.fromJson)),
+      rewardItems: _mergeById(local.rewardItems,
+          _safeParse(cloud['reward_items'], RewardItem.fromJson)),
+      rewardRedemptions: _mergeById(local.rewardRedemptions,
+          _safeParse(cloud['reward_redemptions'], RewardRedemption.fromJson)),
+      savingsGoals: _mergeById(local.savingsGoals,
+          _safeParse(cloud['savings_goals'], SavingsGoal.fromJson)),
+      prayerWall: _mergeById(local.prayerWall,
+          _safeParse(cloud['prayer_wall'], PrayerWallEntry.fromJson)),
+      specialDates: _mergeById(local.specialDates,
+          _safeParse(cloud['special_dates'], SpecialDate.fromJson)),
+      familyPhotos: _mergeById(local.familyPhotos,
+          _safeParse(cloud['family_photos'], FamilyPhoto.fromJson)),
+      milestones: _mergeById(local.milestones,
+          _safeParse(cloud['milestones'], Milestone.fromJson)),
+      savedPlaces: _mergeById(local.savedPlaces,
+          _safeParse(cloud['saved_places'], SavedPlace.fromJson)),
+      userLocations: _mergeById(local.userLocations,
+          _safeParse(cloud['user_locations'], UserLocation.fromJson)),
+      messages: _mergeById(
+          local.messages, _safeParse(cloud['messages'], ChatMessage.fromJson)),
+      healthRecords: _mergeById(local.healthRecords,
+          _safeParse(cloud['health_records'], HealthRecord.fromJson)),
+      periodCycles: _mergeById(local.periodCycles,
+          _safeParse(cloud['period_cycles'], PeriodCycle.fromJson)),
+      periodSymptoms: _mergeById(local.periodSymptoms,
+          _safeParse(cloud['period_symptoms'], PeriodSymptomLog.fromJson)),
+      rewards: _mergeById(
+          local.rewards, _safeParse(cloud['rewards'], Reward.fromJson)),
+      readingPlans: _mergeReadingPlans(local.readingPlans,
           _safeParse(cloud['reading_plans'], ReadingPlan.fromJson)),
       readingPlanProgress: _mergeById(
           local.readingPlanProgress,
-          _safeParse(cloud['reading_plan_progress'], ReadingPlanProgress.fromJson)),
-      externalCalendars: _mergeById(local.externalCalendars, _safeParse(cloud['external_calendars'], ExternalCalendar.fromJson)),
-      pantryItems: _mergeById(local.pantryItems, _safeParse(cloud['pantry_items'], PantryItem.fromJson)),
+          _safeParse(
+              cloud['reading_plan_progress'], ReadingPlanProgress.fromJson)),
+      externalCalendars: _mergeById(local.externalCalendars,
+          _safeParse(cloud['external_calendars'], ExternalCalendar.fromJson)),
+      pantryItems: _mergeById(local.pantryItems,
+          _safeParse(cloud['pantry_items'], PantryItem.fromJson)),
       familyActivityLogs: _mergeById(
           local.familyActivityLogs,
-          _safeParse(cloud['family_activity_logs'], FamilyActivityLog.fromJson)),
-      wellnessCheckIns: _mergeById(
-          local.wellnessCheckIns,
+          _safeParse(
+              cloud['family_activity_logs'], FamilyActivityLog.fromJson)),
+      wellnessCheckIns: _mergeById(local.wellnessCheckIns,
           _safeParse(cloud['wellness_check_ins'], WellnessCheckIn.fromJson)),
       fitnessPlans: _mergeFitnessPlans(
         local.fitnessPlans,
@@ -1721,7 +2079,8 @@ class DatabaseService {
   /// `_deletedKeys`) and skipped — incremental pulls surface soft-deletes
   /// this way, and the post-merge sweep in `_mergeById` drops them from
   /// any local-only state.
-  static List<T> _safeParse<T>(dynamic raw, T Function(Map<String, dynamic>) fromJson) {
+  static List<T> _safeParse<T>(
+      dynamic raw, T Function(Map<String, dynamic>) fromJson) {
     if (raw == null || raw is! List) return [];
     final results = <T>[];
     for (final item in raw) {
@@ -1739,8 +2098,7 @@ class DatabaseService {
           results.add(fromJson(m));
         } on Object catch (e, st) {
           final prev = lastError ?? '';
-          lastError =
-              '${prev}Parse error in ${T.toString()}: $e\n$st\n';
+          lastError = '${prev}Parse error in ${T.toString()}: $e\n$st\n';
         }
       }
     }

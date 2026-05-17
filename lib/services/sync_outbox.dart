@@ -89,12 +89,22 @@ class OutboxRecord {
 ///   - coalescing: rapid edits to the same row collapse to the latest payload
 ///   - explicit failure reporting via `lastError`
 ///
-/// v1 scope: soft-deletes and targeted tables (e.g. `tasks`) route through here.
-/// Bulk upserts for other tables still use the legacy path until migrated per-table.
+/// Family bulk sync (`_syncToCloud`) enqueues most table upserts here, then awaits
+/// `drain()` in phases so parallel work only queues (no racy nested drains). Tasks
+/// still include a direct bulk `upsert` path in that flow; tombstones and targeted
+/// pushes (e.g. `pushFamilyListsToCloudNow`) also use the outbox.
+///
+/// **Batching:** consecutive due [OutboxOp.upsert] rows for the same `(table,
+/// onConflict)` are sent as a single PostgREST upsert (up to [_maxBatchUpsert]).
+/// On any batch failure, drain falls back to per-row attempts so RLS/validation
+/// errors still map to specific rows.
 class SyncOutbox {
   SyncOutbox._();
 
   static const _uuid = Uuid();
+
+  /// Limit PostgREST upsert payload size per request; larger backlogs are chunked.
+  static const int _maxBatchUpsert = 75;
 
   static dynamic _canonicalJsonValue(dynamic v) {
     if (v == null) return null;
@@ -132,6 +142,11 @@ class SyncOutbox {
   static Timer? _scheduledDrain;
   static void Function(String error)? _onError;
 
+  /// [_syncToCloud] enqueues many tables in parallel ([Future.wait]); without a
+  /// single-writer discipline, overlapping [_persist] calls could snapshot and
+  /// flush stale `_records` lists and overwrite newer Sembast state.
+  static Future<void> _persistTail = Future<void>.value();
+
   /// Wire an error callback (e.g. SyncProvider.setSyncError) so terminal
   /// failures surface in the UI.
   static void registerErrorSink(void Function(String error) sink) {
@@ -153,14 +168,27 @@ class SyncOutbox {
     }
   }
 
-  static Future<void> _persist() async {
-    try {
-      await LocalSembastStore.writeOutbox(
-        _records.map((r) => r.toJson()).toList(),
-      );
-    } on Object catch (e, st) {
-      debugPrint('[SyncOutbox] persist failed: $e\n$st');
+  static Future<void> _persist() {
+    _persistTail = _persistTail.then((_) async {
+      try {
+        await LocalSembastStore.writeOutbox(
+          _records.map((r) => r.toJson()).toList(),
+        );
+      } on Object catch (e, st) {
+        debugPrint('[SyncOutbox] persist failed: $e\n$st');
+      }
+    });
+    return _persistTail;
+  }
+
+  /// Debug/diagnostic: queued row counts grouped by Supabase table name.
+  static Future<Map<String, int>> pendingCountsByTable() async {
+    await _hydrate();
+    final out = <String, int>{};
+    for (final r in _records) {
+      out[r.table] = (out[r.table] ?? 0) + 1;
     }
+    return out;
   }
 
   /// Add or coalesce a record. Same `(table, rowKey, op)` replaces the
@@ -207,9 +235,8 @@ class SyncOutbox {
     return _records.length;
   }
 
-  /// Drain all due records. Each gets a single network attempt; failures
-  /// schedule a backoff. Successive calls are safe — only one drain runs
-  /// at a time, and a drain in progress causes new calls to no-op.
+  /// Drain all due records. Upserts for the same `(table, onConflict)` may be
+  /// batched; deletes stay per-row. Failures apply per-row backoff via [_attempt].
   static Future<void> drain() async {
     await _hydrate();
     if (_draining) return;
@@ -220,22 +247,90 @@ class SyncOutbox {
       final due = _records
           .where((r) => !r.nextAttemptAt.isAfter(now))
           .toList(growable: false);
-      for (final rec in due) {
-        if (!_records.contains(rec)) continue; // removed by a parallel enqueue
-        final ok = await _attempt(rec);
-        if (ok) {
-          _records.removeWhere((r) => r.id == rec.id);
+      var i = 0;
+      while (i < due.length) {
+        final rec = due[i];
+        if (!_records.any((r) => r.id == rec.id)) {
+          i++;
+          continue;
+        }
+        if (rec.op == OutboxOp.upsert) {
+          final table = rec.table;
+          final conflictKey = rec.onConflict ?? 'id';
+          final batch = <OutboxRecord>[rec];
+          var j = i + 1;
+          while (j < due.length && batch.length < _maxBatchUpsert) {
+            final next = due[j];
+            if (next.op != OutboxOp.upsert ||
+                next.table != table ||
+                (next.onConflict ?? 'id') != conflictKey) {
+              break;
+            }
+            batch.add(next);
+            j++;
+          }
+          await _flushUpsertBatch(batch);
+          i = j;
         } else {
-          // Backoff in place; _attempt already updated rec.nextAttemptAt.
+          if (_records.any((r) => r.id == rec.id)) {
+            final ok = await _attempt(rec);
+            if (ok) {
+              _records.removeWhere((r) => r.id == rec.id);
+            }
+          }
+          i++;
         }
       }
       await _persist();
+      if (kDebugMode && _records.isNotEmpty) {
+        final byTable = <String, int>{};
+        for (final r in _records) {
+          byTable[r.table] = (byTable[r.table] ?? 0) + 1;
+        }
+        final dueNow = _records
+            .where((r) => !r.nextAttemptAt.isAfter(now))
+            .length;
+        debugPrint(
+          '[SyncOutbox] drain pass finished: ${_records.length} pending '
+          '($dueNow due now); by table: $byTable',
+        );
+      }
       // If any records are still due (e.g. failed and scheduled for soon),
       // arm a timer so we re-drain without waiting for the next external
       // trigger.
       _scheduleNextDrain();
     } finally {
       _draining = false;
+    }
+  }
+
+  static Future<void> _flushUpsertBatch(List<OutboxRecord> batch) async {
+    final present =
+        batch.where((r) => _records.any((x) => x.id == r.id)).toList();
+    if (present.isEmpty) return;
+    final table = present.first.table;
+    final onConflict = present.first.onConflict ?? 'id';
+    try {
+      final payloads = present
+          .map((r) => Map<String, dynamic>.from(r.payload))
+          .toList(growable: false);
+      final sanitized = sanitizeRowsForCloudUpsert(payloads, table);
+      await SupabaseService.upsertTable(
+        table,
+        sanitized,
+        onConflict: onConflict,
+      );
+      for (final r in present) {
+        _records.removeWhere((x) => x.id == r.id);
+      }
+    } on Object {
+      for (final r in present) {
+        if (!_records.any((x) => x.id == r.id)) continue;
+        final ok = await _attempt(r);
+        if (ok) {
+          _records.removeWhere((x) => x.id == r.id);
+        }
+      }
     }
   }
 

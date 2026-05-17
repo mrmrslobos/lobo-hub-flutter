@@ -7,6 +7,8 @@ import '../config/cloud_sync_scope.dart';
 import '../models/models.dart';
 import '../services/database_service.dart';
 import '../services/family_activity_service.dart';
+import '../services/field_encryption_service.dart';
+import '../services/pending_cloud_sync_hints.dart';
 import '../services/supabase_service.dart';
 import '../services/sync_echo_tracker.dart';
 import '../services/sync_outbox.dart';
@@ -47,8 +49,16 @@ class SyncProvider extends ChangeNotifier {
   final Set<String> _deferredModulePullTables = {};
   Timer? _moduleEnterPullTimer;
   final Set<String> _pendingModulePullTables = {};
-  
+  Timer? _realtimePullCoalesceTimer;
+  final Set<String> _pendingRealtimePullTables = {};
+
+  /// Default debounce for manual / broadcast-driven pulls (coalesce bursts).
   static const Duration _defaultPullDebounce = Duration(milliseconds: 450);
+  /// Tighter coalescing for postgres_changes (still batches multi-table bursts).
+  static const Duration _postgresRealtimePullDebounce = Duration(milliseconds: 120);
+  static const Duration _broadcastPullDebounce = Duration(milliseconds: 450);
+  /// After inbound work was deferred during outbound sync, flush without another long wait.
+  static const Duration _deferredFlushDebounce = Duration(milliseconds: 50);
   static const Duration resumeSyncStaleAfter = Duration(minutes: 3);
 
   DateTime? _lastSuccessfulSyncAt;
@@ -76,6 +86,12 @@ class SyncProvider extends ChangeNotifier {
   void notifyListeners() {
     super.notifyListeners();
     unawaited(_refreshPendingOutboxCount());
+  }
+
+  /// Best-effort flush of the durable outbox + refresh [pendingOutboxCount].
+  Future<void> flushOutboxNow() async {
+    await SyncOutbox.drain();
+    await _refreshPendingOutboxCount();
   }
 
   void setOutboundSyncActive(bool active) {
@@ -114,14 +130,23 @@ class SyncProvider extends ChangeNotifier {
     final familyId = authProvider.activeFamily?.id;
     if (familyId == null || !SupabaseService.isConfigured) return;
 
+    if (kDebugMode) {
+      debugPrint(
+        '[SyncProvider] startRealtimeListener: family=$familyId (AuthProvider bridge)',
+      );
+    }
+
     _realtimeChannel = SupabaseService.subscribeToFamily(
       familyId,
-      onBroadcast: (payload) {
+      onDbChange: (payload) {
         final senderId = payload['user_id'];
         if (senderId == authProvider.activeUser?.id) return;
-        scheduleDebouncedPullFromCloud();
+        scheduleDebouncedPullFromCloud(_broadcastPullDebounce);
       },
+      onActivityHint: _onFamilyActivityHintBroadcast,
     );
+
+    unawaited(_consumePendingPrefetchHints());
 
     try {
       var channel = Supabase.instance.client.channel('postgres:$familyId');
@@ -136,11 +161,7 @@ class SyncProvider extends ChangeNotifier {
             column: 'family_id',
             value: familyId,
           ),
-          callback: (payload) {
-            if (_isPostgresSelfEcho(payload)) return;
-            _maybeTombstoneFromSoftDelete(payload);
-            scheduleDebouncedPullFromCloud();
-          },
+          callback: _onFamilyScopedPostgresChange,
         );
       }
 
@@ -153,14 +174,60 @@ class SyncProvider extends ChangeNotifier {
           column: 'id',
           value: familyId,
         ),
-        callback: (payload) {
-          if (_isPostgresSelfEcho(payload)) return;
-          scheduleDebouncedPullFromCloud();
-        },
+        callback: _onFamilyScopedPostgresChange,
       );
-      _postgresChannel = channel.subscribe();
+      _postgresChannel = channel.subscribe((status, error) {
+        if (!kDebugMode) return;
+        if (status == RealtimeSubscribeStatus.subscribed) {
+          final n = CloudSyncScope.realtimeFamilyScopedTables.length;
+          debugPrint(
+            '[SyncProvider] Postgres realtime subscribed for family $familyId '
+            '($n family-scoped tables + families). '
+            'Publication must list these tables; RLS gates delivery — see migrations '
+            '(e.g. 28_realtime_publication_expand.sql, 20260514130000_messages_realtime_publication.sql).',
+          );
+        } else if (status == RealtimeSubscribeStatus.channelError) {
+          debugPrint('[SyncProvider] Postgres realtime subscribe error: $error');
+        }
+      });
     } catch (e) {
       debugPrint('[SyncProvider] Postgres realtime subscription failed: $e');
+    }
+  }
+
+  Future<void> _consumePendingPrefetchHints() async {
+    if (!SupabaseService.isConfigured || authProvider.activeFamily == null) {
+      return;
+    }
+    final load = await PendingCloudSyncHints.consumeDevotionalPrefetchHint();
+    if (!load) return;
+    scheduleModuleEnterCloudPull(CloudSyncScope.devotionalBundle);
+  }
+
+  /// Lightweight realtime spike: scoped pulls from `activity_hint` payloads
+  /// `{ table: "tasks" }` or `{ tables: ["tasks","lists"] }` — alternative to
+  /// subscribing to many `postgres_changes` bindings at scale.
+  void _onFamilyActivityHintBroadcast(Map<String, dynamic> payload) {
+    try {
+      final senderId = payload['user_id'];
+      if (senderId == authProvider.activeUser?.id) return;
+      final tables = <String>{};
+      final one = payload['table']?.toString();
+      if (one != null && one.isNotEmpty) tables.add(one);
+      final list = payload['tables'];
+      if (list is List) {
+        for (final x in list) {
+          final s = x?.toString();
+          if (s != null && s.isNotEmpty) tables.add(s);
+        }
+      }
+      if (tables.isEmpty) {
+        scheduleDebouncedPullFromCloud(_broadcastPullDebounce);
+      } else {
+        _scheduleDebouncedRealtimeTablesPull(tables);
+      }
+    } on Object catch (e) {
+      debugPrint('[SyncProvider] activity_hint broadcast: $e');
     }
   }
 
@@ -209,6 +276,87 @@ class SyncProvider extends ChangeNotifier {
     }
   }
 
+  void _onFamilyScopedPostgresChange(PostgresChangePayload payload) {
+    if (_isPostgresSelfEcho(payload)) return;
+    _maybeTombstoneFromSoftDelete(payload);
+    if (!_outboundCloudSyncActive && !_isSyncing) {
+      if (_tryMergeRealtimeMessagesRow(payload)) return;
+    }
+    _scheduleDebouncedRealtimeTablePull(payload.table);
+  }
+
+  void _scheduleDebouncedRealtimeTablePull(String? table) {
+    if (table == null || table.isEmpty) {
+      if (authProvider.activeFamily == null || !SupabaseService.isConfigured) {
+        return;
+      }
+      scheduleDebouncedPullFromCloud(_postgresRealtimePullDebounce);
+      return;
+    }
+    _scheduleDebouncedRealtimeTablesPull({table});
+  }
+
+  void _scheduleDebouncedRealtimeTablesPull(Set<String> tables) {
+    if (authProvider.activeFamily == null || !SupabaseService.isConfigured) {
+      return;
+    }
+    if (tables.isEmpty) {
+      scheduleDebouncedPullFromCloud(_postgresRealtimePullDebounce);
+      return;
+    }
+    _pendingRealtimePullTables.addAll(tables);
+    _realtimePullCoalesceTimer?.cancel();
+    _realtimePullCoalesceTimer = Timer(_postgresRealtimePullDebounce, () {
+      _realtimePullCoalesceTimer = null;
+      final merged = Set<String>.from(_pendingRealtimePullTables);
+      _pendingRealtimePullTables.clear();
+      if (merged.isEmpty) return;
+      _pullModuleScopedFromCloudNow(merged);
+    });
+  }
+
+  /// Hot path for chat: merge one row locally (reconcile stays the backstop).
+  bool _tryMergeRealtimeMessagesRow(PostgresChangePayload payload) {
+    if (payload.table != CloudSyncScope.messages) return false;
+    final familyId = authProvider.activeFamily?.id;
+    if (familyId == null || !FieldEncryption.isReady(familyId)) return false;
+
+    try {
+      final db = dataProvider.db;
+      if (payload.eventType == PostgresChangeEvent.delete) {
+        final id = payload.oldRecord['id']?.toString();
+        if (id == null || id.isEmpty) return false;
+        final existing = db.messages.firstWhereOrNull((m) => m.id == id);
+        if (existing == null) return true;
+        dataProvider.updateDb(db.copyWith(
+          messages: db.messages.where((m) => m.id != id).toList(),
+        ));
+        return true;
+      }
+
+      final raw = payload.newRecord;
+      if (raw.isEmpty) return false;
+      if (raw['family_id']?.toString() != familyId) return false;
+
+      final incoming = ChatMessage.fromJson(Map<String, dynamic>.from(raw));
+      if (incoming.id.isEmpty) return false;
+
+      final existing = db.messages.firstWhereOrNull((m) => m.id == incoming.id);
+      final incomingAt = incoming.editedAt ?? incoming.createdAt;
+      if (existing != null) {
+        final existingAt = existing.editedAt ?? existing.createdAt;
+        if (existingAt.isAfter(incomingAt)) return true;
+      }
+
+      dataProvider.updateDb(db.copyWith(
+        messages: [...db.messages.where((m) => m.id != incoming.id), incoming],
+      ));
+      return true;
+    } on Object {
+      return false;
+    }
+  }
+
   void _stopRealtimeListener() {
     if (_realtimeChannel != null) {
       SupabaseService.unsubscribe(_realtimeChannel!);
@@ -228,6 +376,9 @@ class SyncProvider extends ChangeNotifier {
   void _cancelScheduledCloudPulls() {
     _pullDebounceTimer?.cancel();
     _pullDebounceTimer = null;
+    _realtimePullCoalesceTimer?.cancel();
+    _realtimePullCoalesceTimer = null;
+    _pendingRealtimePullTables.clear();
     _deferredCloudPull = false;
     _moduleEnterPullTimer?.cancel();
     _moduleEnterPullTimer = null;
@@ -261,10 +412,15 @@ class SyncProvider extends ChangeNotifier {
     });
   }
 
+  /// When an inbound pull was skipped because outbound [syncToCloud] held
+  /// `_outboundCloudSyncActive` / `_isSyncing`, flush without the long default
+  /// debounce so we do not stack ~450ms on top of the outbound window. We still
+  /// avoid concurrent reconcile vs push: shared code paths expect a coherent
+  /// local snapshot without overlapping full merges.
   void _flushDeferredCloudPullIfNeeded() {
     if (!_deferredCloudPull) return;
     _deferredCloudPull = false;
-    scheduleDebouncedPullFromCloud();
+    scheduleDebouncedPullFromCloud(_deferredFlushDebounce);
   }
 
   void _flushDeferredModulePullIfNeeded() {
@@ -357,6 +513,7 @@ class SyncProvider extends ChangeNotifier {
 
   void onAppResumed() {
     if (!authProvider.isAuthenticated || !SupabaseService.isConfigured) return;
+    unawaited(_consumePendingPrefetchHints());
     // Flush any queued writes before pulling so they appear in the next pull.
     unawaited(SyncOutbox.drain());
     final at = _lastSuccessfulSyncAt;
@@ -438,5 +595,49 @@ class SyncProvider extends ChangeNotifier {
     );
     dataProvider.updateDb(next);
     await syncToCloud(next, fam.id, tableScope: {CloudSyncScope.familyActivityLogs});
+  }
+
+  /// Wait until [syncToCloud]/pull is not holding the sync lock (or [timeout]).
+  Future<void> waitForSyncIdle(
+      {Duration timeout = const Duration(seconds: 25)}) async {
+    final until = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(until)) {
+      if (!_outboundCloudSyncActive && !_isSyncing) return;
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+    }
+  }
+
+  /// Like [refreshFromCloud] but waits for a pull slot so notification opens
+  /// see freshly merged rows (never returns early while another sync is busy
+  /// without at least scheduling [Duration.zero] pull as last resort).
+  Future<void> refreshFromCloudAwaitable({String? familyIdOverride}) async {
+    final fid = familyIdOverride ?? authProvider.activeFamily?.id;
+    if (fid == null || !SupabaseService.isConfigured) return;
+    _pullDebounceTimer?.cancel();
+    _pullDebounceTimer = null;
+    await waitForSyncIdle();
+    var activeFid = authProvider.activeFamily?.id ?? fid;
+    for (var i = 0; i < 40; i++) {
+      if (!_outboundCloudSyncActive && !_isSyncing) {
+        await _pullFromCloudNow(familyId: activeFid);
+        return;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      activeFid = authProvider.activeFamily?.id ?? activeFid;
+    }
+    _deferredCloudPull = true;
+    scheduleDebouncedPullFromCloud(Duration.zero);
+  }
+
+  /// Foreground FCM — warm `devotionals` + `devotional_thoughts` before the user taps.
+  void prefetchDevotionalTablesForeground() {
+    if (authProvider.activeFamily == null || !SupabaseService.isConfigured) return;
+    unawaited(() async {
+      await waitForSyncIdle(timeout: const Duration(seconds: 5));
+      final fam = authProvider.activeFamily;
+      if (fam == null) return;
+      await _pullModuleScopedFromCloudNow(
+          Set<String>.from(CloudSyncScope.devotionalBundle));
+    }());
   }
 }

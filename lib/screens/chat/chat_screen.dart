@@ -11,6 +11,7 @@ import '../../config/cloud_sync_scope.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../repositories/messages_repository.dart';
 import '../../services/family_activity_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
@@ -148,11 +149,7 @@ class _ChatScreenState extends State<ChatScreen> {
         createdAt: DateTime.now(),
       );
 
-      final db = provider.db;
-      await provider.saveAndSync(
-        db.copyWith(messages: [...db.messages, msg]),
-        pushTableScope: {CloudSyncScope.messages},
-      );
+      await context.read<MessagesRepository>().upsert(msg);
 
       _textCtrl.clear();
       setState(() => _replyTo = null);
@@ -182,14 +179,8 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     final updated = msg.copyWith(reactions: reactions);
-    final db = provider.db;
-    final messages =
-        db.messages.map((m) => m.id == msg.id ? updated : m).toList();
     try {
-      await provider.saveAndSync(
-        db.copyWith(messages: messages),
-        pushTableScope: {CloudSyncScope.messages},
-      );
+      await context.read<MessagesRepository>().upsert(updated);
     } catch (_) {
       if (!mounted) return;
       _showSnack(context, 'Could not update reaction.');
@@ -219,14 +210,10 @@ class _ChatScreenState extends State<ChatScreen> {
       );
       if (confirmed != true) return;
     }
-    final db = provider.db;
+    if (!mounted) return;
+    if (!mounted) return;
     try {
-      await provider.saveAndSync(
-        db.copyWith(
-          messages: db.messages.where((m) => m.id != msg.id).toList(),
-        ),
-        pushTableScope: {CloudSyncScope.messages},
-      );
+      await context.read<MessagesRepository>().delete(msg.id);
     } catch (_) {
       if (!mounted) return;
       _showSnack(context, 'Could not delete message.');
@@ -358,12 +345,11 @@ class _ChatScreenState extends State<ChatScreen> {
         }
         final familyId = provider.activeFamily?.id;
         final myId = provider.activeUser?.id;
+        final messagesRepo = context.read<MessagesRepository>();
 
         final messages = familyId == null
             ? <ChatMessage>[]
-            : (provider.db.messages
-                .where((m) => m.familyId == familyId)
-                .toList()
+            : (messagesRepo.messagesForFamily(familyId)
               ..sort((a, b) => a.createdAt.compareTo(b.createdAt)));
 
         // Scroll to bottom only if already near bottom

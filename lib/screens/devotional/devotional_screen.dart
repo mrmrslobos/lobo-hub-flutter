@@ -43,6 +43,17 @@ void _showSnack(BuildContext context, String msg) {
   ));
 }
 
+/// Calendar comparison in local time (daily `date` is often persisted as UTC ISO).
+bool _sameLocalCalendarDay(DateTime a, DateTime b) {
+  final al = a.toLocal();
+  final bl = b.toLocal();
+  return al.year == bl.year && al.month == bl.month && al.day == bl.day;
+}
+
+bool _isDailyAutoActive(DevotionalEntry e) =>
+    e.tags.contains('daily-auto') &&
+    !e.tags.contains('daily-auto-dismissed');
+
 // Per-user daily devotional (schedule + default privacy). Stored in User.settings.
 const _kUserDailyEnabled = 'daily_devotional_enabled';
 const _kUserDailyHour = 'daily_devotional_hour';
@@ -293,7 +304,7 @@ class _DevotionalScreenState extends State<DevotionalScreen>
 
     var e = match(provider.db.devotionalEntries);
     if (e == null) {
-      await provider.refreshFromCloud();
+      await provider.refreshFromCloudAwaitable();
       if (!mounted) return;
       e = match(context.read<AppProvider>().db.devotionalEntries);
     }
@@ -468,7 +479,8 @@ class _DevotionalScreenState extends State<DevotionalScreen>
           // Also hide auto-generated devotionals for locally dismissed dates.
           // This catches new devotionals created by the cron with different IDs.
           if (e.tags.contains('daily-auto') && _localDismissedDates.isNotEmpty) {
-            final dateKey = DateFormat('yyyy-MM-dd').format(e.date);
+            final dateKey =
+                DateFormat('yyyy-MM-dd').format(e.date.toLocal());
             if (_localDismissedDates.contains(dateKey)) return false;
           }
           return true;
@@ -723,22 +735,29 @@ class _DevotionalScreenState extends State<DevotionalScreen>
               )),
             ),
 
-            // Tab content
-            if (_tabController.index == 0)
-              _DevotionalsTab(
+            // Tab content — keep both branches mounted so switching tabs does not
+            // dispose [_DevotionalsTab] (which would re-run [_maybeGenerateDaily] and
+            // force-open today's devotional again after the user pressed back).
+            // (Cannot use [Visibility] here: [Visibility] enum is imported from models.)
+            Offstage(
+              offstage: _tabController.index != 0,
+              child: _DevotionalsTab(
                 entries: entries,
                 familyId: family.id,
                 onSelectEntry: (e) => setState(() => _selectedEntry = e),
                 onDeleteEntry: (id) => _deleteEntry(id),
                 skipAutoOpen: _dismissedAutoOpen,
-              )
-            else
-              _ReadingPlansTab(
+              ),
+            ),
+            Offstage(
+              offstage: _tabController.index != 1,
+              child: _ReadingPlansTab(
                 plans: plans,
                 entries: entries,
                 familyId: family.id,
                 onSelectPlan: (p) => setState(() => _selectedPlan = p),
               ),
+            ),
           ],
         ),
       ),
@@ -795,10 +814,9 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
   }
 
   /// Sync with the cloud to pick up server-generated devotionals
-  /// (produced by the daily-devotional edge function even when the app is
-  /// closed). If the server hasn't generated one yet (e.g. cron not
-  /// configured or timing mismatch), falls back to client-side generation
-  /// so the user never sees a perpetual "Awaiting..." state.
+  /// (`daily-devotional` edge function). When Supabase is configured we do **not**
+  /// auto-generate on-device — duplicate runs produced extra rows and JSON-as-body
+  /// fallback. Use **Generate now** on the Daily card only if cron did not deliver.
   Future<void> _maybeGenerateDaily() async {
     if (!mounted) return;
     final provider = context.read<AppProvider>();
@@ -807,20 +825,17 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
     if (family == null || user == null) return;
     if (!_userDailyEnabled(user, family)) return;
 
-    final today = DateTime.now();
-    final todayDate = DateTime(today.year, today.month, today.day);
+    final now = DateTime.now();
 
     DevotionalEntry? findTodaysDevotional() {
-      try {
-        return provider.db.devotionalEntries.firstWhere((e) =>
-          e.familyId == family.id &&
-          e.creatorId == user.id &&
-          e.tags.contains('daily-auto') &&
-          DateTime(e.date.year, e.date.month, e.date.day) == todayDate,
-        );
-      } catch (_) {
-        return null;
+      DevotionalEntry? chosen;
+      for (final e in provider.db.devotionalEntries) {
+        if (e.familyId != family.id || e.creatorId != user.id) continue;
+        if (!_isDailyAutoActive(e)) continue;
+        if (!_sameLocalCalendarDay(e.date, now)) continue;
+        if (chosen == null || e.updatedAt.isAfter(chosen.updatedAt)) chosen = e;
       }
+      return chosen;
     }
 
     // Already have today's devotional locally — auto-open it
@@ -831,8 +846,7 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
       return;
     }
 
-    // Sync with cloud — the server may still generate a family-wide daily;
-    // prefer a row created by this user for today.
+    // Sync with cloud — cron inserts while app is closed
     try {
       final merged = await DatabaseService.reconcileCloud(
         provider.db,
@@ -851,20 +865,33 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
       debugPrint('Cloud sync for daily devotional failed: $e');
     }
 
-    // Fallback: if scheduled time has passed and no devotional arrived from
-    // the server, generate one client-side so the user isn't stuck on
-    // "Awaiting..." forever.
-    if (!mounted) return;
-    final utcDt = DateTime.utc(2024, 1, 1, _userDailyHour(user, family), _userDailyMinute(user, family));
-    final localDt = utcDt.toLocal();
-    final scheduledToday = DateTime(today.year, today.month, today.day, localDt.hour, localDt.minute);
-    if (today.isBefore(scheduledToday)) return; // not yet time
+    if (!SupabaseService.isConfigured) {
+      if (!mounted) return;
+      final utcDt = DateTime.utc(2024, 1, 1,
+          _userDailyHour(user, family), _userDailyMinute(user, family));
+      final localDt = utcDt.toLocal();
+      final scheduledToday = DateTime(
+        now.year,
+        now.month,
+        now.day,
+        localDt.hour,
+        localDt.minute,
+      );
+      if (now.isBefore(scheduledToday)) return;
+      await _generateDailyFallback(family.id);
+      return;
+    }
 
-    await _generateDailyFallback(family.id);
+    if (!mounted) return;
+    if (findTodaysDevotional() == null) {
+      _showSnack(
+        context,
+        'Today\'s devotional is still on its way. Wait a moment and reopen, or tap Generate now.',
+      );
+    }
   }
 
-  /// Client-side fallback: generate today's daily devotional via AI when
-  /// the server-side cron hasn't produced one.
+  /// Client-side fallback — local-only installs (no Supabase); **Generate now** button.
   Future<void> _generateDailyFallback(String familyId) async {
     if (AiService.isAIBlocked) return;
     setState(() => _isGenerating = true);
@@ -2628,6 +2655,7 @@ class _DailyDevotionalCardState extends State<_DailyDevotionalCard> {
       title: 'Daily devotional',
       body: 'Open ${AppConfig.appName} for today\'s reading.',
       time: Time(local.hour, local.minute),
+      payload: '/devotional?daily=1',
     );
   }
 
@@ -2655,14 +2683,13 @@ class _DailyDevotionalCardState extends State<_DailyDevotionalCard> {
     final dailyPrivate = _userDailyPrivateDefault(user);
 
     final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
     final todayEntry = enabled
         ? provider.db.devotionalEntries.cast<DevotionalEntry?>().firstWhere(
             (e) =>
                 e!.familyId == familyId &&
                 e.creatorId == user.id &&
-                e.tags.contains('daily-auto') &&
-                DateTime(e.date.year, e.date.month, e.date.day) == today,
+                _isDailyAutoActive(e) &&
+                _sameLocalCalendarDay(e.date, now),
             orElse: () => null,
           )
         : null;

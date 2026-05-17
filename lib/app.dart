@@ -86,6 +86,7 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
 
   bool _isRouterInitialized = false;
   bool _isPasswordRecovery = false;
+  bool _fcmPrefetchHookRegistered = false;
 
   @override
   void didChangeDependencies() {
@@ -98,6 +99,20 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
       _isRouterInitialized = true;
       _listenToAuthState();
       WidgetsBinding.instance.addObserver(this);
+      // Warm devotional rows when a push arrives while the app is foregrounded.
+      if (!_fcmPrefetchHookRegistered) {
+        _fcmPrefetchHookRegistered = true;
+        NotificationService.onFcmForegroundData = (data) {
+          final path = '${data['path'] ?? data['route'] ?? ''}';
+          final did = data['devotionalId']?.toString();
+          if (!_provider.isAuthenticated) return;
+          final looksDevotional = (did != null && did.isNotEmpty) ||
+              path.contains('devotional');
+          if (looksDevotional) {
+            _provider.prefetchDevotionalTablesForeground();
+          }
+        };
+      }
       // Handle notification tap that launched the app from terminated state
       _consumePendingRoute();
     }
@@ -125,7 +140,7 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
       NotificationService.pendingRoute = null;
       try {
         if (_provider.isAuthenticated) {
-          await _provider.refreshFromCloud();
+          await _provider.refreshFromCloudAwaitable();
         }
       } catch (_) {}
       if (!mounted) return;
@@ -158,6 +173,9 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    if (_fcmPrefetchHookRegistered) {
+      NotificationService.onFcmForegroundData = null;
+    }
     WidgetsBinding.instance.removeObserver(this);
     _authSub?.cancel();
     super.dispose();
@@ -349,8 +367,8 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
               path: '/devotional',
               name: 'devotional',
               pageBuilder: (context, state) {
-                final id = state.uri.queryParameters['id'] ??
-                    state.uri.queryParameters['devotionalId'];
+                final qp = state.uri.queryParameters;
+                final id = qp['id'] ?? qp['devotionalId'];
                 return _huddlePage(
                   state,
                   DevotionalScreen(initialDevotionalId: id),

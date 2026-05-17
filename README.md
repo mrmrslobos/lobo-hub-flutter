@@ -65,6 +65,24 @@ This repo does **not** use `npm run dev` or Vite; ignore any leftover references
 - Apply migrations in numeric order in the Supabase SQL editor or CLI.
 - After production deploys, optional sanity checks: [`supabase/scripts/verify_prod_rls_assumptions.sql`](supabase/scripts/verify_prod_rls_assumptions.sql).
 
+## Integration sync tests
+
+CI runs [`test/integration/sync_two_device_test.dart`](test/integration/sync_two_device_test.dart) when sync-related paths change. The job also runs [`test/integration/integration_ci_config_test.dart`](test/integration/integration_ci_config_test.dart), which **fails the workflow** on GitHub Actions if required secrets are missing (so tests never “pass” due to silent skips).
+
+Add these **Actions secrets** on the upstream repository (fork PRs skip this job because secrets are unavailable):
+
+| Secret | Purpose |
+|--------|---------|
+| `SUPABASE_TEST_URL` | Supabase project URL for the dedicated test project (or branch DB) |
+| `SUPABASE_TEST_ANON_KEY` | Anon key matching that project |
+| `HUB_TEST_USER_A_EMAIL` / `HUB_TEST_USER_A_PASSWORD` | First test user in the shared family |
+| `HUB_TEST_USER_B_EMAIL` / `HUB_TEST_USER_B_PASSWORD` | Second user in the same family |
+| `HUB_TEST_FAMILY_ID` | UUID of the family both users belong to |
+
+Local run (same `--dart-define=` flags as in [`.github/workflows/integration-tests.yml`](.github/workflows/integration-tests.yml)): see comments in [`test/integration/_supabase_test_config.dart`](test/integration/_supabase_test_config.dart).
+
+Staging manual verification is outlined in [`docs/staging_soak_checklist.md`](docs/staging_soak_checklist.md).
+
 ## Lint
 
 ```bash

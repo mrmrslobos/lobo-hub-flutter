@@ -474,17 +474,34 @@ class SupabaseService {
   }
 
   /// Subscribe to realtime broadcast events for a family channel.
+  ///
+  /// [onDbChange] handles legacy `db_change` fan-out after writes.
+  /// [onActivityHint] is optional — lightweight payloads with `{ table }` or
+  /// `{ tables: [...] }` so clients can scoped-pull without Postgres fan-out.
   static RealtimeChannel subscribeToFamily(
     String familyId, {
-    required void Function(Map<String, dynamic>) onBroadcast,
+    required void Function(Map<String, dynamic> payload) onDbChange,
+    void Function(Map<String, dynamic> payload)? onActivityHint,
   }) {
-    return client
-        .channel('family:$familyId')
-        .onBroadcast(
+    var channel = client.channel('family:$familyId').onBroadcast(
           event: 'db_change',
-          callback: (payload) => onBroadcast(payload),
-        )
-        .subscribe();
+          callback: (payload) {
+            try {
+              onDbChange(Map<String, dynamic>.from(payload as Map));
+            } catch (_) {}
+          },
+        );
+    if (onActivityHint != null) {
+      channel = channel.onBroadcast(
+        event: 'activity_hint',
+        callback: (payload) {
+          try {
+            onActivityHint(Map<String, dynamic>.from(payload as Map));
+          } catch (_) {}
+        },
+      );
+    }
+    return channel.subscribe();
   }
 
   /// Unsubscribe and remove a realtime channel.

@@ -101,6 +101,8 @@ class _ConnectivityWrapperState extends State<ConnectivityWrapper> {
                 onDismiss: provider.clearSyncError,
               );
             }
+            // Queued uploads (SyncOutbox) are surfaced on the sync icon tooltip +
+            // automatic drain when connectivity returns — no full-width banner here.
             // No “saved on device” or “last synced” rows here — that caused layout
             // jumps while typing. Sync state is: purple line while syncing, app bar
             // icon (spinner → check) when done. See [MainAppBar].

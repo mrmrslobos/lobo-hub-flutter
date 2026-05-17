@@ -86,6 +86,10 @@ class AppProvider extends ChangeNotifier {
     await _auth.initialize();
   }
 
+  int get pendingOutboxCount => _sync.pendingOutboxCount;
+
+  Future<void> flushOutboxNow() => _sync.flushOutboxNow();
+
   Future<void> refreshStoreSubscription() =>
       _auth.refreshStoreSubscription();
 
@@ -233,6 +237,12 @@ class AppProvider extends ChangeNotifier {
 
   Future<void> refreshFromCloud({String? familyIdOverride}) =>
       _sync.refreshFromCloud(familyIdOverride: familyIdOverride);
+
+  Future<void> refreshFromCloudAwaitable({String? familyIdOverride}) =>
+      _sync.refreshFromCloudAwaitable(familyIdOverride: familyIdOverride);
+
+  void prefetchDevotionalTablesForeground() =>
+      _sync.prefetchDevotionalTablesForeground();
 
   void clearSyncError() => _sync.clearSyncError();
 

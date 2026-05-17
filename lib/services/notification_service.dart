@@ -29,6 +29,9 @@ class NotificationService {
   static bool _localNotificationsReady = false;
   static bool _timeZoneBootstrapped = false;
 
+  /// Optional hook — set once from [HuddleApp] after [AppProvider] exists.
+  static void Function(Map<String, dynamic> data)? onFcmForegroundData;
+
   /// Route to navigate to when a notification is tapped.
   /// Consumers should read and clear this after acting on it.
   static String? pendingRoute;
@@ -188,9 +191,13 @@ class NotificationService {
         );
 
         FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-          final payload = _routeFromRemoteMessageData(
-            Map<String, dynamic>.from(message.data),
-          );
+          final data = Map<String, dynamic>.from(message.data);
+          try {
+            onFcmForegroundData?.call(data);
+          } catch (e) {
+            debugPrint('[NotificationService] onFcmForegroundData: $e');
+          }
+          final payload = _routeFromRemoteMessageData(data);
           final notification = message.notification;
           if (notification != null) {
             showLocal(
@@ -283,7 +290,7 @@ class NotificationService {
     required String title,
     required String body,
     required Time time,
-    String payload = '/devotional',
+    String payload = '/devotional?daily=1',
   }) async {
     await ensureReady();
 
@@ -315,7 +322,7 @@ class NotificationService {
     );
 
     final tapPayload =
-        payload.trim().isNotEmpty ? payload.trim() : '/devotional';
+        payload.trim().isNotEmpty ? payload.trim() : '/devotional?daily=1';
 
     await _plugin.zonedSchedule(
       id,

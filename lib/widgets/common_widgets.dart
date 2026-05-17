@@ -948,12 +948,14 @@ class _MainAppBarState extends State<MainAppBar> {
     _prevIsSyncing = syncing;
 
     String syncTooltip() {
+      final ob = provider.pendingOutboxCount;
+      final tail = ob > 0 ? ' · $ob queued upload${ob == 1 ? '' : 's'}' : '';
       if (syncing) return 'Syncing…';
-      if (_showSyncedCheck) return 'Synced with cloud';
-      if (hasErr) return 'Sync failed — tap to retry';
+      if (_showSyncedCheck) return 'Synced with cloud$tail';
+      if (hasErr) return 'Sync failed — tap to retry$tail';
       final at = provider.lastSuccessfulSyncAt;
-      if (at != null) return formatRelativeSyncTime(at);
-      return 'Pull latest from cloud';
+      if (at != null) return '${formatRelativeSyncTime(at)}$tail';
+      return 'Pull latest from cloud$tail';
     }
 
     Widget buildSyncButtonIcon() {

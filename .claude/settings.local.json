@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path lib\\\\models -Recurse -Filter \"*.dart\")",
+      "Bash(Select-Object -ExpandProperty Name)",
+      "Bash(flutter analyze *)",
+      "Bash(flutter pub *)",
+      "Bash(grep -v \"//.*\\\\.db\\\\.\")",
+      "Bash(xargs grep -l \"Repository\")"
+    ]
+  }
+}

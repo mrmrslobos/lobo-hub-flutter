@@ -11,6 +11,8 @@ import '../../config/module_config.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../repositories/daily_habit_completions_repository.dart';
+import '../../repositories/daily_habits_repository.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
@@ -98,16 +100,18 @@ class _HabitsScreenState extends State<HabitsScreen> {
     final provider = context.watch<AppProvider>();
     final user = provider.activeUser;
     final family = provider.activeFamily;
-    final db = provider.db;
 
     if (user == null || family == null) {
       return const ModuleFamilyLoadingScaffold();
     }
 
     final today = DateTime.now();
-    final allHabits = db.dailyHabits
+    final habitsRepo = context.read<DailyHabitsRepository>();
+    final completionsRepo = context.read<DailyHabitCompletionsRepository>();
+    final allHabits = habitsRepo.dailyHabitsForFamily(family.id)
         .where((h) => h.userId == user.id || h.isShared)
         .toList();
+    final allCompletions = completionsRepo.dailyHabitCompletionsForUser(user.id);
 
     final q = _searchQuery.trim().toLowerCase();
     final habitsForUi = q.isEmpty
@@ -118,8 +122,8 @@ class _HabitsScreenState extends State<HabitsScreen> {
             return d.contains(q);
           }).toList();
 
-    final todayCompletions = db.habitCompletions
-        .where((c) => c.userId == user.id && _isSameDay(c.date, today))
+    final todayCompletions = allCompletions
+        .where((c) => _isSameDay(c.date, today))
         .toList();
 
     final completed = habitsForUi
@@ -128,7 +132,7 @@ class _HabitsScreenState extends State<HabitsScreen> {
 
     int bestStreak = 0;
     for (final h in allHabits) {
-      final s = _calcStreak(h, db.habitCompletions, user.id);
+      final s = _calcStreak(h, allCompletions, user.id);
       if (s > bestStreak) bestStreak = s;
     }
 
@@ -161,7 +165,7 @@ class _HabitsScreenState extends State<HabitsScreen> {
                 ActionChipButton(
                   icon: Icons.add_rounded,
                   label: 'Add Habit',
-                  onTap: () => _showAddHabitSheet(context, user, family, db, provider),
+                  onTap: () => _showAddHabitSheet(context, user, family),
                   isPrimary: true,
                 ),
               ],
@@ -259,7 +263,7 @@ class _HabitsScreenState extends State<HabitsScreen> {
                           'Share habits with family members',
                         ],
                         actionLabel: '+ Add Habit',
-                        onAction: () => _showAddHabitSheet(context, user, family, db, provider),
+                        onAction: () => _showAddHabitSheet(context, user, family),
                       ),
                     )
             else if (habitsForUi.isEmpty)
@@ -287,7 +291,7 @@ class _HabitsScreenState extends State<HabitsScreen> {
                     ),
                     ...habitsForUi.map((habit) {
                       final isDone = todayCompletions.any((c) => c.habitId == habit.id);
-                      final streak = _calcStreak(habit, db.habitCompletions, user.id);
+                      final streak = _calcStreak(habit, allCompletions, user.id);
                       final canManageHabit = _canManageHabit(provider, habit);
                       return Dismissible(
                         key: ValueKey(habit.id),
@@ -316,15 +320,16 @@ class _HabitsScreenState extends State<HabitsScreen> {
                         },
                         onDismissed: (_) async {
                           if (!canManageHabit) return;
-                          final updatedHabits = db.dailyHabits.where((h) => h.id != habit.id).toList();
-                          final updatedCompletions = db.habitCompletions.where((c) => c.habitId != habit.id).toList();
-                          await provider.saveAndSync(
-                            db.copyWith(
-                                dailyHabits: updatedHabits,
-                                habitCompletions: updatedCompletions,
-                              ),
-                            pushTableScope: CloudSyncScope.habitBundle,
-                          );
+                          final habitsRepo = context.read<DailyHabitsRepository>();
+                          final completionsRepo = context.read<DailyHabitCompletionsRepository>();
+                          final completionsToDelete = completionsRepo
+                              .dailyHabitCompletionsForUser(user.id)
+                              .where((c) => c.habitId == habit.id)
+                              .toList();
+                          for (final c in completionsToDelete) {
+                            await completionsRepo.delete(c.id);
+                          }
+                          await habitsRepo.softDelete(habit.id);
                           if (context.mounted) _showSnack(context, 'Habit deleted');
                         },
                         background: Container(
@@ -351,8 +356,8 @@ class _HabitsScreenState extends State<HabitsScreen> {
                           habit: habit,
                           isDone: isDone,
                           streak: streak,
-                          onToggle: () => _toggleCompletion(context, provider, db, habit, isDone, user, todayCompletions),
-                          onLongPress: () => _showHabitOptions(context, provider, db, habit, user, family),
+                          onToggle: () => _toggleCompletion(context, provider, habit, isDone, user, todayCompletions),
+                          onLongPress: () => _showHabitOptions(context, provider, habit, user, family),
                         ),
                       );
                     }),
@@ -369,16 +374,19 @@ class _HabitsScreenState extends State<HabitsScreen> {
   // ─── Toggle completion ──────────────────────────────────────────────────────
 
   Future<void> _toggleCompletion(
-    BuildContext context, AppProvider provider, AppDB db,
+    BuildContext context, AppProvider provider,
     DailyHabit habit, bool isDone, User user,
     List<DailyHabitCompletion> todayCompletions,
   ) async {
     HapticFeedback.lightImpact();
-    List<DailyHabitCompletion> updated;
+    final completionsRepo = context.read<DailyHabitCompletionsRepository>();
     if (isDone) {
-      updated = db.habitCompletions
-          .where((c) => !(c.habitId == habit.id && c.userId == user.id && _isSameDay(c.date, DateTime.now())))
+      final toRemove = todayCompletions
+          .where((c) => c.habitId == habit.id && c.userId == user.id)
           .toList();
+      for (final c in toRemove) {
+        await completionsRepo.delete(c.id);
+      }
     } else {
       final completion = DailyHabitCompletion(
         id: _uuid.v4(),
@@ -387,16 +395,14 @@ class _HabitsScreenState extends State<HabitsScreen> {
         date: DateTime.now(),
         completedAt: DateTime.now(),
       );
-      updated = [...db.habitCompletions, completion];
+      await completionsRepo.upsert(completion);
     }
-    await provider.saveAndSync(db.copyWith(habitCompletions: updated),
-        pushTableScope: CloudSyncScope.habitBundle);
   }
 
   // ─── Habit options (edit / delete) ──────────────────────────────────────────
 
   Future<void> _showHabitOptions(
-    BuildContext context, AppProvider provider, AppDB db,
+    BuildContext context, AppProvider provider,
     DailyHabit habit, User user, Family family,
   ) async {
     if (!_canManageHabit(provider, habit)) {
@@ -450,7 +456,7 @@ class _HabitsScreenState extends State<HabitsScreen> {
               title: const Text('Edit Habit', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600)),
               onTap: () {
                 Navigator.pop(context);
-                _showAddHabitSheet(context, user, family, db, provider, editHabit: habit);
+                _showAddHabitSheet(context, user, family, editHabit: habit);
               },
             ),
             ListTile(
@@ -498,15 +504,17 @@ class _HabitsScreenState extends State<HabitsScreen> {
                   ),
                 );
                 if (confirmed != true) return;
-                final updated = db.dailyHabits.where((h) => h.id != habit.id).toList();
-                final updatedCompletions = db.habitCompletions.where((c) => c.habitId != habit.id).toList();
-                await provider.saveAndSync(
-                    db.copyWith(
-                        dailyHabits: updated,
-                        habitCompletions: updatedCompletions,
-                      ),
-                    pushTableScope: CloudSyncScope.habitBundle,
-                  );
+                if (!context.mounted) return;
+                final habitsRepo = context.read<DailyHabitsRepository>();
+                final completionsRepo = context.read<DailyHabitCompletionsRepository>();
+                final completionsToDelete = completionsRepo
+                    .dailyHabitCompletionsForUser(user.id)
+                    .where((c) => c.habitId == habit.id)
+                    .toList();
+                for (final c in completionsToDelete) {
+                  await completionsRepo.delete(c.id);
+                }
+                await habitsRepo.softDelete(habit.id);
                 if (context.mounted) _showSnack(context, 'Habit deleted');
               },
             ),
@@ -520,9 +528,11 @@ class _HabitsScreenState extends State<HabitsScreen> {
   // ─── Add / Edit habit ───────────────────────────────────────────────────────
 
   Future<void> _showAddHabitSheet(
-    BuildContext context, User user, Family family, AppDB db, AppProvider provider,
+    BuildContext context, User user, Family family,
     {DailyHabit? editHabit}
   ) async {
+    final provider = context.read<AppProvider>();
+    final habitsRepo = context.read<DailyHabitsRepository>();
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -536,14 +546,7 @@ class _HabitsScreenState extends State<HabitsScreen> {
             _showSnack(context, 'Only the habit creator or family owner can edit this habit.');
             return;
           }
-          List<DailyHabit> updatedHabits;
-          if (editHabit != null) {
-            updatedHabits = db.dailyHabits.map((h) => h.id == habit.id ? habit : h).toList();
-          } else {
-            updatedHabits = [...db.dailyHabits, habit];
-          }
-          await provider.saveAndSync(db.copyWith(dailyHabits: updatedHabits),
-              pushTableScope: CloudSyncScope.habitBundle);
+          await habitsRepo.upsert(habit);
         },
         userId: user.id,
         familyId: family.id,

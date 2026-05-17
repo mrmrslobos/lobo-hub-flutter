@@ -11,6 +11,13 @@ on:
 
 jobs:
   sync-harness:
+    # Fork PRs and workflows on forked copies do not receive upstream secrets reliably.
+    if: >-
+      github.event.repository.fork == false &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'push' ||
+       (github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -22,9 +29,10 @@ jobs:
 
       - run: flutter pub get
 
-      # Without dart-defines the test skips ( exits 0 ) — add repo secrets later to run live.
-      - run: >-
-          flutter test test/integration/sync_two_device_test.dart
+      - name: Sync integration harness (requires repository secrets)
+        run: >-
+          flutter test test/integration/integration_ci_config_test.dart
+          test/integration/sync_two_device_test.dart
           --dart-define=SUPABASE_TEST_URL=${{ secrets.SUPABASE_TEST_URL }}
           --dart-define=SUPABASE_TEST_ANON_KEY=${{ secrets.SUPABASE_TEST_ANON_KEY }}
           --dart-define=HUB_TEST_USER_A_EMAIL=${{ secrets.HUB_TEST_USER_A_EMAIL }}

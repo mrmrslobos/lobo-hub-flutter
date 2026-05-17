@@ -5,11 +5,12 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
-import '../../config/cloud_sync_scope.dart';
 import '../../config/module_config.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../repositories/chore_completions_repository.dart';
+import '../../repositories/chores_repository.dart';
 import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
@@ -99,18 +100,15 @@ class _ChoresScreenState extends State<ChoresScreen> {
 
   Future<void> _toggleCompletion(Chore chore, String userId, DateTime day) async {
     HapticFeedback.lightImpact();
-    final provider = context.read<AppProvider>();
-    final db = provider.db;
-    final existing = _completionsForChore(chore.id, userId, day, db.choreCompletions);
+    final completionsRepo = context.read<ChoreCompletionsRepository>();
+    final choresRepo = context.read<ChoresRepository>();
+    final familyId = chore.familyId;
+    final allCompletions = completionsRepo.choreCompletionsForFamily(familyId);
+    final existing = _completionsForChore(chore.id, userId, day, allCompletions);
     if (existing.isNotEmpty) {
-      final ids = existing.map((e) => e.id).toSet();
-      await provider.saveAndSync(
-        db.copyWith(
-          choreCompletions:
-              db.choreCompletions.where((c) => !ids.contains(c.id)).toList(),
-        ),
-        pushTableScope: CloudSyncScope.choreBundle,
-      );
+      for (final e in existing) {
+        await completionsRepo.delete(e.id);
+      }
     } else {
       final completion = ChoreCompletion(
         id: const Uuid().v4(),
@@ -121,23 +119,14 @@ class _ChoresScreenState extends State<ChoresScreen> {
         completedAt: DateTime.now(),
         approvalStatus: chore.requiresApproval ? ApprovalStatus.PENDING : ApprovalStatus.APPROVED,
       );
-      var nextDb = db.copyWith(
-        choreCompletions: [...db.choreCompletions, completion],
-      );
+      await completionsRepo.upsert(completion);
       if (!chore.requiresApproval &&
           chore.rotationEnabled &&
           chore.assignees.length > 1) {
         final nextCursor =
             (chore.rotationCursor + 1) % chore.assignees.length;
-        nextDb = nextDb.copyWith(
-          chores: nextDb.chores
-              .map((c) =>
-                  c.id == chore.id ? c.copyWith(rotationCursor: nextCursor) : c)
-              .toList(),
-        );
+        await choresRepo.upsert(chore.copyWith(rotationCursor: nextCursor));
       }
-      await provider.saveAndSync(nextDb,
-          pushTableScope: CloudSyncScope.choreBundle);
       if (mounted && !chore.requiresApproval) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('${chore.title} done! +${chore.points} pts'),
@@ -153,10 +142,15 @@ class _ChoresScreenState extends State<ChoresScreen> {
   Future<void> _deleteChore(String choreId) async {
     final provider = context.read<AppProvider>();
     final userId = provider.activeUser?.id;
-    final chore = provider.db.chores.cast<Chore?>().firstWhere(
-      (c) => c?.id == choreId,
-      orElse: () => null,
-    );
+    final familyId = provider.activeFamily?.id;
+    final choresRepo = context.read<ChoresRepository>();
+    final completionsRepo = context.read<ChoreCompletionsRepository>();
+    final chore = familyId != null
+        ? choresRepo.choresForFamily(familyId).cast<Chore?>().firstWhere(
+            (c) => c?.id == choreId,
+            orElse: () => null,
+          )
+        : null;
     final isOwner = userId != null && provider.activeFamily?.ownerId == userId;
     final canManage = chore != null && userId != null && (chore.creatorId == userId || isOwner);
     if (!canManage) {
@@ -182,15 +176,16 @@ class _ChoresScreenState extends State<ChoresScreen> {
       ),
     );
     if (confirmed != true) return;
-    final db = provider.db;
-    await provider.saveAndSync(
-      db.copyWith(
-        chores: db.chores.where((c) => c.id != choreId).toList(),
-        choreCompletions:
-            db.choreCompletions.where((c) => c.choreId != choreId).toList(),
-      ),
-      pushTableScope: CloudSyncScope.choreBundle,
-    );
+    // Delete all completions for this chore first, then the chore itself
+    if (familyId != null) {
+      final completions = completionsRepo.choreCompletionsForFamily(familyId)
+          .where((c) => c.choreId == choreId)
+          .toList();
+      for (final cc in completions) {
+        await completionsRepo.delete(cc.id);
+      }
+    }
+    await choresRepo.softDelete(choreId);
   }
 
   Future<void> _approveCompletion(String completionId, {bool approve = true}) async {
@@ -208,40 +203,34 @@ class _ChoresScreenState extends State<ChoresScreen> {
       }
       return;
     }
-    final db = provider.db;
-    final updated = db.choreCompletions.map((c) {
-      if (c.id != completionId) return c;
-      return ChoreCompletion(
-        id: c.id,
-        choreId: c.choreId,
-        userId: c.userId,
-        familyId: c.familyId,
-        date: c.date,
-        completedAt: c.completedAt,
-        approvalStatus: approve ? ApprovalStatus.APPROVED : ApprovalStatus.REJECTED,
-      );
-    }).toList();
-    var nextDb = db.copyWith(choreCompletions: updated);
+    final familyId = provider.activeFamily?.id ?? '';
+    final completionsRepo = context.read<ChoreCompletionsRepository>();
+    final choresRepo = context.read<ChoresRepository>();
+    final allCompletions = completionsRepo.choreCompletionsForFamily(familyId);
+    final cc = allCompletions.firstWhereOrNull((c) => c.id == completionId);
+    if (cc == null) return;
+    final updatedCompletion = ChoreCompletion(
+      id: cc.id,
+      choreId: cc.choreId,
+      userId: cc.userId,
+      familyId: cc.familyId,
+      date: cc.date,
+      completedAt: cc.completedAt,
+      approvalStatus: approve ? ApprovalStatus.APPROVED : ApprovalStatus.REJECTED,
+    );
+    await completionsRepo.upsert(updatedCompletion);
     if (approve) {
-      final cc = db.choreCompletions.firstWhere((c) => c.id == completionId);
-      final chore = db.chores.firstWhereOrNull((c) => c.id == cc.choreId);
+      final chore = choresRepo.choresForFamily(familyId).firstWhereOrNull((c) => c.id == cc.choreId);
       if (chore != null &&
           chore.rotationEnabled &&
           chore.assignees.length > 1) {
         final nextCursor =
             (chore.rotationCursor + 1) % chore.assignees.length;
-        nextDb = nextDb.copyWith(
-          chores: nextDb.chores
-              .map((c) =>
-                  c.id == chore.id ? c.copyWith(rotationCursor: nextCursor) : c)
-              .toList(),
-        );
+        await choresRepo.upsert(chore.copyWith(rotationCursor: nextCursor));
       }
     }
-    await provider.saveAndSync(nextDb,
-        pushTableScope: CloudSyncScope.choreBundle);
     if (mounted) {
-      final chore = db.chores.where((c) => c.id == db.choreCompletions.firstWhere((cc) => cc.id == completionId).choreId).firstOrNull;
+      final chore = choresRepo.choresForFamily(familyId).firstWhereOrNull((c) => c.id == cc.choreId);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(approve ? 'Approved! +${chore?.points ?? 0} pts' : 'Rejected'),
         backgroundColor: approve ? AppTheme.success : AppTheme.error,
@@ -275,20 +264,9 @@ class _ChoresScreenState extends State<ChoresScreen> {
             }
             return;
           }
-          final db = provider.db;
-          if (editChore != null) {
-            await provider.saveAndSync(
-              db.copyWith(
-                chores:
-                    db.chores.map((c) => c.id == editChore.id ? chore : c).toList(),
-              ),
-              pushTableScope: CloudSyncScope.choreBundle,
-            );
-          } else {
-            await provider.saveAndSync(
-              db.copyWith(chores: [...db.chores, chore]),
-              pushTableScope: CloudSyncScope.choreBundle,
-            );
+          final choresRepo = context.read<ChoresRepository>();
+          await choresRepo.upsert(chore);
+          if (editChore == null) {
             NotificationService.notifyFamilyActivityWithDb(
               provider.db,
               title: 'New Chore Added',
@@ -512,8 +490,8 @@ class _ChoresScreenState extends State<ChoresScreen> {
     final familyId = family.id;
     final members = provider.db.users.where((u) =>
         provider.db.familyMembers.any((m) => m.familyId == familyId && m.userId == u.id)).toList();
-    final allChores = provider.db.chores.where((c) => c.familyId == familyId).toList();
-    final completions = provider.db.choreCompletions.where((c) => c.familyId == familyId).toList();
+    final allChores = context.read<ChoresRepository>().choresForFamily(familyId);
+    final completions = context.read<ChoreCompletionsRepository>().choreCompletionsForFamily(familyId);
 
     // Search filter
     final filteredChores = _searchQuery.isEmpty
