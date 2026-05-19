@@ -1903,28 +1903,181 @@ class DatabaseService {
     try {
       switch (table) {
         case CloudSyncScope.tasks:
-          return _applyRealtimeTaskRow(
+          return _applyRealtimeFamilyScopedRow<Task>(
             local,
             familyId: familyId,
             eventType: eventType,
             newRecord: newRecord,
             oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.tasks,
+            write: (d, v) => d.copyWith(tasks: v),
+            parse: (j) => Task.fromJson(j),
           );
         case CloudSyncScope.messages:
-          return _applyRealtimeMessageRow(
+          return _applyRealtimeFamilyScopedRow<ChatMessage>(
             local,
             familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: false,
+            read: (d) => d.messages,
+            write: (d, v) => d.copyWith(messages: v),
+            parse: (j) => ChatMessage.fromJson(j),
+          );
+        case CloudSyncScope.lists:
+          return _applyRealtimeFamilyScopedRow<ShoppingList>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.lists,
+            write: (d, v) => d.copyWith(lists: v),
+            parse: (j) => ShoppingList.fromJson(j),
+            preferLocalOnTimestampTie: true,
+          );
+        case CloudSyncScope.chores:
+          return _applyRealtimeFamilyScopedRow<Chore>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.chores,
+            write: (d, v) => d.copyWith(chores: v),
+            parse: (j) => Chore.fromJson(j),
+          );
+        case CloudSyncScope.choreCompletions:
+          return _applyRealtimeFamilyScopedRow<ChoreCompletion>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: false,
+            read: (d) => d.choreCompletions,
+            write: (d, v) => d.copyWith(choreCompletions: v),
+            parse: (j) => ChoreCompletion.fromJson(j),
+          );
+        case CloudSyncScope.polls:
+          return _applyRealtimeFamilyScopedRow<Poll>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.polls,
+            write: (d, v) => d.copyWith(polls: v),
+            parse: (j) => Poll.fromJson(j),
+            preferLocalOnTimestampTie: true,
+          );
+        case CloudSyncScope.pollVotes:
+          return _applyRealtimeFamilyScopedRow<PollVote>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: false,
+            read: (d) => d.pollVotes,
+            write: (d, v) => d.copyWith(pollVotes: v),
+            parse: (j) => PollVote.fromJson(j),
+          );
+        case CloudSyncScope.events:
+          return _applyRealtimeFamilyScopedRow<CalendarEvent>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.events,
+            write: (d, v) => d.copyWith(events: v),
+            parse: (j) => CalendarEvent.fromJson(j),
+          );
+        case CloudSyncScope.externalCalendars:
+          return _applyRealtimeFamilyScopedRow<ExternalCalendar>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.externalCalendars,
+            write: (d, v) => d.copyWith(externalCalendars: v),
+            parse: (j) => ExternalCalendar.fromJson(j),
+          );
+        case CloudSyncScope.users:
+          return _applyRealtimeUserRow(
+            local,
             eventType: eventType,
             newRecord: newRecord,
             oldRecord: oldRecord,
           );
-        case CloudSyncScope.lists:
-          return _applyRealtimeListRow(
+        case CloudSyncScope.recipes:
+          return _applyRealtimeFamilyScopedRow<Recipe>(
             local,
             familyId: familyId,
             eventType: eventType,
             newRecord: newRecord,
             oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.recipes,
+            write: (d, v) => d.copyWith(recipes: v),
+            parse: (j) => Recipe.fromJson(j),
+          );
+        case CloudSyncScope.mealPlans:
+          return _applyRealtimeFamilyScopedRow<MealPlanEntry>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.mealPlans,
+            write: (d, v) => d.copyWith(mealPlans: v),
+            parse: (j) => MealPlanEntry.fromJson(j),
+          );
+        case CloudSyncScope.prayerWall:
+          return _applyRealtimeFamilyScopedRow<PrayerWallEntry>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.prayerWall,
+            write: (d, v) => d.copyWith(prayerWall: v),
+            parse: (j) => PrayerWallEntry.fromJson(j),
+          );
+        case CloudSyncScope.dailyHabits:
+          return _applyRealtimeFamilyScopedRow<DailyHabit>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.dailyHabits,
+            write: (d, v) => d.copyWith(dailyHabits: v),
+            parse: (j) => DailyHabit.fromJson(j),
+          );
+        case CloudSyncScope.dailyHabitCompletions:
+          return _applyRealtimeFamilyScopedRow<DailyHabitCompletion>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: false,
+            read: (d) => d.dailyHabitCompletions,
+            write: (d, v) => d.copyWith(dailyHabitCompletions: v),
+            parse: (j) => DailyHabitCompletion.fromJson(j),
           );
         default:
           return null;
@@ -1965,113 +2118,66 @@ class DatabaseService {
     return setter(db, next);
   }
 
-  static AppDB _applyRealtimeTaskRow(
-    AppDB local, {
+  static AppDB? _applyRealtimeFamilyScopedRow<T>({
+    required AppDB local,
     required String familyId,
     required PostgresChangeEvent eventType,
     required Map<String, dynamic> newRecord,
     required Map<String, dynamic> oldRecord,
+    required bool tombstoneOnRemove,
+    required List<T> Function(AppDB db) read,
+    required AppDB Function(AppDB db, List<T> items) write,
+    required T Function(Map<String, dynamic> json) parse,
+    bool preferLocalOnTimestampTie = false,
   }) {
     final id = _realtimeRowId(eventType,
         newRecord: newRecord, oldRecord: oldRecord);
-    if (id == null) return local;
+    if (id == null) return null;
 
     if (eventType == PostgresChangeEvent.delete) {
-      markTombstone(id);
-      return _removeRowById(
-        local,
-        id,
-        (d) => d.tasks,
-        (d, list) => d.copyWith(tasks: list),
-      );
+      if (tombstoneOnRemove) markTombstone(id);
+      return _removeRowById(local, id, read, write);
     }
 
+    if (newRecord.isEmpty) return null;
     if (newRecord['family_id']?.toString() != familyId) return null;
 
-    if (_realtimeRowSoftDeleted(newRecord)) {
+    if (tombstoneOnRemove && _realtimeRowSoftDeleted(newRecord)) {
       markTombstone(id);
-      return _removeRowById(
-        local,
-        id,
-        (d) => d.tasks,
-        (d, list) => d.copyWith(tasks: list),
-      );
+      return _removeRowById(local, id, read, write);
     }
 
-    final remote = Task.fromJson(Map<String, dynamic>.from(newRecord));
-    return local.copyWith(
-      tasks: _mergeById(local.tasks, [remote]),
-    );
-  }
-
-  static AppDB _applyRealtimeMessageRow(
-    AppDB local, {
-    required String familyId,
-    required PostgresChangeEvent eventType,
-    required Map<String, dynamic> newRecord,
-    required Map<String, dynamic> oldRecord,
-  }) {
-    final id = _realtimeRowId(eventType,
-        newRecord: newRecord, oldRecord: oldRecord);
-    if (id == null) return local;
-
-    if (eventType == PostgresChangeEvent.delete) {
-      return _removeRowById(
-        local,
-        id,
-        (d) => d.messages,
-        (d, list) => d.copyWith(messages: list),
-      );
-    }
-
-    if (newRecord['family_id']?.toString() != familyId) return null;
-
-    final remote = ChatMessage.fromJson(Map<String, dynamic>.from(newRecord));
-    return local.copyWith(
-      messages: _mergeById(local.messages, [remote]),
-    );
-  }
-
-  static AppDB _applyRealtimeListRow(
-    AppDB local, {
-    required String familyId,
-    required PostgresChangeEvent eventType,
-    required Map<String, dynamic> newRecord,
-    required Map<String, dynamic> oldRecord,
-  }) {
-    final id = _realtimeRowId(eventType,
-        newRecord: newRecord, oldRecord: oldRecord);
-    if (id == null) return local;
-
-    if (eventType == PostgresChangeEvent.delete) {
-      markTombstone(id);
-      return _removeRowById(
-        local,
-        id,
-        (d) => d.lists,
-        (d, list) => d.copyWith(lists: list),
-      );
-    }
-
-    if (newRecord['family_id']?.toString() != familyId) return null;
-
-    if (_realtimeRowSoftDeleted(newRecord)) {
-      markTombstone(id);
-      return _removeRowById(
-        local,
-        id,
-        (d) => d.lists,
-        (d, list) => d.copyWith(lists: list),
-      );
-    }
-
-    final remote = ShoppingList.fromJson(Map<String, dynamic>.from(newRecord));
-    return local.copyWith(
-      lists: _mergeById(
-        local.lists,
+    final remote = parse(Map<String, dynamic>.from(newRecord));
+    return write(
+      local,
+      _mergeById(
+        read(local),
         [remote],
-        preferLocalOnTimestampTie: true,
+        preferLocalOnTimestampTie: preferLocalOnTimestampTie,
       ),
+    );
+  }
+
+  static AppDB? _applyRealtimeUserRow(
+    AppDB local, {
+    required PostgresChangeEvent eventType,
+    required Map<String, dynamic> newRecord,
+    required Map<String, dynamic> oldRecord,
+  }) {
+    final id = _realtimeRowId(eventType,
+        newRecord: newRecord, oldRecord: oldRecord);
+    if (id == null) return null;
+
+    if (eventType == PostgresChangeEvent.delete) {
+      return local.copyWith(
+        users: local.users.where((u) => u.id != id).toList(),
+      );
+    }
+
+    if (newRecord.isEmpty) return null;
+    final remote = User.fromJson(Map<String, dynamic>.from(newRecord));
+    return local.copyWith(
+      users: _mergeById(local.users, [remote]),
     );
   }
 

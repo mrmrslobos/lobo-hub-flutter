@@ -63,6 +63,8 @@ class AppProvider extends ChangeNotifier {
   bool get isSyncing => _sync.isSyncing;
   DateTime? get lastSuccessfulSyncAt => _sync.lastSuccessfulSyncAt;
   String? get lastSyncError => _sync.lastSyncError;
+  DateTime? get lastIncrementalPatchAt => _sync.lastIncrementalPatchAt;
+  String? get lastIncrementalPatchTable => _sync.lastIncrementalPatchTable;
 
   DateTime? get lastLocalPersistAt => _data.lastLocalPersistAt;
 

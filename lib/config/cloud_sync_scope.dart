@@ -126,6 +126,18 @@ class CloudSyncScope {
     tasks,
     lists,
     messages,
+    chores,
+    choreCompletions,
+    polls,
+    pollVotes,
+    events,
+    externalCalendars,
+    users,
+    recipes,
+    mealPlans,
+    prayerWall,
+    dailyHabits,
+    dailyHabitCompletions,
   };
 
   /// High-churn tables: shorter debounce before cloud reconcile (see [SyncProvider]).
@@ -133,8 +145,11 @@ class CloudSyncScope {
     tasks,
     lists,
     messages,
+    chores,
     choreCompletions,
+    polls,
     pollVotes,
+    events,
   };
 
   static Set<String> get occasionBundle => {specialDates};

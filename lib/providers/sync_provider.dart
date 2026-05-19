@@ -71,10 +71,14 @@ class SyncProvider extends ChangeNotifier {
 
   DateTime? _lastSuccessfulSyncAt;
   String? _lastSyncError;
+  DateTime? _lastIncrementalPatchAt;
+  String? _lastIncrementalPatchTable;
 
   bool get isSyncing => _isSyncing;
   DateTime? get lastSuccessfulSyncAt => _lastSuccessfulSyncAt;
   String? get lastSyncError => _lastSyncError;
+  DateTime? get lastIncrementalPatchAt => _lastIncrementalPatchAt;
+  String? get lastIncrementalPatchTable => _lastIncrementalPatchTable;
 
   void setOutboundSyncActive(bool active) {
     _outboundCloudSyncActive = active;
@@ -171,6 +175,7 @@ class SyncProvider extends ChangeNotifier {
           ),
           callback: (payload) {
             if (_isPostgresSelfEcho(payload)) return;
+            if (_tryApplyIncrementalRealtime(payload)) return;
             scheduleModuleEnterCloudPull({CloudSyncScope.users});
           },
         );
@@ -210,6 +215,8 @@ class SyncProvider extends ChangeNotifier {
     try {
       await dataProvider.updateDb(merged);
       _lastSuccessfulSyncAt = DateTime.now();
+      _lastIncrementalPatchAt = _lastSuccessfulSyncAt;
+      _lastIncrementalPatchTable = table;
       _lastSyncError = null;
       _cloudSyncLog('realtime_patch_applied', {'table': table});
     } catch (e) {

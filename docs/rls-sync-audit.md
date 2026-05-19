@@ -15,4 +15,8 @@ When a save succeeds locally but fails in cloud, check **Sync error banner** and
 
 ## Incremental realtime (Phase 3)
 
-Postgres changes on **`tasks`**, **`messages`**, and **`lists`** are merged into local `AppDB` immediately via `DatabaseService.applyRealtimeRowChange` (no debounced full reconcile). Other tables still use debounced pull. If parsing fails, the client falls back to a normal scoped/full pull.
+Postgres changes on these tables are merged into local `AppDB` immediately via `DatabaseService.applyRealtimeRowChange` (no debounced full reconcile):
+
+`tasks`, `lists`, `messages`, `chores`, `chore_completions`, `polls`, `poll_votes`, `events`, `external_calendars`, `users`, `recipes`, `meal_plans`, `prayer_wall`, `daily_habits`, `daily_habit_completions`
+
+Other tables still use debounced pull. If parsing fails, the client falls back to a normal scoped/full pull. The app bar sync icon shows a **bolt** briefly after a live patch.
