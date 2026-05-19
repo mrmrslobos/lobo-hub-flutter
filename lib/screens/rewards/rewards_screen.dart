@@ -1,5 +1,7 @@
 // lib/screens/rewards/rewards_screen.dart
 // Rewards & savings goals screen for Huddle
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -11,6 +13,7 @@ import '../../config/module_config.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
@@ -191,6 +194,17 @@ class _RewardsScreenState extends State<RewardsScreen>
     await provider.saveAndSync(
       db.copyWith(rewardRedemptions: [...db.rewardRedemptions, redemption]),
       pushTableScope: CloudSyncScope.rewardFullBundle,
+    );
+    unawaited(
+      NotificationService.notifyFamilyActivityWithDb(
+        provider.db,
+        title: 'Reward request',
+        body:
+            '${provider.activeUser?.name ?? 'Someone'} requested "${reward.title}" (${reward.pointCost} pts)',
+        path: '/rewards',
+        familyId: provider.activeFamily?.id,
+        excludeUserId: provider.activeUser?.id,
+      ),
     );
     if (mounted) _showSnack(context, 'Request sent! Waiting for approval.');
   }

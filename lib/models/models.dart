@@ -4159,6 +4159,8 @@ class NotificationPrefs {
   final bool birthdays;
   final bool photos;
   final bool location;
+  final bool budget;
+  final bool rewards;
   final bool weeklyDigest;
   final bool webPushEnabled;
   /// Local hour 0–23 when quiet hours start (inclusive). Both null = disabled.
@@ -4181,6 +4183,8 @@ class NotificationPrefs {
     this.birthdays = true,
     this.photos = false,
     this.location = false,
+    this.budget = true,
+    this.rewards = true,
     this.weeklyDigest = true,
     this.webPushEnabled = false,
     this.quietHoursStart,
@@ -4205,6 +4209,8 @@ class NotificationPrefs {
     birthdays: (j['birthdays'] ?? true) as bool,
     photos: (j['photos'] ?? false) as bool,
     location: (j['location'] ?? false) as bool,
+    budget: (j['budget'] ?? true) as bool,
+    rewards: (j['rewards'] ?? true) as bool,
     weeklyDigest: (j['weekly_digest'] ?? true) as bool,
     webPushEnabled: (j['web_push_enabled'] ?? false) as bool,
     quietHoursStart: (j['quiet_hours_start'] as num?)?.toInt(),
@@ -4225,6 +4231,8 @@ class NotificationPrefs {
     'birthdays': birthdays,
     'photos': photos,
     'location': location,
+    'budget': budget,
+    'rewards': rewards,
     'weekly_digest': weeklyDigest,
     'web_push_enabled': webPushEnabled,
     'quiet_hours_start': quietHoursStart,
@@ -4237,6 +4245,7 @@ class NotificationPrefs {
   NotificationPrefs copyWith({
     bool? chat, bool? tasks, bool? calendar, bool? chores, bool? lists,
     bool? polls, bool? meals, bool? birthdays, bool? photos, bool? location,
+    bool? budget, bool? rewards,
     bool? weeklyDigest, bool? webPushEnabled,
     int? quietHoursStart,
     int? quietHoursEnd,
@@ -4254,6 +4263,8 @@ class NotificationPrefs {
     birthdays: birthdays ?? this.birthdays,
     photos: photos ?? this.photos,
     location: location ?? this.location,
+    budget: budget ?? this.budget,
+    rewards: rewards ?? this.rewards,
     weeklyDigest: weeklyDigest ?? this.weeklyDigest,
     webPushEnabled: webPushEnabled ?? this.webPushEnabled,
     quietHoursStart: quietHoursStart ?? this.quietHoursStart,

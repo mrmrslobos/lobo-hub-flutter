@@ -28,6 +28,7 @@ class AuthProvider extends ChangeNotifier {
   Future<void> Function({String? familyIdOverride})? _syncRefreshFromCloud;
   void Function()? _syncStartRealtime;
   void Function()? _syncStop;
+  void Function(Set<String> tables)? _syncNotifyFamilyScopedChange;
 
   /// Notified when [activeUser] and [activeFamily] are both set (bootstrap, login, family switch).
   void Function()? onSessionReady;
@@ -39,10 +40,12 @@ class AuthProvider extends ChangeNotifier {
     required Future<void> Function({String? familyIdOverride}) refreshFromCloud,
     required void Function() startRealtimeListener,
     required void Function() stop,
+    void Function(Set<String> tables)? notifyFamilyScopedChange,
   }) {
     _syncRefreshFromCloud = refreshFromCloud;
     _syncStartRealtime = startRealtimeListener;
     _syncStop = stop;
+    _syncNotifyFamilyScopedChange = notifyFamilyScopedChange;
     onRefreshFromCloud = refreshFromCloud;
   }
 
@@ -607,6 +610,7 @@ class AuthProvider extends ChangeNotifier {
     if (SupabaseService.isConfigured && _activeFamily != null) {
       await DatabaseService.syncToCloud(dataProvider.db, _activeFamily!.id,
           tableScope: {CloudSyncScope.users});
+      _syncNotifyFamilyScopedChange?.call({CloudSyncScope.users});
     }
   }
 

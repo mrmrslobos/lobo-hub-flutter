@@ -37,6 +37,7 @@ class SyncProvider extends ChangeNotifier {
           refreshFromCloud(familyIdOverride: familyIdOverride),
       startRealtimeListener: startRealtimeListener,
       stop: stop,
+      notifyFamilyScopedChange: notifyFamilyScopedChange,
     );
     SyncOutbox.registerErrorSink(setSyncError);
   }
@@ -155,10 +156,39 @@ class SyncProvider extends ChangeNotifier {
           scheduleDebouncedPullFromCloud();
         },
       );
+      for (final member in authProvider.familyMembers) {
+        final uid = member.userId;
+        if (uid.isEmpty) continue;
+        channel = channel.onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: CloudSyncScope.users,
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'id',
+            value: uid,
+          ),
+          callback: (payload) {
+            if (_isPostgresSelfEcho(payload)) return;
+            scheduleModuleEnterCloudPull({CloudSyncScope.users});
+          },
+        );
+      }
+
       _postgresChannel = channel.subscribe();
     } catch (e) {
       debugPrint('[SyncProvider] Postgres realtime subscription failed: $e');
     }
+  }
+
+  /// After profile / member row changes: nudge other devices to pull scoped tables.
+  void notifyFamilyScopedChange(Set<String> tables) {
+    if (authProvider.activeFamily == null || !SupabaseService.isConfigured) {
+      return;
+    }
+    if (tables.isEmpty) return;
+    sendLocalChangeBroadcast();
+    scheduleModuleEnterCloudPull(tables);
   }
 
   /// If the realtime event is an UPDATE that set `deleted_at`, record a

@@ -294,7 +294,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
         db = db.copyWith(events: [...existingEvents, ...events]);
       }
 
-      await provider.saveAndSync(
+      await saveAndSyncWithImmediatePush(
+        provider,
         db,
         pushTableScope: CloudSyncScope.calendarBundle,
       );
@@ -378,7 +379,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
           .map((c) => c.id == cal.id ? updatedCal : c)
           .toList();
 
-      await provider.saveAndSync(
+      await saveAndSyncWithImmediatePush(
+        provider,
         db.copyWith(
           events: [...otherEvents, ...newEvents],
           externalCalendars: updatedCalendars,
@@ -421,7 +423,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
     final provider = context.read<AppProvider>();
     final db = provider.db;
-    await provider.saveAndSync(
+    await saveAndSyncWithImmediatePush(
+      provider,
       db.copyWith(
         externalCalendars: db.externalCalendars.where((c) => c.id != cal.id).toList(),
         events: db.events.where((e) => e.externalCalendarId != cal.id).toList(),

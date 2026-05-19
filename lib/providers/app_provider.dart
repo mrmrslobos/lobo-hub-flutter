@@ -254,6 +254,9 @@ class AppProvider extends ChangeNotifier {
 
   void clearSyncError() => _sync.clearSyncError();
 
+  void notifyFamilyScopedChange(Set<String> tables) =>
+      _sync.notifyFamilyScopedChange(tables);
+
   void onAppResumed() {
     _sync.onAppResumed();
     unawaited(prepareDailyDevotionalAndSchedule());

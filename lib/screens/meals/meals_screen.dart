@@ -4100,10 +4100,8 @@ class _RecipeDetailSheet extends StatelessWidget {
     final activeUserId = provider.activeUser?.id;
     final isOwner =
         activeUserId != null && provider.activeFamily?.ownerId == activeUserId;
-    final canManageRecipes = isOwner ||
-        (activeUserId != null &&
-            recipe.createdBy.isNotEmpty &&
-            recipe.createdBy == activeUserId);
+    final canManageRecipes =
+        activeUserId != null && provider.activeFamily != null;
     return DraggableScrollableSheet(
       initialChildSize: 0.9,
       minChildSize: 0.5,

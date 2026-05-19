@@ -60,9 +60,8 @@ class DatabaseService {
   /// Families columns omitted on upsert until DB has them (see migrations/06).
   static const _familiesCloudOmit = {'currency', 'trial_start_date'};
 
-  /// fitness_plans.family_id until migration 18 is applied everywhere.
   /// plan_id: migration 25 (optional on older DBs).
-  static const _fitnessPlansCloudOmit = {'family_id', 'plan_id'};
+  static const _fitnessPlansCloudOmit = {'plan_id'};
 
   /// Tasks columns some older DBs lack (PGRST204).
   static const _tasksCloudOmit = {'completed_by', 'updated_by', 'due_time', 'reminder_minutes'};
