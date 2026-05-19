@@ -18,8 +18,8 @@ import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
-import '../../services/database_service.dart';
-import '../../services/notification_service.dart';
+import '../../background/background_task_scheduler.dart';
+import '../../services/daily_devotional_service.dart';
 import '../../services/supabase_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
@@ -43,37 +43,7 @@ void _showSnack(BuildContext context, String msg) {
   ));
 }
 
-// Per-user daily devotional (schedule + default privacy). Stored in User.settings.
-const _kUserDailyEnabled = 'daily_devotional_enabled';
-const _kUserDailyHour = 'daily_devotional_hour';
-const _kUserDailyMinute = 'daily_devotional_minute';
-const _kUserDailyPrivate = 'daily_devotional_private_default';
-
-bool _userDailyEnabled(User? u, Family? f) {
-  if (u?.settings.containsKey(_kUserDailyEnabled) == true) {
-    return u!.settings[_kUserDailyEnabled] == true;
-  }
-  return f?.dailyDevotionalEnabled ?? false;
-}
-
-int _userDailyHour(User? u, Family? f) {
-  if (u?.settings[_kUserDailyHour] != null) {
-    return (u!.settings[_kUserDailyHour] as num).toInt();
-  }
-  return f?.dailyDevotionalHour ?? 7;
-}
-
-int _userDailyMinute(User? u, Family? f) {
-  if (u?.settings[_kUserDailyMinute] != null) {
-    return (u!.settings[_kUserDailyMinute] as num).toInt();
-  }
-  return f?.dailyDevotionalMinute ?? 0;
-}
-
-bool _userDailyPrivateDefault(User? u) => u?.settings[_kUserDailyPrivate] == true;
-
-int _userDailyNotificationId(String userId) =>
-    9910000 + (userId.hashCode.abs() % 900000);
+// Daily schedule settings live in [DailyDevotionalService] (User.settings JSON).
 
 String _devotionalShareText(DevotionalEntry e) {
   final d = devotionalEntryForDisplay(e);
@@ -293,9 +263,31 @@ class _DevotionalScreenState extends State<DevotionalScreen>
 
     var e = match(provider.db.devotionalEntries);
     if (e == null) {
+      final family = provider.activeFamily;
+      final user = provider.activeUser;
+      if (family != null && user != null) {
+        e = DailyDevotionalService.findTodaysAuto(
+          provider.db,
+          familyId: family.id,
+          userId: user.id,
+        );
+      }
+    }
+    if (e == null) {
       await provider.refreshFromCloud();
       if (!mounted) return;
       e = match(context.read<AppProvider>().db.devotionalEntries);
+      if (e == null) {
+        final family = provider.activeFamily;
+        final user = provider.activeUser;
+        if (family != null && user != null) {
+          e = DailyDevotionalService.findTodaysAuto(
+            context.read<AppProvider>().db,
+            familyId: family.id,
+            userId: user.id,
+          );
+        }
+      }
     }
     if (e == null && SupabaseService.isConfigured) {
       try {
@@ -781,7 +773,7 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
   void initState() {
     super.initState();
     final u = context.read<AppProvider>().activeUser;
-    _isShared = !_userDailyPrivateDefault(u);
+    _isShared = !userDailyPrivateDefault(u);
     // Check if we need to auto-generate today's daily devotional
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybeGenerateDaily());
   }
@@ -805,151 +797,47 @@ class _DevotionalsTabState extends State<_DevotionalsTab> {
     final family = provider.activeFamily;
     final user = provider.activeUser;
     if (family == null || user == null) return;
-    if (!_userDailyEnabled(user, family)) return;
+    if (!userDailyEnabled(user, family)) return;
 
-    final today = DateTime.now();
-    final todayDate = DateTime(today.year, today.month, today.day);
-
-    DevotionalEntry? findTodaysDevotional() {
-      try {
-        return provider.db.devotionalEntries.firstWhere((e) =>
-          e.familyId == family.id &&
-          e.creatorId == user.id &&
-          e.tags.contains('daily-auto') &&
-          DateTime(e.date.year, e.date.month, e.date.day) == todayDate,
-        );
-      } catch (_) {
-        return null;
-      }
-    }
-
-    // Already have today's devotional locally — auto-open it
-    // (unless user already dismissed it by pressing back)
-    final existing = findTodaysDevotional();
+    final existing = DailyDevotionalService.findTodaysAuto(
+      provider.db,
+      familyId: family.id,
+      userId: user.id,
+    );
     if (existing != null) {
-      if (mounted && !widget.skipAutoOpen) widget.onSelectEntry(existing);
+      if (!widget.skipAutoOpen) widget.onSelectEntry(existing);
       return;
     }
 
-    // Sync with cloud — the server may still generate a family-wide daily;
-    // prefer a row created by this user for today.
+    setState(() => _isGenerating = true);
     try {
-      final merged = await DatabaseService.reconcileCloud(
-        provider.db,
-        family.id,
-        getLocalAfterFetch: () => provider.db,
+      final entry = await DailyDevotionalService.ensureTodayDevotional(
+        provider,
+        syncCloudFirst: true,
+        generateIfMissing: true,
       );
-      if (mounted) {
-        await provider.updateDb(merged);
-        final synced = findTodaysDevotional();
-        if (synced != null) {
-          if (!widget.skipAutoOpen) widget.onSelectEntry(synced);
-          return;
-        }
+      if (mounted && entry != null && !widget.skipAutoOpen) {
+        widget.onSelectEntry(entry);
       }
-    } catch (e) {
-      debugPrint('Cloud sync for daily devotional failed: $e');
+    } finally {
+      if (mounted) setState(() => _isGenerating = false);
     }
-
-    // Fallback: if scheduled time has passed and no devotional arrived from
-    // the server, generate one client-side so the user isn't stuck on
-    // "Awaiting..." forever.
-    if (!mounted) return;
-    final utcDt = DateTime.utc(2024, 1, 1, _userDailyHour(user, family), _userDailyMinute(user, family));
-    final localDt = utcDt.toLocal();
-    final scheduledToday = DateTime(today.year, today.month, today.day, localDt.hour, localDt.minute);
-    if (today.isBefore(scheduledToday)) return; // not yet time
-
-    await _generateDailyFallback(family.id);
   }
 
-  /// Client-side fallback: generate today's daily devotional via AI when
-  /// the server-side cron hasn't produced one.
   Future<void> _generateDailyFallback(String familyId) async {
     if (AiService.isAIBlocked) return;
     setState(() => _isGenerating = true);
     try {
       final provider = context.read<AppProvider>();
-      final variety = _devotionalVarietyBlock(provider.db, familyId);
-      final prompt = '''Write an adult-oriented daily devotional for today.
-Audience: mature adults navigating real life—work stress, relationships, parenting fatigue, grief, temptation, doubt, health, money worries, and ordinary discouragement. Speak with honesty and compassion; do not talk down, use childish language, or rely on simplistic moral tales.
-
-Pick one Bible verse or short passage (within the assigned Scripture region below) and build a focused devotional around it.
-
-Requirements:
-- Be direct where it helps: name common adult struggles without being graphic or sensational.
-- Anchor hope in God's character and in specific promises from Scripture (quote or paraphrase faithfully).
-- Close the main message on an uplifting, faith-filled note—realistic, not trite.
-- Aim for roughly 250–400 words in "content" when possible.
-
-Return JSON with these exact fields: title, scripture, scriptureRef, content, reflectionPrompts (array of 3 personal reflection or journaling prompts for an adult), prayer.
-For "scripture", write out the FULL verse text (e.g. "For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.").
-For "scriptureRef", provide only the reference (e.g. "John 3:16").
-For "prayer", write a sincere, adult-voiced prayer that names real tension and rests on God's promises.$variety''';
-
-      final raw = await AiService.ask(
-        prompt: prompt,
-        feature: 'ai_devotional',
+      final entry = await DailyDevotionalService.generateForToday(
+        provider: provider,
         familyId: familyId,
-        responseMimeType: 'application/json',
       );
-
-      if (raw != null && mounted) {
-        provider.saveAiHistory(module: 'devotional', prompt: 'Auto-generate daily devotional', response: raw);
-        final vis = _userDailyPrivateDefault(provider.activeUser)
-            ? Visibility.PRIVATE
-            : Visibility.FAMILY;
-        final data = AiService.tryParseJsonObject(raw);
-        if (data != null) {
-          final scriptureRef = data['scriptureRef'] as String?;
-          final scriptureText = data['scripture'] as String?;
-          final scripture = scriptureText != null && scriptureRef != null
-              ? '$scriptureText\n\u2014 $scriptureRef'
-              : scriptureText ?? scriptureRef;
-          final entry = DevotionalEntry(
-            id: const Uuid().v4(),
-            familyId: familyId,
-            creatorId: provider.activeUser?.id ?? '',
-            title: data['title'] as String? ?? 'Daily Devotional',
-            scripture: scripture,
-            content: data['content'] as String?,
-            reflectionPrompts: (data['reflectionPrompts'] as List?)?.cast<String>() ?? [],
-            prayer: data['prayer'] as String?,
-            date: DateTime.now(),
-            visibility: vis,
-            tags: ['daily-auto'],
-          );
-          final db = provider.db;
-          await provider.saveAndSync(
-            db.copyWith(
-              devotionalEntries: [...db.devotionalEntries, entry],
-            ),
-            pushTableScope: {CloudSyncScope.devotionals},
-          );
-          if (mounted) widget.onSelectEntry(entry);
-        } else {
-          final entry = DevotionalEntry(
-            id: const Uuid().v4(),
-            familyId: familyId,
-            creatorId: provider.activeUser?.id ?? '',
-            title: 'Daily Devotional',
-            content: raw,
-            date: DateTime.now(),
-            visibility: vis,
-            tags: ['daily-auto'],
-          );
-          final db = provider.db;
-          await provider.saveAndSync(
-            db.copyWith(
-              devotionalEntries: [...db.devotionalEntries, entry],
-            ),
-            pushTableScope: {CloudSyncScope.devotionals},
-          );
-          if (mounted) widget.onSelectEntry(entry);
-        }
+      if (mounted && entry != null) {
+        await DailyDevotionalService.rescheduleNotification(provider, entry: entry);
+        await BackgroundTaskScheduler.syncDailyDevotionalSchedule(provider);
+        widget.onSelectEntry(entry);
       }
-    } catch (e) {
-      debugPrint('Client-side daily devotional generation failed: $e');
     } finally {
       if (mounted) setState(() => _isGenerating = false);
     }
@@ -1083,7 +971,7 @@ For "prayer", write a sincere, adult-voiced prayer that names real tension and r
           onUserSettingsChanged: () {
             final u = context.read<AppProvider>().activeUser;
             if (mounted) {
-              setState(() => _isShared = !_userDailyPrivateDefault(u));
+              setState(() => _isShared = !userDailyPrivateDefault(u));
             }
           },
         ),
@@ -2608,28 +2496,13 @@ class _DailyDevotionalCard extends StatefulWidget {
 
 class _DailyDevotionalCardState extends State<_DailyDevotionalCard> {
   Future<void> _rescheduleUserNotif(AppProvider provider) async {
-    final user = provider.activeUser;
-    final family = provider.activeFamily;
-    if (user == null || family == null) return;
-    final nid = _userDailyNotificationId(user.id);
-    if (!_userDailyEnabled(user, family)) {
-      await NotificationService.cancel(nid);
-      return;
-    }
-    final utcRef = DateTime.utc(
-      2024,
-      1,
-      1,
-      _userDailyHour(user, family),
-      _userDailyMinute(user, family),
+    final entry = await DailyDevotionalService.ensureTodayDevotional(
+      provider,
+      syncCloudFirst: true,
+      generateIfMissing: true,
     );
-    final local = utcRef.toLocal();
-    await NotificationService.scheduleDaily(
-      id: nid,
-      title: 'Daily devotional',
-      body: 'Open ${AppConfig.appName} for today\'s reading.',
-      time: Time(local.hour, local.minute),
-    );
+    await DailyDevotionalService.rescheduleNotification(provider, entry: entry);
+    await BackgroundTaskScheduler.syncDailyDevotionalSchedule(provider);
   }
 
   @override
@@ -2640,20 +2513,20 @@ class _DailyDevotionalCardState extends State<_DailyDevotionalCard> {
     final familyId = widget.familyId;
     if (family == null || user == null) return const SizedBox.shrink();
 
-    final enabled = _userDailyEnabled(user, family);
+    final enabled = userDailyEnabled(user, family);
     final utcDt = DateTime.utc(
       2024,
       1,
       1,
-      _userDailyHour(user, family),
-      _userDailyMinute(user, family),
+      userDailyHourUtc(user, family),
+      userDailyMinuteUtc(user, family),
     );
     final localDt = utcDt.toLocal();
     final hour = localDt.hour;
     final minute = localDt.minute;
     final timeOfDay = TimeOfDay(hour: hour, minute: minute);
     final formattedTime = timeOfDay.format(context);
-    final dailyPrivate = _userDailyPrivateDefault(user);
+    final dailyPrivate = userDailyPrivateDefault(user);
 
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -2937,12 +2810,12 @@ class _DailyDevotionalCardState extends State<_DailyDevotionalCard> {
     final family = provider.activeFamily;
     if (user == null || family == null) return;
 
-    final patch = <String, dynamic>{_kUserDailyEnabled: val};
+    final patch = <String, dynamic>{kUserDailyEnabled: val};
     if (val &&
-        !user.settings.containsKey(_kUserDailyHour) &&
-        !user.settings.containsKey(_kUserDailyMinute)) {
-      patch[_kUserDailyHour] = family.dailyDevotionalHour;
-      patch[_kUserDailyMinute] = family.dailyDevotionalMinute;
+        !user.settings.containsKey(kUserDailyHour) &&
+        !user.settings.containsKey(kUserDailyMinute)) {
+      patch[kUserDailyHour] = family.dailyDevotionalHour;
+      patch[kUserDailyMinute] = family.dailyDevotionalMinute;
     }
     await provider.updateActiveUserSettings(patch);
     await _rescheduleUserNotif(provider);
@@ -2951,7 +2824,7 @@ class _DailyDevotionalCardState extends State<_DailyDevotionalCard> {
 
   Future<void> _togglePrivateDefault(BuildContext context, bool private) async {
     final provider = context.read<AppProvider>();
-    await provider.updateActiveUserSettings({_kUserDailyPrivate: private});
+    await provider.updateActiveUserSettings({kUserDailyPrivate: private});
     widget.onUserSettingsChanged?.call();
   }
 
@@ -3012,8 +2885,8 @@ class _DailyDevotionalCardState extends State<_DailyDevotionalCard> {
 
     final provider = context.read<AppProvider>();
     await provider.updateActiveUserSettings({
-      _kUserDailyHour: utcDt.hour,
-      _kUserDailyMinute: utcDt.minute,
+      kUserDailyHour: utcDt.hour,
+      kUserDailyMinute: utcDt.minute,
     });
     await _rescheduleUserNotif(provider);
   }

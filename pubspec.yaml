@@ -1,6 +1,6 @@
 name: lobohub
 description: Family life in one app — tasks, calendar, meals, budget, and more. (Huddle / LoboHub)
-version: 1.0.20+21
+version: 1.0.30+31
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -118,6 +118,7 @@ dependencies:
   path: ^1.9.1
   drift: ^2.33.0
   sqlite3_flutter_libs: ^0.6.0+eol
+  workmanager: ^0.9.0+3
 
 dev_dependencies:
   flutter_test:

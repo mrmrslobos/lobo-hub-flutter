@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import '../config/cloud_sync_scope.dart';
 import '../models/models.dart';
+import '../background/background_session_store.dart';
 import '../services/database_service.dart';
 import '../services/notification_service.dart';
 import '../services/ai_service.dart';
@@ -280,6 +281,10 @@ class AuthProvider extends ChangeNotifier {
       if (family != null) {
         _activeUser = user;
         _activeFamily = family;
+        unawaited(BackgroundSessionStore.saveActiveSession(
+          userId: user.id,
+          familyId: family.id,
+        ));
         FieldEncryption.init(family.id, family.joinCode);
         _syncAIFlag();
         _syncStartRealtime?.call();
