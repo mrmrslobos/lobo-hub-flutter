@@ -121,6 +121,13 @@ class CloudSyncScope {
 
   static Set<String> get calendarBundle => {events, externalCalendars};
 
+  /// Tables that apply postgres realtime payloads directly into [AppDB] (Phase 3).
+  static const Set<String> incrementalRealtimeApplyTables = {
+    tasks,
+    lists,
+    messages,
+  };
+
   /// High-churn tables: shorter debounce before cloud reconcile (see [SyncProvider]).
   static const Set<String> fastRealtimePullTables = {
     tasks,

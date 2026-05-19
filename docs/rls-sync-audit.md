@@ -12,3 +12,7 @@ Quick reference for family-scoped tables. **RLS is source of truth** for what Su
 | `users` | Auth policies | Profile row | Realtime per member id + `notifyFamilyScopedChange` |
 
 When a save succeeds locally but fails in cloud, check **Sync error banner** and Postgres logs for `row-level security`.
+
+## Incremental realtime (Phase 3)
+
+Postgres changes on **`tasks`**, **`messages`**, and **`lists`** are merged into local `AppDB` immediately via `DatabaseService.applyRealtimeRowChange` (no debounced full reconcile). Other tables still use debounced pull. If parsing fails, the client falls back to a normal scoped/full pull.

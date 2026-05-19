@@ -7,6 +7,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show PostgresChangeEvent;
 
 import '../config/cloud_sync_scope.dart';
 import '../models/models.dart';
@@ -1882,6 +1883,196 @@ class DatabaseService {
       }
     }
     return results;
+  }
+
+  // ── Incremental realtime (Phase 3) ─────────────────────────────────────────
+
+  /// Merge a single postgres realtime row into [local] without a full reconcile.
+  /// Returns null when [table] is unsupported or the payload cannot be parsed.
+  static AppDB? applyRealtimeRowChange({
+    required AppDB local,
+    required String table,
+    required String familyId,
+    required PostgresChangeEvent eventType,
+    required Map<String, dynamic> newRecord,
+    required Map<String, dynamic> oldRecord,
+  }) {
+    if (!CloudSyncScope.incrementalRealtimeApplyTables.contains(table)) {
+      return null;
+    }
+    try {
+      switch (table) {
+        case CloudSyncScope.tasks:
+          return _applyRealtimeTaskRow(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+          );
+        case CloudSyncScope.messages:
+          return _applyRealtimeMessageRow(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+          );
+        case CloudSyncScope.lists:
+          return _applyRealtimeListRow(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+          );
+        default:
+          return null;
+      }
+    } on Object catch (e, st) {
+      _debugCatch('applyRealtimeRowChange $table', e, st);
+      return null;
+    }
+  }
+
+  static String? _realtimeRowId(
+    PostgresChangeEvent eventType, {
+    required Map<String, dynamic> newRecord,
+    required Map<String, dynamic> oldRecord,
+  }) {
+    final raw = eventType == PostgresChangeEvent.delete
+        ? oldRecord['id']
+        : newRecord['id'];
+    final id = raw?.toString();
+    return (id == null || id.isEmpty) ? null : id;
+  }
+
+  static bool _realtimeRowSoftDeleted(Map<String, dynamic> row) {
+    final deletedAt = row['deleted_at'];
+    if (deletedAt == null) return false;
+    if (deletedAt is String) return deletedAt.isNotEmpty;
+    return true;
+  }
+
+  static AppDB _removeRowById<T>(
+    AppDB db,
+    String id,
+    List<T> Function(AppDB) getter,
+    AppDB Function(AppDB, List<T>) setter,
+  ) {
+    final next =
+        getter(db).where((e) => _mergeKeyOf(e) != id).toList();
+    return setter(db, next);
+  }
+
+  static AppDB _applyRealtimeTaskRow(
+    AppDB local, {
+    required String familyId,
+    required PostgresChangeEvent eventType,
+    required Map<String, dynamic> newRecord,
+    required Map<String, dynamic> oldRecord,
+  }) {
+    final id = _realtimeRowId(eventType,
+        newRecord: newRecord, oldRecord: oldRecord);
+    if (id == null) return local;
+
+    if (eventType == PostgresChangeEvent.delete) {
+      markTombstone(id);
+      return _removeRowById(
+        local,
+        id,
+        (d) => d.tasks,
+        (d, list) => d.copyWith(tasks: list),
+      );
+    }
+
+    if (newRecord['family_id']?.toString() != familyId) return null;
+
+    if (_realtimeRowSoftDeleted(newRecord)) {
+      markTombstone(id);
+      return _removeRowById(
+        local,
+        id,
+        (d) => d.tasks,
+        (d, list) => d.copyWith(tasks: list),
+      );
+    }
+
+    final remote = Task.fromJson(Map<String, dynamic>.from(newRecord));
+    return local.copyWith(
+      tasks: _mergeById(local.tasks, [remote]),
+    );
+  }
+
+  static AppDB _applyRealtimeMessageRow(
+    AppDB local, {
+    required String familyId,
+    required PostgresChangeEvent eventType,
+    required Map<String, dynamic> newRecord,
+    required Map<String, dynamic> oldRecord,
+  }) {
+    final id = _realtimeRowId(eventType,
+        newRecord: newRecord, oldRecord: oldRecord);
+    if (id == null) return local;
+
+    if (eventType == PostgresChangeEvent.delete) {
+      return _removeRowById(
+        local,
+        id,
+        (d) => d.messages,
+        (d, list) => d.copyWith(messages: list),
+      );
+    }
+
+    if (newRecord['family_id']?.toString() != familyId) return null;
+
+    final remote = ChatMessage.fromJson(Map<String, dynamic>.from(newRecord));
+    return local.copyWith(
+      messages: _mergeById(local.messages, [remote]),
+    );
+  }
+
+  static AppDB _applyRealtimeListRow(
+    AppDB local, {
+    required String familyId,
+    required PostgresChangeEvent eventType,
+    required Map<String, dynamic> newRecord,
+    required Map<String, dynamic> oldRecord,
+  }) {
+    final id = _realtimeRowId(eventType,
+        newRecord: newRecord, oldRecord: oldRecord);
+    if (id == null) return local;
+
+    if (eventType == PostgresChangeEvent.delete) {
+      markTombstone(id);
+      return _removeRowById(
+        local,
+        id,
+        (d) => d.lists,
+        (d, list) => d.copyWith(lists: list),
+      );
+    }
+
+    if (newRecord['family_id']?.toString() != familyId) return null;
+
+    if (_realtimeRowSoftDeleted(newRecord)) {
+      markTombstone(id);
+      return _removeRowById(
+        local,
+        id,
+        (d) => d.lists,
+        (d, list) => d.copyWith(lists: list),
+      );
+    }
+
+    final remote = ShoppingList.fromJson(Map<String, dynamic>.from(newRecord));
+    return local.copyWith(
+      lists: _mergeById(
+        local.lists,
+        [remote],
+        preferLocalOnTimestampTie: true,
+      ),
+    );
   }
 
   // ── Join code ─────────────────────────────────────────────────────────────

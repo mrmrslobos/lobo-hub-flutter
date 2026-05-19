@@ -137,6 +137,7 @@ class SyncProvider extends ChangeNotifier {
           callback: (payload) {
             if (_isPostgresSelfEcho(payload)) return;
             _maybeTombstoneFromSoftDelete(payload);
+            if (_tryApplyIncrementalRealtime(payload)) return;
             scheduleDebouncedPullFromCloud(_pullDebounceForTable(payload.table));
           },
         );
@@ -178,6 +179,44 @@ class SyncProvider extends ChangeNotifier {
       _postgresChannel = channel.subscribe();
     } catch (e) {
       debugPrint('[SyncProvider] Postgres realtime subscription failed: $e');
+    }
+  }
+
+  /// Phase 3: patch [tasks] / [messages] / [lists] from realtime payload (no full pull).
+  bool _tryApplyIncrementalRealtime(PostgresChangePayload payload) {
+    if (!CloudSyncScope.incrementalRealtimeApplyTables
+        .contains(payload.table)) {
+      return false;
+    }
+    if (_outboundCloudSyncActive || _isSyncing) return false;
+    final familyId = authProvider.activeFamily?.id;
+    if (familyId == null) return false;
+
+    final merged = DatabaseService.applyRealtimeRowChange(
+      local: dataProvider.db,
+      table: payload.table,
+      familyId: familyId,
+      eventType: payload.eventType,
+      newRecord: Map<String, dynamic>.from(payload.newRecord),
+      oldRecord: Map<String, dynamic>.from(payload.oldRecord),
+    );
+    if (merged == null) return false;
+
+    unawaited(_commitIncrementalMerge(merged, payload.table));
+    return true;
+  }
+
+  Future<void> _commitIncrementalMerge(AppDB merged, String table) async {
+    try {
+      await dataProvider.updateDb(merged);
+      _lastSuccessfulSyncAt = DateTime.now();
+      _lastSyncError = null;
+      _cloudSyncLog('realtime_patch_applied', {'table': table});
+    } catch (e) {
+      debugPrint('[SyncProvider] incremental merge save failed: $e');
+      scheduleDebouncedPullFromCloud(_pullDebounceForTable(table));
+    } finally {
+      notifyListeners();
     }
   }
 
