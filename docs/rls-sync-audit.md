@@ -4,7 +4,8 @@ Quick reference for family-scoped tables. **RLS is source of truth** for what Su
 
 | Table | SELECT | INSERT/UPDATE/DELETE | App notes |
 |-------|--------|----------------------|-----------|
-| `lists` | Family member | Any member can update (mig 40); delete creator/owner (mig 33) | `syncListsNow` after edits |
+| `lists` | Family member | Any member can update (mig 40); delete creator/owner (mig 33) | List **metadata** only (`items` empty in cloud) |
+| `list_items` | Family member | Any member CRUD (mig 43) | Per-line-item realtime; `syncListsNow` pushes items |
 | `pantry_items` | Family member | Any member (mig 41) | Pushed via `mealsExtendedBundle` |
 | `recipes` | Family member | Insert: creator; update/delete: any member (mig 42) | Meal hub edit open to family |
 | `fitness_plans` | Own user + family read if `family_id` set (mig 42) | Own user only | UI still shows own plans |

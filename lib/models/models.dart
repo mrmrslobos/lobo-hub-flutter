@@ -14,7 +14,6 @@ typedef LocationShare = UserLocation;
 typedef Occasion = SpecialDate;
 typedef Photo = FamilyPhoto;
 typedef Message = ChatMessage;
-typedef ShoppingListItem = ListItem;
 typedef MealPlan = MealPlanEntry;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1297,6 +1296,89 @@ class ListItem {
   String get name => text;
 }
 
+/// Supabase `list_items` row — one line per shopping list (family sync).
+class ShoppingListItem {
+  final String id;
+  final String listId;
+  final String familyId;
+  final String text;
+  final String? quantity;
+  final bool checked;
+  final String? notes;
+  final String? aiCategory;
+  final int sortOrder;
+  final DateTime updatedAt;
+
+  const ShoppingListItem({
+    required this.id,
+    required this.listId,
+    required this.familyId,
+    required this.text,
+    this.quantity,
+    this.checked = false,
+    this.notes,
+    this.aiCategory,
+    this.sortOrder = 0,
+    required this.updatedAt,
+  });
+
+  factory ShoppingListItem.fromJson(Map<String, dynamic> j) => ShoppingListItem(
+        id: j['id'] as String? ?? '',
+        listId: j['list_id'] as String? ?? '',
+        familyId: j['family_id'] as String? ?? '',
+        text: j['text'] as String? ?? '',
+        quantity: j['quantity'] as String?,
+        checked: _coerceBool(j['checked']),
+        notes: j['notes'] as String?,
+        aiCategory: j['ai_category'] as String?,
+        sortOrder: (j['sort_order'] as num?)?.toInt() ?? 0,
+        updatedAt: _parseDateOpt(j['updated_at']) ??
+            DateTime.fromMillisecondsSinceEpoch(0),
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'list_id': listId,
+        'family_id': familyId,
+        'text': text,
+        'quantity': quantity,
+        'checked': checked,
+        'notes': notes,
+        'ai_category': aiCategory,
+        'sort_order': sortOrder,
+        'updated_at': updatedAt.toIso8601String(),
+      };
+
+  ListItem toListItem() => ListItem(
+        id: id,
+        text: text,
+        quantity: quantity,
+        checked: checked,
+        notes: notes,
+        aiCategory: aiCategory,
+      );
+
+  factory ShoppingListItem.fromListItem(
+    ListItem item, {
+    required String listId,
+    required String familyId,
+    int sortOrder = 0,
+    DateTime? updatedAt,
+  }) =>
+      ShoppingListItem(
+        id: item.id,
+        listId: listId,
+        familyId: familyId,
+        text: item.text,
+        quantity: item.quantity,
+        checked: item.checked,
+        notes: item.notes,
+        aiCategory: item.aiCategory,
+        sortOrder: sortOrder,
+        updatedAt: updatedAt ?? DateTime.now(),
+      );
+}
+
 class ShoppingList {
   final String id;
   final String familyId;
@@ -1348,6 +1430,13 @@ class ShoppingList {
     'shared_with': sharedWith,
     'updated_at': updatedAt.toIso8601String(),
   };
+
+  /// List metadata for Supabase `lists` (items live in `list_items`).
+  Map<String, dynamic> toCloudHeaderJson() {
+    final m = Map<String, dynamic>.from(toJson());
+    m['items'] = <Map<String, dynamic>>[];
+    return m;
+  }
 
   // Convenience getters
   String get name => title;

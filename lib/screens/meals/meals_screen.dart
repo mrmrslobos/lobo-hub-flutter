@@ -2430,7 +2430,7 @@ class _MealPlanTabState extends State<_MealPlanTab> {
       final nextLists = db.lists.map((l) => l.id == existing.id ? updated : l).toList();
       await provider.saveAndSync(
         db.copyWith(lists: nextLists),
-        pushTableScope: {CloudSyncScope.lists},
+        pushTableScope: CloudSyncScope.listsBundle,
       );
       if (context.mounted) {
         _showSnack(context, 'Added ${newItems.length} items to "${existing.title}" in Lists');
@@ -2447,7 +2447,7 @@ class _MealPlanTabState extends State<_MealPlanTab> {
       );
       await provider.saveAndSync(
         db.copyWith(lists: [...db.lists, list]),
-        pushTableScope: {CloudSyncScope.lists},
+        pushTableScope: CloudSyncScope.listsBundle,
       );
       if (context.mounted) {
         _showSnack(context, 'Created "Groceries" in Lists with ${newItems.length} items');

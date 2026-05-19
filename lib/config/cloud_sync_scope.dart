@@ -13,6 +13,7 @@ class CloudSyncScope {
   static const String recipes = 'recipes';
   static const String mealPlans = 'meal_plans';
   static const String lists = 'lists';
+  static const String listItems = 'list_items';
   static const String devotionals = 'devotionals';
   static const String devotionalThoughts = 'devotional_thoughts';
   static const String fitness = 'fitness';
@@ -108,7 +109,7 @@ class CloudSyncScope {
         recipes,
         mealPlans,
         pantryItems,
-        lists,
+        ...listsBundle,
       };
 
   /// Week / AI meal planning may also create tasks (prep reminders).
@@ -122,9 +123,12 @@ class CloudSyncScope {
   static Set<String> get calendarBundle => {events, externalCalendars};
 
   /// Tables that apply postgres realtime payloads directly into [AppDB] (Phase 3).
+  static Set<String> get listsBundle => {lists, listItems};
+
   static const Set<String> incrementalRealtimeApplyTables = {
     tasks,
     lists,
+    listItems,
     messages,
     chores,
     choreCompletions,
@@ -144,6 +148,7 @@ class CloudSyncScope {
   static const Set<String> fastRealtimePullTables = {
     tasks,
     lists,
+    listItems,
     messages,
     chores,
     choreCompletions,
@@ -163,8 +168,8 @@ class CloudSyncScope {
 
   static Set<String> get periodBundle => {periodCycles, periodSymptoms};
 
-  /// AI event planner: events + related tasks + shopping lists.
-  static Set<String> get eventPlannerAiBundle => {events, tasks, lists};
+  /// AI event planner: events + related tasks + shopping lists (+ line items).
+  static Set<String> get eventPlannerAiBundle => {events, tasks, ...listsBundle};
 
   static Set<String> get workoutSessionBundle => {
         workoutSessions,
@@ -182,7 +187,7 @@ class CloudSyncScope {
   /// foundational and small.
   static const Set<String> incrementalEligibleTables = {
     // Soft-delete family-scoped tables (deletes propagate via deleted_at).
-    tasks, events, lists, recipes, mealPlans, chores, polls,
+    tasks, events, lists, listItems, recipes, mealPlans, chores, polls,
     prayerWall, devotionals, readingPlans, specialDates,
     familyPhotos, savedPlaces, rewardItems, savingsGoals,
     dailyHabits, budgetCategories, transactions, budgetEntries,
@@ -201,7 +206,7 @@ class CloudSyncScope {
   /// Single source of truth so the realtime subscription list can't drift
   /// from the push scope. `families` is subscribed separately (filter by id).
   static const List<String> realtimeFamilyScopedTables = [
-    tasks, events, recipes, mealPlans, lists, devotionals, devotionalThoughts,
+    tasks, events, recipes, mealPlans, lists, listItems, devotionals, devotionalThoughts,
     budgetCategories, budgetEntries, transactions, chores, choreCompletions,
     polls, pollVotes, rewardItems, rewardRedemptions, savingsGoals, prayerWall,
     specialDates, familyPhotos, milestones, savedPlaces, messages,
@@ -219,6 +224,7 @@ class CloudSyncScope {
     tasks,
     events,
     lists,
+    listItems,
     recipes,
     mealPlans,
     chores,
