@@ -64,6 +64,14 @@ class DataProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> syncListItemsNow(String familyId) async {
+    try {
+      await DatabaseService.pushFamilyListItemsToCloudNow(_db, familyId);
+    } catch (e) {
+      debugPrint('[DataProvider] syncListItemsNow: $e');
+    }
+  }
+
   Future<void> syncTablesNow(String familyId, Set<String> tables) async {
     if (tables.isEmpty) return;
     try {

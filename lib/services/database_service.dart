@@ -515,6 +515,32 @@ class DatabaseService {
     });
   }
 
+  /// Item-only push after check/uncheck or line edits (skips list header upsert).
+  static Future<void> pushFamilyListItemsToCloudNow(
+    AppDB db,
+    String familyId,
+  ) async {
+    if (!SupabaseService.isConfigured) return;
+    await _enqueueFamilyCloudWrite(familyId, () async {
+      final familyLists = db.lists.where((l) => l.familyId == familyId).toList();
+      final itemRows = ListItemsCloud.flattenFromLists(familyLists, familyId)
+          .map((i) => {...i.toJson(), 'family_id': familyId})
+          .toList();
+      final itemIds = itemRows.map((r) => r['id'] as String).toSet();
+      if (itemRows.isNotEmpty) {
+        try {
+          await SupabaseService.upsertTable(
+            'list_items',
+            sanitizeRowsForCloudUpsert(itemRows, 'list_items'),
+          );
+        } on Object catch (e, st) {
+          debugPrint('[DatabaseService] list_items upsert failed: $e\n$st');
+        }
+      }
+      await _deleteRemovedRows('list_items', itemIds, familyId);
+    });
+  }
+
   static Map<String, dynamic> _choreRowForCloud(Chore c) {
     final m = Map<String, dynamic>.from(c.toJson());
     for (final k in _choresCloudOmit) {

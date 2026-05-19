@@ -148,6 +148,13 @@ class AppProvider extends ChangeNotifier {
     _sync.sendLocalChangeBroadcast();
   }
 
+  Future<void> syncListItemsNow() async {
+    final fam = activeFamily;
+    if (fam == null) return;
+    await _data.syncListItemsNow(fam.id);
+    _sync.sendLocalChangeBroadcast();
+  }
+
   Future<void> syncTablesNow(Set<String> tables) async {
     final fam = activeFamily;
     if (fam == null || tables.isEmpty) return;

@@ -90,6 +90,15 @@ class _ListsScreenState extends State<ListsScreen> {
     unawaited(provider.syncListsNow());
   }
 
+  /// Line-item edits (check, delete, edit text) — skips list header upsert.
+  Future<void> _saveListItemsOnly(AppProvider provider, AppDB nextDb) async {
+    await provider.saveAndSync(
+      nextDb,
+      pushTableScope: {CloudSyncScope.listItems},
+    );
+    unawaited(provider.syncListItemsNow());
+  }
+
   /// Opens an existing list or creates one when the title matches case-insensitively.
   Future<void> _openOrCreateQuickList(String title) async {
     final t = title.trim();
@@ -258,7 +267,7 @@ class _ListsScreenState extends State<ListsScreen> {
     final newItem = ListItem(id: const Uuid().v4(), text: name, checked: false);
     final updatedList = list.copyWith(items: [...list.items, newItem]);
     final updatedLists = db.shoppingLists.map((l) => l.id == list.id ? updatedList : l).toList();
-    await _saveShoppingLists(provider, db.copyWith(shoppingLists: updatedLists));
+    await _saveListItemsOnly(provider, db.copyWith(shoppingLists: updatedLists));
     setState(() => _selectedList = updatedList);
     _notifyListCollaboratorsForList(
       provider,
@@ -276,7 +285,7 @@ class _ListsScreenState extends State<ListsScreen> {
     final updatedItems = list.items.map((i) => i.id == item.id ? i.copyWith(checked: !i.checked) : i).toList();
     final updatedList = list.copyWith(items: updatedItems);
     final updatedLists = db.shoppingLists.map((l) => l.id == list.id ? updatedList : l).toList();
-    await _saveShoppingLists(provider, db.copyWith(shoppingLists: updatedLists));
+    await _saveListItemsOnly(provider, db.copyWith(shoppingLists: updatedLists));
     if (!mounted) return;
     setState(() => _selectedList = updatedList);
     if (!item.checked) {
@@ -296,7 +305,7 @@ class _ListsScreenState extends State<ListsScreen> {
     final db = provider.db;
     final updatedList = list.copyWith(items: list.items.where((i) => i.id != itemId).toList());
     final updatedLists = db.shoppingLists.map((l) => l.id == list.id ? updatedList : l).toList();
-    await _saveShoppingLists(provider, db.copyWith(shoppingLists: updatedLists));
+    await _saveListItemsOnly(provider, db.copyWith(shoppingLists: updatedLists));
     if (!mounted) return;
     setState(() => _selectedList = updatedList);
   }
@@ -327,7 +336,7 @@ class _ListsScreenState extends State<ListsScreen> {
     final db = provider.db;
     final updatedList = list.copyWith(items: list.items.where((i) => !i.checked).toList());
     final updatedLists = db.shoppingLists.map((l) => l.id == list.id ? updatedList : l).toList();
-    await _saveShoppingLists(provider, db.copyWith(shoppingLists: updatedLists));
+    await _saveListItemsOnly(provider, db.copyWith(shoppingLists: updatedLists));
     if (!mounted) return;
     setState(() => _selectedList = updatedList);
   }
@@ -1395,9 +1404,11 @@ class _ListDetailViewState extends State<_ListDetailView> {
     }).toList();
     final updatedList = widget.list.copyWith(items: updatedItems);
     final updatedLists = db.shoppingLists.map((l) => l.id == widget.list.id ? updatedList : l).toList();
-    await provider.saveAndSync(db.copyWith(shoppingLists: updatedLists),
-                    pushTableScope: CloudSyncScope.listsBundle);
-    if (provider.activeFamily != null) unawaited(provider.syncListsNow());
+    await provider.saveAndSync(
+      db.copyWith(shoppingLists: updatedLists),
+      pushTableScope: {CloudSyncScope.listItems},
+    );
+    if (provider.activeFamily != null) unawaited(provider.syncListItemsNow());
   }
 
   List<ListItem> _sortedItems(List<ListItem> items) {
