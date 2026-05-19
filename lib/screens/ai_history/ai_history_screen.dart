@@ -35,17 +35,6 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
   }
 
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      context.read<AppProvider>().scheduleModuleEnterCloudPull({
-        CloudSyncScope.aiHistory,
-      });
-    });
-  }
-
-  @override
   void dispose() {
     _searchDebounce.dispose();
     _searchCtrl.dispose();
@@ -151,6 +140,7 @@ class _AIHistoryScreenState extends State<AIHistoryScreen> {
 
     return HuddleModuleScaffold(
       modulePath: '/ai-history',
+      enterPullTables: {CloudSyncScope.aiHistory},
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),

@@ -1345,6 +1345,7 @@ class ShoppingList {
     'items': items.map((e) => e.toJson()).toList(),
     'category': category.name,
     'visibility': visibility.name,
+    'shared_with': sharedWith,
     'updated_at': updatedAt.toIso8601String(),
   };
 

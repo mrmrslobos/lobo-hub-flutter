@@ -121,6 +121,15 @@ class CloudSyncScope {
 
   static Set<String> get calendarBundle => {events, externalCalendars};
 
+  /// High-churn tables: shorter debounce before cloud reconcile (see [SyncProvider]).
+  static const Set<String> fastRealtimePullTables = {
+    tasks,
+    lists,
+    messages,
+    choreCompletions,
+    pollVotes,
+  };
+
   static Set<String> get occasionBundle => {specialDates};
 
   static Set<String> get rewardFullBundle => {

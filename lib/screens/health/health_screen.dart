@@ -351,6 +351,7 @@ class _HealthScreenState extends State<HealthScreen> {
 
     return HuddleModuleScaffold(
       modulePath: '/health',
+      enterPullTables: {CloudSyncScope.healthRecords},
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),

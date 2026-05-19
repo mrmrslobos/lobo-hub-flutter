@@ -613,6 +613,7 @@ class _DevotionalScreenState extends State<DevotionalScreen>
 
     return HuddleModuleScaffold(
       modulePath: '/devotional',
+      enterPullTables: CloudSyncScope.devotionalReadingPlanBundle,
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),

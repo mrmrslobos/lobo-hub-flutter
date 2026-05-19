@@ -146,6 +146,17 @@ class AppProvider extends ChangeNotifier {
     _sync.sendLocalChangeBroadcast();
   }
 
+  Future<void> syncTablesNow(Set<String> tables) async {
+    final fam = activeFamily;
+    if (fam == null || tables.isEmpty) return;
+    try {
+      await _data.syncTablesNow(fam.id, tables);
+      _sync.sendLocalChangeBroadcast();
+    } catch (e) {
+      _sync.setSyncError(e.toString());
+    }
+  }
+
   Future<void> updateActiveUserSettings(Map<String, dynamic> patch) =>
       _auth.updateActiveUserSettings(patch);
 

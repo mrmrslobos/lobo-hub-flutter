@@ -267,8 +267,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _onRefresh() async {
     await pullCloudLatestWithHaptic(context);
     if (!mounted) return; // FIXED: context after async
-    final provider = context.read<AppProvider>();
-    await provider.saveAndSync(provider.db);
     await _loadAISuggestions(forceRefresh: true);
   }
 
@@ -871,6 +869,7 @@ Return ONLY the JSON array, no markdown.''',
 
         return HuddleModuleScaffold(
           modulePath: '/',
+          pullAllTablesOnEnter: true,
           drawer: const AppDrawer(),
           // backgroundColor handled by theme
           appBar: const MainAppBar(),

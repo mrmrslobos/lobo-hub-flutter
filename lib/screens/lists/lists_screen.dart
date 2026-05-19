@@ -24,6 +24,23 @@ import '../../widgets/huddle_subpage_scaffold.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/cloud_pull.dart';
 
+void _notifyListCollaboratorsForList(
+  AppProvider provider,
+  ShoppingList list, {
+  required String title,
+  required String body,
+}) {
+  if (list.visibility == Visibility.PRIVATE) return;
+  NotificationService.notifyFamilyActivityWithDb(
+    provider.db,
+    title: title,
+    body: body,
+    path: '/lists',
+    familyId: provider.activeFamily?.id,
+    excludeUserId: provider.activeUser?.id,
+  );
+}
+
 class ListsScreen extends StatefulWidget {
   const ListsScreen({super.key});
 
@@ -64,10 +81,13 @@ class _ListsScreenState extends State<ListsScreen> {
 
   // ── Data helpers ───────────────────────────────────────────────────────────
 
-  /// Persist lists and push to Supabase ([saveAndSync] enqueues list scope).
+  /// Persist lists, push to Supabase, and nudge other devices to pull.
   Future<void> _saveShoppingLists(AppProvider provider, AppDB nextDb) async {
-    await provider.saveAndSync(nextDb,
-        pushTableScope: {CloudSyncScope.lists});
+    await provider.saveAndSync(
+      nextDb,
+      pushTableScope: {CloudSyncScope.lists},
+    );
+    unawaited(provider.syncListsNow());
   }
 
   /// Opens an existing list or creates one when the title matches case-insensitively.
@@ -109,16 +129,12 @@ class _ListsScreenState extends State<ListsScreen> {
     );
     final updated = [...db.shoppingLists, list];
     await _saveShoppingLists(provider, db.copyWith(shoppingLists: updated));
-    if (visibility != Visibility.PRIVATE) {
-      NotificationService.notifyFamilyActivityWithDb(
-        provider.db,
-        title: 'New List Created',
-        body: '${provider.activeUser?.name ?? "Someone"} created: ${list.title}',
-        path: '/lists',
-        familyId: provider.activeFamily?.id,
-        excludeUserId: provider.activeUser?.id,
-      );
-    }
+    _notifyListCollaboratorsForList(
+      provider,
+      list,
+      title: 'New list',
+      body: '${provider.activeUser?.name ?? 'Someone'} created "${list.title}"',
+    );
     setState(() => _selectedList = list);
   }
 
@@ -244,16 +260,12 @@ class _ListsScreenState extends State<ListsScreen> {
     final updatedLists = db.shoppingLists.map((l) => l.id == list.id ? updatedList : l).toList();
     await _saveShoppingLists(provider, db.copyWith(shoppingLists: updatedLists));
     setState(() => _selectedList = updatedList);
-    if (list.visibility != Visibility.PRIVATE) {
-      NotificationService.notifyFamilyActivityWithDb(
-        provider.db,
-        title: 'Item Added to ${list.title}',
-        body: '${provider.activeUser?.name ?? "Someone"} added: $name',
-        path: '/lists',
-        familyId: provider.activeFamily?.id,
-        excludeUserId: provider.activeUser?.id,
-      );
-    }
+    _notifyListCollaboratorsForList(
+      provider,
+      list,
+      title: list.title,
+      body: '${provider.activeUser?.name ?? 'Someone'} added "$name"',
+    );
   }
 
   Future<void> _toggleItem(ShoppingList list, ListItem item) async {
@@ -267,14 +279,13 @@ class _ListsScreenState extends State<ListsScreen> {
     await _saveShoppingLists(provider, db.copyWith(shoppingLists: updatedLists));
     if (!mounted) return;
     setState(() => _selectedList = updatedList);
-    if (!item.checked && list.visibility != Visibility.PRIVATE) {
-      NotificationService.notifyFamilyActivityWithDb(
-        provider.db,
-        title: '${list.title} Updated',
-        body: '${provider.activeUser?.name ?? "Someone"} checked off: ${item.text}',
-        path: '/lists',
-        familyId: provider.activeFamily?.id,
-        excludeUserId: provider.activeUser?.id,
+    if (!item.checked) {
+      _notifyListCollaboratorsForList(
+        provider,
+        list,
+        title: list.title,
+        body:
+            '${provider.activeUser?.name ?? 'Someone'} checked off "${item.text}"',
       );
     }
   }
@@ -540,30 +551,39 @@ class _ListsScreenState extends State<ListsScreen> {
         .where((l) => currentUserId != null && _canAccessList(l, currentUserId))
         .toList();
 
-    // Sync selectedList with latest db state
+    // Keep detail view in sync with realtime / cloud merges.
+    ShoppingList? detailList;
     if (_selectedList != null) {
-      final fresh = lists.cast<ShoppingList?>().firstWhere((l) => l?.id == _selectedList!.id, orElse: () => null);
-      if (fresh == null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) => setState(() => _selectedList = null));
-      } else if (fresh != _selectedList) {
-        _selectedList = fresh;
+      detailList = lists.cast<ShoppingList?>().firstWhere(
+        (l) => l?.id == _selectedList!.id,
+        orElse: () => null,
+      );
+      if (detailList == null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) setState(() => _selectedList = null);
+        });
+      } else {
+        _selectedList = detailList;
       }
     }
 
-    if (_selectedList != null) {
+    if (detailList != null) {
       return BackNavigationScope(
         onBack: () {
           setState(() => _selectedList = null);
           return true;
         },
         child: _ListDetailView(
-          list: _selectedList!,
+          key: ValueKey(
+            '${detailList.id}-${detailList.updatedAt.millisecondsSinceEpoch}-${detailList.items.length}',
+          ),
+          list: detailList,
           onBack: () => setState(() => _selectedList = null),
-          onAddItem: (name) => _addItem(_selectedList!, name),
-          onToggleItem: (item) => _toggleItem(_selectedList!, item),
-          onDeleteItem: (id) => _deleteItem(_selectedList!, id),
-          onClearChecked: () => _clearCheckedItems(_selectedList!),
-          onDeleteList: () => _deleteList(_selectedList!),
+          onAddItem: (name) => _addItem(detailList!, name),
+          onToggleItem: (item) => _toggleItem(detailList!, item),
+          onDeleteItem: (id) => _deleteItem(detailList!, id),
+          onClearChecked: () => _clearCheckedItems(detailList!),
+          onDeleteList: () => _deleteList(detailList!),
           onAiCategorize: _showAiCategorization,
         ),
       );
@@ -575,6 +595,7 @@ class _ListsScreenState extends State<ListsScreen> {
 
     return HuddleModuleScaffold(
       modulePath: '/lists',
+      enterPullTables: {CloudSyncScope.lists},
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),
@@ -1244,6 +1265,7 @@ class _ListDetailView extends StatefulWidget {
   final VoidCallback onAiCategorize;
 
   const _ListDetailView({
+    super.key,
     required this.list,
     required this.onBack,
     required this.onAddItem,
@@ -1824,8 +1846,16 @@ class _AiTextToChecklistSheetState extends State<_AiTextToChecklistSheet> {
 
       await provider.saveAndSync(
         db.copyWith(shoppingLists: [...db.shoppingLists, newList]),
-        pushTableScope: {CloudSyncScope.lists});
+        pushTableScope: {CloudSyncScope.lists},
+      );
       if (provider.activeFamily != null) unawaited(provider.syncListsNow());
+      _notifyListCollaboratorsForList(
+        provider,
+        newList,
+        title: 'New list',
+        body:
+            '${provider.activeUser?.name ?? 'Someone'} created "${newList.title}" (${items.length} items)',
+      );
 
       if (mounted) {
         Navigator.pop(context);

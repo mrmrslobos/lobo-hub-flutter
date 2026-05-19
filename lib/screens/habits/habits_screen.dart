@@ -76,17 +76,6 @@ class _HabitsScreenState extends State<HabitsScreen> {
   }
 
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      context
-          .read<AppProvider>()
-          .scheduleModuleEnterCloudPull(CloudSyncScope.habitBundle);
-    });
-  }
-
-  @override
   void dispose() {
     _searchDebounce.dispose();
     _searchCtrl.dispose();
@@ -134,6 +123,7 @@ class _HabitsScreenState extends State<HabitsScreen> {
 
     return HuddleModuleScaffold(
       modulePath: '/habits',
+      enterPullTables: CloudSyncScope.habitBundle,
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),

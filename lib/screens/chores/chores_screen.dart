@@ -16,6 +16,7 @@ import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
 import '../../widgets/module_ui_kit.dart';
 import '../../utils/debounce.dart';
+import '../../utils/sync_after_save.dart';
 
 // ─── Icon & Color palettes for chore creation ────────────────────────────────
 
@@ -104,7 +105,8 @@ class _ChoresScreenState extends State<ChoresScreen> {
     final existing = _completionsForChore(chore.id, userId, day, db.choreCompletions);
     if (existing.isNotEmpty) {
       final ids = existing.map((e) => e.id).toSet();
-      await provider.saveAndSync(
+      await saveAndSyncWithImmediatePush(
+        provider,
         db.copyWith(
           choreCompletions:
               db.choreCompletions.where((c) => !ids.contains(c.id)).toList(),
@@ -136,8 +138,11 @@ class _ChoresScreenState extends State<ChoresScreen> {
               .toList(),
         );
       }
-      await provider.saveAndSync(nextDb,
-          pushTableScope: CloudSyncScope.choreBundle);
+      await saveAndSyncWithImmediatePush(
+        provider,
+        nextDb,
+        pushTableScope: CloudSyncScope.choreBundle,
+      );
       if (mounted && !chore.requiresApproval) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('${chore.title} done! +${chore.points} pts'),
@@ -238,8 +243,11 @@ class _ChoresScreenState extends State<ChoresScreen> {
         );
       }
     }
-    await provider.saveAndSync(nextDb,
-        pushTableScope: CloudSyncScope.choreBundle);
+    await saveAndSyncWithImmediatePush(
+      provider,
+      nextDb,
+      pushTableScope: CloudSyncScope.choreBundle,
+    );
     if (mounted) {
       final chore = db.chores.where((c) => c.id == db.choreCompletions.firstWhere((cc) => cc.id == completionId).choreId).firstOrNull;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -277,7 +285,8 @@ class _ChoresScreenState extends State<ChoresScreen> {
           }
           final db = provider.db;
           if (editChore != null) {
-            await provider.saveAndSync(
+            await saveAndSyncWithImmediatePush(
+              provider,
               db.copyWith(
                 chores:
                     db.chores.map((c) => c.id == editChore.id ? chore : c).toList(),
@@ -285,7 +294,8 @@ class _ChoresScreenState extends State<ChoresScreen> {
               pushTableScope: CloudSyncScope.choreBundle,
             );
           } else {
-            await provider.saveAndSync(
+            await saveAndSyncWithImmediatePush(
+              provider,
               db.copyWith(chores: [...db.chores, chore]),
               pushTableScope: CloudSyncScope.choreBundle,
             );
@@ -573,6 +583,7 @@ class _ChoresScreenState extends State<ChoresScreen> {
 
     return HuddleModuleScaffold(
       modulePath: '/chores',
+      enterPullTables: CloudSyncScope.choreBundle,
       drawer: const AppDrawer(),
       // backgroundColor handled by theme
       appBar: const MainAppBar(),

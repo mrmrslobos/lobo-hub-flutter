@@ -415,6 +415,7 @@ class _RewardsScreenState extends State<RewardsScreen>
 
     return HuddleModuleScaffold(
       modulePath: '/rewards',
+      enterPullTables: CloudSyncScope.rewardFullBundle,
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),

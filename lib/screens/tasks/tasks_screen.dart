@@ -369,6 +369,7 @@ class _TasksScreenState extends State<TasksScreen> {
 
         return HuddleModuleScaffold(
           modulePath: '/tasks',
+          enterPullTables: {CloudSyncScope.tasks},
           drawer: const AppDrawer(),
           appBar: const MainAppBar(),
           child: RefreshIndicator(

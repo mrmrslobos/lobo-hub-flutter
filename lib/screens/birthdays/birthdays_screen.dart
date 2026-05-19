@@ -345,6 +345,7 @@ class _BirthdaysScreenState extends State<BirthdaysScreen> {
 
     return HuddleModuleScaffold(
       modulePath: '/birthdays',
+      enterPullTables: CloudSyncScope.occasionBundle,
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),

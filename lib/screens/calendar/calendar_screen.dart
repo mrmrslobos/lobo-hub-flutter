@@ -37,6 +37,7 @@ import '../../widgets/subscription_modal.dart';
 import '../../utils/debounce.dart';
 import '../../utils/cloud_pull.dart';
 import '../../utils/user_facing_errors.dart';
+import '../../utils/sync_after_save.dart';
 
 enum _EventRsvpChoice { yes, no, maybe, clear }
 
@@ -147,9 +148,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
       );
 
       final db = provider.db;
-      await provider.saveAndSync(
+      await saveAndSyncWithImmediatePush(
+        provider,
         db.copyWith(events: [...db.events, event]),
-        pushTableScope: {CloudSyncScope.events},
+        pushTableScope: CloudSyncScope.calendarBundle,
       );
 
       _aiController.clear();
@@ -671,7 +673,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
       final db = provider.db;
       await provider.saveAndSync(
         db.copyWith(events: [...db.events, ...newEvents]),
-        pushTableScope: {CloudSyncScope.events},
+        pushTableScope: CloudSyncScope.calendarBundle,
       );
       provider.saveAiHistory(module: 'calendar', prompt: 'Flyer scan', response: jsonEncode(decoded));
 
@@ -875,9 +877,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
     }
     final db = provider.db;
     final events = db.events.where((e) => e.id != event.id).toList();
-    await provider.saveAndSync(
+    await saveAndSyncWithImmediatePush(
+      provider,
       db.copyWith(events: events),
-      pushTableScope: {CloudSyncScope.events},
+      pushTableScope: CloudSyncScope.calendarBundle,
     );
   }
 
@@ -911,9 +914,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
       updatedAt: DateTime.now(),
     );
     final events = db.events.map((e) => e.id == event.id ? updated : e).toList();
-    await provider.saveAndSync(
+    await saveAndSyncWithImmediatePush(
+      provider,
       db.copyWith(events: events),
-      pushTableScope: {CloudSyncScope.events},
+      pushTableScope: CloudSyncScope.calendarBundle,
     );
     if (mounted) setState(() {});
   }
@@ -948,6 +952,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
         return HuddleModuleScaffold(
           modulePath: '/calendar',
+          enterPullTables: CloudSyncScope.calendarBundle,
           drawer: const AppDrawer(),
           appBar: const MainAppBar(),
           child: RefreshIndicator(
@@ -2593,9 +2598,10 @@ class _EventFormSheetState extends State<_EventFormSheet> {
       } else {
         events = [...db.events, event];
       }
-      await provider.saveAndSync(
+      await saveAndSyncWithImmediatePush(
+        provider,
         db.copyWith(events: events),
-        pushTableScope: {CloudSyncScope.events},
+        pushTableScope: CloudSyncScope.calendarBundle,
       );
       if (widget.editEvent == null) {
         NotificationService.notifyFamilyActivityWithDb(

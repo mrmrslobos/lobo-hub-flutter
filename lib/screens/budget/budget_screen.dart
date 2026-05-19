@@ -775,6 +775,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
 
     return HuddleModuleScaffold(
       modulePath: '/budget',
+      enterPullTables: CloudSyncScope.budgetBundle,
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),

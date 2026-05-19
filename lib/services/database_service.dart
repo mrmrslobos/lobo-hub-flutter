@@ -506,6 +506,18 @@ class DatabaseService {
   /// Upserts all tasks for [familyId] and applies tombstone deletes. Await after
   /// saves so new tasks reach Supabase even when the full background sync fails
   /// (RLS batch issues, payload size, or tasks from other families polluting the batch).
+  /// Scoped push through the per-family write queue (tasks/lists use specialized helpers).
+  static Future<void> pushTablesToCloudNow(
+    AppDB db,
+    String familyId,
+    Set<String> tables,
+  ) async {
+    if (!SupabaseService.isConfigured || tables.isEmpty) return;
+    await _enqueueFamilyCloudWrite(familyId, () async {
+      await _syncToCloud(db, familyId, tableScope: tables);
+    });
+  }
+
   static Future<void> pushFamilyTasksToCloudNow(AppDB db, String familyId) async {
     if (!SupabaseService.isConfigured) return;
     await _enqueueFamilyCloudWrite(familyId, () async {

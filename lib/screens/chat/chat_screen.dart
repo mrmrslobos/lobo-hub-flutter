@@ -17,6 +17,7 @@ import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
 import '../../widgets/module_ui_kit.dart';
 import '../../utils/debounce.dart';
+import '../../utils/sync_after_save.dart';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -149,7 +150,8 @@ class _ChatScreenState extends State<ChatScreen> {
       );
 
       final db = provider.db;
-      await provider.saveAndSync(
+      await saveAndSyncWithImmediatePush(
+        provider,
         db.copyWith(messages: [...db.messages, msg]),
         pushTableScope: {CloudSyncScope.messages},
       );
@@ -186,7 +188,8 @@ class _ChatScreenState extends State<ChatScreen> {
     final messages =
         db.messages.map((m) => m.id == msg.id ? updated : m).toList();
     try {
-      await provider.saveAndSync(
+      await saveAndSyncWithImmediatePush(
+        provider,
         db.copyWith(messages: messages),
         pushTableScope: {CloudSyncScope.messages},
       );
@@ -221,7 +224,8 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     final db = provider.db;
     try {
-      await provider.saveAndSync(
+      await saveAndSyncWithImmediatePush(
+        provider,
         db.copyWith(
           messages: db.messages.where((m) => m.id != msg.id).toList(),
         ),
@@ -379,6 +383,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
         return HuddleModuleScaffold(
           modulePath: '/chat',
+          enterPullTables: {CloudSyncScope.messages},
           resizeToAvoidBottomInset: true,
           drawer: const AppDrawer(),
           appBar: MainAppBar(

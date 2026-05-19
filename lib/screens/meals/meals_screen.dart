@@ -1364,6 +1364,7 @@ Return a JSON array of 7 objects, each with:
 
     return HuddleModuleScaffold(
       modulePath: '/meals',
+      enterPullTables: CloudSyncScope.mealsExtendedBundle,
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),

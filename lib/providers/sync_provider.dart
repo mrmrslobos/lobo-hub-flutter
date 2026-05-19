@@ -60,7 +60,13 @@ class SyncProvider extends ChangeNotifier {
   final Set<String> _pendingModulePullTables = {};
   
   static const Duration _defaultPullDebounce = Duration(milliseconds: 450);
+  static const Duration _fastPullDebounce = Duration(milliseconds: 175);
   static const Duration resumeSyncStaleAfter = Duration(minutes: 3);
+
+  Duration _pullDebounceForTable(String table) =>
+      CloudSyncScope.fastRealtimePullTables.contains(table)
+          ? _fastPullDebounce
+          : _defaultPullDebounce;
 
   DateTime? _lastSuccessfulSyncAt;
   String? _lastSyncError;
@@ -130,7 +136,7 @@ class SyncProvider extends ChangeNotifier {
           callback: (payload) {
             if (_isPostgresSelfEcho(payload)) return;
             _maybeTombstoneFromSoftDelete(payload);
-            scheduleDebouncedPullFromCloud();
+            scheduleDebouncedPullFromCloud(_pullDebounceForTable(payload.table));
           },
         );
       }
