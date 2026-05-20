@@ -29,28 +29,16 @@ class ListItemsCloud {
 
   static List<ShoppingList> hydrate(
     List<ShoppingList> headers,
-    List<ShoppingListItem> items, {
-    List<ShoppingList>? legacyHeadersWithItems,
-  }) {
+    List<ShoppingListItem> items,
+  ) {
     final byList = <String, List<ShoppingListItem>>{};
     for (final row in items) {
       (byList[row.listId] ??= []).add(row);
     }
 
-    final legacyById = <String, ShoppingList>{};
-    if (legacyHeadersWithItems != null) {
-      for (final h in legacyHeadersWithItems) {
-        legacyById[h.id] = h;
-      }
-    }
-
     return headers.map((header) {
       var rows = byList[header.id];
       if (rows == null || rows.isEmpty) {
-        final legacy = legacyById[header.id];
-        if (legacy != null && legacy.items.isNotEmpty) {
-          return header.copyWith(items: legacy.items);
-        }
         return header.copyWith(items: const []);
       }
       rows = List<ShoppingListItem>.from(rows)

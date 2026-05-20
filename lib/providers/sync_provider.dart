@@ -98,8 +98,26 @@ class SyncProvider extends ChangeNotifier {
   }
 
   void setSyncError(String error) {
+    if (!_shouldSurfaceSyncError(error)) return;
     _lastSyncError = error;
     notifyListeners();
+  }
+
+  /// Avoid alarming users for non-fatal reconcile noise or pre-migration tables.
+  static bool _shouldSurfaceSyncError(String error) {
+    final lower = error.toLowerCase();
+    if (lower.contains('parse error in')) return false;
+    if (lower.contains('pgrst205') ||
+        lower.contains('could not find the table')) {
+      return false;
+    }
+    if (lower.contains('outbox: list_items/') &&
+        lower.contains('violates foreign key')) {
+      return false;
+    }
+    // Outbox retries are logged; only surface after repeated failure.
+    if (lower.startsWith('outbox:')) return false;
+    return true;
   }
 
   void clearSyncError() {
@@ -161,9 +179,25 @@ class SyncProvider extends ChangeNotifier {
           scheduleDebouncedPullFromCloud();
         },
       );
-      for (final member in authProvider.familyMembers) {
-        final uid = member.userId;
-        if (uid.isEmpty) continue;
+      final activeUserId = authProvider.activeUser?.id;
+      if (activeUserId != null && activeUserId.isNotEmpty) {
+        for (final table in CloudSyncScope.realtimeUserScopedTables) {
+          channel = channel.onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: table,
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'user_id',
+              value: activeUserId,
+            ),
+            callback: (payload) {
+              if (_isPostgresSelfEcho(payload)) return;
+              _maybeTombstoneFromSoftDelete(payload);
+              scheduleDebouncedPullFromCloud(_pullDebounceForTable(payload.table));
+            },
+          );
+        }
         channel = channel.onPostgresChanges(
           event: PostgresChangeEvent.all,
           schema: 'public',
@@ -171,7 +205,7 @@ class SyncProvider extends ChangeNotifier {
           filter: PostgresChangeFilter(
             type: PostgresChangeFilterType.eq,
             column: 'id',
-            value: uid,
+            value: activeUserId,
           ),
           callback: (payload) {
             if (_isPostgresSelfEcho(payload)) return;
@@ -371,12 +405,15 @@ class SyncProvider extends ChangeNotifier {
         getLocalAfterFetch: () => dataProvider.db,
       );
       final err = DatabaseService.lastError;
-      if (err != null && err.isNotEmpty) {
+      if (err != null &&
+          err.isNotEmpty &&
+          _shouldSurfaceSyncError(err)) {
         _lastSyncError = err;
         final snippet = err.length > 240 ? '${err.substring(0, 240)}…' : err;
         _cloudSyncLog('reconcile_error', {'detail': snippet});
         return;
       }
+      DatabaseService.lastError = null;
       await dataProvider.updateDb(merged);
       await authProvider.repairOwnerMembershipIfNeeded();
       await authProvider.backfillMissingUsersIfNeeded(
@@ -384,9 +421,13 @@ class SyncProvider extends ChangeNotifier {
       );
       _lastSuccessfulSyncAt = DateTime.now();
       _lastSyncError = null;
+      unawaited(SyncOutbox.drain());
     } catch (e) {
       debugPrint('[SyncProvider] pullFromCloud error: $e');
-      _lastSyncError = e.toString();
+      final msg = e.toString();
+      if (_shouldSurfaceSyncError(msg)) {
+        _lastSyncError = msg;
+      }
     } finally {
       _isSyncing = false;
       notifyListeners();
@@ -419,12 +460,15 @@ class SyncProvider extends ChangeNotifier {
         getLocalAfterFetch: () => dataProvider.db,
       );
       final err = DatabaseService.lastError;
-      if (err != null && err.isNotEmpty) {
+      if (err != null &&
+          err.isNotEmpty &&
+          _shouldSurfaceSyncError(err)) {
         _lastSyncError = err;
         final snippet = err.length > 240 ? '${err.substring(0, 240)}…' : err;
         _cloudSyncLog('reconcile_error', {'detail': snippet, 'scoped': true});
         return;
       }
+      DatabaseService.lastError = null;
       await dataProvider.updateDb(merged);
       await authProvider.repairOwnerMembershipIfNeeded();
       await authProvider.backfillMissingUsersIfNeeded(familyId);
@@ -432,7 +476,10 @@ class SyncProvider extends ChangeNotifier {
       _lastSyncError = null;
     } catch (e) {
       debugPrint('[SyncProvider] pullModuleScopedFromCloud error: $e');
-      _lastSyncError = e.toString();
+      final msg = e.toString();
+      if (_shouldSurfaceSyncError(msg)) {
+        _lastSyncError = msg;
+      }
     } finally {
       _isSyncing = false;
       notifyListeners();
@@ -443,14 +490,17 @@ class SyncProvider extends ChangeNotifier {
 
   void onAppResumed() {
     if (!authProvider.isAuthenticated || !SupabaseService.isConfigured) return;
-    // Flush any queued writes before pulling so they appear in the next pull.
-    unawaited(SyncOutbox.drain());
     final at = _lastSuccessfulSyncAt;
     final hadError = _lastSyncError != null && _lastSyncError!.isNotEmpty;
     final stale = at == null || DateTime.now().difference(at) > resumeSyncStaleAfter;
-    if (stale || hadError) {
-      refreshFromCloud();
-    }
+    unawaited(() async {
+      if (stale || hadError) {
+        await refreshFromCloud();
+      }
+      if (!_isSyncing) {
+        await SyncOutbox.drain();
+      }
+    }());
   }
 
   Future<void> refreshFromCloud({String? familyIdOverride}) async {

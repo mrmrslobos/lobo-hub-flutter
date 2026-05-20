@@ -292,7 +292,6 @@ class AuthProvider extends ChangeNotifier {
         _syncAIFlag();
         _syncStartRealtime?.call();
         NotificationService.registerDeviceToken(family.id, user.id);
-        unawaited(repairOwnerMembershipIfNeeded());
         unawaited(PurchaseService.syncIdentity(user.id));
         unawaited(refreshStoreSubscription());
         notifyListeners();
@@ -324,7 +323,11 @@ class AuthProvider extends ChangeNotifier {
     await dataProvider.updateDb(dataProvider.db.copyWith(familyMembers: members));
     if (SupabaseService.isConfigured) {
       try {
-        await DatabaseService.syncToCloud(dataProvider.db, fam.id);
+        await DatabaseService.syncToCloud(
+          dataProvider.db,
+          fam.id,
+          tableScope: {CloudSyncScope.familyMembers},
+        );
       } catch (e) {
         debugPrint('[AuthProvider] Owner membership repair sync failed: $e');
       }

@@ -474,70 +474,128 @@ class DatabaseService {
     }
   }
 
+  static List<ShoppingList> _familyListsForCloud(AppDB db, String familyId) =>
+      db.lists.where((l) => l.familyId == familyId).toList();
+
+  static bool _isMissingCloudTableError(Object e) {
+    final msg = e.toString();
+    return msg.contains('PGRST205') || msg.contains('Could not find the table');
+  }
+
+  /// List headers must exist before [list_items] rows (FK). Never run in parallel.
+  static Future<void> _upsertFamilyListHeaders(
+    List<ShoppingList> familyLists,
+    String familyId,
+  ) async {
+    if (familyLists.isEmpty) return;
+    final headerRows = familyLists
+        .map((l) => Map<String, dynamic>.from({
+              ...l.toCloudHeaderJson(),
+              'family_id': familyId,
+            }))
+        .toList();
+    try {
+      await SupabaseService.upsertTable(
+        'lists',
+        sanitizeRowsForCloudUpsert(headerRows, 'lists'),
+      );
+    } on Object catch (e, st) {
+      debugPrint('[DatabaseService] lists upsert failed: $e\n$st');
+      rethrow;
+    }
+  }
+
+  static Future<void> _upsertFamilyListItems(
+    List<ShoppingList> familyLists,
+    String familyId,
+  ) async {
+    final itemRows = ListItemsCloud.flattenFromLists(familyLists, familyId)
+        .map((i) => {...i.toJson(), 'family_id': familyId})
+        .toList();
+    if (itemRows.isEmpty) return;
+    try {
+      await SupabaseService.upsertTable(
+        'list_items',
+        sanitizeRowsForCloudUpsert(itemRows, 'list_items'),
+      );
+    } on Object catch (e, st) {
+      debugPrint('[DatabaseService] list_items upsert failed: $e\n$st');
+      rethrow;
+    }
+  }
+
+  static Future<void> _syncFamilyListsBundleToCloud(
+    AppDB db,
+    String familyId, {
+    required bool pushHeaders,
+    required bool pushItems,
+  }) async {
+    final familyLists = _familyListsForCloud(db, familyId);
+    final listIds = familyLists.map((l) => l.id).toSet();
+
+    if (pushHeaders) {
+      try {
+        await _upsertFamilyListHeaders(familyLists, familyId);
+      } on Object catch (e, st) {
+        if (_isMissingCloudTableError(e)) return;
+        _debugCatch('list headers push', e, st);
+      }
+      await _deleteRemovedRows('lists', listIds, familyId);
+      await _softDeleteListItemsForTombstonedLists(familyId, listIds);
+    }
+
+    if (!pushItems) return;
+
+    // FK: parent list row must exist before line items (also covers item-only push).
+    try {
+      await _upsertFamilyListHeaders(familyLists, familyId);
+    } on Object catch (e, st) {
+      if (_isMissingCloudTableError(e)) return;
+      _debugCatch('list headers before items', e, st);
+      return;
+    }
+
+    try {
+      await _upsertFamilyListItems(familyLists, familyId);
+    } on Object catch (e, st) {
+      if (_isMissingCloudTableError(e)) return;
+      _debugCatch('list_items push', e, st);
+      return;
+    }
+    final itemIds = ListItemsCloud.flattenFromLists(familyLists, familyId)
+        .map((r) => r.id)
+        .toSet();
+    await _deleteRemovedRows('list_items', itemIds, familyId);
+    await _softDeleteListItemsForTombstonedLists(familyId, listIds);
+  }
+
   /// Await after list edits so checked state reaches Supabase before the next pull
   /// (same idea as [pushFamilyTasksToCloudNow]).
   static Future<void> pushFamilyListsToCloudNow(AppDB db, String familyId) async {
     if (!SupabaseService.isConfigured) return;
     await _enqueueFamilyCloudWrite(familyId, () async {
-      final familyLists = db.lists.where((l) => l.familyId == familyId).toList();
-      final listIds = familyLists.map((l) => l.id).toSet();
-      final headerRows = familyLists
-          .map((l) => Map<String, dynamic>.from({
-                ...l.toCloudHeaderJson(),
-                'family_id': familyId,
-              }))
-          .toList();
-      try {
-        await SupabaseService.upsertTable(
-          'lists',
-          sanitizeRowsForCloudUpsert(headerRows, 'lists'),
-        );
-      } on Object catch (e, st) {
-        debugPrint('[DatabaseService] lists upsert failed: $e\n$st');
-      }
-      await _deleteRemovedRows('lists', listIds, familyId);
-
-      final itemRows = ListItemsCloud.flattenFromLists(familyLists, familyId)
-          .map((i) => {...i.toJson(), 'family_id': familyId})
-          .toList();
-      final itemIds = itemRows.map((r) => r['id'] as String).toSet();
-      if (itemRows.isNotEmpty) {
-        try {
-          await SupabaseService.upsertTable(
-            'list_items',
-            sanitizeRowsForCloudUpsert(itemRows, 'list_items'),
-          );
-        } on Object catch (e, st) {
-          debugPrint('[DatabaseService] list_items upsert failed: $e\n$st');
-        }
-      }
-      await _deleteRemovedRows('list_items', itemIds, familyId);
+      await _syncFamilyListsBundleToCloud(
+        db,
+        familyId,
+        pushHeaders: true,
+        pushItems: true,
+      );
     });
   }
 
-  /// Item-only push after check/uncheck or line edits (skips list header upsert).
+  /// Item-only push after check/uncheck or line edits (headers upserted first for FK).
   static Future<void> pushFamilyListItemsToCloudNow(
     AppDB db,
     String familyId,
   ) async {
     if (!SupabaseService.isConfigured) return;
     await _enqueueFamilyCloudWrite(familyId, () async {
-      final familyLists = db.lists.where((l) => l.familyId == familyId).toList();
-      final itemRows = ListItemsCloud.flattenFromLists(familyLists, familyId)
-          .map((i) => {...i.toJson(), 'family_id': familyId})
-          .toList();
-      final itemIds = itemRows.map((r) => r['id'] as String).toSet();
-      if (itemRows.isNotEmpty) {
-        try {
-          await SupabaseService.upsertTable(
-            'list_items',
-            sanitizeRowsForCloudUpsert(itemRows, 'list_items'),
-          );
-        } on Object catch (e, st) {
-          debugPrint('[DatabaseService] list_items upsert failed: $e\n$st');
-        }
-      }
-      await _deleteRemovedRows('list_items', itemIds, familyId);
+      await _syncFamilyListsBundleToCloud(
+        db,
+        familyId,
+        pushHeaders: false,
+        pushItems: true,
+      );
     });
   }
 
@@ -732,30 +790,13 @@ class DatabaseService {
                 })
                 .toList(),
             db.mealPlans.where((m) => m.familyId == fid).map((m) => m.id).toSet()),
-      if (pick('lists'))
-        upAndClean(
-          'lists',
-          db.lists
-              .map((l) => {...l.toCloudHeaderJson(), 'family_id': fid})
-              .toList(),
-          db.lists.where((l) => l.familyId == fid).map((l) => l.id).toSet(),
-        ),
       if (pick('lists') || pick('list_items'))
-        (() async {
-          final familyLists =
-              db.lists.where((l) => l.familyId == fid).toList();
-          final itemRows = ListItemsCloud.flattenFromLists(familyLists, fid)
-              .map((i) => {...i.toJson(), 'family_id': fid})
-              .toList();
-          final itemIds = itemRows.map((r) => r['id'] as String).toSet();
-          if (itemRows.isNotEmpty) {
-            await up(
-              'list_items',
-              sanitizeRowsForCloudUpsert(itemRows, 'list_items'),
-            );
-          }
-          await _deleteRemovedRows('list_items', itemIds, fid);
-        })(),
+        _syncFamilyListsBundleToCloud(
+          db,
+          fid,
+          pushHeaders: pick('lists'),
+          pushItems: pick('lists') || pick('list_items'),
+        ),
       if (pick('devotionals'))
         upAndClean(
             'devotionals',
@@ -894,14 +935,18 @@ class DatabaseService {
               .map((set) => set.id)
               .toSet(),
         ),
-      if (pick('exercise_prs'))
-        upAndClean(
+      if (pick('exercise_prs') && currentUserId != null)
+        upAndCleanUser(
           'exercise_prs',
           db.exercisePrs
-              .where((p) => p.familyId == fid)
+              .where((p) => p.familyId == fid && p.userId == currentUserId)
               .map((p) => p.toJson())
               .toList(),
-          db.exercisePrs.where((p) => p.familyId == fid).map((p) => p.id).toSet(),
+          db.exercisePrs
+              .where((p) => p.familyId == fid && p.userId == currentUserId)
+              .map((p) => p.id)
+              .toSet(),
+          userId: currentUserId,
         ),
       if (pick('budget_categories'))
         upAndClean(
@@ -918,16 +963,32 @@ class DatabaseService {
             'transactions',
             db.transactions.map((t) => {...t.toJson(), 'family_id': fid}).toList(),
             db.transactions.map((t) => t.id).toSet()),
-      if (pick('ai_history'))
-        upAndClean(
-            'ai_history',
-            db.aiHistory.map((a) => a.toJson()).toList(),
-            db.aiHistory.map((a) => a.id).toSet()),
-      if (pick('daily_habits'))
-        upAndClean(
-            'daily_habits',
-            db.dailyHabits.map((h) => h.toJson()).toList(),
-            db.dailyHabits.map((h) => h.id).toSet()),
+      if (pick('ai_history') && currentUserId != null)
+        upAndCleanUser(
+          'ai_history',
+          db.aiHistory
+              .where((a) => a.userId == currentUserId)
+              .map((a) => a.toJson())
+              .toList(),
+          db.aiHistory
+              .where((a) => a.userId == currentUserId)
+              .map((a) => a.id)
+              .toSet(),
+          userId: currentUserId,
+        ),
+      if (pick('daily_habits') && currentUserId != null)
+        upAndCleanUser(
+          'daily_habits',
+          db.dailyHabits
+              .where((h) => h.userId == currentUserId)
+              .map((h) => h.toJson())
+              .toList(),
+          db.dailyHabits
+              .where((h) => h.userId == currentUserId)
+              .map((h) => h.id)
+              .toSet(),
+          userId: currentUserId,
+        ),
       if (currentUserId != null && pick('daily_habit_completions'))
         upAndCleanUser(
           'daily_habit_completions',
@@ -1158,6 +1219,45 @@ class DatabaseService {
       }
     } on Object catch (e, st) {
       debugPrint('[DatabaseService] Failed to delete removed family_members: $e\n$st');
+    }
+  }
+
+  /// Soft-delete [list_items] rows whose parent list was tombstoned locally.
+  static Future<void> _softDeleteListItemsForTombstonedLists(
+    String familyId,
+    Set<String> aliveListIds,
+  ) async {
+    if (!SupabaseService.isConfigured || _deletedKeys.isEmpty) return;
+    final tombstonedListIds =
+        _deletedKeys.where((k) => !aliveListIds.contains(k)).toSet();
+    if (tombstonedListIds.isEmpty) return;
+    try {
+      final rows = await SupabaseService.client
+          .from('list_items')
+          .select('id, list_id')
+          .eq('family_id', familyId)
+          .isFilter('deleted_at', null);
+      for (final row in rows as List) {
+        final id = row['id']?.toString() ?? '';
+        final listId = row['list_id']?.toString() ?? '';
+        if (id.isEmpty) continue;
+        if (!tombstonedListIds.contains(listId) &&
+            !_deletedKeys.contains(id)) {
+          continue;
+        }
+        await SyncOutbox.enqueue(
+          table: 'list_items',
+          rowKey: id,
+          op: OutboxOp.softDelete,
+          payload: {'id': id},
+        );
+      }
+      unawaited(SyncOutbox.drain());
+    } on Object catch (e, st) {
+      if (_isMissingCloudTableError(e)) return;
+      debugPrint(
+        '[DatabaseService] list_items cascade delete failed: $e\n$st',
+      );
     }
   }
 
@@ -1661,7 +1761,18 @@ class DatabaseService {
     }
     addAll(db.users); addAll(db.families); addAll(db.familyMembers);
     addAll(db.tasks); addAll(db.events); addAll(db.recipes);
-    addAll(db.mealPlans); addAll(db.lists); addAll(db.devotionals);
+    addAll(db.mealPlans);
+    for (final list in db.lists) {
+      try {
+        keys.add(_mergeKeyOf(list));
+        for (final item in list.items) {
+          if (item.id.isNotEmpty) keys.add(item.id);
+        }
+      } on TypeError catch (e, st) {
+        _debugCatch('_collectKeys list items', e, st);
+      }
+    }
+    addAll(db.devotionals);
     addAll(db.devotionalThoughts);
     addAll(db.fitness); addAll(db.budgetCategories); addAll(db.budgetEntries); addAll(db.transactions);
     addAll(db.aiHistory); addAll(db.dailyHabits); addAll(db.dailyHabitCompletions);
@@ -1967,23 +2078,16 @@ class DatabaseService {
         _safeParse(cloud['list_items'], ShoppingListItem.fromJson);
     final mergedItems = _mergeById(localItems, cloudItemRows);
 
-    final hydrated = ListItemsCloud.hydrate(
-      mergedHeaders,
-      mergedItems,
-      legacyHeadersWithItems: cloudHeaders,
-    );
+    final cloudHeaderIds = cloudHeaders.map((h) => h.id).toSet();
+    final hydrated = ListItemsCloud.hydrate(mergedHeaders, mergedItems);
 
-    // Preserve items on lists that only exist locally (offline-created).
+    // Offline-created list not on server yet — keep local lines until first push.
     return hydrated.map((h) {
-      ShoppingList? prev;
+      if (cloudHeaderIds.contains(h.id) || h.items.isNotEmpty) return h;
       for (final l in local.lists) {
-        if (l.id == h.id) {
-          prev = l;
-          break;
+        if (l.id == h.id && l.items.isNotEmpty) {
+          return h.copyWith(items: l.items);
         }
-      }
-      if (prev != null && h.items.isEmpty && prev.items.isNotEmpty) {
-        return h.copyWith(items: prev.items);
       }
       return h;
     }).toList();

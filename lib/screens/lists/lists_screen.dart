@@ -15,6 +15,7 @@ import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
+import '../../services/database_service.dart';
 import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
@@ -23,6 +24,7 @@ import '../../widgets/module_ui_kit.dart';
 import '../../widgets/huddle_subpage_scaffold.dart';
 import '../../widgets/subscription_modal.dart';
 import '../../utils/cloud_pull.dart';
+import '../../utils/list_item_input.dart';
 
 void _notifyListCollaboratorsForList(
   AppProvider provider,
@@ -161,6 +163,10 @@ class _ListsScreenState extends State<ListsScreen> {
       return;
     }
     final db = provider.db;
+    DatabaseService.markTombstone(list.id);
+    for (final item in list.items) {
+      DatabaseService.markTombstone(item.id);
+    }
     await _saveShoppingLists(provider, db.copyWith(
       shoppingLists: db.shoppingLists.where((l) => l.id != list.id).toList(),
     ));
@@ -260,20 +266,30 @@ class _ListsScreenState extends State<ListsScreen> {
     );
   }
 
-  Future<void> _addItem(ShoppingList list, String name) async {
+  Future<void> _addItem(
+    ShoppingList list,
+    String name, {
+    String? quantity,
+  }) async {
     final provider = context.read<AppProvider>();
     if (!_canMutateItems(provider, list)) return;
     final db = provider.db;
-    final newItem = ListItem(id: const Uuid().v4(), text: name, checked: false);
+    final newItem = ListItem(
+      id: const Uuid().v4(),
+      text: name,
+      quantity: quantity,
+      checked: false,
+    );
     final updatedList = list.copyWith(items: [...list.items, newItem]);
     final updatedLists = db.shoppingLists.map((l) => l.id == list.id ? updatedList : l).toList();
     await _saveListItemsOnly(provider, db.copyWith(shoppingLists: updatedLists));
     setState(() => _selectedList = updatedList);
+    final qtyLabel = quantity != null && quantity.isNotEmpty ? ' ($quantity)' : '';
     _notifyListCollaboratorsForList(
       provider,
       list,
       title: list.title,
-      body: '${provider.activeUser?.name ?? 'Someone'} added "$name"',
+      body: '${provider.activeUser?.name ?? 'Someone'} added "$name$qtyLabel"',
     );
   }
 
@@ -302,6 +318,7 @@ class _ListsScreenState extends State<ListsScreen> {
   Future<void> _deleteItem(ShoppingList list, String itemId) async {
     final provider = context.read<AppProvider>();
     if (!_canMutateItems(provider, list)) return;
+    DatabaseService.markTombstone(itemId);
     final db = provider.db;
     final updatedList = list.copyWith(items: list.items.where((i) => i.id != itemId).toList());
     final updatedLists = db.shoppingLists.map((l) => l.id == list.id ? updatedList : l).toList();
@@ -333,6 +350,9 @@ class _ListsScreenState extends State<ListsScreen> {
     if (!mounted) return;
     final provider = context.read<AppProvider>();
     if (!_canMutateItems(provider, list)) return;
+    for (final item in checked) {
+      DatabaseService.markTombstone(item.id);
+    }
     final db = provider.db;
     final updatedList = list.copyWith(items: list.items.where((i) => !i.checked).toList());
     final updatedLists = db.shoppingLists.map((l) => l.id == list.id ? updatedList : l).toList();
@@ -583,12 +603,11 @@ class _ListsScreenState extends State<ListsScreen> {
           return true;
         },
         child: _ListDetailView(
-          key: ValueKey(
-            '${detailList.id}-${detailList.updatedAt.millisecondsSinceEpoch}-${detailList.items.length}',
-          ),
+          key: ValueKey(detailList.id),
           list: detailList,
           onBack: () => setState(() => _selectedList = null),
-          onAddItem: (name) => _addItem(detailList!, name),
+          onAddItem: (name, {quantity}) =>
+              _addItem(detailList!, name, quantity: quantity),
           onToggleItem: (item) => _toggleItem(detailList!, item),
           onDeleteItem: (id) => _deleteItem(detailList!, id),
           onClearChecked: () => _clearCheckedItems(detailList!),
@@ -1266,7 +1285,7 @@ enum _ListSortMode { manual, alphaAZ, alphaZA }
 class _ListDetailView extends StatefulWidget {
   final ShoppingList list;
   final VoidCallback onBack;
-  final Future<void> Function(String) onAddItem;
+  final Future<void> Function(String text, {String? quantity}) onAddItem;
   final Future<void> Function(ListItem) onToggleItem;
   final Future<void> Function(String) onDeleteItem;
   final Future<void> Function() onClearChecked;
@@ -1290,21 +1309,21 @@ class _ListDetailView extends StatefulWidget {
 }
 
 class _ListDetailViewState extends State<_ListDetailView> {
-  TextEditingController _addCtrl = TextEditingController();
+  TextEditingController? _addFieldCtrl;
+  FocusNode? _addFocusNode;
   bool _groupedView = false;
   _ListSortMode _sortMode = _ListSortMode.manual;
 
-  @override
-  void dispose() {
-    _addCtrl.dispose();
-    super.dispose();
-  }
-
   void _submit() {
-    final name = _addCtrl.text.trim();
-    if (name.isNotEmpty) {
-      widget.onAddItem(name);
-      _addCtrl.clear();
+    final parsed = parseListItemInput(_addFieldCtrl?.text ?? '');
+    if (parsed.isEmpty) return;
+    widget.onAddItem(parsed.text, quantity: parsed.quantity);
+    _addFieldCtrl?.clear();
+    final focus = _addFocusNode;
+    if (focus != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) focus.requestFocus();
+      });
     }
   }
 
@@ -1722,17 +1741,19 @@ class _ListDetailViewState extends State<_ListDetailView> {
                   return allNames.take(5);
                 },
                 onSelected: (value) {
-                  _addCtrl.text = value;
+                  _addFieldCtrl?.text = value;
                   _submit();
                 },
                 fieldViewBuilder: (context, textEditingController, focusNode, onFieldSubmitted) {
-                  _addCtrl = textEditingController;
+                  _addFieldCtrl = textEditingController;
+                  _addFocusNode = focusNode;
                   return TextField(
                     controller: textEditingController,
                     focusNode: focusNode,
                     textCapitalization: TextCapitalization.sentences,
+                    textInputAction: TextInputAction.done,
                     decoration: InputDecoration(
-                      hintText: 'Add item...',
+                      hintText: 'Add item (e.g. milk 2L, 2x eggs)',
                       hintStyle: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppTheme.stone400),
                       prefixIcon: const Icon(Icons.add_rounded, size: 20, color: AppTheme.stone400),
                       filled: true,
@@ -1742,7 +1763,7 @@ class _ListDetailViewState extends State<_ListDetailView> {
                       enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.stone200)),
                       focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primary)),
                     ),
-                    onSubmitted: (_) { onFieldSubmitted(); _submit(); },
+                    onSubmitted: (_) => _submit(),
                   );
                 },
               ),
