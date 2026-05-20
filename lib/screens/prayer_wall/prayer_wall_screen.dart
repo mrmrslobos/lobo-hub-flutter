@@ -121,17 +121,6 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
   String _searchQuery = '';
 
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      context
-          .read<AppProvider>()
-          .scheduleModuleEnterCloudPull({CloudSyncScope.prayerWall});
-    });
-  }
-
-  @override
   void dispose() {
     _searchDebounce.dispose();
     _searchCtrl.dispose();
@@ -291,6 +280,7 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
 
     return HuddleModuleScaffold(
       modulePath: '/prayer-wall',
+      enterPullTables: {CloudSyncScope.prayerWall},
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),

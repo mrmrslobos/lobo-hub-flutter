@@ -254,6 +254,7 @@ class _PollsScreenState extends State<PollsScreen> {
 
     return HuddleModuleScaffold(
       modulePath: '/polls',
+      enterPullTables: CloudSyncScope.pollBundle,
       drawer: const AppDrawer(),
       // backgroundColor handled by theme
       appBar: const MainAppBar(),

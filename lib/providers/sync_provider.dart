@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 
@@ -13,6 +14,17 @@ import '../services/sync_outbox.dart';
 import 'auth_provider.dart';
 import 'data_provider.dart';
 
+/// Structured sync diagnostics — filter logs by `[CloudSync]` (see docs/sync-repro-matrix.md).
+void _cloudSyncLog(String event, [Map<String, Object?> details = const {}]) {
+  if (details.isEmpty) {
+    debugPrint('[CloudSync] $event');
+    return;
+  }
+  final tail =
+      details.entries.map((e) => '${e.key}=${e.value}').join(' ');
+  debugPrint('[CloudSync] $event $tail');
+}
+
 class SyncProvider extends ChangeNotifier {
   final AuthProvider authProvider;
   final DataProvider dataProvider;
@@ -25,6 +37,7 @@ class SyncProvider extends ChangeNotifier {
           refreshFromCloud(familyIdOverride: familyIdOverride),
       startRealtimeListener: startRealtimeListener,
       stop: stop,
+      notifyFamilyScopedChange: notifyFamilyScopedChange,
     );
     SyncOutbox.registerErrorSink(setSyncError);
   }
@@ -48,14 +61,24 @@ class SyncProvider extends ChangeNotifier {
   final Set<String> _pendingModulePullTables = {};
   
   static const Duration _defaultPullDebounce = Duration(milliseconds: 450);
+  static const Duration _fastPullDebounce = Duration(milliseconds: 175);
   static const Duration resumeSyncStaleAfter = Duration(minutes: 3);
+
+  Duration _pullDebounceForTable(String table) =>
+      CloudSyncScope.fastRealtimePullTables.contains(table)
+          ? _fastPullDebounce
+          : _defaultPullDebounce;
 
   DateTime? _lastSuccessfulSyncAt;
   String? _lastSyncError;
+  DateTime? _lastIncrementalPatchAt;
+  String? _lastIncrementalPatchTable;
 
   bool get isSyncing => _isSyncing;
   DateTime? get lastSuccessfulSyncAt => _lastSuccessfulSyncAt;
   String? get lastSyncError => _lastSyncError;
+  DateTime? get lastIncrementalPatchAt => _lastIncrementalPatchAt;
+  String? get lastIncrementalPatchTable => _lastIncrementalPatchTable;
 
   void setOutboundSyncActive(bool active) {
     _outboundCloudSyncActive = active;
@@ -75,8 +98,26 @@ class SyncProvider extends ChangeNotifier {
   }
 
   void setSyncError(String error) {
+    if (!_shouldSurfaceSyncError(error)) return;
     _lastSyncError = error;
     notifyListeners();
+  }
+
+  /// Avoid alarming users for non-fatal reconcile noise or pre-migration tables.
+  static bool _shouldSurfaceSyncError(String error) {
+    final lower = error.toLowerCase();
+    if (lower.contains('parse error in')) return false;
+    if (lower.contains('pgrst205') ||
+        lower.contains('could not find the table')) {
+      return false;
+    }
+    if (lower.contains('outbox: list_items/') &&
+        lower.contains('violates foreign key')) {
+      return false;
+    }
+    // Outbox retries are logged; only surface after repeated failure.
+    if (lower.startsWith('outbox:')) return false;
+    return true;
   }
 
   void clearSyncError() {
@@ -118,7 +159,8 @@ class SyncProvider extends ChangeNotifier {
           callback: (payload) {
             if (_isPostgresSelfEcho(payload)) return;
             _maybeTombstoneFromSoftDelete(payload);
-            scheduleDebouncedPullFromCloud();
+            if (_tryApplyIncrementalRealtime(payload)) return;
+            scheduleDebouncedPullFromCloud(_pullDebounceForTable(payload.table));
           },
         );
       }
@@ -137,10 +179,96 @@ class SyncProvider extends ChangeNotifier {
           scheduleDebouncedPullFromCloud();
         },
       );
+      final activeUserId = authProvider.activeUser?.id;
+      if (activeUserId != null && activeUserId.isNotEmpty) {
+        for (final table in CloudSyncScope.realtimeUserScopedTables) {
+          channel = channel.onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: table,
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'user_id',
+              value: activeUserId,
+            ),
+            callback: (payload) {
+              if (_isPostgresSelfEcho(payload)) return;
+              _maybeTombstoneFromSoftDelete(payload);
+              scheduleDebouncedPullFromCloud(_pullDebounceForTable(payload.table));
+            },
+          );
+        }
+        channel = channel.onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: CloudSyncScope.users,
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'id',
+            value: activeUserId,
+          ),
+          callback: (payload) {
+            if (_isPostgresSelfEcho(payload)) return;
+            if (_tryApplyIncrementalRealtime(payload)) return;
+            scheduleModuleEnterCloudPull({CloudSyncScope.users});
+          },
+        );
+      }
+
       _postgresChannel = channel.subscribe();
     } catch (e) {
       debugPrint('[SyncProvider] Postgres realtime subscription failed: $e');
     }
+  }
+
+  /// Phase 3: patch [tasks] / [messages] / [lists] from realtime payload (no full pull).
+  bool _tryApplyIncrementalRealtime(PostgresChangePayload payload) {
+    if (!CloudSyncScope.incrementalRealtimeApplyTables
+        .contains(payload.table)) {
+      return false;
+    }
+    if (_outboundCloudSyncActive || _isSyncing) return false;
+    final familyId = authProvider.activeFamily?.id;
+    if (familyId == null) return false;
+
+    final merged = DatabaseService.applyRealtimeRowChange(
+      local: dataProvider.db,
+      table: payload.table,
+      familyId: familyId,
+      eventType: payload.eventType,
+      newRecord: Map<String, dynamic>.from(payload.newRecord),
+      oldRecord: Map<String, dynamic>.from(payload.oldRecord),
+    );
+    if (merged == null) return false;
+
+    unawaited(_commitIncrementalMerge(merged, payload.table));
+    return true;
+  }
+
+  Future<void> _commitIncrementalMerge(AppDB merged, String table) async {
+    try {
+      await dataProvider.updateDb(merged);
+      _lastSuccessfulSyncAt = DateTime.now();
+      _lastIncrementalPatchAt = _lastSuccessfulSyncAt;
+      _lastIncrementalPatchTable = table;
+      _lastSyncError = null;
+      _cloudSyncLog('realtime_patch_applied', {'table': table});
+    } catch (e) {
+      debugPrint('[SyncProvider] incremental merge save failed: $e');
+      scheduleDebouncedPullFromCloud(_pullDebounceForTable(table));
+    } finally {
+      notifyListeners();
+    }
+  }
+
+  /// After profile / member row changes: nudge other devices to pull scoped tables.
+  void notifyFamilyScopedChange(Set<String> tables) {
+    if (authProvider.activeFamily == null || !SupabaseService.isConfigured) {
+      return;
+    }
+    if (tables.isEmpty) return;
+    sendLocalChangeBroadcast();
+    scheduleModuleEnterCloudPull(tables);
   }
 
   /// If the realtime event is an UPDATE that set `deleted_at`, record a
@@ -243,6 +371,7 @@ class SyncProvider extends ChangeNotifier {
   void _flushDeferredCloudPullIfNeeded() {
     if (!_deferredCloudPull) return;
     _deferredCloudPull = false;
+    _cloudSyncLog('pull_flush_deferred');
     scheduleDebouncedPullFromCloud();
   }
 
@@ -261,6 +390,10 @@ class SyncProvider extends ChangeNotifier {
     if (fid == null || !SupabaseService.isConfigured) return;
     if (_outboundCloudSyncActive || _isSyncing) {
       _deferredCloudPull = true;
+      _cloudSyncLog('pull_deferred', {
+        'reason': 'outbound_or_pull_active',
+        'familyId': fid,
+      });
       return;
     }
     _isSyncing = true;
@@ -272,20 +405,29 @@ class SyncProvider extends ChangeNotifier {
         getLocalAfterFetch: () => dataProvider.db,
       );
       final err = DatabaseService.lastError;
-      if (err != null && err.isNotEmpty) {
+      if (err != null &&
+          err.isNotEmpty &&
+          _shouldSurfaceSyncError(err)) {
         _lastSyncError = err;
+        final snippet = err.length > 240 ? '${err.substring(0, 240)}…' : err;
+        _cloudSyncLog('reconcile_error', {'detail': snippet});
         return;
       }
-      dataProvider.updateDb(merged);
+      DatabaseService.lastError = null;
+      await dataProvider.updateDb(merged);
       await authProvider.repairOwnerMembershipIfNeeded();
       await authProvider.backfillMissingUsersIfNeeded(
         authProvider.activeFamily?.id ?? fid,
       );
       _lastSuccessfulSyncAt = DateTime.now();
       _lastSyncError = null;
+      unawaited(SyncOutbox.drain());
     } catch (e) {
       debugPrint('[SyncProvider] pullFromCloud error: $e');
-      _lastSyncError = e.toString();
+      final msg = e.toString();
+      if (_shouldSurfaceSyncError(msg)) {
+        _lastSyncError = msg;
+      }
     } finally {
       _isSyncing = false;
       notifyListeners();
@@ -302,6 +444,10 @@ class SyncProvider extends ChangeNotifier {
     if (_outboundCloudSyncActive || _isSyncing) {
       _deferredModulePullTables.addAll(tables);
       _deferredModulePull = true;
+      _cloudSyncLog('module_pull_deferred', {
+        'tables': tables.join(','),
+        'familyId': familyId,
+      });
       return;
     }
     _isSyncing = true;
@@ -314,18 +460,26 @@ class SyncProvider extends ChangeNotifier {
         getLocalAfterFetch: () => dataProvider.db,
       );
       final err = DatabaseService.lastError;
-      if (err != null && err.isNotEmpty) {
+      if (err != null &&
+          err.isNotEmpty &&
+          _shouldSurfaceSyncError(err)) {
         _lastSyncError = err;
+        final snippet = err.length > 240 ? '${err.substring(0, 240)}…' : err;
+        _cloudSyncLog('reconcile_error', {'detail': snippet, 'scoped': true});
         return;
       }
-      dataProvider.updateDb(merged);
+      DatabaseService.lastError = null;
+      await dataProvider.updateDb(merged);
       await authProvider.repairOwnerMembershipIfNeeded();
       await authProvider.backfillMissingUsersIfNeeded(familyId);
       _lastSuccessfulSyncAt = DateTime.now();
       _lastSyncError = null;
     } catch (e) {
       debugPrint('[SyncProvider] pullModuleScopedFromCloud error: $e');
-      _lastSyncError = e.toString();
+      final msg = e.toString();
+      if (_shouldSurfaceSyncError(msg)) {
+        _lastSyncError = msg;
+      }
     } finally {
       _isSyncing = false;
       notifyListeners();
@@ -336,14 +490,17 @@ class SyncProvider extends ChangeNotifier {
 
   void onAppResumed() {
     if (!authProvider.isAuthenticated || !SupabaseService.isConfigured) return;
-    // Flush any queued writes before pulling so they appear in the next pull.
-    unawaited(SyncOutbox.drain());
     final at = _lastSuccessfulSyncAt;
     final hadError = _lastSyncError != null && _lastSyncError!.isNotEmpty;
     final stale = at == null || DateTime.now().difference(at) > resumeSyncStaleAfter;
-    if (stale || hadError) {
-      refreshFromCloud();
-    }
+    unawaited(() async {
+      if (stale || hadError) {
+        await refreshFromCloud();
+      }
+      if (!_isSyncing) {
+        await SyncOutbox.drain();
+      }
+    }());
   }
 
   Future<void> refreshFromCloud({String? familyIdOverride}) async {
@@ -353,6 +510,7 @@ class SyncProvider extends ChangeNotifier {
     if (fid == null || !SupabaseService.isConfigured) return;
     if (_outboundCloudSyncActive || _isSyncing) {
       _deferredCloudPull = true;
+      _cloudSyncLog('refresh_deferred', {'familyId': fid});
       scheduleDebouncedPullFromCloud(Duration.zero);
       return;
     }
@@ -360,7 +518,7 @@ class SyncProvider extends ChangeNotifier {
   }
 
   Future<void> saveAndSync(AppDB newDb, {Set<String>? pushTableScope}) async {
-    dataProvider.updateDb(newDb);
+    await dataProvider.updateDb(newDb);
     final fam = authProvider.activeFamily;
     if (fam != null) {
       await syncToCloud(newDb, fam.id, tableScope: pushTableScope);
@@ -368,6 +526,7 @@ class SyncProvider extends ChangeNotifier {
   }
 
   Future<void> syncToCloud(AppDB newDb, String familyId, {Set<String>? tableScope}) async {
+    final sw = Stopwatch()..start();
     setOutboundSyncActive(true);
     _broadcastChange();
     try {
@@ -376,7 +535,16 @@ class SyncProvider extends ChangeNotifier {
       _broadcastChange();
     } catch (e) {
       setSyncError(e.toString());
+      _cloudSyncLog('outbound_error', {'error': e.toString(), 'familyId': familyId});
     } finally {
+      sw.stop();
+      _cloudSyncLog('outbound_done', {
+        'ms': sw.elapsedMilliseconds,
+        'familyId': familyId,
+        'scopedTables': tableScope == null || tableScope.isEmpty
+            ? 'full'
+            : tableScope.join(','),
+      });
       setOutboundSyncActive(false);
       // Drain any outbox records (e.g. queued soft-deletes from
       // _deleteRemovedRows) so a successful sync also flushes the queue.
@@ -413,7 +581,7 @@ class SyncProvider extends ChangeNotifier {
       detail: detail,
       relatedUserId: relatedUserId,
     );
-    dataProvider.updateDb(next);
+    await dataProvider.updateDb(next);
     await syncToCloud(next, fam.id, tableScope: {CloudSyncScope.familyActivityLogs});
   }
 }

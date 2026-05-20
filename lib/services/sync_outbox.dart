@@ -4,7 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
-import 'local_sembast_store.dart';
+import 'local_store/local_store_resolver.dart';
 import 'supabase_service.dart';
 
 /// Operations the outbox can replay.
@@ -121,7 +121,7 @@ class SyncOutbox {
     if (_hydrated) return;
     _hydrated = true;
     try {
-      final raw = await LocalSembastStore.readOutbox();
+      final raw = await (await resolvedLocalPersistence()).readOutbox();
       _records.clear();
       for (final j in raw) {
         final r = OutboxRecord.fromJson(j);
@@ -134,7 +134,7 @@ class SyncOutbox {
 
   static Future<void> _persist() async {
     try {
-      await LocalSembastStore.writeOutbox(
+      await (await resolvedLocalPersistence()).writeOutbox(
         _records.map((r) => r.toJson()).toList(),
       );
     } on Object catch (e, st) {

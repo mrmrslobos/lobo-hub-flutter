@@ -652,6 +652,7 @@ class _PhotosScreenState extends State<PhotosScreen> {
 
     return HuddleModuleScaffold(
       modulePath: '/photos',
+      enterPullTables: CloudSyncScope.photoMilestoneBundle,
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),

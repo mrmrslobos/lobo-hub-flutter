@@ -14,7 +14,6 @@ typedef LocationShare = UserLocation;
 typedef Occasion = SpecialDate;
 typedef Photo = FamilyPhoto;
 typedef Message = ChatMessage;
-typedef ShoppingListItem = ListItem;
 typedef MealPlan = MealPlanEntry;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1297,6 +1296,89 @@ class ListItem {
   String get name => text;
 }
 
+/// Supabase `list_items` row — one line per shopping list (family sync).
+class ShoppingListItem {
+  final String id;
+  final String listId;
+  final String familyId;
+  final String text;
+  final String? quantity;
+  final bool checked;
+  final String? notes;
+  final String? aiCategory;
+  final int sortOrder;
+  final DateTime updatedAt;
+
+  const ShoppingListItem({
+    required this.id,
+    required this.listId,
+    required this.familyId,
+    required this.text,
+    this.quantity,
+    this.checked = false,
+    this.notes,
+    this.aiCategory,
+    this.sortOrder = 0,
+    required this.updatedAt,
+  });
+
+  factory ShoppingListItem.fromJson(Map<String, dynamic> j) => ShoppingListItem(
+        id: j['id'] as String? ?? '',
+        listId: j['list_id'] as String? ?? '',
+        familyId: j['family_id'] as String? ?? '',
+        text: j['text'] as String? ?? '',
+        quantity: j['quantity'] as String?,
+        checked: _coerceBool(j['checked']),
+        notes: j['notes'] as String?,
+        aiCategory: j['ai_category'] as String?,
+        sortOrder: (j['sort_order'] as num?)?.toInt() ?? 0,
+        updatedAt: _parseDateOpt(j['updated_at']) ??
+            DateTime.fromMillisecondsSinceEpoch(0),
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'list_id': listId,
+        'family_id': familyId,
+        'text': text,
+        'quantity': quantity,
+        'checked': checked,
+        'notes': notes,
+        'ai_category': aiCategory,
+        'sort_order': sortOrder,
+        'updated_at': updatedAt.toIso8601String(),
+      };
+
+  ListItem toListItem() => ListItem(
+        id: id,
+        text: text,
+        quantity: quantity,
+        checked: checked,
+        notes: notes,
+        aiCategory: aiCategory,
+      );
+
+  factory ShoppingListItem.fromListItem(
+    ListItem item, {
+    required String listId,
+    required String familyId,
+    int sortOrder = 0,
+    DateTime? updatedAt,
+  }) =>
+      ShoppingListItem(
+        id: item.id,
+        listId: listId,
+        familyId: familyId,
+        text: item.text,
+        quantity: item.quantity,
+        checked: item.checked,
+        notes: item.notes,
+        aiCategory: item.aiCategory,
+        sortOrder: sortOrder,
+        updatedAt: updatedAt ?? DateTime.now(),
+      );
+}
+
 class ShoppingList {
   final String id;
   final String familyId;
@@ -1345,8 +1427,16 @@ class ShoppingList {
     'items': items.map((e) => e.toJson()).toList(),
     'category': category.name,
     'visibility': visibility.name,
+    'shared_with': sharedWith,
     'updated_at': updatedAt.toIso8601String(),
   };
+
+  /// List metadata for Supabase `lists` (items live in `list_items`).
+  Map<String, dynamic> toCloudHeaderJson() {
+    final m = Map<String, dynamic>.from(toJson());
+    m['items'] = <Map<String, dynamic>>[];
+    return m;
+  }
 
   // Convenience getters
   String get name => title;
@@ -1364,6 +1454,13 @@ class ShoppingList {
         category != null ||
         visibility != null ||
         sharedWith != null;
+    DateTime bumpedUpdatedAt() {
+      final prev = this.updatedAt;
+      final now = DateTime.now();
+      if (now.isAfter(prev)) return now;
+      return prev.add(const Duration(microseconds: 1));
+    }
+
     return ShoppingList(
       id: id ?? this.id,
       familyId: familyId ?? this.familyId,
@@ -1373,7 +1470,8 @@ class ShoppingList {
       category: category ?? this.category,
       visibility: visibility ?? this.visibility,
       sharedWith: sharedWith ?? this.sharedWith,
-      updatedAt: updatedAt ?? (anyField ? DateTime.now() : this.updatedAt),
+      updatedAt: updatedAt ??
+          (anyField ? bumpedUpdatedAt() : this.updatedAt),
     );
   }
 }
@@ -4150,6 +4248,8 @@ class NotificationPrefs {
   final bool birthdays;
   final bool photos;
   final bool location;
+  final bool budget;
+  final bool rewards;
   final bool weeklyDigest;
   final bool webPushEnabled;
   /// Local hour 0–23 when quiet hours start (inclusive). Both null = disabled.
@@ -4172,6 +4272,8 @@ class NotificationPrefs {
     this.birthdays = true,
     this.photos = false,
     this.location = false,
+    this.budget = true,
+    this.rewards = true,
     this.weeklyDigest = true,
     this.webPushEnabled = false,
     this.quietHoursStart,
@@ -4196,6 +4298,8 @@ class NotificationPrefs {
     birthdays: (j['birthdays'] ?? true) as bool,
     photos: (j['photos'] ?? false) as bool,
     location: (j['location'] ?? false) as bool,
+    budget: (j['budget'] ?? true) as bool,
+    rewards: (j['rewards'] ?? true) as bool,
     weeklyDigest: (j['weekly_digest'] ?? true) as bool,
     webPushEnabled: (j['web_push_enabled'] ?? false) as bool,
     quietHoursStart: (j['quiet_hours_start'] as num?)?.toInt(),
@@ -4216,6 +4320,8 @@ class NotificationPrefs {
     'birthdays': birthdays,
     'photos': photos,
     'location': location,
+    'budget': budget,
+    'rewards': rewards,
     'weekly_digest': weeklyDigest,
     'web_push_enabled': webPushEnabled,
     'quiet_hours_start': quietHoursStart,
@@ -4228,6 +4334,7 @@ class NotificationPrefs {
   NotificationPrefs copyWith({
     bool? chat, bool? tasks, bool? calendar, bool? chores, bool? lists,
     bool? polls, bool? meals, bool? birthdays, bool? photos, bool? location,
+    bool? budget, bool? rewards,
     bool? weeklyDigest, bool? webPushEnabled,
     int? quietHoursStart,
     int? quietHoursEnd,
@@ -4245,6 +4352,8 @@ class NotificationPrefs {
     birthdays: birthdays ?? this.birthdays,
     photos: photos ?? this.photos,
     location: location ?? this.location,
+    budget: budget ?? this.budget,
+    rewards: rewards ?? this.rewards,
     weeklyDigest: weeklyDigest ?? this.weeklyDigest,
     webPushEnabled: webPushEnabled ?? this.webPushEnabled,
     quietHoursStart: quietHoursStart ?? this.quietHoursStart,

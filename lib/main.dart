@@ -16,6 +16,7 @@ import 'providers/sync_provider.dart';
 import 'providers/theme_provider.dart';
 import 'services/locale_service.dart';
 import 'services/crash_reporting_service.dart';
+import 'background/background_task_scheduler.dart';
 import 'services/notification_service.dart';
 import 'services/purchase_service.dart';
 
@@ -124,10 +125,17 @@ void main() async {
 
   // Notifications / Firebase / IAP must not block the first frame (cold start UX).
   void startDeferredBootstrap() {
+    unawaited(BackgroundTaskScheduler.initialize());
     unawaited(NotificationService.ensureReady());
     unawaited(CrashReportingService.init());
     unawaited(PurchaseService.init(iosApiKey: iosKey, androidApiKey: androidKey));
-    unawaited(appProvider.initialize());
+    unawaited(
+      appProvider.initialize().then((_) async {
+        if (appProvider.isAuthenticated) {
+          await appProvider.prepareDailyDevotionalAndSchedule();
+        }
+      }),
+    );
   }
 
   scheduleMicrotask(startDeferredBootstrap);

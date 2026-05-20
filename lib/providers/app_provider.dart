@@ -9,6 +9,8 @@ import 'package:flutter/material.dart' show ThemeMode;
 
 import '../models/models.dart';
 import '../services/ai_service.dart';
+import '../background/background_task_scheduler.dart';
+import '../services/daily_devotional_service.dart';
 import '../services/database_service.dart';
 import '../services/field_encryption_service.dart';
 import '../services/purchase_service.dart';
@@ -61,6 +63,8 @@ class AppProvider extends ChangeNotifier {
   bool get isSyncing => _sync.isSyncing;
   DateTime? get lastSuccessfulSyncAt => _sync.lastSuccessfulSyncAt;
   String? get lastSyncError => _sync.lastSyncError;
+  DateTime? get lastIncrementalPatchAt => _sync.lastIncrementalPatchAt;
+  String? get lastIncrementalPatchTable => _sync.lastIncrementalPatchTable;
 
   DateTime? get lastLocalPersistAt => _data.lastLocalPersistAt;
 
@@ -100,10 +104,15 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> authenticate(User user, Family family) =>
-      _auth.authenticate(user, family);
+  Future<void> authenticate(User user, Family family) async {
+    await _auth.authenticate(user, family);
+    unawaited(prepareDailyDevotionalAndSchedule());
+  }
 
-  Future<void> logout() => _auth.logout();
+  Future<void> logout() async {
+    await BackgroundTaskScheduler.clearOnLogout();
+    await _auth.logout();
+  }
 
   Future<void> resetAllLocalDataAndSignOut() async {
     _sync.stop();
@@ -123,7 +132,7 @@ class AppProvider extends ChangeNotifier {
 
   Future<void> deleteAccount() => _auth.deleteAccount();
 
-  void updateDb(AppDB newDb) => _data.updateDb(newDb);
+  Future<void> updateDb(AppDB newDb) => _data.updateDb(newDb);
 
   Future<void> syncTasksNow() async {
     final fam = activeFamily;
@@ -137,6 +146,24 @@ class AppProvider extends ChangeNotifier {
     if (fam == null) return;
     await _data.syncListsNow(fam.id);
     _sync.sendLocalChangeBroadcast();
+  }
+
+  Future<void> syncListItemsNow() async {
+    final fam = activeFamily;
+    if (fam == null) return;
+    await _data.syncListItemsNow(fam.id);
+    _sync.sendLocalChangeBroadcast();
+  }
+
+  Future<void> syncTablesNow(Set<String> tables) async {
+    final fam = activeFamily;
+    if (fam == null || tables.isEmpty) return;
+    try {
+      await _data.syncTablesNow(fam.id, tables);
+      _sync.sendLocalChangeBroadcast();
+    } catch (e) {
+      _sync.setSyncError(e.toString());
+    }
   }
 
   Future<void> updateActiveUserSettings(Map<String, dynamic> patch) =>
@@ -236,7 +263,19 @@ class AppProvider extends ChangeNotifier {
 
   void clearSyncError() => _sync.clearSyncError();
 
-  void onAppResumed() => _sync.onAppResumed();
+  void notifyFamilyScopedChange(Set<String> tables) =>
+      _sync.notifyFamilyScopedChange(tables);
+
+  void onAppResumed() {
+    _sync.onAppResumed();
+    unawaited(prepareDailyDevotionalAndSchedule());
+  }
+
+  /// Foreground: ensure today's devotional exists and sync platform background prep.
+  Future<void> prepareDailyDevotionalAndSchedule() async {
+    await DailyDevotionalService.prepareOnAppActive(this);
+    await BackgroundTaskScheduler.syncDailyDevotionalSchedule(this);
+  }
 
   @override
   void dispose() {

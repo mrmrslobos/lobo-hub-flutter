@@ -304,9 +304,6 @@ class _FitnessScreenState extends State<FitnessScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      context
-          .read<AppProvider>()
-          .scheduleModuleEnterCloudPull(CloudSyncScope.fitnessFullBundle);
       final uid = context.read<AppProvider>().activeUser?.id;
       if (uid == null) return;
       showModuleDisclaimer(
@@ -643,6 +640,7 @@ Write 2-4 short paragraphs: (1) what went well or patterns you notice, (2) one c
 
     return HuddleModuleScaffold(
       modulePath: '/fitness',
+      enterPullTables: CloudSyncScope.fitnessFullBundle,
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),

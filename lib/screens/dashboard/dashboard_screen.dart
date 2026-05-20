@@ -267,8 +267,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _onRefresh() async {
     await pullCloudLatestWithHaptic(context);
     if (!mounted) return; // FIXED: context after async
-    final provider = context.read<AppProvider>();
-    await provider.saveAndSync(provider.db);
     await _loadAISuggestions(forceRefresh: true);
   }
 
@@ -871,6 +869,7 @@ Return ONLY the JSON array, no markdown.''',
 
         return HuddleModuleScaffold(
           modulePath: '/',
+          pullAllTablesOnEnter: true,
           drawer: const AppDrawer(),
           // backgroundColor handled by theme
           appBar: const MainAppBar(),
@@ -1855,7 +1854,7 @@ Return ONLY the JSON array, no markdown.''',
                   ),
                   IconButton(
                     icon: const Icon(Icons.close_rounded, color: Colors.white70, size: 18),
-                    onPressed: () {
+                    onPressed: () async {
                       final uid = provider.activeUser?.id;
                       final isOwner = uid != null && family.ownerId == uid;
                       if (!isOwner) {
@@ -1873,7 +1872,7 @@ Return ONLY the JSON array, no markdown.''',
                       final updated = family.copyWith(welcomeDismissed: true);
                       final db = provider.db;
                       provider.updateFamily(updated);
-                      provider.saveAndSync(
+                      await provider.saveAndSync(
                         db.copyWith(
                           families: db.families.map((f) => f.id == updated.id ? updated : f).toList(),
                         ),
