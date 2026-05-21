@@ -2,7 +2,7 @@
 // App entry point with go_router navigation and MaterialApp.router setup
 
 import 'dart:async';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -16,6 +16,7 @@ import 'config/app_config.dart';
 import 'providers/app_provider.dart';
 import 'widgets/route_recency.dart';
 import 'services/notification_service.dart';
+import 'services/daily_devotional_service.dart';
 import 'widgets/biometric_lock.dart';
 import 'widgets/offline_banner.dart';
 
@@ -95,6 +96,7 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
       _provider = context.read<AppProvider>();
       _router = _buildRouter(_provider);
       _provider.authProvider.onSessionReady = _consumePendingRoute;
+      NotificationService.onRoutePending = _consumePendingRoute;
       _isRouterInitialized = true;
       _listenToAuthState();
       WidgetsBinding.instance.addObserver(this);
@@ -105,35 +107,57 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _provider.isAuthenticated) {
-      _provider.onAppResumed();
-      unawaited(_provider.refreshStoreSubscription());
+    if (state == AppLifecycleState.resumed) {
+      if (_provider.isAuthenticated) {
+        _provider.onAppResumed();
+        unawaited(_provider.refreshStoreSubscription());
+      }
       _consumePendingRoute();
     }
   }
 
   /// Navigate to the route set by a notification tap (FCM or local).
-  /// Syncs with cloud first so newly-generated content is available.
   void _consumePendingRoute() {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await NotificationService.ensureReady();
-      final route = NotificationService.pendingRoute;
-      if (route == null || route.isEmpty) return;
-      if (!_provider.isAuthenticated) {
-        return;
-      }
+      final pending = NotificationService.pendingRoute;
+      if (pending == null || pending.isEmpty) return;
+      if (!_provider.isAuthenticated) return;
+
+      var route = pending;
       NotificationService.pendingRoute = null;
       try {
-        if (_provider.isAuthenticated) {
+        if (route.startsWith('/devotional')) {
+          await _provider.prepareDailyDevotionalAndSchedule();
+          route = _resolveDevotionalRoute(route);
+        } else {
           await _provider.refreshFromCloud();
-          if (route.startsWith('/devotional')) {
-            await _provider.prepareDailyDevotionalAndSchedule();
-          }
         }
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('[HuddleApp] pending route prep failed: $e');
+      }
       if (!mounted) return;
       _router.go(route);
     });
+  }
+
+  String _resolveDevotionalRoute(String route) {
+    final uri = Uri.parse(route.startsWith('/') ? route : '/$route');
+    final existingId =
+        uri.queryParameters['id'] ?? uri.queryParameters['devotionalId'];
+    if (existingId != null && existingId.isNotEmpty) {
+      return '/devotional?id=$existingId';
+    }
+    final user = _provider.activeUser;
+    final family = _provider.activeFamily;
+    if (user == null || family == null) return '/devotional';
+    final entry = DailyDevotionalService.findTodaysAuto(
+      _provider.db,
+      familyId: family.id,
+      userId: user.id,
+    );
+    if (entry != null) return '/devotional?id=${entry.id}';
+    return '/devotional';
   }
 
   void _listenToAuthState() {
@@ -161,6 +185,7 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    NotificationService.onRoutePending = null;
     WidgetsBinding.instance.removeObserver(this);
     _authSub?.cancel();
     super.dispose();
@@ -356,7 +381,10 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
                     state.uri.queryParameters['devotionalId'];
                 return _huddlePage(
                   state,
-                  DevotionalScreen(initialDevotionalId: id),
+                  DevotionalScreen(
+                    key: ValueKey(id ?? 'devotional'),
+                    initialDevotionalId: id,
+                  ),
                 );
               },
             ),

@@ -131,9 +131,11 @@ void main() async {
     unawaited(PurchaseService.init(iosApiKey: iosKey, androidApiKey: androidKey));
     unawaited(
       appProvider.initialize().then((_) async {
-        if (appProvider.isAuthenticated) {
-          await appProvider.prepareDailyDevotionalAndSchedule();
-        }
+        if (!appProvider.isAuthenticated) return;
+        // Auth bootstrap already started a cloud pull — wait for it instead of
+        // running a second full reconcile (daily devotional + resume hook).
+        await appProvider.whenCloudPullIdle();
+        await appProvider.prepareDailyDevotionalAndSchedule();
       }),
     );
   }

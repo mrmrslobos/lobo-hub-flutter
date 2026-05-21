@@ -261,6 +261,8 @@ class AppProvider extends ChangeNotifier {
   Future<void> refreshFromCloud({String? familyIdOverride}) =>
       _sync.refreshFromCloud(familyIdOverride: familyIdOverride);
 
+  Future<void> whenCloudPullIdle() => _sync.whenCloudPullIdle();
+
   void clearSyncError() => _sync.clearSyncError();
 
   void notifyFamilyScopedChange(Set<String> tables) =>
@@ -272,8 +274,13 @@ class AppProvider extends ChangeNotifier {
   }
 
   /// Foreground: ensure today's devotional exists and sync platform background prep.
-  Future<void> prepareDailyDevotionalAndSchedule() async {
-    await DailyDevotionalService.prepareOnAppActive(this);
+  Future<void> prepareDailyDevotionalAndSchedule({
+    bool syncCloudFirst = false,
+  }) async {
+    await DailyDevotionalService.prepareOnAppActive(
+      this,
+      syncCloudFirst: syncCloudFirst,
+    );
     await BackgroundTaskScheduler.syncDailyDevotionalSchedule(this);
   }
 

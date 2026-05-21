@@ -92,7 +92,10 @@ class DailyDevotionalService {
   }
 
   /// Sync + generate today's devotional when enabled; refresh the daily alarm.
-  static Future<DevotionalEntry?> prepareOnAppActive(AppProvider provider) async {
+  static Future<DevotionalEntry?> prepareOnAppActive(
+    AppProvider provider, {
+    bool syncCloudFirst = false,
+  }) async {
     final family = provider.activeFamily;
     final user = provider.activeUser;
     if (family == null || user == null) return null;
@@ -103,7 +106,7 @@ class DailyDevotionalService {
 
     final entry = await ensureTodayDevotional(
       provider,
-      syncCloudFirst: true,
+      syncCloudFirst: syncCloudFirst,
       generateIfMissing: true,
     );
     await rescheduleNotification(provider, entry: entry);
@@ -152,10 +155,8 @@ class DailyDevotionalService {
       db: provider.db,
       user: user,
       familyId: family.id,
+      provider: provider,
     );
-    if (entry != null) {
-      await provider.updateDb(await DatabaseService.loadLocal());
-    }
     return entry;
   }
 

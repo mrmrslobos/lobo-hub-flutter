@@ -247,7 +247,9 @@ class _DevotionalScreenState extends State<DevotionalScreen>
     super.didChangeDependencies();
     final id = widget.initialDevotionalId;
     if (id != null && id.isNotEmpty && !_deepLinkHandled) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _openDevotionalFromNotification(id));
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _openDevotionalFromNotification(id),
+      );
     }
   }
 
@@ -316,6 +318,13 @@ class _DevotionalScreenState extends State<DevotionalScreen>
         debugPrint('[DevotionalScreen] direct devotional fetch failed: $err\n$st');
       }
     }
+    if (e == null) {
+      e = await DailyDevotionalService.ensureTodayDevotional(
+        provider,
+        syncCloudFirst: true,
+        generateIfMissing: true,
+      );
+    }
     if (!mounted) return;
     if (e != null) {
       setState(() {
@@ -325,7 +334,10 @@ class _DevotionalScreenState extends State<DevotionalScreen>
       });
     } else {
       _deepLinkHandled = true;
-      _showSnack(context, 'Still loading today\'s devotional — open Devotional again in a few seconds.');
+      _showSnack(
+        context,
+        'Could not load today\'s devotional. Check your connection or AI subscription.',
+      );
     }
   }
 

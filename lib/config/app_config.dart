@@ -8,13 +8,9 @@ class AppConfig {
   static const String internalProductName = 'LoboHub';
   static const String appBundleId = 'com.opensolutions.huddle';
 
-  /// Google Play listing (marketing site & share links).
+  /// Google Play listing (marketing site & in-app “get the app” links).
   static const String googlePlayUrl =
       'https://play.google.com/store/apps/details?id=com.opensolutions.huddle&hl=en_AU';
-
-  /// Google Play listing (marketing site + in-app “get the app” links).
-  static const String googlePlayUrl =
-      'https://play.google.com/store/apps/details?id=com.opensolutions.huddle';
 
   // Auth copy
   static const String loginTagline = 'Welcome back.';

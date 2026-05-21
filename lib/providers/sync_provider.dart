@@ -54,6 +54,7 @@ class SyncProvider extends ChangeNotifier {
   bool _isSyncing = false;
   bool _outboundCloudSyncActive = false;
   bool _deferredCloudPull = false;
+  Future<void>? _inFlightPull;
   Timer? _pullDebounceTimer;
   bool _deferredModulePull = false;
   final Set<String> _deferredModulePullTables = {};
@@ -372,7 +373,9 @@ class SyncProvider extends ChangeNotifier {
     if (!_deferredCloudPull) return;
     _deferredCloudPull = false;
     _cloudSyncLog('pull_flush_deferred');
-    scheduleDebouncedPullFromCloud();
+    // Defer to next event loop tick so [refreshFromCloud] can clear [_inFlightPull]
+    // before we start the follow-up pull.
+    scheduleMicrotask(() => unawaited(refreshFromCloud()));
   }
 
   void _flushDeferredModulePullIfNeeded() {
@@ -492,15 +495,39 @@ class SyncProvider extends ChangeNotifier {
     if (!authProvider.isAuthenticated || !SupabaseService.isConfigured) return;
     final at = _lastSuccessfulSyncAt;
     final hadError = _lastSyncError != null && _lastSyncError!.isNotEmpty;
-    final stale = at == null || DateTime.now().difference(at) > resumeSyncStaleAfter;
+    final pullAlreadyRunning =
+        _inFlightPull != null || _isSyncing || _outboundCloudSyncActive;
+    // Cold start already kicks off a deferred pull from auth bootstrap — avoid
+    // treating "never synced yet" as stale while that pull is still running.
+    final stale = !pullAlreadyRunning &&
+        (at == null || DateTime.now().difference(at) > resumeSyncStaleAfter);
     unawaited(() async {
       if (stale || hadError) {
         await refreshFromCloud();
       }
-      if (!_isSyncing) {
+      if (!_isSyncing && _inFlightPull == null) {
         await SyncOutbox.drain();
       }
     }());
+  }
+
+  /// Await the in-flight cloud pull, if any (startup bootstrap / refresh).
+  Future<void> whenCloudPullIdle({
+    Duration timeout = const Duration(minutes: 2),
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    while (_inFlightPull != null ||
+        _deferredCloudPull ||
+        _isSyncing ||
+        _outboundCloudSyncActive) {
+      if (DateTime.now().isAfter(deadline)) return;
+      final pull = _inFlightPull;
+      if (pull != null) {
+        await pull;
+      } else {
+        await Future<void>.delayed(const Duration(milliseconds: 25));
+      }
+    }
   }
 
   Future<void> refreshFromCloud({String? familyIdOverride}) async {
@@ -508,13 +535,27 @@ class SyncProvider extends ChangeNotifier {
     _pullDebounceTimer = null;
     final fid = familyIdOverride ?? authProvider.activeFamily?.id;
     if (fid == null || !SupabaseService.isConfigured) return;
+
+    if (_inFlightPull != null) {
+      _deferredCloudPull = true;
+      return _inFlightPull!;
+    }
+
     if (_outboundCloudSyncActive || _isSyncing) {
       _deferredCloudPull = true;
       _cloudSyncLog('refresh_deferred', {'familyId': fid});
-      scheduleDebouncedPullFromCloud(Duration.zero);
       return;
     }
-    await _pullFromCloudNow(familyId: fid);
+
+    final pull = _pullFromCloudNow(familyId: fid);
+    _inFlightPull = pull;
+    try {
+      await pull;
+    } finally {
+      if (identical(_inFlightPull, pull)) {
+        _inFlightPull = null;
+      }
+    }
   }
 
   Future<void> saveAndSync(AppDB newDb, {Set<String>? pushTableScope}) async {

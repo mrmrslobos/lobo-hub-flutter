@@ -1,9 +1,11 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/widgets.dart' show WidgetsFlutterBinding;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, debugPrint, defaultTargetPlatform, kIsWeb;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
@@ -33,6 +35,56 @@ class NotificationService {
   /// Consumers should read and clear this after acting on it.
   static String? pendingRoute;
 
+  static const _pendingRouteStorageKey = 'notification_pending_route';
+
+  /// Fired on the main isolate when [pendingRoute] is set (tap / cold start).
+  static void Function()? onRoutePending;
+
+  static void _notifyRoutePending() {
+    onRoutePending?.call();
+  }
+
+  static String _routeFromPayload(String? raw) {
+    final p = (raw ?? '').trim();
+    if (p.isEmpty) return '/';
+    if (p.startsWith('task:') || p.startsWith('/')) return p;
+    return '/$p';
+  }
+
+  static void _setPendingRoute(String? route) {
+    final r = route?.trim();
+    if (r == null || r.isEmpty) return;
+    pendingRoute = r;
+    _notifyRoutePending();
+  }
+
+  /// Background isolate entry (Android): persist route for main isolate.
+  @pragma('vm:entry-point')
+  static Future<void> persistPendingRouteFromBackground(String? payload) async {
+    WidgetsFlutterBinding.ensureInitialized();
+    final route = _routeFromPayload(payload);
+    if (route.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_pendingRouteStorageKey, route);
+    } catch (e) {
+      debugPrint('[NotificationService] persist pending route failed: $e');
+    }
+  }
+
+  static Future<void> _hydratePendingRouteFromStorage() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getString(_pendingRouteStorageKey);
+      if (stored == null || stored.trim().isEmpty) return;
+      await prefs.remove(_pendingRouteStorageKey);
+      pendingRoute ??= stored.trim();
+      _notifyRoutePending();
+    } catch (e) {
+      debugPrint('[NotificationService] hydrate pending route failed: $e');
+    }
+  }
+
   static Future<void> ensureReady() {
     _initFuture ??= _initImpl();
     return _initFuture!;
@@ -58,16 +110,7 @@ class NotificationService {
   }
 
   static void _routeFromTapPayload(String? raw) {
-    final p = (raw ?? '').trim();
-    if (p.isEmpty) {
-      pendingRoute = '/';
-      return;
-    }
-    if (p.startsWith('task:') || p.startsWith('/')) {
-      pendingRoute = p;
-    } else {
-      pendingRoute = '/$p';
-    }
+    _setPendingRoute(_routeFromPayload(raw));
   }
 
   static String? _routeFromRemoteMessageData(Map<String, dynamic> data) {
@@ -89,7 +132,7 @@ class NotificationService {
   static void _onFcmMessageTap(RemoteMessage message) {
     final route =
         _routeFromRemoteMessageData(Map<String, dynamic>.from(message.data));
-    pendingRoute = route;
+    _setPendingRoute(route);
   }
 
   static Future<void> _configureAndroidChannels() async {
@@ -164,6 +207,7 @@ class NotificationService {
     await _plugin.initialize(
       initSettings,
       onDidReceiveNotificationResponse: _onNotificationTap,
+      onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
     );
 
     if (!kIsWeb) {
@@ -173,6 +217,7 @@ class NotificationService {
     await requestPermissions();
 
     await _consumeLocalNotificationLaunchTap();
+    await _hydratePendingRouteFromStorage();
 
     _localNotificationsReady = true;
 
@@ -598,4 +643,11 @@ class NotificationService {
       debugPrint('[NotificationService] registerDeviceToken error: $e\n$st');
     }
   }
+}
+
+/// Top-level handler for notification taps while the app is in the background
+/// (separate isolate on Android). Persists route for the main isolate.
+@pragma('vm:entry-point')
+void notificationTapBackground(NotificationResponse response) {
+  NotificationService.persistPendingRouteFromBackground(response.payload);
 }
