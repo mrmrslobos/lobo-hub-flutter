@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 
@@ -10,9 +12,17 @@ import '../services/family_activity_service.dart';
 import '../services/supabase_service.dart';
 import '../services/sync_echo_tracker.dart';
 import '../services/sync_outbox.dart';
+import '../utils/app_log.dart';
 import 'auth_provider.dart';
 import 'data_provider.dart';
 
+/// Live Supabase Realtime websocket state (broadcast + postgres channels).
+enum RealtimeConnectionState {
+  inactive,
+  connecting,
+  live,
+  disconnected,
+}
 class SyncProvider extends ChangeNotifier {
   final AuthProvider authProvider;
   final DataProvider dataProvider;
@@ -37,9 +47,16 @@ class SyncProvider extends ChangeNotifier {
 
   RealtimeChannel? _realtimeChannel;
   RealtimeChannel? _postgresChannel;
+  bool _broadcastLive = false;
+  bool _postgresLive = false;
+  bool _realtimeIntentionalStop = false;
+  Timer? _realtimeReconnectTimer;
+  int _realtimeReconnectAttempt = 0;
+  RealtimeConnectionState _realtimeConnectionState =
+      RealtimeConnectionState.inactive;
+  String? _realtimeLastError;
 
-  bool _isSyncing = false;
-  bool _outboundCloudSyncActive = false;
+  static const Duration _maxRealtimeReconnectDelay = Duration(seconds: 30);  bool _outboundCloudSyncActive = false;
   bool _deferredCloudPull = false;
   Timer? _pullDebounceTimer;
   bool _deferredModulePull = false;
@@ -56,7 +73,13 @@ class SyncProvider extends ChangeNotifier {
   bool get isSyncing => _isSyncing;
   DateTime? get lastSuccessfulSyncAt => _lastSuccessfulSyncAt;
   String? get lastSyncError => _lastSyncError;
+  RealtimeConnectionState get realtimeConnectionState =>
+      _realtimeConnectionState;
+  bool get isRealtimeLive =>
+      _realtimeConnectionState == RealtimeConnectionState.live;
+  String? get realtimeLastError => _realtimeLastError;
 
+  bool _isSyncing = false;
   void setOutboundSyncActive(bool active) {
     _outboundCloudSyncActive = active;
     if (active) {
@@ -86,12 +109,19 @@ class SyncProvider extends ChangeNotifier {
   }
 
   void startRealtimeListener() {
+    _cancelRealtimeReconnectTimer();
     _stopRealtimeListener();
     if (BuildFlags.photoframe) {
+      _setRealtimeConnectionState(RealtimeConnectionState.inactive);
       return;
     }
     final familyId = authProvider.activeFamily?.id;
-    if (familyId == null || !SupabaseService.isConfigured) return;
+    if (familyId == null || !SupabaseService.isConfigured) {
+      _setRealtimeConnectionState(RealtimeConnectionState.inactive);
+      return;
+    }
+
+    _setRealtimeConnectionState(RealtimeConnectionState.connecting);
 
     _realtimeChannel = SupabaseService.subscribeToFamily(
       familyId,
@@ -100,6 +130,7 @@ class SyncProvider extends ChangeNotifier {
         if (senderId == authProvider.activeUser?.id) return;
         scheduleDebouncedPullFromCloud();
       },
+      onStatus: _onBroadcastChannelStatus,
     );
 
     try {
@@ -115,11 +146,7 @@ class SyncProvider extends ChangeNotifier {
             column: 'family_id',
             value: familyId,
           ),
-          callback: (payload) {
-            if (_isPostgresSelfEcho(payload)) return;
-            _maybeTombstoneFromSoftDelete(payload);
-            scheduleDebouncedPullFromCloud();
-          },
+          callback: (payload) => _onPostgresChange(payload, familyId),
         );
       }
 
@@ -132,15 +159,170 @@ class SyncProvider extends ChangeNotifier {
           column: 'id',
           value: familyId,
         ),
-        callback: (payload) {
-          if (_isPostgresSelfEcho(payload)) return;
-          scheduleDebouncedPullFromCloud();
-        },
+        callback: (payload) => _onPostgresChange(payload, familyId),
       );
-      _postgresChannel = channel.subscribe();
-    } catch (e) {
-      debugPrint('[SyncProvider] Postgres realtime subscription failed: $e');
+      _postgresChannel = channel.subscribe(_onPostgresChannelStatus);
+    } catch (e, st) {
+      AppLog.sync('Postgres realtime subscription failed: $e\n$st');
+      _realtimeLastError = e.toString();
+      _setRealtimeConnectionState(RealtimeConnectionState.disconnected);
+      _scheduleRealtimeReconnect();
     }
+  }
+
+  /// Re-subscribe live channels and pull fresh data (manual retry / connectivity).
+  Future<void> reconnectRealtime({bool pullAfter = true}) async {
+    if (!authProvider.isAuthenticated || !SupabaseService.isConfigured) return;
+    _realtimeReconnectAttempt = 0;
+    startRealtimeListener();
+    if (pullAfter) {
+      await refreshFromCloud();
+    }
+  }
+
+  void onConnectivityRestored() {
+    if (!authProvider.isAuthenticated || !SupabaseService.isConfigured) return;
+    unawaited(SyncOutbox.drain());
+    if (!isRealtimeLive) {
+      _scheduleRealtimeReconnect(immediate: true);
+    }
+    onAppResumed();
+  }
+
+  void _onBroadcastChannelStatus(
+    RealtimeSubscribeStatus status,
+    Object? error,
+  ) {
+    if (_realtimeIntentionalStop) return;
+    switch (status) {
+      case RealtimeSubscribeStatus.subscribed:
+        _broadcastLive = true;
+        _updateAggregateRealtimeState();
+        AppLog.sync('Broadcast realtime subscribed');
+        break;
+      case RealtimeSubscribeStatus.channelError:
+      case RealtimeSubscribeStatus.timedOut:
+      case RealtimeSubscribeStatus.closed:
+        _broadcastLive = false;
+        _realtimeLastError = error?.toString() ?? status.name;
+        AppLog.sync('Broadcast realtime $status: $_realtimeLastError');
+        _updateAggregateRealtimeState();
+        if (status != RealtimeSubscribeStatus.closed) {
+          _scheduleRealtimeReconnect();
+        }
+        break;
+    }
+  }
+
+  void _onPostgresChannelStatus(
+    RealtimeSubscribeStatus status,
+    Object? error,
+  ) {
+    if (_realtimeIntentionalStop) return;
+    switch (status) {
+      case RealtimeSubscribeStatus.subscribed:
+        _postgresLive = true;
+        _updateAggregateRealtimeState();
+        AppLog.sync('Postgres realtime subscribed');
+        if (_realtimeReconnectAttempt > 0) {
+          scheduleDebouncedPullFromCloud(const Duration(milliseconds: 300));
+        }
+        break;
+      case RealtimeSubscribeStatus.channelError:
+      case RealtimeSubscribeStatus.timedOut:
+      case RealtimeSubscribeStatus.closed:
+        _postgresLive = false;
+        _realtimeLastError = error?.toString() ?? status.name;
+        AppLog.sync('Postgres realtime $status: $_realtimeLastError');
+        _updateAggregateRealtimeState();
+        if (status != RealtimeSubscribeStatus.closed) {
+          _scheduleRealtimeReconnect();
+        }
+        break;
+    }
+  }
+
+  void _updateAggregateRealtimeState() {
+    if (!authProvider.isAuthenticated ||
+        BuildFlags.photoframe ||
+        !SupabaseService.isConfigured) {
+      _setRealtimeConnectionState(RealtimeConnectionState.inactive);
+      return;
+    }
+    if (_broadcastLive && _postgresLive) {
+      _realtimeReconnectAttempt = 0;
+      _realtimeLastError = null;
+      _setRealtimeConnectionState(RealtimeConnectionState.live);
+      return;
+    }
+    if (_realtimeReconnectTimer != null ||
+        _realtimeConnectionState == RealtimeConnectionState.connecting) {
+      _setRealtimeConnectionState(RealtimeConnectionState.connecting);
+      return;
+    }
+    _setRealtimeConnectionState(RealtimeConnectionState.disconnected);
+  }
+
+  void _setRealtimeConnectionState(RealtimeConnectionState state) {
+    if (_realtimeConnectionState == state) return;
+    _realtimeConnectionState = state;
+    notifyListeners();
+  }
+
+  void _scheduleRealtimeReconnect({bool immediate = false}) {
+    if (_realtimeIntentionalStop ||
+        BuildFlags.photoframe ||
+        !authProvider.isAuthenticated ||
+        !SupabaseService.isConfigured) {
+      return;
+    }
+    _cancelRealtimeReconnectTimer();
+    _setRealtimeConnectionState(RealtimeConnectionState.connecting);
+
+    final attempt = _realtimeReconnectAttempt;
+    _realtimeReconnectAttempt = attempt + 1;
+    final baseMs = immediate ? 0 : 1000 * math.pow(2, attempt).toInt();
+    final delayMs = math.min(baseMs, _maxRealtimeReconnectDelay.inMilliseconds);
+    AppLog.sync(
+      'Scheduling realtime reconnect in ${delayMs}ms (attempt ${attempt + 1})',
+    );
+
+    _realtimeReconnectTimer = Timer(Duration(milliseconds: delayMs), () {
+      _realtimeReconnectTimer = null;
+      if (!authProvider.isAuthenticated || !SupabaseService.isConfigured) {
+        return;
+      }
+      startRealtimeListener();
+    });
+  }
+
+  void _cancelRealtimeReconnectTimer() {
+    _realtimeReconnectTimer?.cancel();
+    _realtimeReconnectTimer = null;
+  }
+  void _onPostgresChange(PostgresChangePayload payload, String familyId) {
+    if (_isPostgresSelfEcho(payload)) return;
+    _maybeTombstoneFromSoftDelete(payload);
+
+    if (_outboundCloudSyncActive || _isSyncing) {
+      _deferredCloudPull = true;
+      return;
+    }
+
+    final patched = DatabaseService.applyRealtimePostgresPatch(
+      dataProvider.db,
+      payload,
+      familyId,
+    );
+    if (patched != null) {
+      dataProvider.updateDb(patched);
+      _lastSuccessfulSyncAt = DateTime.now();
+      _lastSyncError = null;
+      notifyListeners();
+      return;
+    }
+
+    scheduleDebouncedPullFromCloud();
   }
 
   /// If the realtime event is an UPDATE that set `deleted_at`, record a
@@ -189,21 +371,28 @@ class SyncProvider extends ChangeNotifier {
   }
 
   void _stopRealtimeListener() {
+    _realtimeIntentionalStop = true;
     if (_realtimeChannel != null) {
-      SupabaseService.unsubscribe(_realtimeChannel!);
+      unawaited(SupabaseService.unsubscribe(_realtimeChannel!));
       _realtimeChannel = null;
     }
     if (_postgresChannel != null) {
-      SupabaseService.unsubscribe(_postgresChannel!);
+      unawaited(SupabaseService.unsubscribe(_postgresChannel!));
       _postgresChannel = null;
     }
+    _broadcastLive = false;
+    _postgresLive = false;
+    _realtimeIntentionalStop = false;
   }
 
   void stop() {
     _cancelScheduledCloudPulls();
+    _cancelRealtimeReconnectTimer();
     _stopRealtimeListener();
+    _realtimeReconnectAttempt = 0;
+    _realtimeLastError = null;
+    _setRealtimeConnectionState(RealtimeConnectionState.inactive);
   }
-
   void _cancelScheduledCloudPulls() {
     _pullDebounceTimer?.cancel();
     _pullDebounceTimer = null;
@@ -336,8 +525,10 @@ class SyncProvider extends ChangeNotifier {
 
   void onAppResumed() {
     if (!authProvider.isAuthenticated || !SupabaseService.isConfigured) return;
-    // Flush any queued writes before pulling so they appear in the next pull.
     unawaited(SyncOutbox.drain());
+    if (!isRealtimeLive) {
+      _scheduleRealtimeReconnect(immediate: true);
+    }
     final at = _lastSuccessfulSyncAt;
     final hadError = _lastSyncError != null && _lastSyncError!.isNotEmpty;
     final stale = at == null || DateTime.now().difference(at) > resumeSyncStaleAfter;
@@ -345,7 +536,6 @@ class SyncProvider extends ChangeNotifier {
       refreshFromCloud();
     }
   }
-
   Future<void> refreshFromCloud({String? familyIdOverride}) async {
     _pullDebounceTimer?.cancel();
     _pullDebounceTimer = null;

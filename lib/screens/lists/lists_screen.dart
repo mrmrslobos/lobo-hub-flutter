@@ -35,6 +35,17 @@ class _ListsScreenState extends State<ListsScreen> {
   ShoppingList? _selectedList;
   bool _pullRefreshing = false;
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context
+          .read<AppProvider>()
+          .scheduleModuleEnterCloudPull(CloudSyncScope.listsBundle);
+    });
+  }
+
   bool _canAccessList(ShoppingList list, String userId) {
     if (list.creatorId == userId) return true;
     switch (list.visibility) {
@@ -67,7 +78,7 @@ class _ListsScreenState extends State<ListsScreen> {
   /// Persist lists and push to Supabase ([saveAndSync] enqueues list scope).
   Future<void> _saveShoppingLists(AppProvider provider, AppDB nextDb) async {
     await provider.saveAndSync(nextDb,
-        pushTableScope: {CloudSyncScope.lists});
+        pushTableScope: CloudSyncScope.listsBundle);
   }
 
   /// Opens an existing list or creates one when the title matches case-insensitively.
@@ -1174,7 +1185,7 @@ class _AiCategorizationSheetState extends State<_AiCategorizationSheet> {
                       .map((l) => l.id == widget.list.id ? updatedList : l)
                       .toList();
                   await provider.saveAndSync(db.copyWith(shoppingLists: updatedLists),
-                    pushTableScope: {CloudSyncScope.lists});
+                    pushTableScope: CloudSyncScope.listsBundle);
                   if (provider.activeFamily != null) unawaited(provider.syncListsNow());
 
                   if (!context.mounted) return;
@@ -1374,7 +1385,7 @@ class _ListDetailViewState extends State<_ListDetailView> {
     final updatedList = widget.list.copyWith(items: updatedItems);
     final updatedLists = db.shoppingLists.map((l) => l.id == widget.list.id ? updatedList : l).toList();
     await provider.saveAndSync(db.copyWith(shoppingLists: updatedLists),
-                    pushTableScope: {CloudSyncScope.lists});
+                    pushTableScope: CloudSyncScope.listsBundle);
     if (provider.activeFamily != null) unawaited(provider.syncListsNow());
   }
 
@@ -1824,7 +1835,7 @@ class _AiTextToChecklistSheetState extends State<_AiTextToChecklistSheet> {
 
       await provider.saveAndSync(
         db.copyWith(shoppingLists: [...db.shoppingLists, newList]),
-        pushTableScope: {CloudSyncScope.lists});
+        pushTableScope: CloudSyncScope.listsBundle);
       if (provider.activeFamily != null) unawaited(provider.syncListsNow());
 
       if (mounted) {

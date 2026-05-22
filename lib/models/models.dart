@@ -1250,6 +1250,8 @@ class ListItem {
   final bool checked;
   final String? notes;
   final String? aiCategory;
+  final int sortOrder;
+  final DateTime updatedAt;
 
   ListItem({
     required this.id,
@@ -1260,8 +1262,11 @@ class ListItem {
     this.checked = false,
     this.notes,
     this.aiCategory,
-  }) : text = text ?? name ?? '',
-       quantity = quantity ?? rawQuantity?.toString();
+    this.sortOrder = 0,
+    DateTime? updatedAt,
+  })  : text = text ?? name ?? '',
+        quantity = quantity ?? rawQuantity?.toString(),
+        updatedAt = updatedAt ?? DateTime.now();
 
   factory ListItem.fromJson(Map<String, dynamic> j) => ListItem(
     id: j['id'] as String? ?? '',
@@ -1270,6 +1275,20 @@ class ListItem {
     checked: _coerceBool(j['checked']),
     notes: j['notes'] as String?,
     aiCategory: j['ai_category'] as String?,
+    sortOrder: (j['sort_order'] as num?)?.toInt() ?? 0,
+    updatedAt: _parseDateOpt(j['updated_at']),
+  );
+
+  /// Parse a normalized row from the `list_items` table.
+  factory ListItem.fromListItemCloudRow(Map<String, dynamic> j) => ListItem(
+    id: j['id'] as String? ?? '',
+    text: j['text'] as String? ?? '',
+    quantity: j['quantity'] as String?,
+    checked: _coerceBool(j['checked']),
+    notes: j['notes'] as String?,
+    aiCategory: j['ai_category'] as String?,
+    sortOrder: (j['sort_order'] as num?)?.toInt() ?? 0,
+    updatedAt: _parseDateOpt(j['updated_at']),
   );
 
   Map<String, dynamic> toJson() => {
@@ -1279,19 +1298,51 @@ class ListItem {
     'checked': checked,
     'notes': notes,
     'ai_category': aiCategory,
+    'sort_order': sortOrder,
+    'updated_at': updatedAt.toIso8601String(),
   };
+
+  /// Row shape for Supabase `list_items` (items are not stored in `lists.items`).
+  Map<String, dynamic> toListItemCloudRow({
+    required String listId,
+    required String familyId,
+    int? sortOrderOverride,
+  }) =>
+      {
+        'id': id,
+        'list_id': listId,
+        'family_id': familyId,
+        'text': text,
+        'quantity': quantity,
+        'checked': checked,
+        'notes': notes,
+        'ai_category': aiCategory,
+        'sort_order': sortOrderOverride ?? sortOrder,
+        'updated_at': updatedAt.toUtc().toIso8601String(),
+      };
 
   ListItem copyWith({
     String? id, String? text, String? quantity, bool? checked,
-    String? notes, String? aiCategory,
-  }) => ListItem(
-    id: id ?? this.id,
-    text: text ?? this.text,
-    quantity: quantity ?? this.quantity,
-    checked: checked ?? this.checked,
-    notes: notes ?? this.notes,
-    aiCategory: aiCategory ?? this.aiCategory,
-  );
+    String? notes, String? aiCategory, int? sortOrder, DateTime? updatedAt,
+  }) {
+    final anyField = id != null ||
+        text != null ||
+        quantity != null ||
+        checked != null ||
+        notes != null ||
+        aiCategory != null ||
+        sortOrder != null;
+    return ListItem(
+      id: id ?? this.id,
+      text: text ?? this.text,
+      quantity: quantity ?? this.quantity,
+      checked: checked ?? this.checked,
+      notes: notes ?? this.notes,
+      aiCategory: aiCategory ?? this.aiCategory,
+      sortOrder: sortOrder ?? this.sortOrder,
+      updatedAt: updatedAt ?? (anyField ? DateTime.now() : this.updatedAt),
+    );
+  }
 
   // Convenience alias
   String get name => text;
@@ -1345,6 +1396,7 @@ class ShoppingList {
     'items': items.map((e) => e.toJson()).toList(),
     'category': category.name,
     'visibility': visibility.name,
+    'shared_with': sharedWith,
     'updated_at': updatedAt.toIso8601String(),
   };
 

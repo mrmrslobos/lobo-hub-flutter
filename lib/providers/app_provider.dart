@@ -61,6 +61,9 @@ class AppProvider extends ChangeNotifier {
   bool get isSyncing => _sync.isSyncing;
   DateTime? get lastSuccessfulSyncAt => _sync.lastSuccessfulSyncAt;
   String? get lastSyncError => _sync.lastSyncError;
+  RealtimeConnectionState get realtimeConnectionState =>
+      _sync.realtimeConnectionState;
+  bool get isRealtimeLive => _sync.isRealtimeLive;
 
   DateTime? get lastLocalPersistAt => _data.lastLocalPersistAt;
 
@@ -237,6 +240,11 @@ class AppProvider extends ChangeNotifier {
   void clearSyncError() => _sync.clearSyncError();
 
   void onAppResumed() => _sync.onAppResumed();
+
+  void onConnectivityRestored() => _sync.onConnectivityRestored();
+
+  Future<void> reconnectRealtime({bool pullAfter = true}) =>
+      _sync.reconnectRealtime(pullAfter: pullAfter);
 
   @override
   void dispose() {

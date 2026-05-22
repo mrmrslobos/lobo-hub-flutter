@@ -12,6 +12,7 @@ import '../config/theme.dart';
 import 'app_brand_mark.dart';
 import '../models/models.dart';
 import '../providers/app_provider.dart';
+import '../providers/sync_provider.dart';
 import '../services/recent_routes_service.dart';
 import '../services/supabase_service.dart';
 import 'huddle_sheet.dart';
@@ -927,6 +928,9 @@ class _MainAppBarState extends State<MainAppBar> {
     final syncing = provider.isSyncing;
     final err = provider.lastSyncError;
     final hasErr = err != null && err.isNotEmpty;
+    final rt = provider.realtimeConnectionState;
+    final rtConnecting = rt == RealtimeConnectionState.connecting;
+    final rtDisconnected = rt == RealtimeConnectionState.disconnected;
 
     if (_prevIsSyncing && !syncing && !hasErr) {
       _checkFlashId++;
@@ -949,8 +953,11 @@ class _MainAppBarState extends State<MainAppBar> {
 
     String syncTooltip() {
       if (syncing) return 'Syncing…';
+      if (rtConnecting) return 'Reconnecting live sync…';
+      if (rtDisconnected) return 'Live sync paused — tap to reconnect';
       if (_showSyncedCheck) return 'Synced with cloud';
       if (hasErr) return 'Sync failed — tap to retry';
+      if (provider.isRealtimeLive) return 'Live sync active';
       final at = provider.lastSuccessfulSyncAt;
       if (at != null) return formatRelativeSyncTime(at);
       return 'Pull latest from cloud';
@@ -967,6 +974,22 @@ class _MainAppBarState extends State<MainAppBar> {
           ),
         );
       }
+      if (rtConnecting) {
+        return SizedBox(
+          width: 22,
+          height: 22,
+          child: CircularProgressIndicator(
+            strokeWidth: 2.2,
+            color: AppTheme.warning,
+          ),
+        );
+      }
+      if (rtDisconnected) {
+        return Icon(
+          Icons.sync_disabled_rounded,
+          color: AppTheme.warning.withValues(alpha: 0.95),
+        );
+      }
       if (_showSyncedCheck && !hasErr) {
         return Icon(
           Icons.check_rounded,
@@ -978,6 +1001,12 @@ class _MainAppBarState extends State<MainAppBar> {
         return Icon(
           Icons.cloud_off_outlined,
           color: AppTheme.error.withValues(alpha: 0.9),
+        );
+      }
+      if (provider.isRealtimeLive) {
+        return Icon(
+          Icons.sync_rounded,
+          color: AppTheme.success.withValues(alpha: 0.9),
         );
       }
       return Icon(
@@ -994,7 +1023,11 @@ class _MainAppBarState extends State<MainAppBar> {
               ? null
               : () {
                   HapticFeedback.lightImpact();
-                  unawaited(provider.refreshFromCloud());
+                  if (rtDisconnected || rtConnecting) {
+                    unawaited(provider.reconnectRealtime());
+                  } else {
+                    unawaited(provider.refreshFromCloud());
+                  }
                 },
           icon: buildSyncButtonIcon(),
         ),

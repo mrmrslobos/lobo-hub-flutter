@@ -176,6 +176,7 @@ class SupabaseService {
       'recipes',
       'meal_plans',
       'lists',
+      'list_items',
       'devotionals',
       'devotional_thoughts',
       'budget_categories',
@@ -315,6 +316,7 @@ class SupabaseService {
       'recipes',
       'meal_plans',
       'lists',
+      'list_items',
       'devotionals',
       'devotional_thoughts',
       'budget_categories',
@@ -369,6 +371,12 @@ class SupabaseService {
           CloudSyncScope.familyMembers,
         })
         .toSet();
+    if (want.contains(CloudSyncScope.listItems)) {
+      want.add(CloudSyncScope.lists);
+    }
+    if (want.contains(CloudSyncScope.lists)) {
+      want.add(CloudSyncScope.listItems);
+    }
 
     final result = <String, dynamic>{};
 
@@ -477,6 +485,7 @@ class SupabaseService {
   static RealtimeChannel subscribeToFamily(
     String familyId, {
     required void Function(Map<String, dynamic>) onBroadcast,
+    void Function(RealtimeSubscribeStatus status, Object? error)? onStatus,
   }) {
     return client
         .channel('family:$familyId')
@@ -484,7 +493,7 @@ class SupabaseService {
           event: 'db_change',
           callback: (payload) => onBroadcast(payload),
         )
-        .subscribe();
+        .subscribe(onStatus);
   }
 
   /// Unsubscribe and remove a realtime channel.
