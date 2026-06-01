@@ -198,6 +198,9 @@ class _MealsScreenState extends State<MealsScreen>
     _tabController.addListener(() => setState(() {}));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      context
+          .read<AppProvider>()
+          .scheduleModuleEnterCloudPull(CloudSyncScope.mealsExtendedBundle);
       final uid = context.read<AppProvider>().activeUser?.id;
       if (uid == null) return;
       showModuleDisclaimer(
@@ -230,6 +233,20 @@ class _MealsScreenState extends State<MealsScreen>
   bool _isFamilyOwner(AppProvider provider) {
     final uid = provider.activeUser?.id;
     return uid != null && provider.activeFamily?.ownerId == uid;
+  }
+
+  bool _canEditPantry(AppProvider provider) => provider.isAdmin;
+
+  bool _requirePantryEditor(String actionDescription) {
+    final provider = context.read<AppProvider>();
+    if (_canEditPantry(provider)) return true;
+    if (mounted) {
+      _showSnack(
+        context,
+        'Only the family owner or an admin can $actionDescription',
+      );
+    }
+    return false;
   }
 
   bool _requireFamilyOwnerForHouseholdMeals(String actionDescription) {
@@ -413,7 +430,7 @@ Return a JSON array of exactly 3 objects, each with these fields:
     }
   }
 
-  void _saveChefRecipe(Map<String, dynamic> suggestion) {
+  Future<void> _saveChefRecipe(Map<String, dynamic> suggestion) async {
     if (!_requireFamilyOwnerForHouseholdMeals('save AI chef recipes to the library.')) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
@@ -466,10 +483,11 @@ Return a JSON array of exactly 3 objects, each with these fields:
       createdBy: userId,
     );
 
-    provider.saveAndSync(
+    await provider.saveAndSync(
       db.copyWith(recipes: [...db.recipes, newRecipe]),
       pushTableScope: CloudSyncScope.mealsExtendedBundle,
     );
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Saved "${newRecipe.title}" to Recipe Box'), behavior: SnackBarBehavior.floating),
     );
@@ -832,7 +850,7 @@ Return a JSON array of 7 objects, each with:
   /// Vision → preview sheet → add to pantry (optional week plan).
   Future<void> _openPantryPhotoScan() async {
     if (SubscriptionModal.guardAI(context, kind: AiPaywallKind.meals)) return;
-    if (!_requireFamilyOwnerForHouseholdMeals('scan the pantry from a photo.')) return;
+    if (!_requirePantryEditor('scan the pantry from a photo.')) return;
 
     final img = await _pickPantryImage();
     if (img == null || !mounted) return;
@@ -1286,7 +1304,7 @@ Return a JSON array of 7 objects, each with:
     final provider = context.read<AppProvider>();
     final fam = provider.activeFamily;
     if (fam == null) return;
-    if (!_requireFamilyOwnerForHouseholdMeals('change the pantry.')) return;
+    if (!_requirePantryEditor('change the pantry.')) return;
     final nameCtrl = TextEditingController();
     final qtyCtrl = TextEditingController();
     final unitCtrl = TextEditingController();
@@ -1331,7 +1349,7 @@ Return a JSON array of 7 objects, each with:
   }
 
   Future<void> _removePantryItem(PantryItem item) async {
-    if (!_requireFamilyOwnerForHouseholdMeals('change the pantry.')) return;
+    if (!_requirePantryEditor('change the pantry.')) return;
     final provider = context.read<AppProvider>();
     final db = provider.db;
     await provider.saveAndSync(
@@ -1356,6 +1374,7 @@ Return a JSON array of 7 objects, each with:
     final mealsThisWeek = provider.db.mealPlans
         .where((m) => m.familyId == familyId && m.date.isAfter(monday.subtract(const Duration(days: 1))) && m.date.isBefore(sunday.add(const Duration(days: 1))))
         .length;
+    final canEditPantry = provider.isAdmin;
     final pantry = provider.db.pantryItems
         .where((p) => p.familyId == familyId)
         .toList()
@@ -1363,6 +1382,7 @@ Return a JSON array of 7 objects, each with:
 
     return HuddleModuleScaffold(
       modulePath: '/meals',
+      enterPullTables: CloudSyncScope.mealsExtendedBundle,
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),
@@ -1462,11 +1482,12 @@ Return a JSON array of 7 objects, each with:
                             ),
                           ),
                         ),
-                        TextButton.icon(
-                          onPressed: _addPantryItem,
-                          icon: const Icon(Icons.add_rounded, size: 18),
-                          label: const Text('Add'),
-                        ),
+                        if (canEditPantry)
+                          TextButton.icon(
+                            onPressed: _addPantryItem,
+                            icon: const Icon(Icons.add_rounded, size: 18),
+                            label: const Text('Add'),
+                          ),
                       ],
                     ),
                     const SizedBox(height: 4),
@@ -1478,28 +1499,41 @@ Return a JSON array of 7 objects, each with:
                         color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55),
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.tonalIcon(
-                        onPressed: (_pantryPhotoFlowLoading || _weekPlannerLoading)
-                            ? null
-                            : _openPantryPhotoScan,
-                        icon: _pantryPhotoFlowLoading
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Icon(Icons.camera_alt_outlined),
-                        label: Text(
-                          _pantryPhotoFlowLoading
-                              ? 'Reading your fridge & pantry…'
-                              : 'Snap fridge / pantry (preview)',
-                          style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700),
+                    if (canEditPantry) ...[
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.tonalIcon(
+                          onPressed: (_pantryPhotoFlowLoading || _weekPlannerLoading)
+                              ? null
+                              : _openPantryPhotoScan,
+                          icon: _pantryPhotoFlowLoading
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.camera_alt_outlined),
+                          label: Text(
+                            _pantryPhotoFlowLoading
+                                ? 'Reading your fridge & pantry…'
+                                : 'Snap fridge / pantry (preview)',
+                            style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700),
+                          ),
                         ),
                       ),
-                    ),
+                    ] else
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          'Only the owner or an admin can edit pantry items.',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 12,
+                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+                          ),
+                        ),
+                      ),
                     if (pantry.isEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 12),
@@ -1523,11 +1557,13 @@ Return a JSON array of 7 objects, each with:
                                     style: const TextStyle(fontFamily: 'Inter', fontSize: 12),
                                   )
                                 : null,
-                            trailing: IconButton(
-                              tooltip: 'Remove ${p.name}',
-                              icon: const Icon(Icons.delete_outline_rounded, size: 20),
-                              onPressed: () => _removePantryItem(p),
-                            ),
+                            trailing: canEditPantry
+                                ? IconButton(
+                                    tooltip: 'Remove ${p.name}',
+                                    icon: const Icon(Icons.delete_outline_rounded, size: 20),
+                                    onPressed: () => _removePantryItem(p),
+                                  )
+                                : null,
                           )),
                   ],
                 ),
@@ -1640,7 +1676,7 @@ Return a JSON array of 7 objects, each with:
                                     ],
                                     const Spacer(),
                                     GestureDetector(
-                                      onTap: () => _saveChefRecipe(s),
+                                      onTap: () async => _saveChefRecipe(s),
                                       child: Container(
                                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
                                         decoration: BoxDecoration(
@@ -2428,7 +2464,7 @@ class _MealPlanTabState extends State<_MealPlanTab> {
       final nextLists = db.lists.map((l) => l.id == existing.id ? updated : l).toList();
       await provider.saveAndSync(
         db.copyWith(lists: nextLists),
-        pushTableScope: {CloudSyncScope.lists},
+        pushTableScope: CloudSyncScope.listsBundle,
       );
       if (context.mounted) {
         _showSnack(context, 'Added ${newItems.length} items to "${existing.title}" in Lists');
@@ -2445,7 +2481,7 @@ class _MealPlanTabState extends State<_MealPlanTab> {
       );
       await provider.saveAndSync(
         db.copyWith(lists: [...db.lists, list]),
-        pushTableScope: {CloudSyncScope.lists},
+        pushTableScope: CloudSyncScope.listsBundle,
       );
       if (context.mounted) {
         _showSnack(context, 'Created "Groceries" in Lists with ${newItems.length} items');
@@ -3196,7 +3232,7 @@ class _MealSlotCard extends StatelessWidget {
     if (confirmed != true) return;
     final db = provider.db;
     final updated = db.mealPlans.where((m) => m.id != meal!.id).toList();
-    provider.saveAndSync(
+    await provider.saveAndSync(
       db.copyWith(mealPlans: updated),
       pushTableScope: CloudSyncScope.mealsExtendedBundle,
     );
@@ -4098,10 +4134,8 @@ class _RecipeDetailSheet extends StatelessWidget {
     final activeUserId = provider.activeUser?.id;
     final isOwner =
         activeUserId != null && provider.activeFamily?.ownerId == activeUserId;
-    final canManageRecipes = isOwner ||
-        (activeUserId != null &&
-            recipe.createdBy.isNotEmpty &&
-            recipe.createdBy == activeUserId);
+    final canManageRecipes =
+        activeUserId != null && provider.activeFamily != null;
     return DraggableScrollableSheet(
       initialChildSize: 0.9,
       minChildSize: 0.5,
@@ -4204,7 +4238,7 @@ class _RecipeDetailSheet extends StatelessWidget {
                             if (confirmed == true && context.mounted) {
                               final db = provider.db;
                               final updated = db.recipes.where((r) => r.id != recipe.id).toList();
-                              provider.saveAndSync(
+                              await provider.saveAndSync(
                                 db.copyWith(recipes: updated),
                                 pushTableScope: CloudSyncScope.mealsExtendedBundle,
                               );

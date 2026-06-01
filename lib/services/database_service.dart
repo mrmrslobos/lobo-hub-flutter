@@ -7,16 +7,17 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' hide User;
+import 'package:supabase_flutter/supabase_flutter.dart' show PostgresChangeEvent;
 
 import '../config/cloud_sync_scope.dart';
 import '../models/models.dart';
-import 'local_sembast_store.dart';
+import 'local_store/local_store_resolver.dart';
 import '../utils/app_db_isolate_codec.dart';
 import '../utils/app_log.dart';
 import '../utils/fitness_plan_storage.dart';
 import 'exercise_plan_media_service.dart';
 import 'field_encryption_service.dart';
+import 'list_items_cloud.dart';
 import 'supabase_service.dart';
 import 'sync_echo_tracker.dart';
 import 'sync_outbox.dart';
@@ -57,6 +58,52 @@ class DatabaseService {
   /// One cloud sync at a time per family — parallel syncs can finish out of order
   /// and overwrite a newer row (e.g. list created empty then items added quickly).
   static final Map<String, Future<void>> _syncTailByFamily = {};
+
+  /// Families columns omitted on upsert until DB has them (see migrations/06).
+  static const _familiesCloudOmit = {'currency', 'trial_start_date'};
+
+  /// plan_id: migration 25 (optional on older DBs).
+  static const _fitnessPlansCloudOmit = {'plan_id'};
+
+  /// Tasks columns some older DBs lack (PGRST204).
+  static const _tasksCloudOmit = {'completed_by', 'updated_by', 'due_time', 'reminder_minutes'};
+
+  /// Chores columns older DBs may lack until migration.
+  static const _choresCloudOmit = {'rotation_enabled', 'rotation_cursor'};
+
+  /// Workout exercise columns older DBs may lack until migration 16.
+  static const _workoutExerciseCloudOmit = {
+    'technique_notes',
+    'reference_url',
+    'technique_image_url',
+  };
+
+  /// Meal plan columns older DBs may lack until migration 16 / 17.
+  static const _mealPlanCloudOmit = {
+    'repeat_rule',
+    'source_meal_plan_id',
+    'leftover_meal_plan_id',
+  };
+
+  /// Recipe macro columns until migration 17.
+  static const _recipeCloudOmit = {
+    'kcal',
+    'protein_g',
+    'carbs_g',
+    'fat_g',
+    'fiber_g',
+  };
+
+  /// workout_sessions.health_synced_at until migration 17.
+  static const _workoutSessionCloudOmit = {'health_synced_at'};
+
+  static const _usersCloudOmit = <String>{};
+
+  /// Events columns some older DBs lack (PGRST204).
+  static const _eventsCloudOmit = {'shared_with'};
+
+  /// Prayer wall columns some older DBs lack (PGRST204).
+  static const _prayerWallCloudOmit = {'prayed_by_ids'};
 
   static const String _dbKey = 'huddle_db';
   /// Pre-rebrand local DB key; [loadLocal] migrates into [_dbKey] once.
@@ -115,7 +162,7 @@ class DatabaseService {
       '$familyId:$table';
 
   static Future<Map<String, String>> _loadCursors() async {
-    _cursors ??= await LocalSembastStore.readCursors();
+    _cursors ??= await (await resolvedLocalPersistence()).readCursors();
     return _cursors!;
   }
 
@@ -172,7 +219,7 @@ class DatabaseService {
       }
     }
     if (dirty) {
-      await LocalSembastStore.writeCursors(cursors);
+      await (await resolvedLocalPersistence()).writeCursors(cursors);
     }
   }
 
@@ -180,7 +227,7 @@ class DatabaseService {
   /// from a clean slate.
   static Future<void> _clearCursors() async {
     _cursors = <String, String>{};
-    await LocalSembastStore.writeCursors(_cursors!);
+    await (await resolvedLocalPersistence()).writeCursors(_cursors!);
   }
 
   static AppDB get db => _cache ?? AppDB.empty();
@@ -189,6 +236,20 @@ class DatabaseService {
     if (kDebugMode) {
       debugPrint('[DatabaseService] $context: $e\n$st');
     }
+  }
+
+  /// Pantry writes are limited to family owner/admin (matches Supabase RLS).
+  static bool _canSyncPantryItems(AppDB db, String familyId, String? userId) {
+    if (userId == null || userId.isEmpty) return false;
+    for (final f in db.families) {
+      if (f.id == familyId && f.ownerId == userId) return true;
+    }
+    for (final m in db.familyMembers) {
+      if (m.familyId == familyId && m.userId == userId) {
+        return m.role == Role.OWNER || m.role == Role.ADMIN;
+      }
+    }
+    return false;
   }
 
   // ── Local persistence ─────────────────────────────────────────────────────
@@ -209,30 +270,31 @@ class DatabaseService {
     }
   }
 
-  static Future<void> _hydrateTombstonesFromSembast() async {
+  static Future<void> _hydrateTombstonesFromPersistence() async {
     try {
-      await LocalSembastStore.readTombstonesInto(_deletedKeys);
+      await (await resolvedLocalPersistence()).readTombstonesInto(_deletedKeys);
       if (_deletedKeys.length > _tombstoneCap) {
         _trimTombstones();
-        await LocalSembastStore.writeTombstones(_deletedKeys);
+        await (await resolvedLocalPersistence()).writeTombstones(_deletedKeys);
       }
     } on Object catch (e, st) {
-      _debugCatch('tombstones load (sembast)', e, st);
+      _debugCatch('tombstones load (local store)', e, st);
     }
   }
 
   static Future<void> _persistTombstones() async {
     try {
-      await LocalSembastStore.writeTombstones(_deletedKeys);
+      await (await resolvedLocalPersistence()).writeTombstones(_deletedKeys);
     } on Object catch (e, st) {
       _debugCatch('tombstones persist', e, st);
     }
   }
 
   static Future<AppDB> loadLocal() async {
-    if (await LocalSembastStore.hasStoredAppDb()) {
-      await _hydrateTombstonesFromSembast();
-      _cache = await LocalSembastStore.readAppDb();
+    final persist = await resolvedLocalPersistence();
+    if (await persist.hasStoredAppDb()) {
+      await _hydrateTombstonesFromPersistence();
+      _cache = await persist.readAppDb();
       return _cache!;
     }
 
@@ -251,8 +313,8 @@ class DatabaseService {
 
     if (raw != null && raw.isNotEmpty) {
       _cache = await loadAppDbFromPrefsJson(raw);
-      await LocalSembastStore.writeAppDb(_cache!);
-      await LocalSembastStore.writeTombstones(_deletedKeys);
+      await persist.writeAppDb(_cache!);
+      await persist.writeTombstones(_deletedKeys);
       await prefs.remove(_dbKey);
       await prefs.remove(_legacyDbKey);
       await prefs.remove(_tombstoneKey);
@@ -273,7 +335,7 @@ class DatabaseService {
       _recordTombstones(oldKeys.difference(newKeys));
     }
     _cache = db;
-    await LocalSembastStore.writeAppDb(db);
+    await (await resolvedLocalPersistence()).writeAppDb(db);
     await _persistTombstones();
   }
 
@@ -282,7 +344,7 @@ class DatabaseService {
     _deletedKeys.clear();
     await _clearCursors();
     await SyncOutbox.clear();
-    await LocalSembastStore.clearAppRecords();
+    await (await resolvedLocalPersistence()).clearAppRecords();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_dbKey);
     await prefs.remove(_legacyDbKey);
@@ -297,7 +359,8 @@ class DatabaseService {
     _deletedKeys.clear();
     _cursors = <String, String>{};
     await SyncOutbox.clear();
-    await LocalSembastStore.deletePhysicalDatabase();
+    await (await resolvedLocalPersistence()).deletePhysicalDatabase();
+    resetResolvedLocalPersistence();
     final prefs = await SharedPreferences.getInstance();
     final keys = prefs.getKeys().toList();
     for (final k in keys) {
@@ -315,6 +378,14 @@ class DatabaseService {
   }) async {
     await saveLocal(db);
     await syncToCloud(db, familyId, tableScope: tableScope);
+  }
+
+  static Map<String, dynamic> _taskRowForCloud(Task t) {
+    final m = Map<String, dynamic>.from(t.toJson());
+    for (final k in _tasksCloudOmit) {
+      m.remove(k);
+    }
+    return m;
   }
 
   /// Shared rules for Supabase upserts (must match [syncToCloud]).
@@ -358,6 +429,31 @@ class DatabaseService {
         }
         SyncEchoTracker.record(table, rowId, ts ?? DateTime.now().toUtc());
       }
+      if (table == 'families') {
+        for (final k in _familiesCloudOmit) {
+          m.remove(k);
+        }
+      }
+      if (table == 'tasks') {
+        for (final k in _tasksCloudOmit) {
+          m.remove(k);
+        }
+      }
+      if (table == 'events') {
+        for (final k in _eventsCloudOmit) {
+          m.remove(k);
+        }
+      }
+      if (table == 'prayer_wall') {
+        for (final k in _prayerWallCloudOmit) {
+          m.remove(k);
+        }
+      }
+      if (table == 'users') {
+        for (final k in _usersCloudOmit) {
+          m.remove(k);
+        }
+      }
       if (table == 'devotional_thoughts') {
         final nk = m['note_kind'];
         if (nk == null || (nk is String && nk.isEmpty)) {
@@ -392,135 +488,99 @@ class DatabaseService {
     }
   }
 
-  /// List metadata for Supabase — item rows live in [list_items].
-  static Map<String, dynamic> _listMetadataRowForCloud(
-    ShoppingList list,
+  static List<ShoppingList> _familyListsForCloud(AppDB db, String familyId) =>
+      db.lists.where((l) => l.familyId == familyId).toList();
+
+  static bool _isMissingCloudTableError(Object e) {
+    final msg = e.toString();
+    return msg.contains('PGRST205') || msg.contains('Could not find the table');
+  }
+
+  /// List headers must exist before [list_items] rows (FK). Never run in parallel.
+  static Future<void> _upsertFamilyListHeaders(
+    List<ShoppingList> familyLists,
     String familyId,
-  ) {
-    final row = Map<String, dynamic>.from({...list.toJson(), 'family_id': familyId});
-    row['items'] = const <Map<String, dynamic>>[];
-    return row;
-  }
-
-  static List<ListItem> _sortListItems(List<ListItem> items) {
-    final sorted = List<ListItem>.from(items);
-    sorted.sort((a, b) {
-      final byOrder = a.sortOrder.compareTo(b.sortOrder);
-      if (byOrder != 0) return byOrder;
-      return a.text.toLowerCase().compareTo(b.text.toLowerCase());
-    });
-    return sorted;
-  }
-
-  static List<ShoppingList> _mergeListsWithCloudItems(
-    List<ShoppingList> localLists,
-    List<ShoppingList> cloudListHeaders,
-    dynamic cloudListItemsRaw,
-    String activeFamilyId,
-  ) {
-    ShoppingList stripItems(ShoppingList list) => list.copyWith(items: const []);
-
-    final mergedHeaders = _mergeById(
-      localLists.map(stripItems).toList(),
-      cloudListHeaders.map(stripItems).toList(),
-    );
-
-    final localItemsByList = <String, List<ListItem>>{};
-    for (final list in localLists) {
-      if (list.items.isNotEmpty) {
-        localItemsByList[list.id] = list.items;
-      }
-    }
-
-    final cloudItemsByList = <String, List<ListItem>>{};
-    if (cloudListItemsRaw is List) {
-      for (final raw in cloudListItemsRaw) {
-        if (raw is! Map) continue;
-        final m = Map<String, dynamic>.from(raw);
-        final deletedAt = m['deleted_at'];
-        if (deletedAt != null && !(deletedAt is String && deletedAt.isEmpty)) {
-          final id = m['id']?.toString();
-          if (id != null && id.isNotEmpty) {
-            _recordTombstone(id);
-          }
-          continue;
-        }
-        final listId = m['list_id']?.toString() ?? '';
-        if (listId.isEmpty) continue;
-        try {
-          final item = ListItem.fromListItemCloudRow(m);
-          if (item.id.isEmpty || _deletedKeys.contains(item.id)) continue;
-          cloudItemsByList.putIfAbsent(listId, () => []).add(item);
-        } on Object {
-          // skip bad row
-        }
-      }
-    }
-
-    // Legacy embedded JSON on list headers (pre-normalization).
-    for (final header in cloudListHeaders) {
-      if (header.items.isEmpty) continue;
-      cloudItemsByList.putIfAbsent(header.id, () => []).addAll(header.items);
-    }
-
-    return mergedHeaders.map((list) {
-      final localItems = localItemsByList[list.id] ?? const <ListItem>[];
-      final cloudItems = cloudItemsByList[list.id] ?? const <ListItem>[];
-      final mergedItems = list.familyId == activeFamilyId
-          ? _mergeById(localItems, cloudItems)
-          : (localItems.isNotEmpty ? localItems : list.items);
-      return list.copyWith(items: _sortListItems(mergedItems));
-    }).toList();
-  }
-
-  static Future<void> _pushListItemsForFamily(AppDB db, String familyId) async {
-    final rows = <Map<String, dynamic>>[];
-    final localIds = <String>{};
-    for (final list in db.lists.where((l) => l.familyId == familyId)) {
-      for (var i = 0; i < list.items.length; i++) {
-        final item = list.items[i];
-        if (item.id.isEmpty) continue;
-        localIds.add(item.id);
-        rows.add(item.toListItemCloudRow(
-          listId: list.id,
-          familyId: familyId,
-          sortOrderOverride: i,
-        ));
-      }
-    }
-    try {
-      if (rows.isNotEmpty) {
-        await SupabaseService.upsertTable(
-          'list_items',
-          sanitizeRowsForCloudUpsert(rows, 'list_items'),
-        );
-      }
-      await _deleteRemovedRows('list_items', localIds, familyId);
-    } on Object catch (e, st) {
-      final msg = e.toString();
-      if (msg.contains('PGRST205') || msg.contains('Could not find the table')) {
-        return;
-      }
-      debugPrint('[DatabaseService] list_items upsert failed: $e\n$st');
-    }
-  }
-
-  static Future<void> _pushListsForFamily(AppDB db, String familyId) async {
-    final familyLists = db.lists.where((l) => l.familyId == familyId).toList();
-    final localIds = familyLists.map((l) => l.id).toSet();
-    final rows = familyLists
-        .map((l) => _listMetadataRowForCloud(l, familyId))
+  ) async {
+    if (familyLists.isEmpty) return;
+    final headerRows = familyLists
+        .map((l) => Map<String, dynamic>.from({
+              ...l.toCloudHeaderJson(),
+              'family_id': familyId,
+            }))
         .toList();
     try {
       await SupabaseService.upsertTable(
         'lists',
-        sanitizeRowsForCloudUpsert(rows, 'lists'),
+        sanitizeRowsForCloudUpsert(headerRows, 'lists'),
       );
     } on Object catch (e, st) {
       debugPrint('[DatabaseService] lists upsert failed: $e\n$st');
+      rethrow;
     }
-    await _deleteRemovedRows('lists', localIds, familyId);
-    await _pushListItemsForFamily(db, familyId);
+  }
+
+  static Future<void> _upsertFamilyListItems(
+    List<ShoppingList> familyLists,
+    String familyId,
+  ) async {
+    final itemRows = ListItemsCloud.flattenFromLists(familyLists, familyId)
+        .map((i) => {...i.toJson(), 'family_id': familyId})
+        .toList();
+    if (itemRows.isEmpty) return;
+    try {
+      await SupabaseService.upsertTable(
+        'list_items',
+        sanitizeRowsForCloudUpsert(itemRows, 'list_items'),
+      );
+    } on Object catch (e, st) {
+      debugPrint('[DatabaseService] list_items upsert failed: $e\n$st');
+      rethrow;
+    }
+  }
+
+  static Future<void> _syncFamilyListsBundleToCloud(
+    AppDB db,
+    String familyId, {
+    required bool pushHeaders,
+    required bool pushItems,
+  }) async {
+    final familyLists = _familyListsForCloud(db, familyId);
+    final listIds = familyLists.map((l) => l.id).toSet();
+
+    if (pushHeaders) {
+      try {
+        await _upsertFamilyListHeaders(familyLists, familyId);
+      } on Object catch (e, st) {
+        if (_isMissingCloudTableError(e)) return;
+        _debugCatch('list headers push', e, st);
+      }
+      await _deleteRemovedRows('lists', listIds, familyId);
+      await _softDeleteListItemsForTombstonedLists(familyId, listIds);
+    }
+
+    if (!pushItems) return;
+
+    // FK: parent list row must exist before line items (also covers item-only push).
+    try {
+      await _upsertFamilyListHeaders(familyLists, familyId);
+    } on Object catch (e, st) {
+      if (_isMissingCloudTableError(e)) return;
+      _debugCatch('list headers before items', e, st);
+      return;
+    }
+
+    try {
+      await _upsertFamilyListItems(familyLists, familyId);
+    } on Object catch (e, st) {
+      if (_isMissingCloudTableError(e)) return;
+      _debugCatch('list_items push', e, st);
+      return;
+    }
+    final itemIds = ListItemsCloud.flattenFromLists(familyLists, familyId)
+        .map((r) => r.id)
+        .toSet();
+    await _deleteRemovedRows('list_items', itemIds, familyId);
+    await _softDeleteListItemsForTombstonedLists(familyId, listIds);
   }
 
   /// Await after list edits so checked state reaches Supabase before the next pull
@@ -528,7 +588,51 @@ class DatabaseService {
   static Future<void> pushFamilyListsToCloudNow(AppDB db, String familyId) async {
     if (!SupabaseService.isConfigured) return;
     await _enqueueFamilyCloudWrite(familyId, () async {
-      await _pushListsForFamily(db, familyId);
+      await _syncFamilyListsBundleToCloud(
+        db,
+        familyId,
+        pushHeaders: true,
+        pushItems: true,
+      );
+    });
+  }
+
+  /// Item-only push after check/uncheck or line edits (headers upserted first for FK).
+  static Future<void> pushFamilyListItemsToCloudNow(
+    AppDB db,
+    String familyId,
+  ) async {
+    if (!SupabaseService.isConfigured) return;
+    await _enqueueFamilyCloudWrite(familyId, () async {
+      await _syncFamilyListsBundleToCloud(
+        db,
+        familyId,
+        pushHeaders: false,
+        pushItems: true,
+      );
+    });
+  }
+
+  static Map<String, dynamic> _choreRowForCloud(Chore c) {
+    final m = Map<String, dynamic>.from(c.toJson());
+    for (final k in _choresCloudOmit) {
+      m.remove(k);
+    }
+    return m;
+  }
+
+  /// Upserts all tasks for [familyId] and applies tombstone deletes. Await after
+  /// saves so new tasks reach Supabase even when the full background sync fails
+  /// (RLS batch issues, payload size, or tasks from other families polluting the batch).
+  /// Scoped push through the per-family write queue (tasks/lists use specialized helpers).
+  static Future<void> pushTablesToCloudNow(
+    AppDB db,
+    String familyId,
+    Set<String> tables,
+  ) async {
+    if (!SupabaseService.isConfigured || tables.isEmpty) return;
+    await _enqueueFamilyCloudWrite(familyId, () async {
+      await _syncToCloud(db, familyId, tableScope: tables);
     });
   }
 
@@ -541,7 +645,7 @@ class DatabaseService {
       for (var i = 0; i < familyTasks.length; i += chunk) {
         final slice = familyTasks.sublist(
             i, math.min(i + chunk, familyTasks.length));
-        final rows = slice.map((t) => t.toJson()).toList();
+        final rows = slice.map(_taskRowForCloud).toList();
         try {
           await SupabaseService.upsertTable(
             'tasks',
@@ -553,7 +657,7 @@ class DatabaseService {
             try {
               await SupabaseService.upsertTable(
                 'tasks',
-                sanitizeRowsForCloudUpsert([t.toJson()], 'tasks'),
+                sanitizeRowsForCloudUpsert([_taskRowForCloud(t)], 'tasks'),
               );
             } on Object catch (e2, st2) {
               debugPrint('[DatabaseService] task ${t.id} sync failed: $e2\n$st2');
@@ -667,7 +771,23 @@ class DatabaseService {
         upAndClean(
             'recipes',
             db.recipes
-                .map((r) => {...r.toJson(), 'family_id': fid})
+                .map((r) {
+                  final row = Map<String, dynamic>.from(r.toJson());
+                  row['family_id'] = fid;
+                  for (final k in _recipeCloudOmit) {
+                    row.remove(k);
+                  }
+                  final cb = row['created_by'];
+                  final cbStr = cb is String ? cb : '';
+                  if (cbStr.isEmpty) {
+                    final fb = (currentUserId != null &&
+                            currentUserId.isNotEmpty)
+                        ? currentUserId
+                        : mealPlanCreatedByFallback();
+                    if (fb.isNotEmpty) row['created_by'] = fb;
+                  }
+                  return row;
+                })
                 .toList(),
             db.recipes.map((r) => r.id).toSet()),
       if (pick('meal_plans'))
@@ -678,6 +798,9 @@ class DatabaseService {
                 .map((m) {
                   final row = Map<String, dynamic>.from(m.toJson());
                   row['family_id'] = fid;
+                  for (final k in _mealPlanCloudOmit) {
+                    row.remove(k);
+                  }
                   final cb = row['created_by'];
                   final cbStr = cb is String ? cb : '';
                   if (cbStr.isEmpty) {
@@ -690,14 +813,13 @@ class DatabaseService {
                 })
                 .toList(),
             db.mealPlans.where((m) => m.familyId == fid).map((m) => m.id).toSet()),
-      if (pick('lists'))
-        (() async {
-          await _pushListsForFamily(db, fid);
-        })(),
-      if (pick('list_items') && !pick('lists'))
-        (() async {
-          await _pushListItemsForFamily(db, fid);
-        })(),
+      if (pick('lists') || pick('list_items'))
+        _syncFamilyListsBundleToCloud(
+          db,
+          fid,
+          pushHeaders: pick('lists'),
+          pushItems: pick('lists') || pick('list_items'),
+        ),
       if (pick('devotionals'))
         upAndClean(
             'devotionals',
@@ -754,10 +876,16 @@ class DatabaseService {
               db.fitnessPlans
                   .whereType<Map>()
                   .where((p) => p['user_id'] == currentUserId)
-                  .map((p) => fitnessPlanRowForCloud(
-                        Map<String, dynamic>.from(p),
-                        fid,
-                      ))
+                  .map((p) {
+                    final row = fitnessPlanRowForCloud(
+                      Map<String, dynamic>.from(p), // FIXED: whereType<Map> element
+                      fid,
+                    );
+                    for (final k in _fitnessPlansCloudOmit) {
+                      row.remove(k);
+                    }
+                    return row;
+                  })
                   .toList(),
               db.fitnessPlans
                   .whereType<Map>()
@@ -786,7 +914,14 @@ class DatabaseService {
           'workout_sessions',
           db.workoutSessions
               .where((s) => s.familyId == fid && s.userId == SupabaseService.currentUser?.id)
-              .map((s) => {...s.toJson(), 'family_id': fid})
+              .map((s) {
+                final row = Map<String, dynamic>.from(s.toJson());
+                row['family_id'] = fid;
+                for (final k in _workoutSessionCloudOmit) {
+                  row.remove(k);
+                }
+                return row;
+              })
               .toList(),
           db.workoutSessions
               .where((s) => s.familyId == fid && s.userId == SupabaseService.currentUser?.id)
@@ -798,7 +933,14 @@ class DatabaseService {
           'workout_exercises',
           db.workoutExercises
               .where((e) => e.familyId == fid && e.userId == SupabaseService.currentUser?.id)
-              .map((e) => {...e.toJson(), 'family_id': fid})
+              .map((e) {
+                final row = Map<String, dynamic>.from(e.toJson());
+                row['family_id'] = fid;
+                for (final k in _workoutExerciseCloudOmit) {
+                  row.remove(k);
+                }
+                return row;
+              })
               .toList(),
           db.workoutExercises
               .where((e) => e.familyId == fid && e.userId == SupabaseService.currentUser?.id)
@@ -816,14 +958,18 @@ class DatabaseService {
               .map((set) => set.id)
               .toSet(),
         ),
-      if (pick('exercise_prs'))
-        upAndClean(
+      if (pick('exercise_prs') && currentUserId != null)
+        upAndCleanUser(
           'exercise_prs',
           db.exercisePrs
-              .where((p) => p.familyId == fid)
+              .where((p) => p.familyId == fid && p.userId == currentUserId)
               .map((p) => p.toJson())
               .toList(),
-          db.exercisePrs.where((p) => p.familyId == fid).map((p) => p.id).toSet(),
+          db.exercisePrs
+              .where((p) => p.familyId == fid && p.userId == currentUserId)
+              .map((p) => p.id)
+              .toSet(),
+          userId: currentUserId,
         ),
       if (pick('budget_categories'))
         upAndClean(
@@ -840,16 +986,32 @@ class DatabaseService {
             'transactions',
             db.transactions.map((t) => {...t.toJson(), 'family_id': fid}).toList(),
             db.transactions.map((t) => t.id).toSet()),
-      if (pick('ai_history'))
-        upAndClean(
-            'ai_history',
-            db.aiHistory.map((a) => a.toJson()).toList(),
-            db.aiHistory.map((a) => a.id).toSet()),
-      if (pick('daily_habits'))
-        upAndClean(
-            'daily_habits',
-            db.dailyHabits.map((h) => h.toJson()).toList(),
-            db.dailyHabits.map((h) => h.id).toSet()),
+      if (pick('ai_history') && currentUserId != null)
+        upAndCleanUser(
+          'ai_history',
+          db.aiHistory
+              .where((a) => a.userId == currentUserId)
+              .map((a) => a.toJson())
+              .toList(),
+          db.aiHistory
+              .where((a) => a.userId == currentUserId)
+              .map((a) => a.id)
+              .toSet(),
+          userId: currentUserId,
+        ),
+      if (pick('daily_habits') && currentUserId != null)
+        upAndCleanUser(
+          'daily_habits',
+          db.dailyHabits
+              .where((h) => h.userId == currentUserId)
+              .map((h) => h.toJson())
+              .toList(),
+          db.dailyHabits
+              .where((h) => h.userId == currentUserId)
+              .map((h) => h.id)
+              .toSet(),
+          userId: currentUserId,
+        ),
       if (currentUserId != null && pick('daily_habit_completions'))
         upAndCleanUser(
           'daily_habit_completions',
@@ -877,7 +1039,7 @@ class DatabaseService {
             'chores',
             db.chores
                 .where((c) => c.familyId == fid)
-                .map((c) => c.toJson())
+                .map((c) => _choreRowForCloud(c))
                 .toList(),
             db.chores.where((c) => c.familyId == fid).map((c) => c.id).toSet()),
       if (pick('chore_completions'))
@@ -980,7 +1142,7 @@ class DatabaseService {
             'reading_plan_progress',
             db.readingPlanProgress.map((r) => r.toJson()).toList(),
             db.readingPlanProgress.map((r) => r.id).toSet()),
-      if (pick('pantry_items'))
+      if (pick('pantry_items') && _canSyncPantryItems(db, fid, currentUserId))
         upAndClean(
             'pantry_items',
             db.pantryItems
@@ -1080,6 +1242,45 @@ class DatabaseService {
       }
     } on Object catch (e, st) {
       debugPrint('[DatabaseService] Failed to delete removed family_members: $e\n$st');
+    }
+  }
+
+  /// Soft-delete [list_items] rows whose parent list was tombstoned locally.
+  static Future<void> _softDeleteListItemsForTombstonedLists(
+    String familyId,
+    Set<String> aliveListIds,
+  ) async {
+    if (!SupabaseService.isConfigured || _deletedKeys.isEmpty) return;
+    final tombstonedListIds =
+        _deletedKeys.where((k) => !aliveListIds.contains(k)).toSet();
+    if (tombstonedListIds.isEmpty) return;
+    try {
+      final rows = await SupabaseService.client
+          .from('list_items')
+          .select('id, list_id')
+          .eq('family_id', familyId)
+          .isFilter('deleted_at', null);
+      for (final row in rows as List) {
+        final id = row['id']?.toString() ?? '';
+        final listId = row['list_id']?.toString() ?? '';
+        if (id.isEmpty) continue;
+        if (!tombstonedListIds.contains(listId) &&
+            !_deletedKeys.contains(id)) {
+          continue;
+        }
+        await SyncOutbox.enqueue(
+          table: 'list_items',
+          rowKey: id,
+          op: OutboxOp.softDelete,
+          payload: {'id': id},
+        );
+      }
+      unawaited(SyncOutbox.drain());
+    } on Object catch (e, st) {
+      if (_isMissingCloudTableError(e)) return;
+      debugPrint(
+        '[DatabaseService] list_items cascade delete failed: $e\n$st',
+      );
     }
   }
 
@@ -1430,7 +1631,8 @@ class DatabaseService {
   /// Merge two lists by [id] using last-write-wins on [_entityVersion].
   ///
   /// - Same id: keep whichever record has the newer [updatedAt]/createdAt/date.
-  /// - Tie → prefer cloud so the other family member's latest push applies.
+  /// - Tie → prefer cloud by default so another family member's push applies;
+  ///   pass [preferLocalOnTimestampTie] for nested-document rows (shopping lists).
   /// - Only in cloud: add (unless [_deletedKeys]).
   /// - Only in local: keep (offline-created).
   /// Prefer [mergeKey] when the model defines it (composite keys); otherwise [id].
@@ -1457,7 +1659,15 @@ class DatabaseService {
     return '';
   }
 
-  static List<T> _mergeById<T>(List<T> local, List<T> cloud) {
+  static List<T> _mergeById<T>(
+    List<T> local,
+    List<T> cloud, {
+    /// When timestamps tie, [_mergeById] normally prefers cloud so another
+    /// device’s simultaneous edit wins. Shopping lists nest line items in one
+    /// JSON row — ties happen often after Postgres rounding / skew and caused
+    /// cleared checked items to resurrect from an older cloud snapshot.
+    bool preferLocalOnTimestampTie = false,
+  }) {
     if (cloud.isEmpty && _deletedKeys.isEmpty) return local;
     final localMap = <String, T>{};
     for (final item in local) {
@@ -1485,7 +1695,7 @@ class DatabaseService {
         } else if (tl.isAfter(tc)) {
           map[key] = loc;
         } else {
-          map[key] = item;
+          map[key] = preferLocalOnTimestampTie ? loc : item;
         }
       } on Object catch (e, st) {
         _debugCatch('_mergeById cloud item', e, st);
@@ -1574,10 +1784,15 @@ class DatabaseService {
     }
     addAll(db.users); addAll(db.families); addAll(db.familyMembers);
     addAll(db.tasks); addAll(db.events); addAll(db.recipes);
-    addAll(db.mealPlans); addAll(db.lists);
+    addAll(db.mealPlans);
     for (final list in db.lists) {
-      for (final item in list.items) {
-        if (item.id.isNotEmpty) keys.add(item.id);
+      try {
+        keys.add(_mergeKeyOf(list));
+        for (final item in list.items) {
+          if (item.id.isNotEmpty) keys.add(item.id);
+        }
+      } on TypeError catch (e, st) {
+        _debugCatch('_collectKeys list items', e, st);
       }
     }
     addAll(db.devotionals);
@@ -1772,12 +1987,7 @@ class DatabaseService {
       events: _mergeById(local.events, _safeParse(cloud['events'], CalendarEvent.fromJson)),
       recipes: _mergeById(local.recipes, _safeParse(cloud['recipes'], Recipe.fromJson)),
       mealPlans: _mergeById(local.mealPlans, _safeParse(cloud['meal_plans'], MealPlanEntry.fromJson)),
-      lists: _mergeListsWithCloudItems(
-        local.lists,
-        _safeParse(cloud['lists'], ShoppingList.fromJson),
-        cloud['list_items'],
-        activeFamilyId,
-      ),
+      lists: _mergeListsWithCloud(local, cloud, activeFamilyId),
       devotionals: _mergeById(local.devotionals, _safeParse(cloud['devotionals'], DevotionalEntry.fromJson)),
       devotionalThoughts: _mergeDevotionalThoughts(
           local.devotionalThoughts,
@@ -1873,485 +2083,460 @@ class DatabaseService {
     return results;
   }
 
-  /// Tables whose Postgres realtime payloads can be merged row-by-row into
-  /// [AppDB] without a debounced cloud pull. See [applyRealtimePostgresPatch].
-  static const Set<String> realtimePatchEligibleTables = {
-    CloudSyncScope.tasks,
-    CloudSyncScope.events,
-    CloudSyncScope.lists,
-    CloudSyncScope.listItems,
-    CloudSyncScope.recipes,
-    CloudSyncScope.mealPlans,
-    CloudSyncScope.messages,
-    CloudSyncScope.chores,
-    CloudSyncScope.choreCompletions,
-    CloudSyncScope.polls,
-    CloudSyncScope.pollVotes,
-    CloudSyncScope.devotionals,
-    CloudSyncScope.devotionalThoughts,
-    CloudSyncScope.budgetCategories,
-    CloudSyncScope.budgetEntries,
-    CloudSyncScope.transactions,
-    CloudSyncScope.rewardItems,
-    CloudSyncScope.rewardRedemptions,
-    CloudSyncScope.savingsGoals,
-    CloudSyncScope.prayerWall,
-    CloudSyncScope.specialDates,
-    CloudSyncScope.familyPhotos,
-    CloudSyncScope.milestones,
-    CloudSyncScope.savedPlaces,
-    CloudSyncScope.healthRecords,
-    CloudSyncScope.readingPlans,
-    CloudSyncScope.readingPlanProgress,
-    CloudSyncScope.rewards,
-    CloudSyncScope.externalCalendars,
-    CloudSyncScope.pantryItems,
-    CloudSyncScope.familyActivityLogs,
-    CloudSyncScope.wellnessCheckIns,
-    CloudSyncScope.exercisePrs,
-    CloudSyncScope.aiHistory,
-    CloudSyncScope.dailyHabits,
-    CloudSyncScope.dailyHabitCompletions,
-    CloudSyncScope.familyMembers,
-    CloudSyncScope.fitness,
-    CloudSyncScope.fitnessLogs,
-    CloudSyncScope.periodCycles,
-    CloudSyncScope.periodSymptoms,
-    CloudSyncScope.userLocations,
-    CloudSyncScope.workoutSessions,
-    CloudSyncScope.workoutExercises,
-    CloudSyncScope.workoutSets,
-    CloudSyncScope.families,
-  };
-
-  /// Apply a single Postgres realtime event directly into [db].
-  ///
-  /// Returns the patched database, or null when the caller should fall back
-  /// to [reconcileCloud] (unknown table, parse failure, missing parent row).
-  static AppDB? applyRealtimePostgresPatch(
-    AppDB db,
-    PostgresChangePayload payload,
-    String activeFamilyId,
+  static List<ShoppingList> _mergeListsWithCloud(
+    AppDB local,
+    Map<String, dynamic> cloud,
+    String familyId,
   ) {
-    if (!realtimePatchEligibleTables.contains(payload.table)) {
-      return null;
-    }
-    if (payload.table == CloudSyncScope.fitnessPlans) {
-      return null;
-    }
-
-    AppDB? next;
-    try {
-      next = switch (payload.table) {
-        CloudSyncScope.listItems =>
-          _patchListItemRealtime(db, payload, activeFamilyId),
-        CloudSyncScope.lists =>
-          _patchListHeaderRealtime(db, payload, activeFamilyId),
-        CloudSyncScope.families =>
-          _patchFamilyRealtime(db, payload, activeFamilyId),
-        CloudSyncScope.devotionalThoughts =>
-          _patchDevotionalThoughtsRealtime(db, payload, activeFamilyId),
-        _ => _patchEntityListRealtime(db, payload, activeFamilyId),
-      };
-    } on Object catch (e, st) {
-      _debugCatch('applyRealtimePostgresPatch ${payload.table}', e, st);
-      return null;
-    }
-
-    if (next == null) return null;
-    if (FieldEncryption.isReady(activeFamilyId)) {
-      next = next.applySensitiveDecryption(activeFamilyId);
-    }
-    return next;
-  }
-
-  static Map<String, dynamic>? _realtimeIncomingRow(PostgresChangePayload payload) {
-    if (payload.eventType == PostgresChangeEvent.delete) return null;
-    if (payload.newRecord.isEmpty) return null;
-    return Map<String, dynamic>.from(payload.newRecord);
-  }
-
-  static String? _realtimeRemoveKey(PostgresChangePayload payload) {
-    final softDelete = CloudSyncScope.softDeleteTables.contains(payload.table);
-    if (payload.table == CloudSyncScope.familyMembers) {
-      if (payload.eventType != PostgresChangeEvent.delete) return null;
-      final u = payload.oldRecord['user_id']?.toString() ?? '';
-      final f = payload.oldRecord['family_id']?.toString() ?? '';
-      if (u.isEmpty || f.isEmpty) return null;
-      return '${u}_$f';
-    }
-    if (payload.eventType == PostgresChangeEvent.delete) {
-      return payload.oldRecord['id']?.toString();
-    }
-    if (softDelete) {
-      final row = payload.newRecord;
-      final deletedAt = row['deleted_at'];
-      if (deletedAt != null && !(deletedAt is String && deletedAt.isEmpty)) {
-        return row['id']?.toString();
-      }
-    }
-    return null;
-  }
-
-  static AppDB? _patchEntityListRealtime(
-    AppDB db,
-    PostgresChangePayload payload,
-    String activeFamilyId,
-  ) {
-    final spec = _realtimeEntitySpecs[payload.table];
-    if (spec == null) return null;
-
-    final removeKey = _realtimeRemoveKey(payload);
-    if (removeKey != null) {
-      if (CloudSyncScope.softDeleteTables.contains(payload.table)) {
-        _recordTombstone(removeKey);
-      }
-      final current = spec.select(db);
-      final next = current
-          .where((e) => _mergeKeyOf(e) != removeKey)
-          .toList();
-      return spec.update(db, next);
-    }
-
-    final row = _realtimeIncomingRow(payload);
-    if (row == null) return null;
-    try {
-      final entity = spec.parse(row);
-      final merged = _mergeById(spec.select(db), [entity]);
-      return spec.update(db, merged);
-    } on Object catch (e, st) {
-      _debugCatch('realtime patch parse ${payload.table}', e, st);
-      return null;
-    }
-  }
-
-  static AppDB? _patchListHeaderRealtime(
-    AppDB db,
-    PostgresChangePayload payload,
-    String activeFamilyId,
-  ) {
-    final removeKey = _realtimeRemoveKey(payload);
-    if (removeKey != null) {
-      _recordTombstone(removeKey);
-      return db.copyWith(
-        lists: db.lists.where((l) => l.id != removeKey).toList(),
-      );
-    }
-
-    final row = _realtimeIncomingRow(payload);
-    if (row == null) return null;
-    final incoming = ShoppingList.fromJson(row).copyWith(items: const []);
+    final rawHeaders = cloud['lists'] is List ? cloud['lists'] as List : [];
+    final cloudHeaders = ListItemsCloud.parseListHeaders(rawHeaders);
     final mergedHeaders = _mergeById(
-      db.lists.map((l) => l.copyWith(items: const [])).toList(),
-      [incoming],
+      local.lists,
+      cloudHeaders,
+      preferLocalOnTimestampTie: true,
     );
-    final lists = mergedHeaders.map((header) {
-      final localItems = db.lists
-          .where((l) => l.id == header.id)
-          .map((l) => l.items)
-          .firstOrNull;
-      return header.copyWith(items: localItems ?? const []);
+
+    final localItems = ListItemsCloud.flattenFromLists(local.lists, familyId);
+    final cloudItemRows =
+        _safeParse(cloud['list_items'], ShoppingListItem.fromJson);
+    final mergedItems = _mergeById(localItems, cloudItemRows);
+
+    final cloudHeaderIds = cloudHeaders.map((h) => h.id).toSet();
+    final hydrated = ListItemsCloud.hydrate(mergedHeaders, mergedItems);
+
+    // Offline-created list not on server yet — keep local lines until first push.
+    return hydrated.map((h) {
+      if (cloudHeaderIds.contains(h.id) || h.items.isNotEmpty) return h;
+      for (final l in local.lists) {
+        if (l.id == h.id && l.items.isNotEmpty) {
+          return h.copyWith(items: l.items);
+        }
+      }
+      return h;
     }).toList();
-    return db.copyWith(lists: lists);
   }
 
-  static AppDB? _patchListItemRealtime(
+  // ── Incremental realtime (Phase 3) ─────────────────────────────────────────
+
+  /// Merge a single postgres realtime row into [local] without a full reconcile.
+  /// Returns null when [table] is unsupported or the payload cannot be parsed.
+  static AppDB? applyRealtimeRowChange({
+    required AppDB local,
+    required String table,
+    required String familyId,
+    required PostgresChangeEvent eventType,
+    required Map<String, dynamic> newRecord,
+    required Map<String, dynamic> oldRecord,
+  }) {
+    if (!CloudSyncScope.incrementalRealtimeApplyTables.contains(table)) {
+      return null;
+    }
+    try {
+      switch (table) {
+        case CloudSyncScope.tasks:
+          return _applyRealtimeFamilyScopedRow<Task>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.tasks,
+            write: (d, v) => d.copyWith(tasks: v),
+            parse: (j) => Task.fromJson(j),
+          );
+        case CloudSyncScope.messages:
+          return _applyRealtimeFamilyScopedRow<ChatMessage>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: false,
+            read: (d) => d.messages,
+            write: (d, v) => d.copyWith(messages: v),
+            parse: (j) => ChatMessage.fromJson(j),
+          );
+        case CloudSyncScope.lists:
+          return _applyRealtimeListHeaderRow(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+          );
+        case CloudSyncScope.listItems:
+          return _applyRealtimeListItemRow(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+          );
+        case CloudSyncScope.chores:
+          return _applyRealtimeFamilyScopedRow<Chore>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.chores,
+            write: (d, v) => d.copyWith(chores: v),
+            parse: (j) => Chore.fromJson(j),
+          );
+        case CloudSyncScope.choreCompletions:
+          return _applyRealtimeFamilyScopedRow<ChoreCompletion>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: false,
+            read: (d) => d.choreCompletions,
+            write: (d, v) => d.copyWith(choreCompletions: v),
+            parse: (j) => ChoreCompletion.fromJson(j),
+          );
+        case CloudSyncScope.polls:
+          return _applyRealtimeFamilyScopedRow<Poll>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.polls,
+            write: (d, v) => d.copyWith(polls: v),
+            parse: (j) => Poll.fromJson(j),
+            preferLocalOnTimestampTie: true,
+          );
+        case CloudSyncScope.pollVotes:
+          return _applyRealtimeFamilyScopedRow<PollVote>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: false,
+            read: (d) => d.pollVotes,
+            write: (d, v) => d.copyWith(pollVotes: v),
+            parse: (j) => PollVote.fromJson(j),
+          );
+        case CloudSyncScope.events:
+          return _applyRealtimeFamilyScopedRow<CalendarEvent>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.events,
+            write: (d, v) => d.copyWith(events: v),
+            parse: (j) => CalendarEvent.fromJson(j),
+          );
+        case CloudSyncScope.externalCalendars:
+          return _applyRealtimeFamilyScopedRow<ExternalCalendar>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.externalCalendars,
+            write: (d, v) => d.copyWith(externalCalendars: v),
+            parse: (j) => ExternalCalendar.fromJson(j),
+          );
+        case CloudSyncScope.users:
+          return _applyRealtimeUserRow(
+            local,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+          );
+        case CloudSyncScope.recipes:
+          return _applyRealtimeFamilyScopedRow<Recipe>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.recipes,
+            write: (d, v) => d.copyWith(recipes: v),
+            parse: (j) => Recipe.fromJson(j),
+          );
+        case CloudSyncScope.mealPlans:
+          return _applyRealtimeFamilyScopedRow<MealPlanEntry>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.mealPlans,
+            write: (d, v) => d.copyWith(mealPlans: v),
+            parse: (j) => MealPlanEntry.fromJson(j),
+          );
+        case CloudSyncScope.prayerWall:
+          return _applyRealtimeFamilyScopedRow<PrayerWallEntry>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.prayerWall,
+            write: (d, v) => d.copyWith(prayerWall: v),
+            parse: (j) => PrayerWallEntry.fromJson(j),
+          );
+        case CloudSyncScope.dailyHabits:
+          return _applyRealtimeFamilyScopedRow<DailyHabit>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.dailyHabits,
+            write: (d, v) => d.copyWith(dailyHabits: v),
+            parse: (j) => DailyHabit.fromJson(j),
+          );
+        case CloudSyncScope.dailyHabitCompletions:
+          return _applyRealtimeFamilyScopedRow<DailyHabitCompletion>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: false,
+            read: (d) => d.dailyHabitCompletions,
+            write: (d, v) => d.copyWith(dailyHabitCompletions: v),
+            parse: (j) => DailyHabitCompletion.fromJson(j),
+          );
+        default:
+          return null;
+      }
+    } on Object catch (e, st) {
+      _debugCatch('applyRealtimeRowChange $table', e, st);
+      return null;
+    }
+  }
+
+  static String? _realtimeRowId(
+    PostgresChangeEvent eventType, {
+    required Map<String, dynamic> newRecord,
+    required Map<String, dynamic> oldRecord,
+  }) {
+    final raw = eventType == PostgresChangeEvent.delete
+        ? oldRecord['id']
+        : newRecord['id'];
+    final id = raw?.toString();
+    return (id == null || id.isEmpty) ? null : id;
+  }
+
+  static bool _realtimeRowSoftDeleted(Map<String, dynamic> row) {
+    final deletedAt = row['deleted_at'];
+    if (deletedAt == null) return false;
+    if (deletedAt is String) return deletedAt.isNotEmpty;
+    return true;
+  }
+
+  static AppDB _removeRowById<T>(
     AppDB db,
-    PostgresChangePayload payload,
-    String activeFamilyId,
+    String id,
+    List<T> Function(AppDB) getter,
+    AppDB Function(AppDB, List<T>) setter,
   ) {
-    final removeKey = _realtimeRemoveKey(payload);
-    if (removeKey != null) {
-      _recordTombstone(removeKey);
-      return db.copyWith(
-        lists: db.lists
-            .map(
-              (list) => list.copyWith(
-                items: list.items.where((i) => i.id != removeKey).toList(),
-              ),
-            )
-            .toList(),
+    final next =
+        getter(db).where((e) => _mergeKeyOf(e) != id).toList();
+    return setter(db, next);
+  }
+
+  static AppDB? _applyRealtimeFamilyScopedRow<T>(
+    AppDB local, {
+    required String familyId,
+    required PostgresChangeEvent eventType,
+    required Map<String, dynamic> newRecord,
+    required Map<String, dynamic> oldRecord,
+    required bool tombstoneOnRemove,
+    required List<T> Function(AppDB db) read,
+    required AppDB Function(AppDB db, List<T> items) write,
+    required T Function(Map<String, dynamic> json) parse,
+    bool preferLocalOnTimestampTie = false,
+  }) {
+    final id = _realtimeRowId(eventType,
+        newRecord: newRecord, oldRecord: oldRecord);
+    if (id == null) return null;
+
+    if (eventType == PostgresChangeEvent.delete) {
+      if (tombstoneOnRemove) markTombstone(id);
+      return _removeRowById(local, id, read, write);
+    }
+
+    if (newRecord.isEmpty) return null;
+    if (newRecord['family_id']?.toString() != familyId) return null;
+
+    if (tombstoneOnRemove && _realtimeRowSoftDeleted(newRecord)) {
+      markTombstone(id);
+      return _removeRowById(local, id, read, write);
+    }
+
+    final remote = parse(Map<String, dynamic>.from(newRecord));
+    return write(
+      local,
+      _mergeById(
+        read(local),
+        [remote],
+        preferLocalOnTimestampTie: preferLocalOnTimestampTie,
+      ),
+    );
+  }
+
+  static AppDB? _applyRealtimeListHeaderRow(
+    AppDB local, {
+    required String familyId,
+    required PostgresChangeEvent eventType,
+    required Map<String, dynamic> newRecord,
+    required Map<String, dynamic> oldRecord,
+  }) {
+    final id = _realtimeRowId(eventType,
+        newRecord: newRecord, oldRecord: oldRecord);
+    if (id == null) return null;
+
+    if (eventType == PostgresChangeEvent.delete) {
+      markTombstone(id);
+      return _removeRowById(
+        local,
+        id,
+        (d) => d.lists,
+        (d, list) => d.copyWith(lists: list),
       );
     }
 
-    final row = _realtimeIncomingRow(payload);
-    if (row == null) return null;
-    final listId = row['list_id']?.toString() ?? '';
+    if (newRecord.isEmpty) return null;
+    if (newRecord['family_id']?.toString() != familyId) return null;
+
+    if (_realtimeRowSoftDeleted(newRecord)) {
+      markTombstone(id);
+      return _removeRowById(
+        local,
+        id,
+        (d) => d.lists,
+        (d, list) => d.copyWith(lists: list),
+      );
+    }
+
+    final headerJson = Map<String, dynamic>.from(newRecord)..['items'] = [];
+    final remote = ShoppingList.fromJson(headerJson);
+    final lists = local.lists.map((l) {
+      if (l.id != remote.id) return l;
+      return l.copyWith(
+        title: remote.title,
+        category: remote.category,
+        visibility: remote.visibility,
+        sharedWith: remote.sharedWith,
+        creatorId: remote.creatorId,
+        updatedAt: remote.updatedAt,
+      );
+    }).toList();
+    if (!lists.any((l) => l.id == remote.id)) {
+      lists.add(remote);
+    }
+    return local.copyWith(lists: lists);
+  }
+
+  static AppDB? _applyRealtimeListItemRow(
+    AppDB local, {
+    required String familyId,
+    required PostgresChangeEvent eventType,
+    required Map<String, dynamic> newRecord,
+    required Map<String, dynamic> oldRecord,
+  }) {
+    final id = _realtimeRowId(eventType,
+        newRecord: newRecord, oldRecord: oldRecord);
+    if (id == null) return null;
+
+    if (eventType == PostgresChangeEvent.delete) {
+      return _patchListItemsOnList(
+        local,
+        listId: oldRecord['list_id']?.toString() ?? '',
+        patch: (items) => items.where((i) => i.id != id).toList(),
+      );
+    }
+
+    if (newRecord.isEmpty) return null;
+    if (newRecord['family_id']?.toString() != familyId) return null;
+
+    final listId = newRecord['list_id']?.toString() ?? '';
     if (listId.isEmpty) return null;
 
-    final listIdx = db.lists.indexWhere((l) => l.id == listId);
-    if (listIdx < 0) return null;
-
-    try {
-      final item = ListItem.fromListItemCloudRow(row);
-      final list = db.lists[listIdx];
-      final mergedItems = _mergeById(list.items, [item]);
-      final lists = List<ShoppingList>.from(db.lists);
-      lists[listIdx] = list.copyWith(items: _sortListItems(mergedItems));
-      return db.copyWith(lists: lists);
-    } on Object catch (e, st) {
-      _debugCatch('realtime patch list_items', e, st);
-      return null;
-    }
-  }
-
-  static AppDB? _patchFamilyRealtime(
-    AppDB db,
-    PostgresChangePayload payload,
-    String activeFamilyId,
-  ) {
-    final row = _realtimeIncomingRow(payload);
-    if (row == null) return null;
-    try {
-      final family = Family.fromJson(row);
-      if (family.id != activeFamilyId) return db;
-      final merged = _mergeById(db.families, [family]);
-      return db.copyWith(families: merged);
-    } on Object catch (e, st) {
-      _debugCatch('realtime patch families', e, st);
-      return null;
-    }
-  }
-
-  static AppDB? _patchDevotionalThoughtsRealtime(
-    AppDB db,
-    PostgresChangePayload payload,
-    String activeFamilyId,
-  ) {
-    final removeKey = _realtimeRemoveKey(payload);
-    if (removeKey != null) {
-      _recordTombstone(removeKey);
-      return db.copyWith(
-        devotionalThoughts: db.devotionalThoughts
-            .where((t) => t.id != removeKey)
-            .toList(),
+    if (_realtimeRowSoftDeleted(newRecord)) {
+      return _patchListItemsOnList(
+        local,
+        listId: listId,
+        patch: (items) => items.where((i) => i.id != id).toList(),
       );
     }
 
-    final row = _realtimeIncomingRow(payload);
-    if (row == null) return null;
-    try {
-      final thought = DevotionalThought.fromJson(row);
-      final merged = _mergeDevotionalThoughts(db.devotionalThoughts, [thought]);
-      return db.copyWith(devotionalThoughts: merged);
-    } on Object catch (e, st) {
-      _debugCatch('realtime patch devotional_thoughts', e, st);
-      return null;
-    }
+    final row = ShoppingListItem.fromJson(Map<String, dynamic>.from(newRecord));
+    return _patchListItemsOnList(
+      local,
+      listId: listId,
+      patch: (items) {
+        final asRows = items
+            .map(
+              (i) => ShoppingListItem.fromListItem(
+                i,
+                listId: listId,
+                familyId: familyId,
+              ),
+            )
+            .toList();
+        final merged = _mergeById(asRows, [row]);
+        merged.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+        return merged.map((r) => r.toListItem()).toList();
+      },
+    );
   }
 
-  static final Map<String, _RealtimeEntitySpec<dynamic>> _realtimeEntitySpecs = {
-    CloudSyncScope.tasks: _RealtimeEntitySpec<Task>(
-      parse: Task.fromJson,
-      select: (db) => db.tasks,
-      update: (db, next) => db.copyWith(tasks: next),
-    ),
-    CloudSyncScope.events: _RealtimeEntitySpec<CalendarEvent>(
-      parse: CalendarEvent.fromJson,
-      select: (db) => db.events,
-      update: (db, next) => db.copyWith(events: next),
-    ),
-    CloudSyncScope.recipes: _RealtimeEntitySpec<Recipe>(
-      parse: Recipe.fromJson,
-      select: (db) => db.recipes,
-      update: (db, next) => db.copyWith(recipes: next),
-    ),
-    CloudSyncScope.mealPlans: _RealtimeEntitySpec<MealPlanEntry>(
-      parse: MealPlanEntry.fromJson,
-      select: (db) => db.mealPlans,
-      update: (db, next) => db.copyWith(mealPlans: next),
-    ),
-    CloudSyncScope.messages: _RealtimeEntitySpec<ChatMessage>(
-      parse: ChatMessage.fromJson,
-      select: (db) => db.messages,
-      update: (db, next) => db.copyWith(messages: next),
-    ),
-    CloudSyncScope.chores: _RealtimeEntitySpec<Chore>(
-      parse: Chore.fromJson,
-      select: (db) => db.chores,
-      update: (db, next) => db.copyWith(chores: next),
-    ),
-    CloudSyncScope.choreCompletions: _RealtimeEntitySpec<ChoreCompletion>(
-      parse: ChoreCompletion.fromJson,
-      select: (db) => db.choreCompletions,
-      update: (db, next) => db.copyWith(choreCompletions: next),
-    ),
-    CloudSyncScope.polls: _RealtimeEntitySpec<Poll>(
-      parse: Poll.fromJson,
-      select: (db) => db.polls,
-      update: (db, next) => db.copyWith(polls: next),
-    ),
-    CloudSyncScope.pollVotes: _RealtimeEntitySpec<PollVote>(
-      parse: PollVote.fromJson,
-      select: (db) => db.pollVotes,
-      update: (db, next) => db.copyWith(pollVotes: next),
-    ),
-    CloudSyncScope.devotionals: _RealtimeEntitySpec<DevotionalEntry>(
-      parse: DevotionalEntry.fromJson,
-      select: (db) => db.devotionals,
-      update: (db, next) => db.copyWith(devotionals: next),
-    ),
-    CloudSyncScope.budgetCategories: _RealtimeEntitySpec<BudgetCategoryRecord>(
-      parse: BudgetCategoryRecord.fromJson,
-      select: (db) => db.budgetCategories,
-      update: (db, next) => db.copyWith(budgetCategories: next),
-    ),
-    CloudSyncScope.budgetEntries: _RealtimeEntitySpec<BudgetEntry>(
-      parse: BudgetEntry.fromJson,
-      select: (db) => db.budgetEntries,
-      update: (db, next) => db.copyWith(budgetEntries: next),
-    ),
-    CloudSyncScope.transactions: _RealtimeEntitySpec<Transaction>(
-      parse: Transaction.fromJson,
-      select: (db) => db.transactions,
-      update: (db, next) => db.copyWith(transactions: next),
-    ),
-    CloudSyncScope.rewardItems: _RealtimeEntitySpec<RewardItem>(
-      parse: RewardItem.fromJson,
-      select: (db) => db.rewardItems,
-      update: (db, next) => db.copyWith(rewardItems: next),
-    ),
-    CloudSyncScope.rewardRedemptions: _RealtimeEntitySpec<RewardRedemption>(
-      parse: RewardRedemption.fromJson,
-      select: (db) => db.rewardRedemptions,
-      update: (db, next) => db.copyWith(rewardRedemptions: next),
-    ),
-    CloudSyncScope.savingsGoals: _RealtimeEntitySpec<SavingsGoal>(
-      parse: SavingsGoal.fromJson,
-      select: (db) => db.savingsGoals,
-      update: (db, next) => db.copyWith(savingsGoals: next),
-    ),
-    CloudSyncScope.prayerWall: _RealtimeEntitySpec<PrayerWallEntry>(
-      parse: PrayerWallEntry.fromJson,
-      select: (db) => db.prayerWall,
-      update: (db, next) => db.copyWith(prayerWall: next),
-    ),
-    CloudSyncScope.specialDates: _RealtimeEntitySpec<SpecialDate>(
-      parse: SpecialDate.fromJson,
-      select: (db) => db.specialDates,
-      update: (db, next) => db.copyWith(specialDates: next),
-    ),
-    CloudSyncScope.familyPhotos: _RealtimeEntitySpec<FamilyPhoto>(
-      parse: FamilyPhoto.fromJson,
-      select: (db) => db.familyPhotos,
-      update: (db, next) => db.copyWith(familyPhotos: next),
-    ),
-    CloudSyncScope.milestones: _RealtimeEntitySpec<Milestone>(
-      parse: Milestone.fromJson,
-      select: (db) => db.milestones,
-      update: (db, next) => db.copyWith(milestones: next),
-    ),
-    CloudSyncScope.savedPlaces: _RealtimeEntitySpec<SavedPlace>(
-      parse: SavedPlace.fromJson,
-      select: (db) => db.savedPlaces,
-      update: (db, next) => db.copyWith(savedPlaces: next),
-    ),
-    CloudSyncScope.healthRecords: _RealtimeEntitySpec<HealthRecord>(
-      parse: HealthRecord.fromJson,
-      select: (db) => db.healthRecords,
-      update: (db, next) => db.copyWith(healthRecords: next),
-    ),
-    CloudSyncScope.readingPlans: _RealtimeEntitySpec<ReadingPlan>(
-      parse: ReadingPlan.fromJson,
-      select: (db) => db.readingPlans,
-      update: (db, next) => db.copyWith(readingPlans: next),
-    ),
-    CloudSyncScope.readingPlanProgress: _RealtimeEntitySpec<ReadingPlanProgress>(
-      parse: ReadingPlanProgress.fromJson,
-      select: (db) => db.readingPlanProgress,
-      update: (db, next) => db.copyWith(readingPlanProgress: next),
-    ),
-    CloudSyncScope.rewards: _RealtimeEntitySpec<Reward>(
-      parse: Reward.fromJson,
-      select: (db) => db.rewards,
-      update: (db, next) => db.copyWith(rewards: next),
-    ),
-    CloudSyncScope.externalCalendars: _RealtimeEntitySpec<ExternalCalendar>(
-      parse: ExternalCalendar.fromJson,
-      select: (db) => db.externalCalendars,
-      update: (db, next) => db.copyWith(externalCalendars: next),
-    ),
-    CloudSyncScope.pantryItems: _RealtimeEntitySpec<PantryItem>(
-      parse: PantryItem.fromJson,
-      select: (db) => db.pantryItems,
-      update: (db, next) => db.copyWith(pantryItems: next),
-    ),
-    CloudSyncScope.familyActivityLogs: _RealtimeEntitySpec<FamilyActivityLog>(
-      parse: FamilyActivityLog.fromJson,
-      select: (db) => db.familyActivityLogs,
-      update: (db, next) => db.copyWith(familyActivityLogs: next),
-    ),
-    CloudSyncScope.wellnessCheckIns: _RealtimeEntitySpec<WellnessCheckIn>(
-      parse: WellnessCheckIn.fromJson,
-      select: (db) => db.wellnessCheckIns,
-      update: (db, next) => db.copyWith(wellnessCheckIns: next),
-    ),
-    CloudSyncScope.exercisePrs: _RealtimeEntitySpec<ExercisePR>(
-      parse: ExercisePR.fromJson,
-      select: (db) => db.exercisePrs,
-      update: (db, next) => db.copyWith(exercisePrs: next),
-    ),
-    CloudSyncScope.aiHistory: _RealtimeEntitySpec<AIHistory>(
-      parse: AIHistory.fromJson,
-      select: (db) => db.aiHistory,
-      update: (db, next) => db.copyWith(aiHistory: next),
-    ),
-    CloudSyncScope.dailyHabits: _RealtimeEntitySpec<DailyHabit>(
-      parse: DailyHabit.fromJson,
-      select: (db) => db.dailyHabits,
-      update: (db, next) => db.copyWith(dailyHabits: next),
-    ),
-    CloudSyncScope.dailyHabitCompletions: _RealtimeEntitySpec<DailyHabitCompletion>(
-      parse: DailyHabitCompletion.fromJson,
-      select: (db) => db.dailyHabitCompletions,
-      update: (db, next) => db.copyWith(dailyHabitCompletions: next),
-    ),
-    CloudSyncScope.familyMembers: _RealtimeEntitySpec<FamilyMember>(
-      parse: FamilyMember.fromJson,
-      select: (db) => db.familyMembers,
-      update: (db, next) => db.copyWith(familyMembers: dedupeFamilyMembers(next)),
-    ),
-    CloudSyncScope.fitness: _RealtimeEntitySpec<FitnessMetric>(
-      parse: FitnessMetric.fromJson,
-      select: (db) => db.fitness,
-      update: (db, next) => db.copyWith(fitness: next),
-    ),
-    CloudSyncScope.fitnessLogs: _RealtimeEntitySpec<FitnessLog>(
-      parse: FitnessLog.fromJson,
-      select: (db) => db.fitnessLogs,
-      update: (db, next) => db.copyWith(fitnessLogs: next),
-    ),
-    CloudSyncScope.periodCycles: _RealtimeEntitySpec<PeriodCycle>(
-      parse: PeriodCycle.fromJson,
-      select: (db) => db.periodCycles,
-      update: (db, next) => db.copyWith(periodCycles: next),
-    ),
-    CloudSyncScope.periodSymptoms: _RealtimeEntitySpec<PeriodSymptomLog>(
-      parse: PeriodSymptomLog.fromJson,
-      select: (db) => db.periodSymptoms,
-      update: (db, next) => db.copyWith(periodSymptoms: next),
-    ),
-    CloudSyncScope.userLocations: _RealtimeEntitySpec<UserLocation>(
-      parse: UserLocation.fromJson,
-      select: (db) => db.userLocations,
-      update: (db, next) => db.copyWith(userLocations: next),
-    ),
-    CloudSyncScope.workoutSessions: _RealtimeEntitySpec<WorkoutSession>(
-      parse: WorkoutSession.fromJson,
-      select: (db) => db.workoutSessions,
-      update: (db, next) => db.copyWith(workoutSessions: next),
-    ),
-    CloudSyncScope.workoutExercises: _RealtimeEntitySpec<WorkoutExercise>(
-      parse: WorkoutExercise.fromJson,
-      select: (db) => db.workoutExercises,
-      update: (db, next) => db.copyWith(workoutExercises: next),
-    ),
-    CloudSyncScope.workoutSets: _RealtimeEntitySpec<WorkoutSet>(
-      parse: WorkoutSet.fromJson,
-      select: (db) => db.workoutSets,
-      update: (db, next) => db.copyWith(workoutSets: next),
-    ),
-  };
+  static AppDB? _patchListItemsOnList(
+    AppDB local, {
+    required String listId,
+    required List<ListItem> Function(List<ListItem> items) patch,
+  }) {
+    if (listId.isEmpty) return null;
+    var touched = false;
+    final lists = local.lists.map((l) {
+      if (l.id != listId) return l;
+      touched = true;
+      return l.copyWith(items: patch(l.items));
+    }).toList();
+    if (!touched) return null;
+    return local.copyWith(lists: lists);
+  }
+
+  static AppDB? _applyRealtimeUserRow(
+    AppDB local, {
+    required PostgresChangeEvent eventType,
+    required Map<String, dynamic> newRecord,
+    required Map<String, dynamic> oldRecord,
+  }) {
+    final id = _realtimeRowId(eventType,
+        newRecord: newRecord, oldRecord: oldRecord);
+    if (id == null) return null;
+
+    if (eventType == PostgresChangeEvent.delete) {
+      return local.copyWith(
+        users: local.users.where((u) => u.id != id).toList(),
+      );
+    }
+
+    if (newRecord.isEmpty) return null;
+    final remote = User.fromJson(Map<String, dynamic>.from(newRecord));
+    return local.copyWith(
+      users: _mergeById(local.users, [remote]),
+    );
+  }
 
   // ── Join code ─────────────────────────────────────────────────────────────
 
@@ -2365,16 +2550,4 @@ class DatabaseService {
     } while (existing.any((f) => f.joinCode == code));
     return code;
   }
-}
-
-class _RealtimeEntitySpec<T> {
-  const _RealtimeEntitySpec({
-    required this.parse,
-    required this.select,
-    required this.update,
-  });
-
-  final T Function(Map<String, dynamic>) parse;
-  final List<T> Function(AppDB db) select;
-  final AppDB Function(AppDB db, List<T> next) update;
 }

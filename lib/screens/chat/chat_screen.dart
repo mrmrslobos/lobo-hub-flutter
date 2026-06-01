@@ -1,6 +1,8 @@
 // lib/screens/chat/chat_screen.dart
 // Family chat screen for Huddle
 
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -11,12 +13,14 @@ import '../../config/cloud_sync_scope.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../services/notification_service.dart';
 import '../../services/family_activity_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
 import '../../widgets/module_ui_kit.dart';
 import '../../utils/debounce.dart';
+import '../../utils/sync_after_save.dart';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -149,9 +153,22 @@ class _ChatScreenState extends State<ChatScreen> {
       );
 
       final db = provider.db;
-      await provider.saveAndSync(
+      await saveAndSyncWithImmediatePush(
+        provider,
         db.copyWith(messages: [...db.messages, msg]),
         pushTableScope: {CloudSyncScope.messages},
+      );
+
+      final preview = text.length > 80 ? '${text.substring(0, 80)}…' : text;
+      unawaited(
+        NotificationService.notifyFamilyActivityWithDb(
+          provider.db,
+          title: 'New chat message',
+          body: '${provider.activeUser?.name ?? 'Someone'}: $preview',
+          path: '/chat',
+          familyId: provider.activeFamily?.id,
+          excludeUserId: provider.activeUser?.id,
+        ),
       );
 
       _textCtrl.clear();
@@ -186,7 +203,8 @@ class _ChatScreenState extends State<ChatScreen> {
     final messages =
         db.messages.map((m) => m.id == msg.id ? updated : m).toList();
     try {
-      await provider.saveAndSync(
+      await saveAndSyncWithImmediatePush(
+        provider,
         db.copyWith(messages: messages),
         pushTableScope: {CloudSyncScope.messages},
       );
@@ -221,7 +239,8 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     final db = provider.db;
     try {
-      await provider.saveAndSync(
+      await saveAndSyncWithImmediatePush(
+        provider,
         db.copyWith(
           messages: db.messages.where((m) => m.id != msg.id).toList(),
         ),
@@ -379,6 +398,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
         return HuddleModuleScaffold(
           modulePath: '/chat',
+          enterPullTables: {CloudSyncScope.messages},
           resizeToAvoidBottomInset: true,
           drawer: const AppDrawer(),
           appBar: MainAppBar(

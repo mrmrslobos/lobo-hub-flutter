@@ -764,6 +764,8 @@ class _SettingsBottomSheetState extends State<_SettingsBottomSheet> {
                       _notifSwitch('Occasions', _notifPrefs.birthdays, (v) => _persistNotif(_notifPrefs.copyWith(birthdays: v))),
                       _notifSwitch('Photos', _notifPrefs.photos, (v) => _persistNotif(_notifPrefs.copyWith(photos: v))),
                       _notifSwitch('Location', _notifPrefs.location, (v) => _persistNotif(_notifPrefs.copyWith(location: v))),
+                      _notifSwitch('Budget', _notifPrefs.budget, (v) => _persistNotif(_notifPrefs.copyWith(budget: v))),
+                      _notifSwitch('Rewards', _notifPrefs.rewards, (v) => _persistNotif(_notifPrefs.copyWith(rewards: v))),
                     ],
                   ),
                 ),
@@ -2154,8 +2156,16 @@ class _ManageMembersSheetState extends State<_ManageMembersSheet> {
 
       await provider.saveAndSync(
         nextDb,
-        pushTableScope: {CloudSyncScope.familyActivityLogs},
+        pushTableScope: {
+          CloudSyncScope.familyMembers,
+          CloudSyncScope.users,
+          CloudSyncScope.familyActivityLogs,
+        },
       );
+      provider.notifyFamilyScopedChange({
+        CloudSyncScope.familyMembers,
+        CloudSyncScope.users,
+      });
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context)

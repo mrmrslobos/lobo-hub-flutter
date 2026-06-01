@@ -217,9 +217,6 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      context
-          .read<AppProvider>()
-          .scheduleModuleEnterCloudPull(CloudSyncScope.periodBundle);
       final uid = context.read<AppProvider>().activeUser?.id;
       if (uid == null) return;
       showModuleDisclaimer(
@@ -947,6 +944,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
 
     return HuddleModuleScaffold(
       modulePath: '/period-tracker',
+      enterPullTables: CloudSyncScope.periodBundle,
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),

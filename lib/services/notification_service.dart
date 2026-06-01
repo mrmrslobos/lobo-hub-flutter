@@ -524,6 +524,8 @@ class NotificationService {
     if (loc.startsWith('/birthdays')) return prefs.birthdays;
     if (loc.startsWith('/photos')) return prefs.photos;
     if (loc.startsWith('/location')) return prefs.location;
+    if (loc.startsWith('/budget')) return prefs.budget;
+    if (loc.startsWith('/rewards')) return prefs.rewards;
     return true;
   }
 

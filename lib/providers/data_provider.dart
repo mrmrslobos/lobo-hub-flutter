@@ -17,15 +17,15 @@ class DataProvider extends ChangeNotifier {
   DateTime? get lastLocalPersistAt => _lastLocalPersistAt;
   bool get completedInitialHydration => _completedInitialHydration;
 
-  void updateDb(AppDB newDb) {
+  Future<void> updateDb(AppDB newDb) async {
     _db = newDb;
-    DatabaseService.saveLocal(newDb);
+    await DatabaseService.saveLocal(newDb);
     _lastLocalPersistAt = DateTime.now();
     notifyListeners();
   }
 
   /// Same as [updateDb] (compat with call sites that merged DB from cloud).
-  void setDb(AppDB db) => updateDb(db);
+  Future<void> setDb(AppDB db) => updateDb(db);
 
   /// In-memory update only (no disk write). Used mid–auth-flow before persist.
   void setDbMemory(AppDB db) {
@@ -61,6 +61,24 @@ class DataProvider extends ChangeNotifier {
       await DatabaseService.pushFamilyListsToCloudNow(_db, familyId);
     } catch (e) {
       debugPrint('[DataProvider] syncListsNow: $e');
+    }
+  }
+
+  Future<void> syncListItemsNow(String familyId) async {
+    try {
+      await DatabaseService.pushFamilyListItemsToCloudNow(_db, familyId);
+    } catch (e) {
+      debugPrint('[DataProvider] syncListItemsNow: $e');
+    }
+  }
+
+  Future<void> syncTablesNow(String familyId, Set<String> tables) async {
+    if (tables.isEmpty) return;
+    try {
+      await DatabaseService.pushTablesToCloudNow(_db, familyId, tables);
+    } catch (e) {
+      debugPrint('[DataProvider] syncTablesNow: $e');
+      rethrow;
     }
   }
 
@@ -126,7 +144,7 @@ class DataProvider extends ChangeNotifier {
   Future<void> Function({required String action, String? detail, String? relatedUserId})? onLogFamilyActivity;
 
   Future<void> saveAndSync(AppDB newDb, {Set<String>? pushTableScope}) async {
-    updateDb(newDb);
+    await updateDb(newDb);
     if (onSaveAndSync != null) {
       await onSaveAndSync!(newDb, pushTableScope: pushTableScope);
     }

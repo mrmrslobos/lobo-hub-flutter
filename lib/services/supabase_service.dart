@@ -230,13 +230,20 @@ class SupabaseService {
 
     Future<List<dynamic>> fetch(String table, String column, dynamic value) async {
       final softDelete = CloudSyncScope.softDeleteTables.contains(table);
-      final since = cursors?[table];
+      DateTime? incrementalSince;
+      if (CloudSyncScope.incrementalEligibleTables.contains(table) &&
+          cursors != null) {
+        incrementalSince = cursors[table];
+      }
       var q = value is List
           ? client.from(table).select().inFilter(column, value)
           : client.from(table).select().eq(column, value);
-      if (since != null) {
+      if (incrementalSince != null) {
         // Incremental pull: include dead rows so client picks up deletes too.
-        return await q.gte('updated_at', since.toUtc().toIso8601String());
+        return await q.gte(
+          'updated_at',
+          incrementalSince.toUtc().toIso8601String(),
+        );
       }
       return softDelete ? await q.isFilter('deleted_at', null) : await q;
     }
@@ -382,13 +389,20 @@ class SupabaseService {
 
     Future<List<dynamic>> fetch(String table, String column, dynamic value) async {
       final softDelete = CloudSyncScope.softDeleteTables.contains(table);
-      final since = cursors?[table];
+      DateTime? incrementalSince;
+      if (CloudSyncScope.incrementalEligibleTables.contains(table) &&
+          cursors != null) {
+        incrementalSince = cursors[table];
+      }
       var q = value is List
           ? client.from(table).select().inFilter(column, value)
           : client.from(table).select().eq(column, value);
-      if (since != null) {
+      if (incrementalSince != null) {
         // Incremental pull: include dead rows so client picks up deletes too.
-        return await q.gte('updated_at', since.toUtc().toIso8601String());
+        return await q.gte(
+          'updated_at',
+          incrementalSince.toUtc().toIso8601String(),
+        );
       }
       return softDelete ? await q.isFilter('deleted_at', null) : await q;
     }

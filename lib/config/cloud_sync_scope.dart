@@ -104,9 +104,6 @@ class CloudSyncScope {
         exercisePrs,
       };
 
-  /// List headers + normalized item rows (server stores items in [listItems]).
-  static Set<String> get listsBundle => {lists, listItems};
-
   /// Recipes, meal plans, pantry, and lists often change together from Meal Hub.
   static Set<String> get mealsExtendedBundle => {
         recipes,
@@ -125,6 +122,41 @@ class CloudSyncScope {
 
   static Set<String> get calendarBundle => {events, externalCalendars};
 
+  /// Tables that apply postgres realtime payloads directly into [AppDB] (Phase 3).
+  static Set<String> get listsBundle => {lists, listItems};
+
+  static const Set<String> incrementalRealtimeApplyTables = {
+    tasks,
+    lists,
+    listItems,
+    messages,
+    chores,
+    choreCompletions,
+    polls,
+    pollVotes,
+    events,
+    externalCalendars,
+    users,
+    recipes,
+    mealPlans,
+    prayerWall,
+    dailyHabits,
+    dailyHabitCompletions,
+  };
+
+  /// High-churn tables: shorter debounce before cloud reconcile (see [SyncProvider]).
+  static const Set<String> fastRealtimePullTables = {
+    tasks,
+    lists,
+    listItems,
+    messages,
+    chores,
+    choreCompletions,
+    polls,
+    pollVotes,
+    events,
+  };
+
   static Set<String> get occasionBundle => {specialDates};
 
   static Set<String> get rewardFullBundle => {
@@ -136,7 +168,7 @@ class CloudSyncScope {
 
   static Set<String> get periodBundle => {periodCycles, periodSymptoms};
 
-  /// AI event planner: events + related tasks + shopping lists.
+  /// AI event planner: events + related tasks + shopping lists (+ line items).
   static Set<String> get eventPlannerAiBundle => {events, tasks, ...listsBundle};
 
   static Set<String> get workoutSessionBundle => {
@@ -145,31 +177,65 @@ class CloudSyncScope {
         workoutSets,
       };
 
+  /// Postgres tables that have `updated_at timestamptz` (verified on project
+  /// `vinumlekpmddtbfkojkd`). Do not add tables here without that column.
+  static const Set<String> tablesWithUpdatedAtColumn = {
+    tasks,
+    events,
+    lists,
+    listItems,
+    recipes,
+    mealPlans,
+    chores,
+    polls,
+    prayerWall,
+    devotionals,
+    readingPlans,
+    specialDates,
+    familyPhotos,
+    savedPlaces,
+    rewardItems,
+    savingsGoals,
+    dailyHabits,
+    budgetCategories,
+    transactions,
+    budgetEntries,
+    milestones,
+    externalCalendars,
+    healthRecords,
+    periodCycles,
+    periodSymptoms,
+    rewards,
+    messages,
+    aiHistory,
+    devotionalThoughts,
+    pantryItems,
+    userLocations,
+  };
+
   /// Tables eligible for incremental pull via per-`(familyId, table)`
-  /// `last_synced_at` cursors. Two requirements:
-  ///   1. The table has a real `updated_at timestamptz` column.
-  ///   2. Absence of a row from an incremental response is not interpreted
-  ///      as "row was deleted" (incremental fetches also include
-  ///      `deleted_at != null` rows so the client learns about deletes).
+  /// `last_synced_at` cursors. Must be a subset of [tablesWithUpdatedAtColumn].
   /// `users`, `families`, `family_members` stay full-pull as they're
   /// foundational and small.
-  ///
-  /// Omitted: tables without a reliable `timestamptz updated_at` on Supabase
-  /// (`fitness*`, `workout_*`, `reading_plan_progress`, log tables with only
-  /// `created_at`, `devotional_thoughts` / `pantry_items` text timestamps).
-  static const Set<String> incrementalEligibleTables = {
-    // Soft-delete family-scoped tables (deletes propagate via deleted_at).
-    tasks, events, lists, listItems, recipes, mealPlans, chores, polls,
-    prayerWall, devotionals, readingPlans, specialDates,
-    familyPhotos, savedPlaces, rewardItems, savingsGoals,
-    dailyHabits, budgetCategories, transactions, budgetEntries,
-    milestones, externalCalendars, healthRecords,
-    periodCycles, periodSymptoms, rewards,
-    // Append-only / log-like tables with reliable timestamptz updated_at.
-    messages, aiHistory,
-    dailyHabitCompletions, choreCompletions, pollVotes,
-    rewardRedemptions,
+  static const Set<String> incrementalEligibleTables = tablesWithUpdatedAtColumn;
+
+  /// User-scoped tables (fetched by `user_id`, not `family_id`). Realtime uses
+  /// per-user filters for the active member instead of `family_id`.
+  static const Set<String> realtimeUserScopedTables = {
+    fitness,
+    fitnessPlans,
+    fitnessLogs,
+    aiHistory,
+    dailyHabits,
+    dailyHabitCompletions,
+    userLocations,
   };
+
+  /// Family-scoped realtime (filter `family_id = activeFamilyId`).
+  static List<String> get realtimeFamilyIdTables => [
+        for (final t in realtimeFamilyScopedTables)
+          if (!realtimeUserScopedTables.contains(t)) t,
+      ];
 
   /// Tables we subscribe to via Postgres realtime, filtered by `family_id`.
   /// Single source of truth so the realtime subscription list can't drift

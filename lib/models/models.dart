@@ -14,7 +14,6 @@ typedef LocationShare = UserLocation;
 typedef Occasion = SpecialDate;
 typedef Photo = FamilyPhoto;
 typedef Message = ChatMessage;
-typedef ShoppingListItem = ListItem;
 typedef MealPlan = MealPlanEntry;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -392,11 +391,11 @@ class Family {
     currency: (j['currency'] as String?) ?? 'AUD',
     enabledModules: _strList(j['enabled_modules']),
     createdAt: created,
-    welcomeDismissed: (j['welcome_dismissed'] ?? false) as bool,
-    weeklyDigest: (j['weekly_digest'] ?? true) as bool,
+    welcomeDismissed: _coerceBool(j['welcome_dismissed']),
+    weeklyDigest: _coerceBool(j['weekly_digest'], defaultValue: true),
     weeklyDigestDay: (j['weekly_digest_day'] as num?)?.toInt() ?? 0,
     weeklyDigestHour: (j['weekly_digest_hour'] as num?)?.toInt() ?? 8,
-    dailyDevotionalEnabled: (j['daily_devotional_enabled'] ?? false) as bool,
+    dailyDevotionalEnabled: _coerceBool(j['daily_devotional_enabled']),
     dailyDevotionalHour: (j['daily_devotional_hour'] as num?)?.toInt() ?? 7,
     dailyDevotionalMinute: (j['daily_devotional_minute'] as num?)?.toInt() ?? 0,
     settings: j['settings'] is Map
@@ -942,7 +941,7 @@ class ExternalCalendar {
     googleCalendarId: (j['google_calendar_id'] ?? (j['type'] == 'GOOGLE' ? j['url'] : null)) as String?,
     icsUrl: (j['ics_url'] ?? (j['type'] != 'GOOGLE' ? j['url'] : null)) as String?,
     color: j['color'] as String?,
-    enabled: j['enabled'] as bool? ?? true,
+    enabled: _coerceBool(j['enabled'], defaultValue: true),
     lastSyncedAt: _parseDate(j['last_synced'] ?? j['last_synced_at']),
     createdAt: _parseDate(j['created_at']),
   );
@@ -1046,8 +1045,10 @@ class Recipe {
       servings: (j['servings'] as num?)?.toInt() ?? 4,
       tags: _strList(j['tags']),
       image: j['image'] as String?,
-      prepMinutes: (j['prep_minutes'] ?? j['prepMinutes']) as int?,
-      cookMinutes: (j['cook_minutes'] ?? j['cookMinutes']) as int?,
+      prepMinutes:
+          ((j['prep_minutes'] ?? j['prepMinutes']) as num?)?.toInt(),
+      cookMinutes:
+          ((j['cook_minutes'] ?? j['cookMinutes']) as num?)?.toInt(),
       kcal: (j['kcal'] as num?)?.toInt(),
       proteinG: (j['protein_g'] as num?)?.toDouble() ?? (j['proteinG'] as num?)?.toDouble(),
       carbsG: (j['carbs_g'] as num?)?.toDouble() ?? (j['carbsG'] as num?)?.toDouble(),
@@ -1067,8 +1068,6 @@ class Recipe {
     'servings': servings,
     'tags': tags,
     'image': image,
-    if (prepMinutes != null) 'prepMinutes': prepMinutes,
-    if (cookMinutes != null) 'cookMinutes': cookMinutes,
     'kcal': kcal,
     'protein_g': proteinG,
     'carbs_g': carbsG,
@@ -1348,6 +1347,89 @@ class ListItem {
   String get name => text;
 }
 
+/// Supabase `list_items` row — one line per shopping list (family sync).
+class ShoppingListItem {
+  final String id;
+  final String listId;
+  final String familyId;
+  final String text;
+  final String? quantity;
+  final bool checked;
+  final String? notes;
+  final String? aiCategory;
+  final int sortOrder;
+  final DateTime updatedAt;
+
+  const ShoppingListItem({
+    required this.id,
+    required this.listId,
+    required this.familyId,
+    required this.text,
+    this.quantity,
+    this.checked = false,
+    this.notes,
+    this.aiCategory,
+    this.sortOrder = 0,
+    required this.updatedAt,
+  });
+
+  factory ShoppingListItem.fromJson(Map<String, dynamic> j) => ShoppingListItem(
+        id: j['id'] as String? ?? '',
+        listId: j['list_id'] as String? ?? '',
+        familyId: j['family_id'] as String? ?? '',
+        text: j['text'] as String? ?? '',
+        quantity: j['quantity'] as String?,
+        checked: _coerceBool(j['checked']),
+        notes: j['notes'] as String?,
+        aiCategory: j['ai_category'] as String?,
+        sortOrder: (j['sort_order'] as num?)?.toInt() ?? 0,
+        updatedAt: _parseDateOpt(j['updated_at']) ??
+            DateTime.fromMillisecondsSinceEpoch(0),
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'list_id': listId,
+        'family_id': familyId,
+        'text': text,
+        'quantity': quantity,
+        'checked': checked,
+        'notes': notes,
+        'ai_category': aiCategory,
+        'sort_order': sortOrder,
+        'updated_at': updatedAt.toIso8601String(),
+      };
+
+  ListItem toListItem() => ListItem(
+        id: id,
+        text: text,
+        quantity: quantity,
+        checked: checked,
+        notes: notes,
+        aiCategory: aiCategory,
+      );
+
+  factory ShoppingListItem.fromListItem(
+    ListItem item, {
+    required String listId,
+    required String familyId,
+    int sortOrder = 0,
+    DateTime? updatedAt,
+  }) =>
+      ShoppingListItem(
+        id: item.id,
+        listId: listId,
+        familyId: familyId,
+        text: item.text,
+        quantity: item.quantity,
+        checked: item.checked,
+        notes: item.notes,
+        aiCategory: item.aiCategory,
+        sortOrder: sortOrder,
+        updatedAt: updatedAt ?? DateTime.now(),
+      );
+}
+
 class ShoppingList {
   final String id;
   final String familyId;
@@ -1400,6 +1482,13 @@ class ShoppingList {
     'updated_at': updatedAt.toIso8601String(),
   };
 
+  /// List metadata for Supabase `lists` (items live in `list_items`).
+  Map<String, dynamic> toCloudHeaderJson() {
+    final m = Map<String, dynamic>.from(toJson());
+    m['items'] = <Map<String, dynamic>>[];
+    return m;
+  }
+
   // Convenience getters
   String get name => title;
 
@@ -1416,6 +1505,13 @@ class ShoppingList {
         category != null ||
         visibility != null ||
         sharedWith != null;
+    DateTime bumpedUpdatedAt() {
+      final prev = this.updatedAt;
+      final now = DateTime.now();
+      if (now.isAfter(prev)) return now;
+      return prev.add(const Duration(microseconds: 1));
+    }
+
     return ShoppingList(
       id: id ?? this.id,
       familyId: familyId ?? this.familyId,
@@ -1425,7 +1521,8 @@ class ShoppingList {
       category: category ?? this.category,
       visibility: visibility ?? this.visibility,
       sharedWith: sharedWith ?? this.sharedWith,
-      updatedAt: updatedAt ?? (anyField ? DateTime.now() : this.updatedAt),
+      updatedAt: updatedAt ??
+          (anyField ? bumpedUpdatedAt() : this.updatedAt),
     );
   }
 }
@@ -1483,7 +1580,7 @@ class DevotionalEntry {
     tags: _strList(j['tags']),
     date: _parseDate(j['date']),
     visibility: visibilityFromString(j['visibility'] as String?),
-    isFavorited: (j['is_favorited'] ?? false) as bool,
+    isFavorited: _coerceBool(j['is_favorited']),
     updatedAt: _parseDateOpt(j['updated_at']) ?? _parseDate(j['date']),
   );
 
@@ -2155,7 +2252,7 @@ class BudgetCategoryRecord {
       limit: FieldEncryption.decryptDouble(j['limit'], fid) ?? 0,
       color: j['color'] as String? ?? '#6366f1',
       visibility: visibilityFromString(j['visibility'] as String?),
-      rolloverEnabled: (j['rollover_enabled'] ?? j['rolloverEnabled'] ?? false) as bool,
+      rolloverEnabled: _coerceBool(j['rollover_enabled'] ?? j['rolloverEnabled']),
       limitPeriod: budgetLimitPeriodFromString(
         j['limit_period']?.toString() ?? j['limitPeriod']?.toString(),
       ),
@@ -2438,7 +2535,7 @@ class DailyHabit {
     icon: j['icon'] as String?,
     color: j['color'] as String?,
     description: j['description'] as String?,
-    isShared: (j['is_shared'] ?? false) as bool,
+    isShared: _coerceBool(j['is_shared']),
     frequency: j['frequency'] as String?,
     targetValue: j['target_value'] as num?,
     targetUnit: j['target_unit'] as String?,
@@ -2559,8 +2656,8 @@ class Chore {
     color: j['color'] as String?,
     visibility: visibilityFromString(j['visibility'] as String?),
     createdAt: _parseDate(j['created_at']),
-    requiresApproval: (j['requires_approval'] ?? false) as bool,
-    rotationEnabled: (j['rotation_enabled'] ?? false) as bool,
+    requiresApproval: _coerceBool(j['requires_approval']),
+    rotationEnabled: _coerceBool(j['rotation_enabled']),
     rotationCursor: (j['rotation_cursor'] as num?)?.toInt() ?? 0,
     updatedAt: _parseDateOpt(j['updated_at']) ?? DateTime.fromMillisecondsSinceEpoch(0),
   );
@@ -2700,7 +2797,7 @@ class RewardItem {
     description: j['description'] as String?,
     cost: ((j['cost'] as num?) ?? 0).toInt(),
     icon: j['icon'] as String?,
-    active: (j['active'] ?? true) as bool,
+    active: _coerceBool(j['active'], defaultValue: true),
     createdAt: _parseDate(j['created_at']),
   );
 
@@ -2820,7 +2917,7 @@ class Reward {
     id: j['id'] as String? ?? '',
     familyId: j['family_id'] as String? ?? '',
     title: j['title'] as String? ?? '',
-    pointCost: ((j['point_cost'] ?? j['cost']) as int?) ?? 0,
+    pointCost: ((j['point_cost'] ?? j['cost']) as num?)?.toInt() ?? 0,
     description: j['description'] as String?,
     redeemedBy: _strList(j['redeemed_by']),
   );
@@ -3054,7 +3151,7 @@ class ReadingPlanEntry {
     id: j['id'] as String? ?? '',
     planId: j['plan_id'] as String? ?? '',
     devotionalId: j['devotional_id'] as String? ?? '',
-    dayNumber: (j['day_number'] as int?) ?? 0,
+    dayNumber: (j['day_number'] as num?)?.toInt() ?? 0,
   );
 
   Map<String, dynamic> toJson() => {
@@ -3226,8 +3323,8 @@ class Poll {
     creatorId: j['creator_id'] as String? ?? '',
     question: j['question'] as String? ?? '',
     options: _parseList(j['options'], PollOption.fromJson),
-    allowMultiple: (j['allow_multiple'] ?? false) as bool,
-    anonymous: (j['anonymous'] ?? false) as bool,
+    allowMultiple: _coerceBool(j['allow_multiple']),
+    anonymous: _coerceBool(j['anonymous']),
     status: pollStatusFromString(j['status'] as String?),
     deadline: _parseDateOpt(j['deadline']),
     visibility: visibilityFromString(j['visibility'] as String?),
@@ -3754,7 +3851,7 @@ class UserLocation {
     accuracy: (j['accuracy'] as num?)?.toDouble(),
     placeName: j['place_name'] as String?,
     nearPlace: j['near_place'] as String?,
-    isSharing: (j['is_sharing'] ?? false) as bool,
+    isSharing: _coerceBool(j['is_sharing']),
     updatedAt: _parseDate(j['updated_at']),
   );
 
@@ -4202,6 +4299,8 @@ class NotificationPrefs {
   final bool birthdays;
   final bool photos;
   final bool location;
+  final bool budget;
+  final bool rewards;
   final bool weeklyDigest;
   final bool webPushEnabled;
   /// Local hour 0–23 when quiet hours start (inclusive). Both null = disabled.
@@ -4224,6 +4323,8 @@ class NotificationPrefs {
     this.birthdays = true,
     this.photos = false,
     this.location = false,
+    this.budget = true,
+    this.rewards = true,
     this.weeklyDigest = true,
     this.webPushEnabled = false,
     this.quietHoursStart,
@@ -4238,22 +4339,24 @@ class NotificationPrefs {
   String get mergeKey => id;
 
   factory NotificationPrefs.fromJson(Map<String, dynamic> j) => NotificationPrefs(
-    chat: (j['chat'] ?? true) as bool,
-    tasks: (j['tasks'] ?? true) as bool,
-    calendar: (j['calendar'] ?? true) as bool,
-    chores: (j['chores'] ?? true) as bool,
-    lists: (j['lists'] ?? true) as bool,
-    polls: (j['polls'] ?? true) as bool,
-    meals: (j['meals'] ?? false) as bool,
-    birthdays: (j['birthdays'] ?? true) as bool,
-    photos: (j['photos'] ?? false) as bool,
-    location: (j['location'] ?? false) as bool,
-    weeklyDigest: (j['weekly_digest'] ?? true) as bool,
-    webPushEnabled: (j['web_push_enabled'] ?? false) as bool,
+    chat: _coerceBool(j['chat'], defaultValue: true),
+    tasks: _coerceBool(j['tasks'], defaultValue: true),
+    calendar: _coerceBool(j['calendar'], defaultValue: true),
+    chores: _coerceBool(j['chores'], defaultValue: true),
+    lists: _coerceBool(j['lists'], defaultValue: true),
+    polls: _coerceBool(j['polls'], defaultValue: true),
+    meals: _coerceBool(j['meals']),
+    birthdays: _coerceBool(j['birthdays'], defaultValue: true),
+    photos: _coerceBool(j['photos']),
+    location: _coerceBool(j['location']),
+    budget: _coerceBool(j['budget'], defaultValue: true),
+    rewards: _coerceBool(j['rewards'], defaultValue: true),
+    weeklyDigest: _coerceBool(j['weekly_digest'], defaultValue: true),
+    webPushEnabled: _coerceBool(j['web_push_enabled']),
     quietHoursStart: (j['quiet_hours_start'] as num?)?.toInt(),
     quietHoursEnd: (j['quiet_hours_end'] as num?)?.toInt(),
-    reminderEmailEnabled: (j['reminder_email_enabled'] ?? false) as bool,
-    reminderSmsEnabled: (j['reminder_sms_enabled'] ?? false) as bool,
+    reminderEmailEnabled: _coerceBool(j['reminder_email_enabled']),
+    reminderSmsEnabled: _coerceBool(j['reminder_sms_enabled']),
     reminderSmsPhone: j['reminder_sms_phone'] as String?,
   );
 
@@ -4268,6 +4371,8 @@ class NotificationPrefs {
     'birthdays': birthdays,
     'photos': photos,
     'location': location,
+    'budget': budget,
+    'rewards': rewards,
     'weekly_digest': weeklyDigest,
     'web_push_enabled': webPushEnabled,
     'quiet_hours_start': quietHoursStart,
@@ -4280,6 +4385,7 @@ class NotificationPrefs {
   NotificationPrefs copyWith({
     bool? chat, bool? tasks, bool? calendar, bool? chores, bool? lists,
     bool? polls, bool? meals, bool? birthdays, bool? photos, bool? location,
+    bool? budget, bool? rewards,
     bool? weeklyDigest, bool? webPushEnabled,
     int? quietHoursStart,
     int? quietHoursEnd,
@@ -4297,6 +4403,8 @@ class NotificationPrefs {
     birthdays: birthdays ?? this.birthdays,
     photos: photos ?? this.photos,
     location: location ?? this.location,
+    budget: budget ?? this.budget,
+    rewards: rewards ?? this.rewards,
     weeklyDigest: weeklyDigest ?? this.weeklyDigest,
     webPushEnabled: webPushEnabled ?? this.webPushEnabled,
     quietHoursStart: quietHoursStart ?? this.quietHoursStart,
@@ -5095,8 +5203,8 @@ class AppDB {
 // Private helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-bool _coerceBool(dynamic v) {
-  if (v == null) return false;
+bool _coerceBool(dynamic v, {bool defaultValue = false}) {
+  if (v == null) return defaultValue;
   if (v is bool) return v;
   if (v is num) return v != 0;
   final s = v.toString().toLowerCase();

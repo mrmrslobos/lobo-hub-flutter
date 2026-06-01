@@ -4,9 +4,11 @@ on:
   workflow_dispatch:
   push:
     paths:
+      - 'lib/config/cloud_sync_scope.dart'
       - 'lib/services/database_service.dart'
       - 'lib/services/supabase_service.dart'
       - 'lib/providers/sync_provider.dart'
+      - 'lib/screens/lists/**'
       - 'test/integration/**'
 
 jobs:
@@ -22,9 +24,9 @@ jobs:
 
       - run: flutter pub get
 
-      # Without dart-defines the test skips ( exits 0 ) — add repo secrets later to run live.
+      # Without dart-defines the tests skip ( exit 0 ) — add repo secrets to run live.
       - run: >-
-          flutter test test/integration/sync_two_device_test.dart
+          flutter test test/integration/
           --dart-define=SUPABASE_TEST_URL=${{ secrets.SUPABASE_TEST_URL }}
           --dart-define=SUPABASE_TEST_ANON_KEY=${{ secrets.SUPABASE_TEST_ANON_KEY }}
           --dart-define=HUB_TEST_USER_A_EMAIL=${{ secrets.HUB_TEST_USER_A_EMAIL }}

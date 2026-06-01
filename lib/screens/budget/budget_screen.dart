@@ -1,5 +1,6 @@
 // lib/screens/budget/budget_screen.dart
 // Budget / finance screen for Huddle
+import 'dart:async' show unawaited;
 import 'dart:convert';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
@@ -14,6 +15,7 @@ import '../../config/module_config.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
+import '../../services/notification_service.dart';
 import '../../services/ai_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
@@ -63,6 +65,12 @@ class _BudgetScreenState extends State<BudgetScreen> {
     super.initState();
     final now = DateTime.now();
     _selectedMonth = DateTime(now.year, now.month);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context
+          .read<AppProvider>()
+          .scheduleModuleEnterCloudPull(CloudSyncScope.budgetBundle);
+    });
   }
 
   @override
@@ -136,6 +144,19 @@ class _BudgetScreenState extends State<BudgetScreen> {
             db.copyWith(budgetEntries: [...db.budgetEntries, entry]),
             pushTableScope: CloudSyncScope.budgetBundle,
           );
+          if (entry.type == TransactionType.EXPENSE && entry.amount >= 100) {
+            unawaited(
+              NotificationService.notifyFamilyActivityWithDb(
+                provider.db,
+                title: 'Large budget expense',
+                body:
+                    '${provider.activeUser?.name ?? 'Someone'} logged ${entry.title} (\$${entry.amount.toStringAsFixed(0)})',
+                path: '/budget',
+                familyId: provider.activeFamily?.id,
+                excludeUserId: provider.activeUser?.id,
+              ),
+            );
+          }
         },
       ),
     );
@@ -775,6 +796,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
 
     return HuddleModuleScaffold(
       modulePath: '/budget',
+      enterPullTables: CloudSyncScope.budgetBundle,
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),

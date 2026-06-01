@@ -1,5 +1,6 @@
 import Flutter
 import UIKit
+import workmanager_apple
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
@@ -8,6 +9,9 @@ import UIKit
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
+    WorkmanagerPlugin.registerBGProcessingTask(
+      withIdentifier: "com.opensolutions.huddle.daily_devotional_prep"
+    )
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 }

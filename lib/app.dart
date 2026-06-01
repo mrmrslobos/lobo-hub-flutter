@@ -126,6 +126,9 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
       try {
         if (_provider.isAuthenticated) {
           await _provider.refreshFromCloud();
+          if (route.startsWith('/devotional')) {
+            await _provider.prepareDailyDevotionalAndSchedule();
+          }
         }
       } catch (_) {}
       if (!mounted) return;

@@ -529,6 +529,7 @@ class _LocationScreenState extends State<LocationScreen> {
 
     return HuddleModuleScaffold(
       modulePath: '/location',
+      enterPullTables: CloudSyncScope.locationBundle,
       // backgroundColor handled by theme
       drawer: const AppDrawer(),
       appBar: const MainAppBar(),

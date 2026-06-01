@@ -958,6 +958,15 @@ class _MainAppBarState extends State<MainAppBar> {
       if (_showSyncedCheck) return 'Synced with cloud';
       if (hasErr) return 'Sync failed — tap to retry';
       if (provider.isRealtimeLive) return 'Live sync active';
+      final patchAt = provider.lastIncrementalPatchAt;
+      if (patchAt != null &&
+          DateTime.now().difference(patchAt) < const Duration(seconds: 12)) {
+        final table = provider.lastIncrementalPatchTable;
+        if (table != null && table.isNotEmpty) {
+          return 'Live · updated $table';
+        }
+        return 'Live · updated from cloud';
+      }
       final at = provider.lastSuccessfulSyncAt;
       if (at != null) return formatRelativeSyncTime(at);
       return 'Pull latest from cloud';
@@ -1007,6 +1016,15 @@ class _MainAppBarState extends State<MainAppBar> {
         return Icon(
           Icons.sync_rounded,
           color: AppTheme.success.withValues(alpha: 0.9),
+        );
+      }
+      final patchAt = provider.lastIncrementalPatchAt;
+      final livePatch = patchAt != null &&
+          DateTime.now().difference(patchAt) < const Duration(seconds: 12);
+      if (livePatch) {
+        return Icon(
+          Icons.bolt_rounded,
+          color: AppTheme.success.withValues(alpha: 0.95),
         );
       }
       return Icon(

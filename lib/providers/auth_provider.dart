@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import '../config/cloud_sync_scope.dart';
 import '../models/models.dart';
+import '../background/background_session_store.dart';
 import '../services/database_service.dart';
 import '../services/notification_service.dart';
 import '../services/ai_service.dart';
@@ -27,6 +28,7 @@ class AuthProvider extends ChangeNotifier {
   Future<void> Function({String? familyIdOverride})? _syncRefreshFromCloud;
   void Function()? _syncStartRealtime;
   void Function()? _syncStop;
+  void Function(Set<String> tables)? _syncNotifyFamilyScopedChange;
 
   /// Notified when [activeUser] and [activeFamily] are both set (bootstrap, login, family switch).
   void Function()? onSessionReady;
@@ -38,10 +40,12 @@ class AuthProvider extends ChangeNotifier {
     required Future<void> Function({String? familyIdOverride}) refreshFromCloud,
     required void Function() startRealtimeListener,
     required void Function() stop,
+    void Function(Set<String> tables)? notifyFamilyScopedChange,
   }) {
     _syncRefreshFromCloud = refreshFromCloud;
     _syncStartRealtime = startRealtimeListener;
     _syncStop = stop;
+    _syncNotifyFamilyScopedChange = notifyFamilyScopedChange;
     onRefreshFromCloud = refreshFromCloud;
   }
 
@@ -137,7 +141,7 @@ class AuthProvider extends ChangeNotifier {
     if (user != null) {
       _setActiveUserFamily(user, knownFamilyId);
       if (knownFamilyId != null && FieldEncryption.isReady(knownFamilyId)) {
-        dataProvider.updateDb(dataProvider.db.applySensitiveDecryption(knownFamilyId));
+        await dataProvider.updateDb(dataProvider.db.applySensitiveDecryption(knownFamilyId));
       }
     }
 
@@ -169,7 +173,7 @@ class AuthProvider extends ChangeNotifier {
       if (_syncRefreshFromCloud != null) {
         final familyIdForPull = knownFamilyId;
         unawaited(
-          _syncRefreshFromCloud!(familyIdOverride: familyIdForPull).then((_) {
+          _syncRefreshFromCloud!(familyIdOverride: familyIdForPull).then((_) async {
             if (DatabaseService.lastError != null) {
               debugPrint(
                   '[AuthProvider] refreshFromCloud: ${DatabaseService.lastError}');
@@ -180,7 +184,7 @@ class AuthProvider extends ChangeNotifier {
             if (mergedUser != null) {
               _setActiveUserFamily(mergedUser, familyIdForPull);
               if (FieldEncryption.isReady(familyIdForPull)) {
-                dataProvider.updateDb(
+                await dataProvider.updateDb(
                   dataProvider.db.applySensitiveDecryption(familyIdForPull),
                 );
               }
@@ -259,7 +263,7 @@ class AuthProvider extends ChangeNotifier {
         next = next.copyWith(users: [...next.users, newUser]);
       }
       next = next.copyWith(familyMembers: mergedMembers);
-      dataProvider.updateDb(next);
+      await dataProvider.updateDb(next);
     } catch (e, st) {
       debugPrint('[AuthProvider] _bootstrapSessionFamilyIfNeeded: $e\n$st');
     }
@@ -280,11 +284,14 @@ class AuthProvider extends ChangeNotifier {
       if (family != null) {
         _activeUser = user;
         _activeFamily = family;
+        unawaited(BackgroundSessionStore.saveActiveSession(
+          userId: user.id,
+          familyId: family.id,
+        ));
         FieldEncryption.init(family.id, family.joinCode);
         _syncAIFlag();
         _syncStartRealtime?.call();
         NotificationService.registerDeviceToken(family.id, user.id);
-        unawaited(repairOwnerMembershipIfNeeded());
         unawaited(PurchaseService.syncIdentity(user.id));
         unawaited(refreshStoreSubscription());
         notifyListeners();
@@ -313,10 +320,14 @@ class AuthProvider extends ChangeNotifier {
     }
     if (!changed) return;
 
-    dataProvider.updateDb(dataProvider.db.copyWith(familyMembers: members));
+    await dataProvider.updateDb(dataProvider.db.copyWith(familyMembers: members));
     if (SupabaseService.isConfigured) {
       try {
-        await DatabaseService.syncToCloud(dataProvider.db, fam.id);
+        await DatabaseService.syncToCloud(
+          dataProvider.db,
+          fam.id,
+          tableScope: {CloudSyncScope.familyMembers},
+        );
       } catch (e) {
         debugPrint('[AuthProvider] Owner membership repair sync failed: $e');
       }
@@ -332,7 +343,7 @@ class AuthProvider extends ChangeNotifier {
     if (!needs) return;
     try {
       final updated = await DatabaseService.backfillMissingUsersForFamily(db, familyId);
-      dataProvider.updateDb(updated);
+      await dataProvider.updateDb(updated);
       notifyListeners();
     } catch (e) {
       debugPrint('[AuthProvider] backfillMissingUsersIfNeeded: $e');
@@ -354,7 +365,7 @@ class AuthProvider extends ChangeNotifier {
         updatedAt: DateTime.now(),
       );
       _activeFamily = updated;
-      dataProvider.updateDb(
+      await dataProvider.updateDb(
         dataProvider.db.copyWith(
           families: dataProvider.db.families
               .map((f) => f.id == updated.id ? updated : f)
@@ -399,7 +410,7 @@ class AuthProvider extends ChangeNotifier {
       db = db.copyWith(families: [...db.families, family]);
     }
 
-    dataProvider.updateDb(db.applySensitiveDecryption(family.id));
+    await dataProvider.updateDb(db.applySensitiveDecryption(family.id));
     NotificationService.registerDeviceToken(family.id, user.id);
     notifyListeners();
 
@@ -530,7 +541,9 @@ class AuthProvider extends ChangeNotifier {
       _activeFamily = family;
       FieldEncryption.init(family.id, family.joinCode);
       _syncAIFlag();
-      dataProvider.updateDb(dataProvider.db.applySensitiveDecryption(family.id));
+      unawaited(
+        dataProvider.updateDb(dataProvider.db.applySensitiveDecryption(family.id)),
+      );
       if (_activeUser != null) {
         NotificationService.registerDeviceToken(family.id, _activeUser!.id);
       }
@@ -542,9 +555,11 @@ class AuthProvider extends ChangeNotifier {
 
   void updateFamily(Family family) {
     _activeFamily = family;
-    dataProvider.updateDb(dataProvider.db.copyWith(
-      families: dataProvider.db.families.map((f) => f.id == family.id ? family : f).toList(),
-    ));
+    unawaited(
+      dataProvider.updateDb(dataProvider.db.copyWith(
+        families: dataProvider.db.families.map((f) => f.id == family.id ? family : f).toList(),
+      )),
+    );
     _syncAIFlag();
     notifyListeners();
   }
@@ -591,13 +606,14 @@ class AuthProvider extends ChangeNotifier {
     final next = Map<String, dynamic>.from(u.settings)..addAll(patch);
     final updated = u.copyWith(settings: next);
     _activeUser = updated;
-    dataProvider.updateDb(dataProvider.db.copyWith(
+    await dataProvider.updateDb(dataProvider.db.copyWith(
       users: dataProvider.db.users.map((x) => x.id == u.id ? updated : x).toList(),
     ));
     notifyListeners();
     if (SupabaseService.isConfigured && _activeFamily != null) {
       await DatabaseService.syncToCloud(dataProvider.db, _activeFamily!.id,
           tableScope: {CloudSyncScope.users});
+      _syncNotifyFamilyScopedChange?.call({CloudSyncScope.users});
     }
   }
 
@@ -618,7 +634,7 @@ class AuthProvider extends ChangeNotifier {
       response: response,
       createdAt: DateTime.now(),
     );
-    dataProvider.updateDb(dataProvider.db.copyWith(aiHistory: [...dataProvider.db.aiHistory, entry]));
+    await dataProvider.updateDb(dataProvider.db.copyWith(aiHistory: [...dataProvider.db.aiHistory, entry]));
     if (SupabaseService.isConfigured) {
       await DatabaseService.syncToCloud(dataProvider.db, family.id,
           tableScope: {CloudSyncScope.aiHistory});
