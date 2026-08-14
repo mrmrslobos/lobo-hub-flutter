@@ -12,10 +12,6 @@ class AppConfig {
   static const String googlePlayUrl =
       'https://play.google.com/store/apps/details?id=com.opensolutions.huddle&hl=en_AU';
 
-  /// Google Play listing (marketing site + in-app “get the app” links).
-  static const String googlePlayUrl =
-      'https://play.google.com/store/apps/details?id=com.opensolutions.huddle';
-
   // Auth copy
   static const String loginTagline = 'Welcome back.';
   static const String signupTagline = 'Create your account.';

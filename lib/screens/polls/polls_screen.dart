@@ -220,19 +220,23 @@ class _PollsScreenState extends State<PollsScreen> {
     if (expiredPolls.isNotEmpty && !_closingExpired) {
       _closingExpired = true;
       WidgetsBinding.instance.addPostFrameCallback((_) async {
-        final db = provider.db;
-        var updatedPolls = db.polls.map((p) {
-          if (expiredPolls.any((e) => e.id == p.id)) {
-            return p.copyWith(status: PollStatus.closed);
+        try {
+          final db = provider.db;
+          var updatedPolls = db.polls.map((p) {
+            if (expiredPolls.any((e) => e.id == p.id)) {
+              return p.copyWith(status: PollStatus.closed);
+            }
+            return p;
+          }).toList();
+          await provider.saveAndSync(
+            db.copyWith(polls: updatedPolls),
+            pushTableScope: CloudSyncScope.pollBundle,
+          );
+        } finally {
+          if (mounted) {
+            _closingExpired = false;
           }
-          return p;
-        }).toList();
-        await provider.saveAndSync(
-          db.copyWith(polls: updatedPolls),
-          pushTableScope: CloudSyncScope.pollBundle,
-        );
-        if (!mounted) return;
-        _closingExpired = false;
+        }
       });
     }
 

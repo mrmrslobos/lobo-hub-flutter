@@ -262,7 +262,7 @@ class _AuthScreenState extends State<AuthScreen> {
         _pendingUser = user;
         _setView(_AuthView.onboarding);
       } else {
-        provider.authenticate(user, family);
+        await provider.authenticate(user, family);
         if (mounted) context.go('/');
       }
     } catch (e) {
@@ -471,7 +471,7 @@ class _AuthScreenState extends State<AuthScreen> {
         familyMembers: DatabaseService.dedupeFamilyMembers(nextMembers),
       );
       provider.setDb(db);
-      provider.authenticate(user, joinedFamily);
+      await provider.authenticate(user, joinedFamily);
       await DatabaseService.saveAndSync(db, joinedFamily.id);
       // Membership is now on the server — pull full family data (tasks, members, …).
       if (_supabaseConfigured) {
@@ -521,7 +521,7 @@ class _AuthScreenState extends State<AuthScreen> {
         familyMembers: [...provider.db.familyMembers, membership],
       );
       provider.setDb(db);
-      provider.authenticate(user, family);
+      await provider.authenticate(user, family);
       await DatabaseService.saveAndSync(db, family.id);
       await markWelcomeTourPending(List<String>.from(_selectedModules));
 

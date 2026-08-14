@@ -1904,6 +1904,7 @@ Return a JSON array of 7 objects, each with:
                 ),
               ),
             ],
+            const MedicalDisclaimerFooter(),
             ],
           ),
         ),

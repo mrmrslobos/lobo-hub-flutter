@@ -17,6 +17,14 @@ analyzer:
     curly_braces_in_flow_control_structures: ignore
     unnecessary_brace_in_string_interps: ignore
     unnecessary_library_name: ignore
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**
 
 linter:
   # The lint rules applied to this project can be customized in the
