@@ -58,6 +58,36 @@ class SectionCard extends StatelessWidget {
   }
 }
 
+/// Small footer for wellness-related modules (meals, fitness, health, period).
+class MedicalDisclaimerFooter extends StatelessWidget {
+  const MedicalDisclaimerFooter({super.key});
+
+  static const String defaultText =
+      'Note: Always consult a healthcare professional for medical advice, diagnosis, or treatment.';
+
+  @override
+  Widget build(BuildContext context) {
+    final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.45);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+      child: Semantics(
+        label: defaultText,
+        child: Text(
+          defaultText,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 10,
+            height: 1.35,
+            fontWeight: FontWeight.w500,
+            color: muted,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ─── Empty State ─────────────────────────────────────────────────────────────
 class EmptyState extends StatelessWidget {
   final String emoji;
