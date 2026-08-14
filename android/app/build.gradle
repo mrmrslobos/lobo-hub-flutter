@@ -59,6 +59,10 @@ android {
         multiDexEnabled true
     }
 
+    buildFeatures {
+        resValues true
+    }
+
     compileOptions {
         coreLibraryDesugaringEnabled true
         sourceCompatibility JavaVersion.VERSION_17

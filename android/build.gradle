@@ -33,6 +33,11 @@ subprojects { sub ->
         if (androidExt?.defaultConfig != null) {
             androidExt.defaultConfig.minSdkVersion 23
         }
+        if (androidExt != null && androidExt.hasProperty('compileSdk')) {
+            androidExt.compileSdk = 36
+        } else if (androidExt != null && androidExt.hasProperty('compileSdkVersion')) {
+            androidExt.compileSdkVersion 36
+        }
     }
 }
 subprojects {
