@@ -100,6 +100,8 @@ flutter {
 }
 
 dependencies {
+    // Google Play requires Billing Library 8.0.0+ (purchases_flutter 9+ pulls this transitively).
+    implementation 'com.android.billingclient:billing:8.0.0'
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'
     implementation 'androidx.multidex:multidex:2.0.1'
     implementation 'androidx.window:window:1.2.0'
