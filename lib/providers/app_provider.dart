@@ -63,6 +63,10 @@ class AppProvider extends ChangeNotifier {
   bool get isSyncing => _sync.isSyncing;
   DateTime? get lastSuccessfulSyncAt => _sync.lastSuccessfulSyncAt;
   String? get lastSyncError => _sync.lastSyncError;
+  RealtimeConnectionState get realtimeConnectionState =>
+      _sync.realtimeConnectionState;
+  bool get isRealtimeLive => _sync.isRealtimeLive;
+  String? get realtimeLastError => _sync.realtimeLastError;
   DateTime? get lastIncrementalPatchAt => _sync.lastIncrementalPatchAt;
   String? get lastIncrementalPatchTable => _sync.lastIncrementalPatchTable;
 
@@ -276,6 +280,11 @@ class AppProvider extends ChangeNotifier {
     await DailyDevotionalService.prepareOnAppActive(this);
     await BackgroundTaskScheduler.syncDailyDevotionalSchedule(this);
   }
+
+  void onConnectivityRestored() => _sync.onConnectivityRestored();
+
+  Future<void> reconnectRealtime({bool pullAfter = true}) =>
+      _sync.reconnectRealtime(pullAfter: pullAfter);
 
   @override
   void dispose() {

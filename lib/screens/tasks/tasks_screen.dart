@@ -71,6 +71,17 @@ class _TasksScreenState extends State<TasksScreen> {
       ];
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context
+          .read<AppProvider>()
+          .scheduleModuleEnterCloudPull({CloudSyncScope.tasks});
+    });
+  }
+
+  @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _maybeMigrateTaskFoldersFromPrefs();

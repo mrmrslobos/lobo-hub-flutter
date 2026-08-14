@@ -238,6 +238,20 @@ class DatabaseService {
     }
   }
 
+  /// Pantry writes are limited to family owner/admin (matches Supabase RLS).
+  static bool _canSyncPantryItems(AppDB db, String familyId, String? userId) {
+    if (userId == null || userId.isEmpty) return false;
+    for (final f in db.families) {
+      if (f.id == familyId && f.ownerId == userId) return true;
+    }
+    for (final m in db.familyMembers) {
+      if (m.familyId == familyId && m.userId == userId) {
+        return m.role == Role.OWNER || m.role == Role.ADMIN;
+      }
+    }
+    return false;
+  }
+
   // ── Local persistence ─────────────────────────────────────────────────────
 
   static Future<void> _hydrateTombstonesFromPrefs(SharedPreferences prefs) async {
@@ -763,6 +777,15 @@ class DatabaseService {
                   for (final k in _recipeCloudOmit) {
                     row.remove(k);
                   }
+                  final cb = row['created_by'];
+                  final cbStr = cb is String ? cb : '';
+                  if (cbStr.isEmpty) {
+                    final fb = (currentUserId != null &&
+                            currentUserId.isNotEmpty)
+                        ? currentUserId
+                        : mealPlanCreatedByFallback();
+                    if (fb.isNotEmpty) row['created_by'] = fb;
+                  }
                   return row;
                 })
                 .toList(),
@@ -1119,7 +1142,7 @@ class DatabaseService {
             'reading_plan_progress',
             db.readingPlanProgress.map((r) => r.toJson()).toList(),
             db.readingPlanProgress.map((r) => r.id).toSet()),
-      if (pick('pantry_items'))
+      if (pick('pantry_items') && _canSyncPantryItems(db, fid, currentUserId))
         upAndClean(
             'pantry_items',
             db.pantryItems

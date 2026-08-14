@@ -70,6 +70,17 @@ class _ChoresScreenState extends State<ChoresScreen> {
   final _searchDebounce = Debouncer();
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context
+          .read<AppProvider>()
+          .scheduleModuleEnterCloudPull(CloudSyncScope.choreBundle);
+    });
+  }
+
+  @override
   void dispose() {
     _searchDebounce.dispose();
     _searchCtrl.dispose();

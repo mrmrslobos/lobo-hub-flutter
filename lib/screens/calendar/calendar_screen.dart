@@ -80,6 +80,17 @@ class _CalendarScreenState extends State<CalendarScreen> {
   /// Hide events from these layers: `'__family__'` = only family-created events; else [ExternalCalendar.id].
   final Set<String> _hiddenCalendarLayers = {};
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context
+          .read<AppProvider>()
+          .scheduleModuleEnterCloudPull(CloudSyncScope.calendarBundle);
+    });
+  }
+
   // AI Event Strategist
   final _aiController = TextEditingController();
   bool _isAiLoading = false;

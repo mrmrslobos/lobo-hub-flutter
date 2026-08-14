@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 
 import '../config/theme.dart';
 import '../providers/app_provider.dart';
+import '../providers/sync_provider.dart';
 import '../services/supabase_service.dart';
 import '../services/sync_outbox.dart';
 import '../utils/user_facing_errors.dart';
@@ -55,13 +56,18 @@ class _ConnectivityWrapperState extends State<ConnectivityWrapper> {
     }
 
     final offline = results.every((r) => r == ConnectivityResult.none);
+    final wasOffline = _isOffline;
     if (offline != _isOffline) {
       if (!mounted) return;
       setState(() => _isOffline = offline);
-      // Coming back online: kick the outbox so any queued soft-deletes /
-      // failed writes flush before the next user-driven sync.
       if (!offline) {
         unawaited(SyncOutbox.drain());
+        if (wasOffline) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            context.read<AppProvider>().onConnectivityRestored();
+          });
+        }
       }
     }
   }
@@ -93,6 +99,15 @@ class _ConnectivityWrapperState extends State<ConnectivityWrapper> {
               return const SizedBox.shrink();
             }
             if (provider.isSyncing) return const _SyncIndicator();
+            final rt = provider.realtimeConnectionState;
+            if (rt == RealtimeConnectionState.connecting) {
+              return const _LiveSyncConnectingBanner();
+            }
+            if (rt == RealtimeConnectionState.disconnected) {
+              return _LiveSyncPausedBanner(
+                onRetry: () => provider.reconnectRealtime(),
+              );
+            }
             final err = provider.lastSyncError;
             if (err != null && err.isNotEmpty) {
               return _SyncErrorBanner(
@@ -158,6 +173,84 @@ class _SyncIndicator extends StatelessWidget {
         minHeight: 2,
         backgroundColor: Colors.transparent,
         valueColor: AlwaysStoppedAnimation(AppTheme.primary),
+      ),
+    );
+  }
+}
+
+class _LiveSyncConnectingBanner extends StatelessWidget {
+  const _LiveSyncConnectingBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppTheme.warning.withValues(alpha: 0.14),
+      child: SafeArea(
+        bottom: false,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+          child: const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              SizedBox(width: 8),
+              Text(
+                'Reconnecting live sync…',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.stone800,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LiveSyncPausedBanner extends StatelessWidget {
+  final VoidCallback onRetry;
+
+  const _LiveSyncPausedBanner({required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppTheme.warning.withValues(alpha: 0.14),
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 6, 8, 6),
+          child: Row(
+            children: [
+              const Icon(Icons.sync_disabled_rounded, size: 16, color: AppTheme.stone700),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Live sync paused — changes still save locally',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.stone800,
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: onRetry,
+                child: const Text('Reconnect'),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
