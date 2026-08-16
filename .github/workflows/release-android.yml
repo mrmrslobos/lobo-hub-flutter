@@ -1,0 +1,77 @@
+# Manual signed AAB build for Google Play (standard flavor).
+# Requires Android signing secrets — same upload key as your open beta track.
+
+name: Release Android AAB
+
+on:
+  workflow_dispatch:
+    inputs:
+      track:
+        description: 'Play track hint (artifact only; upload is manual unless you add fastlane)'
+        required: false
+        default: production
+        type: choice
+        options:
+          - production
+          - beta
+          - internal
+
+concurrency:
+  group: release-android
+  cancel-in-progress: false
+
+jobs:
+  build-aab:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Decode upload keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "ANDROID_KEYSTORE_BASE64 secret is required for a Play-ready signed AAB."
+            exit 1
+          fi
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload-keystore.jks"
+
+      - name: Write key.properties
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          cat > android/key.properties <<EOF
+          storePassword=${ANDROID_KEYSTORE_PASSWORD}
+          keyPassword=${ANDROID_KEY_PASSWORD}
+          keyAlias=${ANDROID_KEY_ALIAS}
+          storeFile=${RUNNER_TEMP}/upload-keystore.jks
+          EOF
+
+      - name: flutter pub get
+        run: flutter pub get
+
+      - name: Build release app bundle (standard)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          RC_ANDROID_KEY: ${{ secrets.RC_ANDROID_KEY }}
+        run: |
+          DEFINES=()
+          if [ -n "$SUPABASE_URL" ]; then DEFINES+=(--dart-define=SUPABASE_URL="$SUPABASE_URL"); fi
+          if [ -n "$SUPABASE_ANON_KEY" ]; then DEFINES+=(--dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"); fi
+          if [ -n "$RC_ANDROID_KEY" ]; then DEFINES+=(--dart-define=RC_ANDROID_KEY="$RC_ANDROID_KEY"); fi
+          flutter build appbundle --release --flavor standard -t lib/main.dart "${DEFINES[@]}"
+
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-standard-release-aab
+          path: build/app/outputs/bundle/standardRelease/app-standard-release.aab
+          retention-days: 14

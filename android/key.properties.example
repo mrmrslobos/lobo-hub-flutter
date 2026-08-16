@@ -1,0 +1,5 @@
+# Copy to android/key.properties (gitignored). Use the SAME upload keystore as your open beta.
+storePassword=your-keystore-password
+keyPassword=your-key-password
+keyAlias=your-key-alias
+storeFile=/absolute/path/to/upload-keystore.jks
