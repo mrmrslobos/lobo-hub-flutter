@@ -542,7 +542,7 @@ class _HuddleAppState extends State<HuddleApp> with WidgetsBindingObserver {
                 statusBarColor: Colors.transparent,
                 statusBarIconBrightness:
                     dark ? Brightness.light : Brightness.dark,
-                systemNavigationBarColor: theme.colorScheme.surface,
+                systemNavigationBarColor: Colors.transparent,
                 systemNavigationBarIconBrightness:
                     dark ? Brightness.light : Brightness.dark,
                 systemNavigationBarContrastEnforced: false,
