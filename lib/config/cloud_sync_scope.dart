@@ -149,6 +149,30 @@ class CloudSyncScope {
     rewardRedemptions,
     pantryItems,
     devotionals,
+    devotionalThoughts,
+    savingsGoals,
+    rewards,
+    specialDates,
+    familyPhotos,
+    milestones,
+    readingPlans,
+    readingPlanProgress,
+    healthRecords,
+    periodCycles,
+    periodSymptoms,
+    wellnessCheckIns,
+    familyActivityLogs,
+    savedPlaces,
+    familyMembers,
+    exercisePrs,
+    workoutSessions,
+    workoutExercises,
+    workoutSets,
+    fitness,
+    fitnessPlans,
+    fitnessLogs,
+    aiHistory,
+    userLocations,
   };
 
   /// High-churn tables: shorter debounce before cloud reconcile (see [SyncProvider]).
@@ -166,6 +190,10 @@ class CloudSyncScope {
     transactions,
     pantryItems,
     devotionals,
+    familyPhotos,
+    readingPlanProgress,
+    workoutSessions,
+    familyMembers,
   };
 
   static Set<String> get occasionBundle => {specialDates};

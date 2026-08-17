@@ -30,17 +30,58 @@ void main() {
       expect(merged.pantryItems.first.name, 'Milk');
     });
 
-    test('returns null for tables outside incremental realtime set', () {
+    test('merges family_members INSERT into local AppDB', () {
+      const familyId = 'fam-1';
+      final merged = DatabaseService.applyRealtimeRowChange(
+        local: const AppDB(),
+        table: CloudSyncScope.familyMembers,
+        familyId: familyId,
+        eventType: PostgresChangeEvent.insert,
+        newRecord: {
+          'user_id': 'user-2',
+          'family_id': familyId,
+          'role': 'MEMBER',
+        },
+        oldRecord: const {},
+      );
+
+      expect(merged, isNotNull);
+      expect(merged!.familyMembers, hasLength(1));
+      expect(merged.familyMembers.first.userId, 'user-2');
+    });
+
+    test('merges fitness_plans INSERT for active user', () {
       final merged = DatabaseService.applyRealtimeRowChange(
         local: const AppDB(),
         table: CloudSyncScope.fitnessPlans,
         familyId: 'fam-1',
+        userId: 'user-1',
         eventType: PostgresChangeEvent.insert,
         newRecord: {
           'id': 'plan-1',
-          'family_id': 'fam-1',
           'user_id': 'user-1',
+          'family_id': 'fam-1',
+          'plan_id': 'plan-1',
+          'summary': 'Week 1',
+          'weekly_plan': [],
+          'tips': [],
+          'profile': {},
+          'created_at': '2026-08-17T10:00:00.000Z',
         },
+        oldRecord: const {},
+      );
+
+      expect(merged, isNotNull);
+      expect(merged!.fitnessPlans, hasLength(1));
+    });
+
+    test('returns null for tables outside incremental realtime set', () {
+      final merged = DatabaseService.applyRealtimeRowChange(
+        local: const AppDB(),
+        table: 'unknown_table',
+        familyId: 'fam-1',
+        eventType: PostgresChangeEvent.insert,
+        newRecord: const {'id': 'x'},
         oldRecord: const {},
       );
       expect(merged, isNull);

@@ -2128,6 +2128,7 @@ class DatabaseService {
     required AppDB local,
     required String table,
     required String familyId,
+    String? userId,
     required PostgresChangeEvent eventType,
     required Map<String, dynamic> newRecord,
     required Map<String, dynamic> oldRecord,
@@ -2401,6 +2402,295 @@ class DatabaseService {
             write: (d, v) => d.copyWith(devotionalEntries: v),
             parse: (j) => DevotionalEntry.fromJson(j),
           );
+        case CloudSyncScope.devotionalThoughts:
+          return _applyRealtimeFamilyScopedRow<DevotionalThought>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: false,
+            read: (d) => d.devotionalThoughts,
+            write: (d, v) => d.copyWith(devotionalThoughts: v),
+            parse: (j) => DevotionalThought.fromJson(j),
+          );
+        case CloudSyncScope.savingsGoals:
+          return _applyRealtimeFamilyScopedRow<SavingsGoal>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.savingsGoals,
+            write: (d, v) => d.copyWith(savingsGoals: v),
+            parse: (j) => SavingsGoal.fromJson(j),
+          );
+        case CloudSyncScope.rewards:
+          return _applyRealtimeFamilyScopedRow<Reward>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.rewards,
+            write: (d, v) => d.copyWith(rewards: v),
+            parse: (j) => Reward.fromJson(j),
+          );
+        case CloudSyncScope.specialDates:
+          return _applyRealtimeFamilyScopedRow<SpecialDate>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.specialDates,
+            write: (d, v) => d.copyWith(specialDates: v),
+            parse: (j) => SpecialDate.fromJson(j),
+          );
+        case CloudSyncScope.familyPhotos:
+          return _applyRealtimeFamilyScopedRow<FamilyPhoto>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.familyPhotos,
+            write: (d, v) => d.copyWith(familyPhotos: v),
+            parse: (j) => FamilyPhoto.fromJson(j),
+          );
+        case CloudSyncScope.milestones:
+          return _applyRealtimeFamilyScopedRow<Milestone>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.milestones,
+            write: (d, v) => d.copyWith(milestones: v),
+            parse: (j) => Milestone.fromJson(j),
+          );
+        case CloudSyncScope.readingPlans:
+          return _applyRealtimeFamilyScopedRow<ReadingPlan>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.readingPlans,
+            write: (d, v) => d.copyWith(readingPlans: v),
+            parse: (j) => ReadingPlan.fromJson(j),
+          );
+        case CloudSyncScope.readingPlanProgress:
+          return _applyRealtimeFamilyScopedRow<ReadingPlanProgress>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: false,
+            read: (d) => d.readingPlanProgress,
+            write: (d, v) => d.copyWith(readingPlanProgress: v),
+            parse: (j) => ReadingPlanProgress.fromJson(j),
+          );
+        case CloudSyncScope.healthRecords:
+          return _applyRealtimeFamilyScopedRow<HealthRecord>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.healthRecords,
+            write: (d, v) => d.copyWith(healthRecords: v),
+            parse: (j) => HealthRecord.fromJson(j),
+          );
+        case CloudSyncScope.periodCycles:
+          return _applyRealtimeFamilyScopedRow<PeriodCycle>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.periodCycles,
+            write: (d, v) => d.copyWith(periodCycles: v),
+            parse: (j) => PeriodCycle.fromJson(j),
+          );
+        case CloudSyncScope.periodSymptoms:
+          return _applyRealtimeFamilyScopedRow<PeriodSymptomLog>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.periodSymptoms,
+            write: (d, v) => d.copyWith(periodSymptoms: v),
+            parse: (j) => PeriodSymptomLog.fromJson(j),
+          );
+        case CloudSyncScope.wellnessCheckIns:
+          return _applyRealtimeFamilyScopedRow<WellnessCheckIn>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: false,
+            read: (d) => d.wellnessCheckIns,
+            write: (d, v) => d.copyWith(wellnessCheckIns: v),
+            parse: (j) => WellnessCheckIn.fromJson(j),
+          );
+        case CloudSyncScope.familyActivityLogs:
+          return _applyRealtimeFamilyScopedRow<FamilyActivityLog>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: false,
+            read: (d) => d.familyActivityLogs,
+            write: (d, v) => d.copyWith(familyActivityLogs: v),
+            parse: (j) => FamilyActivityLog.fromJson(j),
+          );
+        case CloudSyncScope.savedPlaces:
+          return _applyRealtimeFamilyScopedRow<SavedPlace>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.savedPlaces,
+            write: (d, v) => d.copyWith(savedPlaces: v),
+            parse: (j) => SavedPlace.fromJson(j),
+          );
+        case CloudSyncScope.familyMembers:
+          return _applyRealtimeFamilyMemberRow(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+          );
+        case CloudSyncScope.exercisePrs:
+          return _applyRealtimeFamilyScopedRow<ExercisePR>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: false,
+            read: (d) => d.exercisePrs,
+            write: (d, v) => d.copyWith(exercisePrs: v),
+            parse: (j) => ExercisePR.fromJson(j),
+          );
+        case CloudSyncScope.workoutSessions:
+          return _applyRealtimeFamilyScopedRow<WorkoutSession>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: false,
+            read: (d) => d.workoutSessions,
+            write: (d, v) => d.copyWith(workoutSessions: v),
+            parse: (j) => WorkoutSession.fromJson(j),
+          );
+        case CloudSyncScope.workoutExercises:
+          return _applyRealtimeFamilyScopedRow<WorkoutExercise>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: false,
+            read: (d) => d.workoutExercises,
+            write: (d, v) => d.copyWith(workoutExercises: v),
+            parse: (j) => WorkoutExercise.fromJson(j),
+          );
+        case CloudSyncScope.workoutSets:
+          return _applyRealtimeFamilyScopedRow<WorkoutSet>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: false,
+            read: (d) => d.workoutSets,
+            write: (d, v) => d.copyWith(workoutSets: v),
+            parse: (j) => WorkoutSet.fromJson(j),
+          );
+        case CloudSyncScope.fitness:
+          if (userId == null || userId.isEmpty) return null;
+          return _applyRealtimeUserScopedRow<FitnessMetric>(
+            local,
+            userId: userId,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: false,
+            read: (d) => d.fitness,
+            write: (d, v) => d.copyWith(fitness: v),
+            parse: (j) => FitnessMetric.fromJson(j),
+          );
+        case CloudSyncScope.fitnessPlans:
+          return _applyRealtimeFitnessPlanRow(
+            local,
+            userId: userId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+          );
+        case CloudSyncScope.fitnessLogs:
+          if (userId == null || userId.isEmpty) return null;
+          return _applyRealtimeUserScopedRow<FitnessLog>(
+            local,
+            userId: userId,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: false,
+            requireFamilyMatch: true,
+            read: (d) => d.fitnessLogs,
+            write: (d, v) => d.copyWith(fitnessLogs: v),
+            parse: (j) => FitnessLog.fromJson(j),
+          );
+        case CloudSyncScope.aiHistory:
+          if (userId == null || userId.isEmpty) return null;
+          return _applyRealtimeUserScopedRow<AIHistory>(
+            local,
+            userId: userId,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: false,
+            read: (d) => d.aiHistory,
+            write: (d, v) => d.copyWith(aiHistory: v),
+            parse: (j) => AIHistory.fromJson(j),
+          );
+        case CloudSyncScope.userLocations:
+          if (userId == null || userId.isEmpty) return null;
+          return _applyRealtimeUserScopedRow<UserLocation>(
+            local,
+            userId: userId,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: false,
+            read: (d) => d.userLocations,
+            write: (d, v) => d.copyWith(userLocations: v),
+            parse: (j) => UserLocation.fromJson(j),
+          );
         default:
           return null;
       }
@@ -2601,6 +2891,116 @@ class DatabaseService {
     }).toList();
     if (!touched) return null;
     return local.copyWith(lists: lists);
+  }
+
+  static AppDB? _applyRealtimeFamilyMemberRow(
+    AppDB local, {
+    required String familyId,
+    required PostgresChangeEvent eventType,
+    required Map<String, dynamic> newRecord,
+    required Map<String, dynamic> oldRecord,
+  }) {
+    if (eventType == PostgresChangeEvent.delete) {
+      final userId = oldRecord['user_id']?.toString() ?? '';
+      if (userId.isEmpty || oldRecord['family_id']?.toString() != familyId) {
+        return null;
+      }
+      return local.copyWith(
+        familyMembers: local.familyMembers
+            .where((m) => !(m.userId == userId && m.familyId == familyId))
+            .toList(),
+      );
+    }
+
+    if (newRecord.isEmpty) return null;
+    if (newRecord['family_id']?.toString() != familyId) return null;
+
+    final remote = FamilyMember.fromJson(Map<String, dynamic>.from(newRecord));
+    return local.copyWith(
+      familyMembers: _mergeById(local.familyMembers, [remote]),
+    );
+  }
+
+  static AppDB? _applyRealtimeFitnessPlanRow(
+    AppDB local, {
+    required String? userId,
+    required PostgresChangeEvent eventType,
+    required Map<String, dynamic> newRecord,
+    required Map<String, dynamic> oldRecord,
+  }) {
+    if (eventType == PostgresChangeEvent.delete) {
+      final key = fitnessPlanStableId(Map<String, dynamic>.from(oldRecord));
+      final plans = local.fitnessPlans
+          .where((p) => p is! Map || fitnessPlanStableId(p) != key)
+          .toList();
+      return local.copyWith(fitnessPlans: plans);
+    }
+
+    if (newRecord.isEmpty) return null;
+    final rowUserId = newRecord['user_id']?.toString() ?? '';
+    if (userId != null && userId.isNotEmpty && rowUserId != userId) return null;
+
+    final normalized = _normalizeFitnessPlanMap(
+      Map<String, dynamic>.from(newRecord),
+    );
+    final key = fitnessPlanStableId(normalized);
+    final plans = <dynamic>[...local.fitnessPlans];
+    final idx = plans.indexWhere(
+      (p) => p is Map && fitnessPlanStableId(p) == key,
+    );
+    if (idx >= 0) {
+      plans[idx] = normalized;
+    } else {
+      plans.add(normalized);
+    }
+    return local.copyWith(fitnessPlans: plans);
+  }
+
+  static AppDB? _applyRealtimeUserScopedRow<T>(
+    AppDB local, {
+    required String userId,
+    String? familyId,
+    required PostgresChangeEvent eventType,
+    required Map<String, dynamic> newRecord,
+    required Map<String, dynamic> oldRecord,
+    required bool tombstoneOnRemove,
+    required List<T> Function(AppDB db) read,
+    required AppDB Function(AppDB db, List<T> items) write,
+    required T Function(Map<String, dynamic> json) parse,
+    bool requireFamilyMatch = false,
+  }) {
+    final id = _realtimeRowId(eventType,
+        newRecord: newRecord, oldRecord: oldRecord);
+    if (id == null) return null;
+
+    if (eventType == PostgresChangeEvent.delete) {
+      if (oldRecord['user_id']?.toString() != userId) return null;
+      if (requireFamilyMatch &&
+          familyId != null &&
+          oldRecord['family_id']?.toString() != familyId) {
+        return null;
+      }
+      if (tombstoneOnRemove) markTombstone(id);
+      return _removeRowById(local, id, read, write);
+    }
+
+    if (newRecord.isEmpty) return null;
+    if (newRecord['user_id']?.toString() != userId) return null;
+    if (requireFamilyMatch && familyId != null) {
+      final fid = newRecord['family_id']?.toString();
+      if (fid != null && fid.isNotEmpty && fid != familyId) return null;
+    }
+
+    if (tombstoneOnRemove && _realtimeRowSoftDeleted(newRecord)) {
+      markTombstone(id);
+      return _removeRowById(local, id, read, write);
+    }
+
+    final remote = parse(Map<String, dynamic>.from(newRecord));
+    return write(
+      local,
+      _mergeById(read(local), [remote]),
+    );
   }
 
   static AppDB? _applyRealtimeUserRow(
