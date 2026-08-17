@@ -229,6 +229,7 @@ class SyncProvider extends ChangeNotifier {
             callback: (payload) {
               if (_isPostgresSelfEcho(payload)) return;
               _maybeTombstoneFromSoftDelete(payload);
+              if (_tryApplyIncrementalRealtime(payload)) return;
               scheduleDebouncedPullFromCloud(_pullDebounceForTable(payload.table));
             },
           );
@@ -404,6 +405,7 @@ class SyncProvider extends ChangeNotifier {
       local: dataProvider.db,
       table: payload.table,
       familyId: familyId,
+      userId: authProvider.activeUser?.id,
       eventType: payload.eventType,
       newRecord: Map<String, dynamic>.from(payload.newRecord),
       oldRecord: Map<String, dynamic>.from(payload.oldRecord),
