@@ -10,7 +10,6 @@ import '../../config/module_config.dart';
 import '../../config/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_provider.dart';
-import '../../services/notification_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/huddle_module_scaffold.dart';
@@ -309,14 +308,6 @@ class _ChoresScreenState extends State<ChoresScreen> {
               provider,
               db.copyWith(chores: [...db.chores, chore]),
               pushTableScope: CloudSyncScope.choreBundle,
-            );
-            NotificationService.notifyFamilyActivityWithDb(
-              provider.db,
-              title: 'New Chore Added',
-              body: '${provider.activeUser?.name ?? "Someone"} added: ${chore.title}',
-              path: '/chores',
-              familyId: provider.activeFamily?.id,
-              excludeUserId: provider.activeUser?.id,
             );
           }
         },

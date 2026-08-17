@@ -536,8 +536,11 @@ class NotificationService {
     return true;
   }
 
-  /// Like [notifyFamilyActivity] but respects quiet hours from the first
-  /// [AppDB.notificationPrefs] row (device-local).
+  /// Like [notifyFamilyActivity] for outbound family pushes from the app.
+  ///
+  /// Does not apply the local device's [shouldNotifyForPath] or quiet-hours
+  /// prefs — those are for inbound display on this device only. Recipient
+  /// filtering belongs on the server or on each recipient's device.
   static Future<void> notifyFamilyActivityWithDb(
     AppDB db, {
     required String title,
@@ -547,16 +550,6 @@ class NotificationService {
     String? path,
     List<String>? targetUserIds,
   }) async {
-    if (!shouldNotifyForPath(db, path)) {
-      debugPrint(
-          '[NotificationService] Skipping push (module disabled in settings)');
-      return;
-    }
-    var prefs = const NotificationPrefs();
-    for (final p in db.notificationPrefs) {
-      prefs = p;
-      break;
-    }
     await notifyFamilyActivity(
       title: title,
       body: body,
@@ -564,8 +557,6 @@ class NotificationService {
       excludeUserId: excludeUserId,
       path: path,
       targetUserIds: targetUserIds,
-      quietHoursStart: prefs.quietHoursStart,
-      quietHoursEnd: prefs.quietHoursEnd,
     );
   }
 
