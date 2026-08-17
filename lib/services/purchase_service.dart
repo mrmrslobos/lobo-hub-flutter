@@ -144,7 +144,8 @@ class PurchaseService {
 
       final hasBase = activeEntitlements.containsKey('base');
       final hasAI = activeEntitlements.containsKey('ai') ||
-          activeEntitlements.containsKey('ai_family');
+          activeEntitlements.containsKey('ai_family') ||
+          activeEntitlements.containsKey('ai_family_annual');
       final isInTrial =
           activeEntitlements['base']?.periodType == PeriodType.trial;
 
@@ -164,7 +165,9 @@ class PurchaseService {
     CustomerInfo customerInfo,
   ) {
     final active = customerInfo.entitlements.active;
-    if (active.containsKey('ai_family')) return SubscriptionTier.ai_family;
+    if (active.containsKey('ai_family') || active.containsKey('ai_family_annual')) {
+      return SubscriptionTier.ai_family;
+    }
     if (active.containsKey('ai')) return SubscriptionTier.ai;
     if (active.containsKey('base')) return SubscriptionTier.base;
     return null;

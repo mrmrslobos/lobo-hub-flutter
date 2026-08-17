@@ -14,3 +14,7 @@ verify_jwt = false
 
 [functions.calendar-sync]
 verify_jwt = true
+
+# RevenueCat server-to-server webhooks use a shared Authorization header, not Supabase JWT.
+[functions.revenuecat-webhook]
+verify_jwt = false

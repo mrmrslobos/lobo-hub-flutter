@@ -59,10 +59,11 @@ class DatabaseService {
   /// and overwrite a newer row (e.g. list created empty then items added quickly).
   static final Map<String, Future<void>> _syncTailByFamily = {};
 
-  /// Families columns omitted on upsert until DB has them (see migrations/06).
+  /// Families columns omitted on cloud upsert.
+  /// [subscription_tier] must only change via [SupabaseService.syncFamilySubscriptionTier]
+  /// or the revenuecat-webhook edge function (P0 trigger on families UPDATE).
   static const _familiesCloudOmit = {
     'currency',
-    'trial_start_date',
     'subscription_tier',
   };
 
