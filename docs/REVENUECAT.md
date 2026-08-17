@@ -27,6 +27,8 @@ The Flutter code expects these entitlement identifiers (see `PurchaseService.che
 - `ai` — AI features  
 - `ai_family` — optional; use for AI Family so the app maps to `SubscriptionTier.ai_family` (otherwise map that product to `ai` as well if both apply)
 
+**Note:** This project’s RevenueCat dashboard currently uses entitlement id `ai_family_annual` for AI Family products. The app and webhook accept both `ai_family` and `ai_family_annual`. Consider renaming the entitlement to `ai_family` in RevenueCat when convenient.
+
 Map your store products to these entitlements in the RevenueCat dashboard.
 
 After a purchase or restore, the app calls the Supabase RPC `sync_family_subscription_tier` so `families.subscription_tier` matches the store (required for `ai-proxy` enforcement). Apply migration `21_family_subscription_tier_sync.sql` to your project.
@@ -69,7 +71,28 @@ flutter build ios --release \
 
 On sign-in, the app calls `Purchases.logIn(<supabase user id>)` so purchases attach to the same user across devices. On sign-out it calls `Purchases.logOut()`.
 
-Configure RevenueCat **REST API / webhooks** if your Supabase backend must update `subscription_tier` when a subscription changes.
+Configure RevenueCat **REST API / webhooks** so `subscription_tier` stays in sync when subscriptions renew, expire, or cancel while the app is closed.
+
+### Webhook (Supabase edge function)
+
+The repo includes `supabase/functions/revenuecat-webhook`, which maps RevenueCat entitlement ids to `families.subscription_tier` via the `sync_family_subscription_tier_system` RPC.
+
+1. Generate a long random secret (e.g. `openssl rand -hex 32`).
+2. Set it on Supabase:
+   ```bash
+   supabase secrets set REVENUECAT_WEBHOOK_AUTHORIZATION="Bearer <your-secret>"
+   ```
+3. Deploy the function (or merge a PR that triggers your deploy pipeline):
+   ```bash
+   supabase functions deploy revenuecat-webhook --no-verify-jwt
+   ```
+4. In RevenueCat → **Integrations → Webhooks**, add:
+   - **URL:** `https://<project-ref>.supabase.co/functions/v1/revenuecat-webhook`
+   - **Authorization header:** the same value as `REVENUECAT_WEBHOOK_AUTHORIZATION` (include `Bearer ` if you used it above)
+   - **Environment:** Production (and Sandbox while testing)
+   - **Events:** at minimum `INITIAL_PURCHASE`, `RENEWAL`, `PRODUCT_CHANGE`, `UNCANCELLATION`, `EXPIRATION`
+
+`trial_start_date` is synced from the app on family create/update. `subscription_tier` is **not** written by normal client sync (security); only the app RPC after purchase/restore, or this webhook, may change it.
 
 ## 8. iOS project notes
 
