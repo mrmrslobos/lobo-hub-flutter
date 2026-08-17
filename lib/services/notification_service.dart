@@ -479,6 +479,7 @@ class NotificationService {
     String? familyId,
     String? excludeUserId,
     String? path,
+    List<String>? targetUserIds,
     int? quietHoursStart,
     int? quietHoursEnd,
   }) async {
@@ -488,16 +489,22 @@ class NotificationService {
     }
     try {
       if (familyId != null && excludeUserId != null) {
+        final payload = <String, dynamic>{
+          'action': 'notify',
+          'familyId': familyId,
+          'title': title,
+          'body': body,
+          'path': path ?? '/',
+        };
+        final targets = targetUserIds
+            ?.where((id) => id.isNotEmpty && id != excludeUserId)
+            .toList();
+        if (targets != null && targets.isNotEmpty) {
+          payload['targetUserIds'] = targets;
+        }
         await Supabase.instance.client.functions.invoke(
           'notify-family',
-          body: {
-            'action': 'notify',
-            'family_id': familyId,
-            'exclude_user_id': excludeUserId,
-            'title': title,
-            'body': body,
-            'path': path ?? '/',
-          },
+          body: payload,
         );
       }
     } catch (e) {
@@ -538,6 +545,7 @@ class NotificationService {
     String? familyId,
     String? excludeUserId,
     String? path,
+    List<String>? targetUserIds,
   }) async {
     if (!shouldNotifyForPath(db, path)) {
       debugPrint(
@@ -555,6 +563,7 @@ class NotificationService {
       familyId: familyId,
       excludeUserId: excludeUserId,
       path: path,
+      targetUserIds: targetUserIds,
       quietHoursStart: prefs.quietHoursStart,
       quietHoursEnd: prefs.quietHoursEnd,
     );
