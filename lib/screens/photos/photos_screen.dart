@@ -114,17 +114,26 @@ class _PhotosScreenState extends State<PhotosScreen> {
   // ─── Helpers ────────────────────────────────────────────────────────────────
 
   bool _isNetworkUrl(String url) =>
-      url.startsWith('http://') || url.startsWith('https://');
+      url.startsWith('http://') ||
+      url.startsWith('https://') ||
+      SupabaseService.familyPhotoStoragePath(url) != null;
 
   Widget _photoImage(String url, {BoxFit fit = BoxFit.cover}) {
     if (_isNetworkUrl(url)) {
-      return CachedNetworkImage(
-        imageUrl: url,
-        fit: fit,
-        fadeInDuration: const Duration(milliseconds: 200),
-        fadeOutDuration: const Duration(milliseconds: 120),
-        placeholder: (_, __) => _photoPlaceholder(),
-        errorWidget: (_, __, ___) => _photoPlaceholder(),
+      return FutureBuilder<String>(
+        future: SupabaseService.resolveFamilyPhotoUrl(url),
+        builder: (context, snapshot) {
+          final displayUrl = snapshot.data ?? url;
+          if (!displayUrl.startsWith('http')) return _photoPlaceholder();
+          return CachedNetworkImage(
+            imageUrl: displayUrl,
+            fit: fit,
+            fadeInDuration: const Duration(milliseconds: 200),
+            fadeOutDuration: const Duration(milliseconds: 120),
+            placeholder: (_, __) => _photoPlaceholder(),
+            errorWidget: (_, __, ___) => _photoPlaceholder(),
+          );
+        },
       );
     }
     return Image.file(File(url), fit: fit,
@@ -1241,7 +1250,36 @@ class _PhotoLightbox extends StatelessWidget {
     required this.onEditCaption,
   });
 
-  bool get _isNetwork => photo.url.startsWith('http://') || photo.url.startsWith('https://');
+  bool get _isNetwork =>
+      photo.url.startsWith('http://') ||
+      photo.url.startsWith('https://') ||
+      SupabaseService.familyPhotoStoragePath(photo.url) != null;
+
+  Widget _lightboxImage() {
+    if (!_isNetwork) {
+      return Image.file(
+        File(photo.url),
+        fit: BoxFit.contain,
+        errorBuilder: (_, __, ___) =>
+            const Icon(Icons.broken_image_rounded, color: Colors.white54, size: 64),
+      );
+    }
+    return FutureBuilder<String>(
+      future: SupabaseService.resolveFamilyPhotoUrl(photo.url),
+      builder: (context, snapshot) {
+        final displayUrl = snapshot.data ?? photo.url;
+        if (!displayUrl.startsWith('http')) {
+          return const Icon(Icons.broken_image_rounded, color: Colors.white54, size: 64);
+        }
+        return Image.network(
+          displayUrl,
+          fit: BoxFit.contain,
+          errorBuilder: (_, __, ___) =>
+              const Icon(Icons.broken_image_rounded, color: Colors.white54, size: 64),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1269,11 +1307,7 @@ class _PhotoLightbox extends StatelessWidget {
         Expanded(
           child: Center(
             child: InteractiveViewer(
-              child: _isNetwork
-                  ? Image.network(photo.url, fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) => const Icon(Icons.broken_image_rounded, color: Colors.white54, size: 64))
-                  : Image.file(File(photo.url), fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) => const Icon(Icons.broken_image_rounded, color: Colors.white54, size: 64)),
+              child: _lightboxImage(),
             ),
           ),
         ),
