@@ -2317,6 +2317,90 @@ class DatabaseService {
             write: (d, v) => d.copyWith(dailyHabitCompletions: v),
             parse: (j) => DailyHabitCompletion.fromJson(j),
           );
+        case CloudSyncScope.budgetCategories:
+          return _applyRealtimeFamilyScopedRow<BudgetCategoryRecord>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.budgetCategories,
+            write: (d, v) => d.copyWith(budgetCategories: v),
+            parse: (j) => BudgetCategoryRecord.fromJson(j),
+          );
+        case CloudSyncScope.budgetEntries:
+          return _applyRealtimeFamilyScopedRow<BudgetEntry>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.budgetEntries,
+            write: (d, v) => d.copyWith(budgetEntries: v),
+            parse: (j) => BudgetEntry.fromJson(j),
+          );
+        case CloudSyncScope.transactions:
+          return _applyRealtimeFamilyScopedRow<Transaction>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.transactions,
+            write: (d, v) => d.copyWith(transactions: v),
+            parse: (j) => Transaction.fromJson(j),
+          );
+        case CloudSyncScope.rewardItems:
+          return _applyRealtimeFamilyScopedRow<RewardItem>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: false,
+            read: (d) => d.rewardItems,
+            write: (d, v) => d.copyWith(rewardItems: v),
+            parse: (j) => RewardItem.fromJson(j),
+          );
+        case CloudSyncScope.rewardRedemptions:
+          return _applyRealtimeFamilyScopedRow<RewardRedemption>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: false,
+            read: (d) => d.rewardRedemptions,
+            write: (d, v) => d.copyWith(rewardRedemptions: v),
+            parse: (j) => RewardRedemption.fromJson(j),
+          );
+        case CloudSyncScope.pantryItems:
+          return _applyRealtimeFamilyScopedRow<PantryItem>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: false,
+            read: (d) => d.pantryItems,
+            write: (d, v) => d.copyWith(pantryItems: v),
+            parse: (j) => PantryItem.fromJson(j),
+          );
+        case CloudSyncScope.devotionals:
+          return _applyRealtimeFamilyScopedRow<DevotionalEntry>(
+            local,
+            familyId: familyId,
+            eventType: eventType,
+            newRecord: newRecord,
+            oldRecord: oldRecord,
+            tombstoneOnRemove: true,
+            read: (d) => d.devotionalEntries,
+            write: (d, v) => d.copyWith(devotionalEntries: v),
+            parse: (j) => DevotionalEntry.fromJson(j),
+          );
         default:
           return null;
       }

@@ -28,4 +28,4 @@ jobs:
 
       - run: flutter analyze
 
-      - run: flutter test test/widget_test.dart test/module_config_test.dart test/notification_service_test.dart test/p0_security_helpers_test.dart test/daily_devotional_service_test.dart
+      - run: flutter test test/widget_test.dart test/module_config_test.dart test/notification_service_test.dart test/p0_security_helpers_test.dart test/daily_devotional_service_test.dart test/realtime_apply_test.dart

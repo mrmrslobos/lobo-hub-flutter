@@ -18,8 +18,8 @@ When a save succeeds locally but fails in cloud, check **Sync error banner** and
 
 Postgres changes on these tables are merged into local `AppDB` immediately via `DatabaseService.applyRealtimeRowChange` (no debounced full reconcile):
 
-`tasks`, `lists`, `list_items`, `messages`, `chores`, `chore_completions`, `polls`, `poll_votes`, `events`, `external_calendars`, `users`, `recipes`, `meal_plans`, `prayer_wall`, `daily_habits`, `daily_habit_completions`
+`tasks`, `lists`, `list_items`, `messages`, `chores`, `chore_completions`, `polls`, `poll_votes`, `events`, `external_calendars`, `users`, `recipes`, `meal_plans`, `prayer_wall`, `daily_habits`, `daily_habit_completions`, `budget_categories`, `budget_entries`, `transactions`, `reward_items`, `reward_redemptions`, `pantry_items`, `devotionals`
 
-**Still debounced pull only (Phase 3 backlog):** `budget_categories`, `budget_entries`, `transactions`, `reward_items`, `reward_redemptions`, `pantry_items`, `fitness_*`, `devotionals`, and other family-scoped tables not listed above.
+**Still debounced pull only (Phase 3 backlog):** `fitness_*`, `savings_goals`, `rewards`, `special_dates`, `family_photos`, `milestones`, `reading_plans`, `reading_plan_progress`, `health_records`, `period_*`, `wellness_check_ins`, `family_activity_logs`, and other family-scoped tables not listed above.
 
 Other tables still use debounced pull. If parsing fails, the client falls back to a normal scoped/full pull. The app bar sync icon shows a **bolt** briefly after a live patch.
