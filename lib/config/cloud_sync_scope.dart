@@ -142,6 +142,13 @@ class CloudSyncScope {
     prayerWall,
     dailyHabits,
     dailyHabitCompletions,
+    budgetCategories,
+    budgetEntries,
+    transactions,
+    rewardItems,
+    rewardRedemptions,
+    pantryItems,
+    devotionals,
   };
 
   /// High-churn tables: shorter debounce before cloud reconcile (see [SyncProvider]).
@@ -155,6 +162,10 @@ class CloudSyncScope {
     polls,
     pollVotes,
     events,
+    budgetEntries,
+    transactions,
+    pantryItems,
+    devotionals,
   };
 
   static Set<String> get occasionBundle => {specialDates};
