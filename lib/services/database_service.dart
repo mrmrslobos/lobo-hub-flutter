@@ -60,7 +60,11 @@ class DatabaseService {
   static final Map<String, Future<void>> _syncTailByFamily = {};
 
   /// Families columns omitted on upsert until DB has them (see migrations/06).
-  static const _familiesCloudOmit = {'currency', 'trial_start_date'};
+  static const _familiesCloudOmit = {
+    'currency',
+    'trial_start_date',
+    'subscription_tier',
+  };
 
   /// plan_id: migration 25 (optional on older DBs).
   static const _fitnessPlansCloudOmit = {'plan_id'};
@@ -99,8 +103,8 @@ class DatabaseService {
 
   static const _usersCloudOmit = <String>{};
 
-  /// Events columns some older DBs lack (PGRST204).
-  static const _eventsCloudOmit = {'shared_with'};
+  /// Events columns some older DBs lack (PGRST204) — shared_with is required for SPECIFIC visibility sync.
+  static const _eventsCloudOmit = <String>{};
 
   /// Prayer wall columns some older DBs lack (PGRST204).
   static const _prayerWallCloudOmit = {'prayed_by_ids'};

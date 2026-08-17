@@ -478,37 +478,36 @@ Deno.serve(async (req: Request) => {
     const isTestStyleInvoke = testFromUrl || parsedBody?.test === true;
 
     const cronSecret = Deno.env.get('DAILY_DEVOTIONAL_CRON_SECRET');
-    if (cronSecret) {
-      const suppliedSecret = req.headers.get('x-daily-devotional-secret') ?? '';
-      if (suppliedSecret !== cronSecret) {
-        // pg_cron sends the shared secret. The Flutter "test" button uses the user's JWT
-        // without that header — allow only explicit test invocations from a signed-in user.
-        if (!isTestStyleInvoke) {
-          return new Response(JSON.stringify({ error: 'unauthorized' }), {
-            status: 401,
-            headers: { ...CORS, 'Content-Type': 'application/json' },
-          });
-        }
-        const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
-        const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
-        const authHeader = req.headers.get('Authorization') ?? '';
-        if (!anonKey || !authHeader.startsWith('Bearer ')) {
-          return new Response(JSON.stringify({ error: 'unauthorized' }), {
-            status: 401,
-            headers: { ...CORS, 'Content-Type': 'application/json' },
-          });
-        }
-        const userClient = createClient(supabaseUrl, anonKey, {
-          global: { headers: { Authorization: authHeader } },
-          auth: { persistSession: false },
+    const suppliedSecret = req.headers.get('x-daily-devotional-secret') ?? '';
+    const cronOk = Boolean(cronSecret) && suppliedSecret === cronSecret;
+    if (!cronOk) {
+      // pg_cron sends the shared secret. The Flutter "test" button uses the user's JWT
+      // without that header — allow only explicit test invocations from a signed-in user.
+      if (!isTestStyleInvoke) {
+        return new Response(JSON.stringify({ error: 'unauthorized' }), {
+          status: 401,
+          headers: { ...CORS, 'Content-Type': 'application/json' },
         });
-        const { data: userData, error: userErr } = await userClient.auth.getUser();
-        if (userErr || !userData?.user) {
-          return new Response(JSON.stringify({ error: 'unauthorized' }), {
-            status: 401,
-            headers: { ...CORS, 'Content-Type': 'application/json' },
-          });
-        }
+      }
+      const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+      const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+      const authHeader = req.headers.get('Authorization') ?? '';
+      if (!anonKey || !authHeader.startsWith('Bearer ')) {
+        return new Response(JSON.stringify({ error: 'unauthorized' }), {
+          status: 401,
+          headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
+      }
+      const userClient = createClient(supabaseUrl, anonKey, {
+        global: { headers: { Authorization: authHeader } },
+        auth: { persistSession: false },
+      });
+      const { data: userData, error: userErr } = await userClient.auth.getUser();
+      if (userErr || !userData?.user) {
+        return new Response(JSON.stringify({ error: 'unauthorized' }), {
+          status: 401,
+          headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
       }
     }
 

@@ -591,16 +591,16 @@ class NotificationService {
       debugPrint(
           '[NotificationService] Registering device token for user=$userId family=$familyId');
 
-      await Supabase.instance.client.from('device_tokens').upsert(
-        {
-          'user_id': userId,
-          'family_id': familyId,
+      await Supabase.instance.client.functions.invoke(
+        'notify-family',
+        body: {
+          'action': 'register',
+          'familyId': familyId,
+          'userId': userId,
           'token': token,
           'platform':
               defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android',
-          'updated_at': DateTime.now().toUtc().toIso8601String(),
         },
-        onConflict: 'user_id,platform',
       );
       debugPrint('[NotificationService] device token registered successfully');
     } catch (e, st) {

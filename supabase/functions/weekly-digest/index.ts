@@ -226,47 +226,46 @@ Deno.serve(async (req: Request) => {
     let authenticatedTestUserId: string | null = null;
 
     const cronSecret = Deno.env.get('WEEKLY_DIGEST_CRON_SECRET');
-    if (cronSecret) {
-      const suppliedSecret = req.headers.get('x-weekly-digest-secret') ?? '';
-      if (suppliedSecret !== cronSecret) {
-        if (!isTestStyleInvoke) {
-          return new Response(JSON.stringify({ error: 'unauthorized' }), {
-            status: 401,
-            headers: { ...CORS, 'Content-Type': 'application/json' },
-          });
-        }
-        const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
-        const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
-        const authHeader = req.headers.get('Authorization') ?? '';
-        if (!anonKey || !authHeader.startsWith('Bearer ')) {
-          return new Response(JSON.stringify({ error: 'unauthorized' }), {
-            status: 401,
-            headers: { ...CORS, 'Content-Type': 'application/json' },
-          });
-        }
-        const userClient = createClient(supabaseUrl, anonKey, {
-          global: { headers: { Authorization: authHeader } },
-          auth: { persistSession: false },
+    const suppliedSecret = req.headers.get('x-weekly-digest-secret') ?? '';
+    const cronOk = Boolean(cronSecret) && suppliedSecret === cronSecret;
+    if (!cronOk) {
+      if (!isTestStyleInvoke) {
+        return new Response(JSON.stringify({ error: 'unauthorized' }), {
+          status: 401,
+          headers: { ...CORS, 'Content-Type': 'application/json' },
         });
-        const { data: userData, error: userErr } = await userClient.auth.getUser();
-        if (userErr || !userData?.user) {
-          return new Response(JSON.stringify({ error: 'unauthorized' }), {
-            status: 401,
-            headers: { ...CORS, 'Content-Type': 'application/json' },
-          });
-        }
-        const fid = typeof parsedBody?.family_id === 'string' ? parsedBody.family_id : null;
-        if (!fid) {
-          return new Response(
-            JSON.stringify({
-              error: 'family_id required',
-              detail: 'Test invokes without x-weekly-digest-secret must include family_id in the JSON body.',
-            }),
-            { status: 400, headers: { ...CORS, 'Content-Type': 'application/json' } },
-          );
-        }
-        authenticatedTestUserId = userData.user.id;
       }
+      const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+      const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+      const authHeader = req.headers.get('Authorization') ?? '';
+      if (!anonKey || !authHeader.startsWith('Bearer ')) {
+        return new Response(JSON.stringify({ error: 'unauthorized' }), {
+          status: 401,
+          headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
+      }
+      const userClient = createClient(supabaseUrl, anonKey, {
+        global: { headers: { Authorization: authHeader } },
+        auth: { persistSession: false },
+      });
+      const { data: userData, error: userErr } = await userClient.auth.getUser();
+      if (userErr || !userData?.user) {
+        return new Response(JSON.stringify({ error: 'unauthorized' }), {
+          status: 401,
+          headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
+      }
+      const fid = typeof parsedBody?.family_id === 'string' ? parsedBody.family_id : null;
+      if (!fid) {
+        return new Response(
+          JSON.stringify({
+            error: 'family_id required',
+            detail: 'Test invokes without x-weekly-digest-secret must include family_id in the JSON body.',
+          }),
+          { status: 400, headers: { ...CORS, 'Content-Type': 'application/json' } },
+        );
+      }
+      authenticatedTestUserId = userData.user.id;
     }
 
     const supabase = createClient(
