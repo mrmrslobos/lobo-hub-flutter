@@ -658,26 +658,31 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── Direct notification from the app ──────────────────────────────
-    if (body.action === 'notify' && body.familyId && body.title && body.body) {
+    const familyId = body.familyId ?? body.family_id;
+    if (body.action === 'notify' && familyId && body.title && body.body) {
       if (!authenticatedUserId) {
         return new Response(JSON.stringify({ error: 'unauthorized' }), {
           status: 401,
           headers: { ...CORS, 'Content-Type': 'application/json' },
         });
       }
-      const member = await isFamilyMember(supabaseClient, authenticatedUserId, body.familyId);
+      const member = await isFamilyMember(supabaseClient, authenticatedUserId, familyId);
       if (!member) {
         return new Response(JSON.stringify({ error: 'forbidden_family' }), {
           status: 403,
           headers: { ...CORS, 'Content-Type': 'application/json' },
         });
       }
+      const targetUserIds = Array.isArray(body.targetUserIds)
+        ? (body.targetUserIds as string[]).filter((id) => id && id !== authenticatedUserId)
+        : undefined;
       const notification: NotificationContent = {
-        familyId: body.familyId,
+        familyId,
         actorId: authenticatedUserId,
         title: body.title,
         body: body.body,
         path: body.path ?? '/',
+        targetUserIds,
       };
 
       let fcmSent = 0;
@@ -688,11 +693,14 @@ Deno.serve(async (req: Request) => {
         const projectId = serviceAccount.project_id;
         const accessToken = await getFcmAccessToken(serviceAccount);
 
-        const tokenQuery = supabaseClient
+        let tokenQuery = supabaseClient
           .from('device_tokens')
           .select('token, user_id')
           .eq('family_id', notification.familyId)
           .neq('user_id', notification.actorId);
+        if (notification.targetUserIds && notification.targetUserIds.length > 0) {
+          tokenQuery = tokenQuery.in('user_id', notification.targetUserIds);
+        }
         const { data: tokens } = await tokenQuery;
 
         if (tokens && tokens.length > 0) {
@@ -721,11 +729,14 @@ Deno.serve(async (req: Request) => {
       const vpubKey = Deno.env.get('VAPID_PUBLIC_KEY');
       const vprivKey = Deno.env.get('VAPID_PRIVATE_KEY');
       if (vpubKey && vprivKey) {
-        const webSubQuery = supabaseClient
+        let webSubQuery = supabaseClient
           .from('web_push_subscriptions')
           .select('endpoint, p256dh, auth, user_id')
           .eq('family_id', notification.familyId)
           .neq('user_id', notification.actorId);
+        if (notification.targetUserIds && notification.targetUserIds.length > 0) {
+          webSubQuery = webSubQuery.in('user_id', notification.targetUserIds);
+        }
         const { data: webSubs } = await webSubQuery;
 
         if (webSubs && webSubs.length > 0) {

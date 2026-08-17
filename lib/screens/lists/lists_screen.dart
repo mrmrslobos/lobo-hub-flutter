@@ -33,15 +33,27 @@ void _notifyListCollaboratorsForList(
   required String body,
 }) {
   if (list.visibility == Visibility.PRIVATE) return;
+  final actorId = provider.activeUser?.id;
+  List<String>? targetUserIds;
+  if (list.visibility == Visibility.SPECIFIC) {
+    final ids = <String>{list.creatorId, ...list.sharedWith};
+    if (actorId != null) ids.remove(actorId);
+    if (ids.isEmpty) return;
+    targetUserIds = ids.toList();
+  }
   NotificationService.notifyFamilyActivityWithDb(
     provider.db,
     title: title,
     body: body,
     path: '/lists',
     familyId: provider.activeFamily?.id,
-    excludeUserId: provider.activeUser?.id,
+    excludeUserId: actorId,
+    targetUserIds: targetUserIds,
   );
 }
+
+String _actorName(AppProvider provider) =>
+    provider.activeUser?.name ?? 'Someone';
 
 class ListsScreen extends StatefulWidget {
   const ListsScreen({super.key});
@@ -144,7 +156,7 @@ class _ListsScreenState extends State<ListsScreen> {
       provider,
       list,
       title: 'New list',
-      body: '${provider.activeUser?.name ?? 'Someone'} created "${list.title}"',
+      body: '${_actorName(provider)} created "${list.title}"',
     );
     setState(() => _selectedList = list);
   }
@@ -170,6 +182,12 @@ class _ListsScreenState extends State<ListsScreen> {
     await _saveShoppingLists(provider, db.copyWith(
       shoppingLists: db.shoppingLists.where((l) => l.id != list.id).toList(),
     ));
+    _notifyListCollaboratorsForList(
+      provider,
+      list,
+      title: list.title,
+      body: '${_actorName(provider)} deleted "${list.title}"',
+    );
     if (_selectedList?.id == list.id) setState(() => _selectedList = null);
   }
 
@@ -255,6 +273,13 @@ class _ListsScreenState extends State<ListsScreen> {
                     .map((l) => l.id == list.id ? updated : l)
                     .toList(),
               ));
+              _notifyListCollaboratorsForList(
+                provider,
+                updated,
+                title: updated.title,
+                body:
+                    '${_actorName(provider)} renamed "${list.title}" to "$newName"',
+              );
               if (_selectedList?.id == list.id) {
                 setState(() => _selectedList = updated);
               }
@@ -289,7 +314,7 @@ class _ListsScreenState extends State<ListsScreen> {
       provider,
       list,
       title: list.title,
-      body: '${provider.activeUser?.name ?? 'Someone'} added "$name$qtyLabel"',
+      body: '${_actorName(provider)} added "$name$qtyLabel"',
     );
   }
 
@@ -309,8 +334,7 @@ class _ListsScreenState extends State<ListsScreen> {
         provider,
         list,
         title: list.title,
-        body:
-            '${provider.activeUser?.name ?? 'Someone'} checked off "${item.text}"',
+        body: '${_actorName(provider)} checked off "${item.text}"',
       );
     }
   }
@@ -318,6 +342,8 @@ class _ListsScreenState extends State<ListsScreen> {
   Future<void> _deleteItem(ShoppingList list, String itemId) async {
     final provider = context.read<AppProvider>();
     if (!_canMutateItems(provider, list)) return;
+    final removed = list.items.where((i) => i.id == itemId).toList();
+    final removedText = removed.isNotEmpty ? removed.first.text : 'an item';
     DatabaseService.markTombstone(itemId);
     final db = provider.db;
     final updatedList = list.copyWith(items: list.items.where((i) => i.id != itemId).toList());
@@ -325,6 +351,12 @@ class _ListsScreenState extends State<ListsScreen> {
     await _saveListItemsOnly(provider, db.copyWith(shoppingLists: updatedLists));
     if (!mounted) return;
     setState(() => _selectedList = updatedList);
+    _notifyListCollaboratorsForList(
+      provider,
+      list,
+      title: list.title,
+      body: '${_actorName(provider)} removed "$removedText"',
+    );
   }
 
   Future<void> _clearCheckedItems(ShoppingList list) async {
@@ -359,6 +391,13 @@ class _ListsScreenState extends State<ListsScreen> {
     await _saveListItemsOnly(provider, db.copyWith(shoppingLists: updatedLists));
     if (!mounted) return;
     setState(() => _selectedList = updatedList);
+    _notifyListCollaboratorsForList(
+      provider,
+      list,
+      title: list.title,
+      body:
+          '${_actorName(provider)} cleared ${checked.length} checked ${checked.length == 1 ? 'item' : 'items'}',
+    );
   }
 
   // ── Sheet launchers ────────────────────────────────────────────────────────
@@ -1414,11 +1453,13 @@ class _ListDetailViewState extends State<_ListDetailView> {
 
     final provider = context.read<AppProvider>();
     final db = provider.db;
+    final newText = result['text']!;
+    final newQty = result['quantity']!.isEmpty ? null : result['quantity'];
     final updatedItems = widget.list.items.map((i) {
       if (i.id != item.id) return i;
       return i.copyWith(
-        text: result['text'],
-        quantity: result['quantity']!.isEmpty ? null : result['quantity'],
+        text: newText,
+        quantity: newQty,
       );
     }).toList();
     final updatedList = widget.list.copyWith(items: updatedItems);
@@ -1428,6 +1469,13 @@ class _ListDetailViewState extends State<_ListDetailView> {
       pushTableScope: {CloudSyncScope.listItems},
     );
     if (provider.activeFamily != null) unawaited(provider.syncListItemsNow());
+    final qtyLabel = newQty != null && newQty.isNotEmpty ? ' ($newQty)' : '';
+    _notifyListCollaboratorsForList(
+      provider,
+      widget.list,
+      title: widget.list.title,
+      body: '${_actorName(provider)} updated "$newText$qtyLabel"',
+    );
   }
 
   List<ListItem> _sortedItems(List<ListItem> items) {
@@ -1886,7 +1934,7 @@ class _AiTextToChecklistSheetState extends State<_AiTextToChecklistSheet> {
         newList,
         title: 'New list',
         body:
-            '${provider.activeUser?.name ?? 'Someone'} created "${newList.title}" (${items.length} items)',
+            '${_actorName(provider)} created "${newList.title}" (${items.length} items)',
       );
 
       if (mounted) {
