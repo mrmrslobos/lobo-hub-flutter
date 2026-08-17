@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../config/cloud_sync_scope.dart';
 import '../models/models.dart';
 import '../background/background_session_store.dart';
+import '../background/background_task_scheduler.dart';
 import '../services/database_service.dart';
 import '../services/notification_service.dart';
 import '../services/ai_service.dart';
@@ -70,6 +71,7 @@ class AuthProvider extends ChangeNotifier {
       if (SupabaseService.isConfigured) {
         final session = SupabaseService.currentSession;
         if (session != null) {
+          await BackgroundSessionStore.saveRefreshToken(session.refreshToken);
           final meta = session.user.userMetadata?['name'];
           await _resolveUserFromSession(
             session.user.id,
@@ -287,6 +289,7 @@ class AuthProvider extends ChangeNotifier {
         unawaited(BackgroundSessionStore.saveActiveSession(
           userId: user.id,
           familyId: family.id,
+          refreshToken: SupabaseService.currentSession?.refreshToken,
         ));
         FieldEncryption.init(family.id, family.joinCode);
         _syncAIFlag();
@@ -431,6 +434,7 @@ class AuthProvider extends ChangeNotifier {
       } catch (_) {}
     }
     await PurchaseService.revenueCatLogOut();
+    await BackgroundTaskScheduler.clearOnLogout();
 
     _activeUser = null;
     _activeFamily = null;
@@ -463,6 +467,7 @@ class AuthProvider extends ChangeNotifier {
     }
 
     await PurchaseService.revenueCatLogOut();
+    await BackgroundTaskScheduler.clearOnLogout();
 
     _activeUser = null;
     _activeFamily = null;

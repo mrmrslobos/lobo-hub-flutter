@@ -2515,14 +2515,10 @@ class _DailyDevotionalCardState extends State<_DailyDevotionalCard> {
     if (family == null || user == null) return const SizedBox.shrink();
 
     final enabled = userDailyEnabled(user, family);
-    final utcDt = DateTime.utc(
-      2024,
-      1,
-      1,
+    final localDt = dailyDevotionalStoredUtcToLocalToday(
       userDailyHourUtc(user, family),
       userDailyMinuteUtc(user, family),
     );
-    final localDt = utcDt.toLocal();
     final hour = localDt.hour;
     final minute = localDt.minute;
     final timeOfDay = TimeOfDay(hour: hour, minute: minute);

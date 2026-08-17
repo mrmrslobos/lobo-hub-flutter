@@ -26,7 +26,6 @@ import '../../providers/app_provider.dart';
 import '../../services/ai_service.dart';
 import '../../services/calendar_external_links.dart';
 import '../../services/calendar_sync_service.dart';
-import '../../services/notification_service.dart';
 import '../../services/outlook_calendar_edge_service.dart';
 import '../../services/weather_service.dart';
 import '../../widgets/app_drawer.dart';
@@ -2617,16 +2616,6 @@ class _EventFormSheetState extends State<_EventFormSheet> {
         db.copyWith(events: events),
         pushTableScope: CloudSyncScope.calendarBundle,
       );
-      if (widget.editEvent == null) {
-        NotificationService.notifyFamilyActivityWithDb(
-          provider.db,
-          title: 'New calendar event',
-          body: '${provider.activeUser?.name ?? "Someone"} added ${event.title} in ${AppConfig.appName}.',
-          path: '/calendar',
-          familyId: provider.activeFamily?.id,
-          excludeUserId: provider.activeUser?.id,
-        );
-      }
       if (mounted) Navigator.pop(context);
     } finally {
       if (mounted) setState(() => _loading = false);

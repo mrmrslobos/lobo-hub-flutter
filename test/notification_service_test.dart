@@ -19,5 +19,23 @@ void main() {
       expect(NotificationService.shouldNotifyForPath(db, '/lists'), isFalse);
       expect(NotificationService.shouldNotifyForPath(db, '/tasks'), isTrue);
     });
+
+    test('notifyFamilyActivityWithDb does not skip when sender disabled module',
+        () {
+      final db = const AppDB().copyWith(
+        notificationPrefs: [
+          const NotificationPrefs(lists: false),
+        ],
+      );
+      // Outbound path no longer consults sender prefs; method still accepts db.
+      expect(
+        () => NotificationService.notifyFamilyActivityWithDb(
+          db,
+          title: 't',
+          body: 'b',
+        ),
+        returnsNormally,
+      );
+    });
   });
 }

@@ -140,8 +140,10 @@ class SyncProvider extends ChangeNotifier {
         lower.contains('violates foreign key')) {
       return false;
     }
-    // Outbox retries are logged; only surface after repeated failure.
-    if (lower.startsWith('outbox:')) return false;
+    // Outbox retries are logged; surface only terminal failures.
+    if (lower.startsWith('outbox:')) {
+      return lower.contains('failed permanently');
+    }
     return true;
   }
 

@@ -207,6 +207,8 @@ class SyncOutbox {
     }
   }
 
+  static const _terminalAttempts = 5;
+
   static Future<bool> _attempt(OutboxRecord rec) async {
     try {
       switch (rec.op) {
@@ -244,9 +246,15 @@ class SyncOutbox {
       final idx = math.min(rec.attempts - 1, _backoff.length - 1);
       final delay = _backoff[idx];
       rec.nextAttemptAt = DateTime.now().toUtc().add(delay);
-      _onError?.call(
-        'Outbox: ${rec.table}/${rec.rowKey} retry in ${delay.inSeconds}s ($msg)',
-      );
+      if (rec.attempts >= _terminalAttempts) {
+        _onError?.call(
+          'Outbox failed permanently: ${rec.table}/${rec.rowKey} ($msg)',
+        );
+      } else {
+        debugPrint(
+          '[SyncOutbox] ${rec.table}/${rec.rowKey} retry in ${delay.inSeconds}s ($msg)',
+        );
+      }
       return false;
     }
   }

@@ -44,16 +44,27 @@ int userDailyNotificationId(String userId) =>
     9910000 + (userId.hashCode.abs() % 900000);
 
 DateTime userDailyScheduledLocalToday(User? u, Family? f) {
-  final utcRef = DateTime.utc(
-    2024,
-    1,
-    1,
+  return dailyDevotionalStoredUtcToLocalToday(
     userDailyHourUtc(u, f),
     userDailyMinuteUtc(u, f),
   );
-  final local = utcRef.toLocal();
-  final now = DateTime.now();
-  return DateTime(now.year, now.month, now.day, local.hour, local.minute);
+}
+
+/// Converts hour/minute stored as UTC (from a local time picker) back to local
+/// wall-clock time for [day], using that day's DST offset.
+DateTime dailyDevotionalStoredUtcToLocalToday(
+  int hourUtc,
+  int minuteUtc, {
+  DateTime? day,
+}) {
+  final anchor = day ?? DateTime.now();
+  return DateTime.utc(
+    anchor.year,
+    anchor.month,
+    anchor.day,
+    hourUtc,
+    minuteUtc,
+  ).toLocal();
 }
 
 DateTime _calendarDay(DateTime d) => DateTime(d.year, d.month, d.day);

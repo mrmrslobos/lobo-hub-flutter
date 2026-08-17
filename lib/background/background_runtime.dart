@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/notification_service.dart';
 import '../services/supabase_service.dart';
+import 'background_session_store.dart';
 
 /// Minimal environment setup for Workmanager / FCM background isolates.
 class BackgroundRuntime {
@@ -27,6 +28,15 @@ class BackgroundRuntime {
               authFlowType: AuthFlowType.pkce,
             ),
           );
+        }
+        final refreshToken = await BackgroundSessionStore.readRefreshToken();
+        if (refreshToken != null &&
+            Supabase.instance.client.auth.currentSession == null) {
+          try {
+            await Supabase.instance.client.auth.setSession(refreshToken);
+          } catch (e) {
+            debugPrint('[BackgroundRuntime] session restore: $e');
+          }
         }
       } catch (e) {
         debugPrint('[BackgroundRuntime] Supabase init: $e');
