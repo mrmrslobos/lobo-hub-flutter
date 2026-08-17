@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
@@ -76,6 +77,9 @@ void main() async {
       DeviceOrientation.landscapeRight,
     ]);
   } else {
+    if (!kIsWeb && Platform.isAndroid) {
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    }
     await SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,
@@ -87,9 +91,14 @@ void main() async {
       WidgetsBinding.instance.platformDispatcher.platformBrightness;
   SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
+    systemNavigationBarColor: Colors.transparent,
     statusBarIconBrightness: platformBright == Brightness.dark
         ? Brightness.light
         : Brightness.dark,
+    systemNavigationBarIconBrightness: platformBright == Brightness.dark
+        ? Brightness.light
+        : Brightness.dark,
+    systemNavigationBarContrastEnforced: false,
   ));
 
   // Initialize Supabase if env vars are set
